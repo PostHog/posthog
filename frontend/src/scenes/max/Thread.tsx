@@ -75,7 +75,6 @@ import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { TicketPrompt } from './TicketPrompt'
-import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -83,7 +82,9 @@ import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
@@ -96,15 +97,21 @@ import {
     isHumanMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
+    isNotebookArtifactContent,
     isNotebookUpdateMessage,
     isVisualizationArtifactContent,
     visualizationTypeToQuery,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
+// Helper function to check if a message is an error or failure
+function isErrorMessage(message: ThreadMessage): boolean {
+    return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -124,7 +131,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading ? (
+            {conversationLoading && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -137,6 +144,36 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             ) : threadGrouped.length > 0 ? (
                 <>
                     {threadGrouped.map((message, index) => {
+                        // Hide failed AI messages when retrying
+                        if (threadLoading && isErrorMessage(message)) {
+                            return null
+                        }
+
+                        // Hide old failed attempts - only show the most recent error
+                        if (isErrorMessage(message)) {
+                            const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                            if (hasNewerError) {
+                                return null
+                            }
+                        }
+
+                        // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
+                        // This specific pattern only occurs when "Try again" is clicked after a failure
+                        if (message.type === 'human' && 'content' in message && index >= 2) {
+                            const prevMessage = threadGrouped[index - 1]
+                            const prevPrevMessage = threadGrouped[index - 2]
+
+                            const isRetryPattern =
+                                isErrorMessage(prevMessage) &&
+                                prevPrevMessage.type === 'human' &&
+                                'content' in prevPrevMessage &&
+                                prevPrevMessage.content === message.content
+
+                            if (isRetryPattern) {
+                                return null
+                            }
+                        }
+
                         const nextMessage = threadGrouped[index + 1]
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
@@ -481,21 +518,24 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                             />
                         )
                     } else if (isArtifactMessage(message)) {
-                        if (!isVisualizationArtifactContent(message.content)) {
-                            return null
+                        if (isVisualizationArtifactContent(message.content)) {
+                            return (
+                                <VisualizationArtifactAnswer
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                    isEditingInsight={editInsightToolRegistered}
+                                    activeTabId={activeTabId}
+                                    activeSceneId={activeSceneId}
+                                />
+                            )
+                        } else if (isNotebookArtifactContent(message.content)) {
+                            return (
+                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                            )
                         }
-
-                        return (
-                            <VisualizationArtifactAnswer
-                                key={key}
-                                message={message}
-                                content={message.content}
-                                status={message.status}
-                                isEditingInsight={editInsightToolRegistered}
-                                activeTabId={activeTabId}
-                                activeSceneId={activeSceneId}
-                            />
-                        )
+                        return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isNotebookUpdateMessage(message)) {

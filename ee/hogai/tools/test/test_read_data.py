@@ -13,6 +13,8 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
+
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_data import ReadDataTool
 from ee.hogai.utils.types import AssistantState
@@ -21,7 +23,6 @@ from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
 
 class TestReadDataTool(BaseTest):
     async def test_create_tool_class_with_billing_access(self):
-        """Test that billing prompt is included when user has billing access."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -40,7 +41,6 @@ class TestReadDataTool(BaseTest):
         assert "Billing information" in tool.description
 
     async def test_create_tool_class_without_billing_access(self):
-        """Test that billing prompt is excluded when user lacks billing access."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -57,12 +57,10 @@ class TestReadDataTool(BaseTest):
         # Description should NOT include billing prompt
         assert "billing_info" not in tool.description
         assert "Billing information" not in tool.description
-
-        # Should still have base prompt content
-        assert "data warehouse" in tool.description
+        assert "data_warehouse_schema" in tool.description
+        assert "data_warehouse_table" in tool.description
 
     async def test_create_tool_class_without_context_manager(self):
-        """Test that create_tool_class creates context manager if not provided."""
         team = MagicMock()
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -364,3 +362,237 @@ class TestReadDataTool(BaseTest):
         result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": False})
 
         assert "Insight abc123" in result
+
+    async def test_list_tables_returns_core_tables_with_schema(self):
+        """Test that data_warehouse_schema returns core PostHog tables with their field schemas."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        assert "# Core PostHog tables" in result
+        assert "## Table `events`" in result
+        assert "- event (string)" in result
+        assert "- timestamp (datetime)" in result
+        assert "## Table `persons`" in result
+        assert "## Table `sessions`" in result
+        assert "## Table `groups`" in result
+        assert artifact is None
+
+    async def test_list_tables_includes_warehouse_tables(self):
+        """Test that data_warehouse_schema includes warehouse table names."""
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        await DataWarehouseTable.objects.acreate(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        await DataWarehouseTable.objects.acreate(
+            name="hubspot_contacts",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        assert "# Data warehouse tables" in result
+        assert "- hubspot_contacts" in result
+        assert "- stripe_customers" in result
+        assert "Use the `read_data` tool with the `data_warehouse_table` kind" in result
+
+    async def test_list_tables_includes_views(self):
+        """Test that data_warehouse_schema includes view names."""
+        await DataWarehouseSavedQuery.objects.acreate(
+            team=self.team,
+            name="my_custom_view",
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 100"},
+        )
+        await DataWarehouseSavedQuery.objects.acreate(
+            team=self.team,
+            name="revenue_summary",
+            query={"kind": "HogQLQuery", "query": "SELECT count() as total FROM events"},
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        assert "# Data warehouse views" in result
+        assert "- my_custom_view" in result
+        assert "- revenue_summary" in result
+
+    async def test_list_tables_omits_empty_warehouse_and_views_sections(self):
+        """Test that data_warehouse_schema omits warehouse/views sections when empty."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        assert "# Data warehouse tables" not in result
+        assert "# Views" not in result
+
+    async def test_table_schema_returns_warehouse_table_fields(self):
+        """Test that data_warehouse_table returns full schema for a warehouse table."""
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        await DataWarehouseTable.objects.acreate(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "customer_id": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
+                "email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "created_at": {
+                    "hogql": "DateTimeDatabaseField",
+                    "clickhouse": "Nullable(DateTime64(3))",
+                    "schema_valid": True,
+                },
+            },
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_customers"})
+
+        assert "Table `stripe_customers` with fields:" in result
+        assert "- customer_id (string)" in result
+        assert "- email (string)" in result
+        assert "- created_at (datetime)" in result
+        assert artifact is None
+
+    async def test_table_schema_returns_view_fields(self):
+        """Test that data_warehouse_table returns full schema for a view."""
+        await DataWarehouseSavedQuery.objects.acreate(
+            team=self.team,
+            name="revenue_summary",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() as total_count, event FROM events GROUP BY event",
+            },
+            columns={
+                "total_count": {
+                    "hogql": "IntegerDatabaseField",
+                    "clickhouse": "UInt64",
+                    "valid": True,
+                },
+                "event": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "String",
+                    "valid": True,
+                },
+            },
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "revenue_summary"})
+
+        assert "Table `revenue_summary` with fields:" in result
+        assert "- total_count (integer)" in result
+        assert "- event (string)" in result
+
+    async def test_table_schema_returns_posthog_table_fields(self):
+        """Test that data_warehouse_table returns schema for core PostHog tables."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "events"})
+
+        assert "Table `events` with fields:" in result
+        assert "- event (string)" in result
+        assert "- timestamp (datetime)" in result
+
+    async def test_table_schema_returns_error_when_table_not_found(self):
+        """Test that data_warehouse_table returns an error message for unknown tables."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = ReadDataTool(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "nonexistent_table"})
+
+        assert "Table `nonexistent_table` not found" in result
+        assert "Available tables include:" in result

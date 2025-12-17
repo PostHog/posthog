@@ -16,6 +16,7 @@ import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
@@ -225,7 +226,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         ) {
             if (
                 this.subtools &&
-                typeof toolCall.args.query === 'object' &&
+                isObject(toolCall.args?.query) &&
                 toolCall.args.query &&
                 'kind' in toolCall.args.query &&
                 typeof toolCall.args.query.kind === 'string' &&
@@ -255,15 +256,33 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Reading billing data...'
                 },
             },
-            datawarehouse_schema: {
-                name: 'Read your data warehouse schema',
-                description: 'Read your data warehouse schema',
+            data_warehouse_schema: {
+                name: 'Read data warehouse schema',
+                description: 'Read data warehouse schema available in this project',
                 icon: iconForType('data_warehouse'),
                 displayFormatter: (toolCall) => {
                     if (toolCall.status === 'completed') {
                         return 'Read data warehouse schema'
                     }
                     return 'Reading data warehouse schema...'
+                },
+            },
+            data_warehouse_table: {
+                name: 'Read data warehouse table schema',
+                description: 'Read data warehouse table schema for a specific table',
+                icon: iconForType('data_warehouse'),
+                displayFormatter: (toolCall) => {
+                    const tableName =
+                        isObject(toolCall.args?.query) && 'table_name' in toolCall.args.query
+                            ? toolCall.args.query.table_name
+                            : null
+
+                    if (toolCall.status === 'completed') {
+                        return tableName ? `Read schema for \`${tableName}\`` : 'Read data warehouse table schema'
+                    }
+                    return tableName
+                        ? `Reading schema for \`${tableName}\`...`
+                        : 'Reading data warehouse table schema...'
                 },
             },
             artifacts: {
@@ -284,7 +303,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 displayFormatter: (toolCall) => {
                     function isExecuting(): boolean {
                         return !!(
-                            typeof toolCall.args?.query === 'object' &&
+                            isObject(toolCall.args?.query) &&
                             toolCall.args?.query &&
                             'execute' in toolCall.args?.query &&
                             toolCall.args?.query.execute

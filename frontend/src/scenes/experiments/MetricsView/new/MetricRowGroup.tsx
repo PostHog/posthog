@@ -32,7 +32,6 @@ import {
     formatMetricValue,
     formatPValue,
     getDelta,
-    getMetricColors,
     getMetricSubtitleValues,
     getNiceTickValues,
     hasValidationFailures,
@@ -116,7 +115,6 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
-    const goalColors = getMetricColors(colors, metric.goal)
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
@@ -512,8 +510,8 @@ export function MetricRowGroup({
                                 maxHeight: `${CELL_HEIGHT}px`,
                                 backgroundColor: significant
                                     ? winning
-                                        ? `${goalColors.positive}30`
-                                        : `${goalColors.negative}30`
+                                        ? `${colors.BAR_POSITIVE}30`
+                                        : `${colors.BAR_NEGATIVE}30`
                                     : undefined,
                             }}
                         >
@@ -803,8 +801,8 @@ export function MetricRowGroup({
                                             maxHeight: `${CELL_HEIGHT}px`,
                                             backgroundColor: significant
                                                 ? winning
-                                                    ? `${goalColors.positive}30`
-                                                    : `${goalColors.negative}30`
+                                                    ? `${colors.BAR_POSITIVE}30`
+                                                    : `${colors.BAR_NEGATIVE}30`
                                                 : undefined,
                                         }}
                                     >
