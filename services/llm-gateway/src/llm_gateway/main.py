@@ -104,6 +104,16 @@ async def init_redis(url: str | None) -> Redis[bytes] | None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
 
+    # Configure LiteLLM with API keys from settings
+    import litellm
+
+    if settings.anthropic_api_key:
+        litellm.anthropic_key = settings.anthropic_api_key
+    if settings.openai_api_key:
+        litellm.openai_key = settings.openai_api_key
+    if settings.gemini_api_key:
+        litellm.gemini_key = settings.gemini_api_key
+
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(
         settings.database_url,
