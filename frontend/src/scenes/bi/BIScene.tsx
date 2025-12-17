@@ -123,22 +123,47 @@ function FieldTree({
     nodes,
     searchTerm,
     selectedColumns,
+    filters,
     tableName,
     expandedFields,
+    openFilterPopover,
+    onSetOpenFilterPopover,
+    onAddFilter,
+    onRemoveFilter,
     onSetExpandedFields,
     onSelect,
 }: {
     nodes: FieldTreeNode[]
     searchTerm: string
     selectedColumns: BIQueryColumn[]
+    filters: BIQueryFilter[]
     tableName: string
     expandedFields: string[]
+    openFilterPopover: string | null
+    onSetOpenFilterPopover: (columnKey: string | null) => void
+    onAddFilter: (column: BIQueryColumn, expression: string) => void
+    onRemoveFilter: (index: number) => void
     onSetExpandedFields: (paths: string[]) => void
     onSelect: (path: string, field?: DatabaseSchemaField) => void
 }): JSX.Element {
     const [openJsonPopover, setOpenJsonPopover] = useState<string | null>(null)
     const [jsonPathDraft, setJsonPathDraft] = useState('')
     const jsonTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
+
+    const filtersByField = useMemo(() => {
+        const map = new Map<string, { filter: BIQueryFilter; index: number }[]>()
+
+        filters.forEach((filter, index) => {
+            if (filter.column.table !== tableName) {
+                return
+            }
+
+            const existing = map.get(filter.column.field) || []
+            map.set(filter.column.field, [...existing, { filter, index }])
+        })
+
+        return map
+    }, [filters, tableName])
 
     const fieldTreeData = useMemo<TreeDataItem[]>(() => {
         const selectionsByField = selectedColumns.reduce((acc, column) => {
@@ -259,10 +284,33 @@ function FieldTree({
                 onSelect(record.path, record.field)
             }}
             renderItem={(item, children) => {
-                const record = item.record as (FieldTreeNode & { isJson?: boolean }) | undefined
+                const record = item.record as (FieldTreeNode & { isJson?: boolean; hasChildren?: boolean }) | undefined
 
-                if (!record?.isJson) {
+                if (!record) {
                     return children
+                }
+
+                const column: BIQueryColumn = { table: tableName, field: record.path }
+                const columnFilters = filtersByField.get(column.field) || []
+
+                const content = (
+                    <div className="flex items-center justify-between gap-2 w-full">
+                        <span className="flex-1 min-w-0">{children}</span>
+                        {!record.hasChildren && (
+                            <ColumnFiltersPopover
+                                column={column}
+                                filters={columnFilters}
+                                isOpen={openFilterPopover === columnKey(column)}
+                                onOpenChange={(visible) => onSetOpenFilterPopover(visible ? columnKey(column) : null)}
+                                onAddFilter={(expression) => onAddFilter(column, expression)}
+                                onRemoveFilter={onRemoveFilter}
+                            />
+                        )}
+                    </div>
+                )
+
+                if (!record.isJson) {
+                    return content
                 }
 
                 return (
@@ -307,7 +355,7 @@ function FieldTree({
                             </div>
                         }
                     >
-                        <span className="w-full">{children}</span>
+                        <span className="w-full">{content}</span>
                     </Popover>
                 )
             }}
@@ -373,6 +421,7 @@ export function BIScene(): JSX.Element {
         : 'clickhouse'
 
     const [openColumnPopover, setOpenColumnPopover] = useState<string | null>(null)
+    const [openColumnFilterPopover, setOpenColumnFilterPopover] = useState<string | null>(null)
     const [openFilterPopover, setOpenFilterPopover] = useState<number | null>(null)
     const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
     const [queryPreviewLanguage, setQueryPreviewLanguage] = useState<QueryPreviewLanguage>('hogql')
@@ -543,6 +592,10 @@ export function BIScene(): JSX.Element {
             setQueryPreviewLanguage('hogql')
         }
     }, [_queryString])
+
+    useEffect(() => {
+        setOpenColumnFilterPopover(null)
+    }, [selectedTableObject])
 
     useEffect(() => {
         setQueryPreviewLanguage((current) => {
@@ -825,6 +878,7 @@ export function BIScene(): JSX.Element {
 
     const closePopovers = (): void => {
         setOpenColumnPopover(null)
+        setOpenColumnFilterPopover(null)
         setOpenFilterPopover(null)
     }
 
@@ -1028,8 +1082,22 @@ export function BIScene(): JSX.Element {
                                             nodes={selectedFieldTrees}
                                             searchTerm={searchTerm}
                                             selectedColumns={selectedColumns}
+                                            filters={filters}
                                             tableName={selectedTableObject.name}
                                             expandedFields={expandedFields}
+                                            openFilterPopover={openColumnFilterPopover}
+                                            onSetOpenFilterPopover={(columnKey) => {
+                                                setOpenColumnPopover(null)
+                                                setOpenFilterPopover(null)
+                                                setOpenColumnFilterPopover(columnKey)
+                                            }}
+                                            onAddFilter={(column, expression) =>
+                                                addFilter({ column, expression: expression || '= ""' })
+                                            }
+                                            onRemoveFilter={(index) => {
+                                                removeFilter(index)
+                                                setOpenColumnFilterPopover(null)
+                                            }}
                                             onSetExpandedFields={setExpandedFields}
                                             onSelect={(path, field) => {
                                                 const matchingColumns = selectedColumns.filter(
@@ -1586,6 +1654,98 @@ function BIColumnValue({ value }: { value: unknown }): JSX.Element | string {
     const stringValue = typeof value === 'object' ? JSON.stringify(value) || String(value) : String(value)
 
     return renderText(stringValue)
+}
+
+function ColumnFiltersPopover({
+    column,
+    filters,
+    isOpen,
+    onOpenChange,
+    onAddFilter,
+    onRemoveFilter,
+}: {
+    column: BIQueryColumn
+    filters: { filter: BIQueryFilter; index: number }[]
+    isOpen: boolean
+    onOpenChange: (visible: boolean) => void
+    onAddFilter: (expression: string) => void
+    onRemoveFilter: (index: number) => void
+}): JSX.Element {
+    const [draft, setDraft] = useState('')
+
+    useEffect(() => {
+        if (!isOpen) {
+            setDraft('')
+        }
+    }, [isOpen])
+
+    const handleAddFilter = (): void => {
+        onAddFilter(draft)
+        setDraft('')
+        onOpenChange(false)
+    }
+
+    return (
+        <Popover
+            visible={isOpen}
+            onVisibilityChange={(visible) => {
+                onOpenChange(visible)
+                if (!visible) {
+                    setDraft('')
+                }
+            }}
+            overlay={
+                <div className="space-y-2 max-w-80" onClick={(event) => event.stopPropagation()}>
+                    <div className="space-y-1">
+                        <div className="text-muted text-xs">Filters for {columnAlias(column)}</div>
+                        {filters.length ? (
+                            <div className="space-y-1">
+                                {filters.map(({ filter, index }) => (
+                                    <div
+                                        key={`${columnKey(filter.column)}-${index}`}
+                                        className="flex items-center gap-2"
+                                    >
+                                        <div className="flex-1">{formatFilter(filter)}</div>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            status="danger"
+                                            onClick={() => onRemoveFilter(index)}
+                                        >
+                                            Remove
+                                        </LemonButton>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-muted text-xs">No filters for this column yet.</div>
+                        )}
+                    </div>
+                    <LemonInput
+                        placeholder="= 'value' or > 10"
+                        value={draft}
+                        onChange={setDraft}
+                        onPressEnter={handleAddFilter}
+                    />
+                    <LemonButton type="secondary" size="small" icon={<IconFilter />} onClick={handleAddFilter}>
+                        Add filter
+                    </LemonButton>
+                </div>
+            }
+        >
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={<IconFilter />}
+                aria-label="Column filters"
+                onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onOpenChange(!isOpen)
+                }}
+            />
+        </Popover>
+    )
 }
 
 function ColumnHeader({
