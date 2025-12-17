@@ -588,17 +588,16 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering issues...'
         },
     },
-    find_error_tracking_impactful_issue_event_list: {
-        name: 'Find impactful issues',
-        description: 'Find impactful issues affecting your conversion, activation, or any other events',
+    create_error_tracking_filters: {
+        name: 'Create error tracking filters',
+        description: 'Create error tracking filters artifact',
         product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_CORRELATION,
         icon: iconForType('error_tracking'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Found impactful issues'
+                return 'Created error tracking filters'
             }
-            return 'Finding impactful issues...'
+            return 'Creating error tracking filters...'
         },
     },
     error_tracking_explain_issue: {
@@ -611,6 +610,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Issue explained'
             }
             return 'Analyzing issue...'
+        },
+    },
+    error_tracking_issue_impact: {
+        name: 'Analyze issue impact',
+        description: 'Analyze issue impact to understand the severity and affected users',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Impact analysis complete'
+            }
+            return 'Analyzing issue impact...'
         },
     },
     experiment_results_summary: {
@@ -904,6 +915,17 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
             Scene.ReplayPlaylist,
             Scene.ReplayFilePlayback,
             Scene.ReplaySettings,
+        ]),
+    },
+    [AgentMode.ErrorTracking]: {
+        name: 'Error tracking',
+        description: 'Helps you find, filter, and understand errors in your application.',
+        icon: iconForType('error_tracking'),
+        scenes: new Set([
+            Scene.ErrorTracking,
+            Scene.ErrorTrackingIssue,
+            Scene.ErrorTrackingConfiguration,
+            Scene.ErrorTrackingIssueFingerprints,
         ]),
     },
 }

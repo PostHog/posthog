@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch } from '@posthog/icons'
+import { IconWrench } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -20,6 +21,7 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -70,69 +72,81 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [issueId])
 
     return (
-        <StyleVariables>
-            <ErrorTrackingSetupPrompt>
-                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                    <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
-                        {issue && (
-                            <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
-                                <SceneTitleSection
-                                    canEdit
-                                    name={issue.name}
-                                    onNameChange={updateName}
-                                    description={null}
-                                    resourceType={{ type: 'error_tracking' }}
-                                    className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
-                                    actions={
-                                        <div className="flex items-center gap-1">
-                                            <StatusIndicator status={issue.status} withTooltip />
-                                            <IssueAssigneeSelect
-                                                assignee={issue.assignee}
-                                                onChange={updateAssignee}
-                                                disabled={issue.status != 'active'}
-                                            />
-                                            <ViewRecordingsPlaylistButton
-                                                filters={{
-                                                    filter_group: {
-                                                        type: FilterLogicalOperator.And,
-                                                        values: [
-                                                            {
+        <MaxTool
+            identifier="error_tracking_explain_issue"
+            active={!!issue}
+            context={issue ? { issue_id: issue.id } : undefined}
+            contextDescription={{
+                text: 'Current issue',
+                icon: <IconWrench />,
+            }}
+        >
+            {() => (
+                <StyleVariables>
+                    <ErrorTrackingSetupPrompt>
+                        <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                            <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                                {issue && (
+                                    <div className="flex flex-col h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))]">
+                                        <SceneTitleSection
+                                            canEdit
+                                            name={issue.name}
+                                            onNameChange={updateName}
+                                            description={null}
+                                            resourceType={{ type: 'error_tracking' }}
+                                            className="px-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0"
+                                            actions={
+                                                <div className="flex items-center gap-1">
+                                                    <StatusIndicator status={issue.status} withTooltip />
+                                                    <IssueAssigneeSelect
+                                                        assignee={issue.assignee}
+                                                        onChange={updateAssignee}
+                                                        disabled={issue.status != 'active'}
+                                                    />
+                                                    <ViewRecordingsPlaylistButton
+                                                        filters={{
+                                                            filter_group: {
                                                                 type: FilterLogicalOperator.And,
                                                                 values: [
                                                                     {
-                                                                        key: '$exception_issue_id',
-                                                                        type: PropertyFilterType.Event,
-                                                                        operator: PropertyOperator.Exact,
-                                                                        value: [issue.id],
+                                                                        type: FilterLogicalOperator.And,
+                                                                        values: [
+                                                                            {
+                                                                                key: '$exception_issue_id',
+                                                                                type: PropertyFilterType.Event,
+                                                                                operator: PropertyOperator.Exact,
+                                                                                value: [issue.id],
+                                                                            },
+                                                                        ],
                                                                     },
                                                                 ],
                                                             },
-                                                        ],
-                                                    },
-                                                }}
-                                                size="small"
-                                                type="secondary"
-                                                data-attr="error-tracking-issue-view-recordings"
-                                            />
-                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                                        }}
+                                                        size="small"
+                                                        type="secondary"
+                                                        data-attr="error-tracking-issue-view-recordings"
+                                                    />
+                                                    <IssueStatusButton status={issue.status} onChange={updateStatus} />
+                                                </div>
+                                            }
+                                        />
+
+                                        <ErrorTrackingIssueScenePanel issue={issue} />
+
+                                        <div className="ErrorTrackingIssue flex flex-grow">
+                                            <div className="flex flex-1 h-full w-full">
+                                                <LeftHandColumn />
+                                                <RightHandColumn />
+                                            </div>
                                         </div>
-                                    }
-                                />
-
-                                <ErrorTrackingIssueScenePanel issue={issue} />
-
-                                <div className="ErrorTrackingIssue flex flex-grow">
-                                    <div className="flex flex-1 h-full w-full">
-                                        <LeftHandColumn />
-                                        <RightHandColumn />
                                     </div>
-                                </div>
-                            </div>
-                        )}
-                    </BindLogic>
-                </BindLogic>
-            </ErrorTrackingSetupPrompt>
-        </StyleVariables>
+                                )}
+                            </BindLogic>
+                        </BindLogic>
+                    </ErrorTrackingSetupPrompt>
+                </StyleVariables>
+            )}
+        </MaxTool>
     )
 }
 

@@ -1,11 +1,20 @@
-from typing import Literal, Self, Union
+import json
+from typing import Any, Literal, Self, Union
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, create_model
 
-from posthog.schema import ArtifactContentType, AssistantToolCallMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
+    AssistantToolCallMessage,
+    ErrorTrackingFiltersArtifactContent,
+    ErrorTrackingImpactArtifactContent,
+    VisualizationArtifactContent,
+)
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -13,11 +22,14 @@ from posthog.hogql.database.database import Database
 from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
+from products.error_tracking.backend.api.issues import ErrorTrackingIssueFullSerializer
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+
 from ee.hogai.artifacts.manager import ModelArtifactResult
-from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+from ee.hogai.context.error_tracking import ErrorTrackingFiltersContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
@@ -34,6 +46,8 @@ from ee.hogai.tools.read_data.prompts import (
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
+
+ErrorTrackingStatus = Literal["active", "resolved", "suppressed"]
 
 
 class ReadDataWarehouseSchema(BaseModel):
@@ -83,6 +97,43 @@ class ReadArtifacts(BaseModel):
     kind: Literal["artifacts"] = "artifacts"
 
 
+class ReadErrorTrackingIssue(BaseModel):
+    """Retrieves an error tracking issue by its ID."""
+
+    kind: Literal["error_tracking_issue"] = "error_tracking_issue"
+    issue_id: str = Field(description="The issue ID from /error_tracking/<id>.")
+
+
+class ReadErrorTrackingFilters(BaseModel):
+    """Query error tracking issues with filters."""
+
+    kind: Literal["error_tracking_filters"] = "error_tracking_filters"
+    status: ErrorTrackingStatus | None = Field(
+        default=None,
+        description="Filter by status: 'active', 'resolved', or 'suppressed'.",
+    )
+    search_query: str | None = Field(
+        default=None,
+        description="Search issues by name (case-insensitive contains match).",
+    )
+    date_from: str | None = Field(
+        default=None,
+        description="Start date for filtering (e.g., '-7d', '-30d', '2025-01-01').",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="End date for filtering (e.g., '2025-12-17', or null for 'now').",
+    )
+    execute: bool = Field(
+        default=False,
+        description="If true, return matching issues. If false, just returns the filter artifact.",
+    )
+    limit: int = Field(
+        default=5,
+        description="Max issues to return when executing (1-25).",
+    )
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -90,6 +141,8 @@ ReadDataQuery = (
     | ReadDashboard
     | ReadBillingInfo
     | ReadArtifacts
+    | ReadErrorTrackingIssue
+    | ReadErrorTrackingFilters
 )
 
 
@@ -121,7 +174,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         Override this factory to add additional args schemas or descriptions.
         """
-        kinds: list[type[BaseModel]] = []
+        kinds: list[type[BaseModel]] = [ReadErrorTrackingIssue, ReadErrorTrackingFilters]
         prompt_vars: dict[str, str] = {}
 
         if not context_manager:
@@ -187,6 +240,17 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
                 return await self._read_dashboard(schema.dashboard_id, schema.execute)
+            case ReadErrorTrackingIssue() as schema:
+                return await self._read_error_tracking_issue(issue_id=schema.issue_id)
+            case ReadErrorTrackingFilters() as schema:
+                return await self._read_error_tracking_filters(
+                    status=schema.status,
+                    search_query=schema.search_query,
+                    date_from=schema.date_from,
+                    date_to=schema.date_to,
+                    execute=schema.execute,
+                    limit=schema.limit,
+                )
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -239,14 +303,26 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         formatted_artifacts = []
 
         for message in conversation_artifacts:
-            viz_content = unwrap_visualization_artifact_content(message)
-            if viz_content:
-                formatted_artifacts.append(
-                    f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
-                )
+            formatted = self._format_artifact_message(message)
+            if formatted:
+                formatted_artifacts.append(formatted)
+
         if len(formatted_artifacts) == 0:
             return "No artifacts available", None
         return "\n\n".join(formatted_artifacts), None
+
+    def _format_artifact_message(self, message: ArtifactMessage) -> str | None:
+        """Format an artifact message based on its content type."""
+        content = message.content
+        if isinstance(content, VisualizationArtifactContent):
+            return f"- id: {message.artifact_id}\n- type: visualization\n- name: {content.name}\n- description: {content.description}\n- query: {content.query}"
+        elif isinstance(content, ErrorTrackingFiltersArtifactContent):
+            filters = content.filters
+            date_range = filters.get("dateRange", {})
+            return f"- id: {message.artifact_id}\n- type: error_tracking_filters\n- status: {filters.get('status')}\n- date_range: {date_range.get('date_from')} to {date_range.get('date_to')}"
+        elif isinstance(content, ErrorTrackingImpactArtifactContent):
+            return f"- id: {message.artifact_id}\n- type: error_tracking_impact\n- issue: {content.issue_name}\n- occurrences: {content.occurrences}\n- users: {content.users_affected}"
+        return None
 
     async def _read_data_warehouse_schema(self) -> str:
         database = await self._aget_database()
@@ -384,3 +460,154 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             text_result = await dashboard_ctx.format_schema()
 
         return text_result, None
+
+    async def _read_error_tracking_issue(self, issue_id: str) -> tuple[str, None]:
+        """
+        Supports both:
+        - numeric ID from `/error_tracking/<id>`
+        - UUID issue id (ErrorTrackingIssue uses UUIDTModel)
+        - fingerprint UUID passed as `issue_id` (resolve via ErrorTrackingIssueFingerprintV2)
+        """
+        issue_pk: str = issue_id.strip()
+
+        # If `issue_id` is not an int, it may be a UUID (issue UUID) or a fingerprint.
+        is_int = False
+        try:
+            _ = int(issue_pk)
+            is_int = True
+        except ValueError:
+            is_int = False
+
+        # Resolve fingerprint -> issue_id (UUID)
+        if not is_int:
+            record = await database_sync_to_async(
+                lambda: ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
+                .filter(team_id=self._team.id, fingerprint=issue_pk)
+                .first(),
+                thread_sensitive=False,
+            )()
+            if record:
+                issue_pk = str(record.issue_id)
+
+        issue = await (
+            ErrorTrackingIssue.objects.with_first_seen()
+            .select_related("assignment")
+            .prefetch_related("external_issues__integration")
+            .prefetch_related("cohorts__cohort")
+            .filter(team_id=self._team.id)
+            .filter(id=issue_pk)
+            .afirst()
+        )
+        if not issue:
+            raise MaxToolRetryableError(f"The error tracking issue with id or fingerprint '{issue_id}' was not found.")
+
+        serialized = await database_sync_to_async(
+            lambda: ErrorTrackingIssueFullSerializer(issue).data, thread_sensitive=False
+        )()
+
+        url = f"/project/{self._team.id}/error_tracking/{serialized.get('id')}"
+
+        text = json.dumps(
+            {
+                "error_tracking_issue_id": serialized.get("id"),
+                "name": serialized.get("name"),
+                "description": serialized.get("description"),
+                "status": serialized.get("status"),
+                "first_seen": serialized.get("first_seen"),
+                "assignee": serialized.get("assignee"),
+                "external_issues": serialized.get("external_issues"),
+                "cohort": serialized.get("cohort"),
+                "url": url,
+                "input_id": issue_id,
+                "resolved_id": serialized.get("id"),
+            },
+            indent=2,
+            default=str,
+        )
+        return text, None
+
+    async def _read_error_tracking_filters(
+        self,
+        status: ErrorTrackingStatus | None,
+        search_query: str | None,
+        date_from: str | None,
+        date_to: str | None,
+        execute: bool,
+        limit: int,
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        limit = max(1, min(int(limit), 25))
+
+        # Default date range if not provided
+        effective_date_from = date_from if date_from is not None else "-7d"
+
+        # Build filters dict for artifact/response
+        filters_obj: dict[str, Any] = {"kind": "ErrorTrackingQuery"}
+        if status:
+            filters_obj["status"] = status
+        if search_query:
+            filters_obj["searchQuery"] = search_query
+        filters_obj["dateRange"] = {"date_from": effective_date_from, "date_to": date_to}
+
+        # Generate descriptive name based on filters
+        name_parts: list[str] = []
+        if status:
+            name_parts.append(f"{status.capitalize()} issues")
+        else:
+            name_parts.append("Issues")
+        if search_query:
+            name_parts.append(f"matching '{search_query}'")
+        artifact_name = " ".join(name_parts)
+
+        # Create artifact
+        content = ErrorTrackingFiltersArtifactContent(filters=filters_obj)
+        artifact = await self._context_manager.artifacts.create_error_tracking_filters(
+            content=content, name=artifact_name
+        )
+
+        artifact_ref_message = ArtifactRefMessage(
+            id=str(uuid4()),
+            content_type=ArtifactContentType.ERROR_TRACKING_FILTERS,
+            artifact_id=artifact.short_id,
+            source=ArtifactSource.ARTIFACT,
+        )
+
+        if not execute:
+            pretty = json.dumps(filters_obj, indent=2, default=str)
+            text = f"Error tracking filters artifact created:\nArtifact ID: {artifact.short_id}\n\n{pretty}"
+            tool_call_message = AssistantToolCallMessage(
+                content=text,
+                id=str(uuid4()),
+                tool_call_id=self.tool_call_id,
+            )
+            return "", ToolMessagesArtifact(messages=[artifact_ref_message, tool_call_message])
+
+        context = ErrorTrackingFiltersContext(
+            team=self._team,
+            status=status,
+            search_query=search_query,
+            date_from=effective_date_from,
+            date_to=date_to,
+            limit=limit,
+        )
+        issues = await context.execute()
+
+        # Format issues for output
+        issues_out = []
+        for issue in issues:
+            data = issue.model_dump()
+            data["error_tracking_issue_id"] = data.pop("id")
+            data["url"] = f"/project/{self._team.id}/error_tracking/{issue.id}" if issue.id else None
+            issues_out.append(data)
+
+        text = json.dumps(
+            {"filters_artifact_id": artifact.short_id, "limit": limit, "issues": issues_out},
+            indent=2,
+            default=str,
+        )
+
+        tool_call_message = AssistantToolCallMessage(
+            content=text,
+            id=str(uuid4()),
+            tool_call_id=self.tool_call_id,
+        )
+        return "", ToolMessagesArtifact(messages=[artifact_ref_message, tool_call_message])

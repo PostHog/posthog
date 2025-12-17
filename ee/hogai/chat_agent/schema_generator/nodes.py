@@ -211,7 +211,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         for message in artifact_messages:
             content = artifact_contents.get(message.id or "")
-            if not content:
+            if not content or not isinstance(content, VisualizationArtifactContent):
                 continue
             plan = content.plan or ""
             query = content.name or ""

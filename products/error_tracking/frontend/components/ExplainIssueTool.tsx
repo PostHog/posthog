@@ -1,45 +1,31 @@
-import { IconList } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
 
 import { addProductIntent } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import {
-    ErrorTrackingExplainIssueToolContext,
-    ErrorTrackingRelationalIssue,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
-import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
+/**
+ * Hook to open Max with a prompt to explain an error tracking issue.
+ * The tool now accepts issue_id as an argument and fetches the stacktrace from the backend.
+ */
+export function useErrorTrackingExplainIssueTool(issueId: ErrorTrackingRelationalIssue['id']): {
+    openMax: () => void
+    isMaxOpen: boolean
+} {
+    const { openSidePanel } = useActions(sidePanelLogic)
+    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
-export function useErrorTrackingExplainIssueMaxTool(
-    issueId: ErrorTrackingRelationalIssue['id'],
-    issueName: ErrorTrackingRelationalIssue['name']
-): ReturnType<typeof useMaxTool> {
-    const { ready, stacktraceText } = useStacktraceDisplay()
-
-    const context: ErrorTrackingExplainIssueToolContext = {
-        stacktrace: stacktraceText,
-        issue_name: issueName ?? issueId,
+    const openMax = (): void => {
+        addProductIntent({
+            product_type: ProductKey.ERROR_TRACKING,
+            intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_EXPLAINED,
+            metadata: { issue_id: issueId },
+        })
+        openSidePanel(SidePanelTab.Max, `Explain this issue to me`)
     }
 
-    const maxToolResult = useMaxTool({
-        identifier: 'error_tracking_explain_issue',
-        context,
-        contextDescription: {
-            text: 'Issue stacktrace',
-            icon: <IconList />,
-        },
-        active: ready,
-        initialMaxPrompt: `Explain this issue to me`,
-        callback() {
-            addProductIntent({
-                product_type: ProductKey.ERROR_TRACKING,
-                intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_EXPLAINED,
-                metadata: { issue_id: issueId },
-            })
-        },
-    })
-
-    return maxToolResult
+    return { openMax, isMaxOpen }
 }

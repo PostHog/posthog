@@ -42,6 +42,29 @@ Retrieves and optionally retrieves data for an existing insight by its ID.
 - The user wants to see or discuss a specific saved insight.
 - You need to understand what an existing insight shows.
 
+# Error tracking issue
+
+Retrieves an error tracking issue by its ID (UUID issue id or fingerprint; numeric IDs may also be used if applicable).
+
+Use this when:
+- You have a specific error tracking issue ID and want details about it.
+
+# Error tracking filters
+
+Query error tracking issues with filters. Use kind="error_tracking_filters" with these parameters:
+- `status`: Filter by status - "active", "resolved", or "suppressed"
+- `search_query`: Search issues by name (case-insensitive contains match)
+- `date_from`: Start date for filtering (e.g., "-7d", "-30d", "2024-01-01", or null for no limit)
+- `date_to`: End date for filtering (e.g., "2024-12-31", or null for "now")
+- `execute`: Set to true to return matching issues (default: false, just returns the filter artifact)
+- `limit`: Max issues to return when executing (default: 5, max: 25)
+
+Examples:
+- Show active issues: `read_data(query={kind: "error_tracking_filters", status: "active", execute: true})`
+- Search for TypeError: `read_data(query={kind: "error_tracking_filters", search_query: "TypeError", execute: true})`
+- Active issues containing "null": `read_data(query={kind: "error_tracking_filters", status: "active", search_query: "null", execute: true})`
+- Issues from last 30 days: `read_data(query={kind: "error_tracking_filters", date_from: "-30d", execute: true})`
+
 {{{artifacts_prompt}}}
 {{{billing_prompt}}}
 """.strip()

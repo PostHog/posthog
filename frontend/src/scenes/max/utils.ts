@@ -14,6 +14,8 @@ import {
     AssistantMessageType,
     AssistantToolCallMessage,
     AssistantUpdateEvent,
+    ErrorTrackingFiltersArtifactContent,
+    ErrorTrackingImpactArtifactContent,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
@@ -58,6 +60,18 @@ export function isVisualizationArtifactContent(content: ArtifactContent): conten
 
 export function isNotebookArtifactContent(content: ArtifactContent): content is NotebookArtifactContent {
     return content.content_type === ArtifactContentType.Notebook
+}
+
+export function isErrorTrackingFiltersArtifactContent(
+    content: ArtifactContent
+): content is ErrorTrackingFiltersArtifactContent {
+    return content.content_type === ArtifactContentType.ErrorTrackingFilters
+}
+
+export function isErrorTrackingImpactArtifactContent(
+    content: ArtifactContent
+): content is ErrorTrackingImpactArtifactContent {
+    return content.content_type === ArtifactContentType.ErrorTrackingImpact
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {

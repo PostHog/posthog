@@ -225,6 +225,8 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
     class Type(models.TextChoices):
         VISUALIZATION = "visualization", "Visualization"
         NOTEBOOK = "notebook", "Notebook"
+        ERROR_TRACKING_FILTERS = "error_tracking_filters", "Error tracking filters"
+        ERROR_TRACKING_IMPACT = "error_tracking_impact", "Error tracking impact"
 
     short_id = models.CharField(max_length=4, default=generate_short_id)
     name = models.CharField(max_length=400)

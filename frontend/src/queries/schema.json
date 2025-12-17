@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -747,12 +747,18 @@
                 },
                 {
                     "$ref": "#/definitions/NotebookArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingFiltersArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingImpactArtifactContent"
                 }
             ]
         },
         "ArtifactContentType": {
             "description": "Type of artifact content",
-            "enum": ["visualization", "notebook"],
+            "enum": ["visualization", "notebook", "error_tracking_filters", "error_tracking_impact"],
             "type": "string"
         },
         "ArtifactMessage": {
@@ -1895,8 +1901,9 @@
                 "create_hog_function_inputs",
                 "create_message_template",
                 "filter_error_tracking_issues",
-                "find_error_tracking_impactful_issue_event_list",
+                "create_error_tracking_filters",
                 "error_tracking_explain_issue",
+                "error_tracking_issue_impact",
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
@@ -11737,6 +11744,143 @@
             "required": ["id", "kind", "display_name"],
             "type": "object"
         },
+        "ErrorTrackingFiltersArtifactContent": {
+            "additionalProperties": false,
+            "description": "Error Tracking filters artifact (UI/API query object)",
+            "properties": {
+                "content_type": {
+                    "const": "error_tracking_filters",
+                    "description": "Error Tracking filters artifact (UI/API query object)",
+                    "type": "string"
+                },
+                "filters": {
+                    "additionalProperties": {},
+                    "description": "Error Tracking query/filters object (same shape as the UI/API).",
+                    "type": "object"
+                }
+            },
+            "required": ["content_type", "filters"],
+            "type": "object"
+        },
+        "ErrorTrackingImpactArtifactContent": {
+            "additionalProperties": false,
+            "description": "Error Tracking impact analysis artifact",
+            "properties": {
+                "content_type": {
+                    "const": "error_tracking_impact",
+                    "description": "Error Tracking impact analysis artifact",
+                    "type": "string"
+                },
+                "first_seen": {
+                    "description": "When the issue was first seen (ISO timestamp)",
+                    "type": ["string", "null"]
+                },
+                "issue_id": {
+                    "description": "The error tracking issue ID",
+                    "type": "string"
+                },
+                "issue_name": {
+                    "description": "The error tracking issue name",
+                    "type": "string"
+                },
+                "last_seen": {
+                    "description": "When the issue was last seen (ISO timestamp)",
+                    "type": ["string", "null"]
+                },
+                "occurrences": {
+                    "description": "Total number of occurrences",
+                    "type": "number"
+                },
+                "sessions_affected": {
+                    "description": "Number of unique sessions affected",
+                    "type": "number"
+                },
+                "top_browsers": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingImpactSegment"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Top browsers affected"
+                },
+                "top_os": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingImpactSegment"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Top operating systems affected"
+                },
+                "top_urls": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingImpactSegment"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Top URLs where the error occurs"
+                },
+                "trend": {
+                    "description": "Trend direction: 'increasing', 'decreasing', or 'stable'",
+                    "type": "string"
+                },
+                "trend_percentage": {
+                    "description": "Percentage change in trend",
+                    "type": ["number", "null"]
+                },
+                "users_affected": {
+                    "description": "Number of unique users affected",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "content_type",
+                "issue_id",
+                "issue_name",
+                "occurrences",
+                "users_affected",
+                "sessions_affected",
+                "trend"
+            ],
+            "type": "object"
+        },
+        "ErrorTrackingImpactSegment": {
+            "additionalProperties": false,
+            "description": "Segment data for error tracking impact breakdowns",
+            "properties": {
+                "count": {
+                    "description": "Number of occurrences for this segment",
+                    "type": "number"
+                },
+                "percentage": {
+                    "description": "Percentage of total occurrences",
+                    "type": "number"
+                },
+                "value": {
+                    "description": "Segment value (e.g., 'Chrome', 'Windows')",
+                    "type": "string"
+                }
+            },
+            "required": ["value", "count", "percentage"],
+            "type": "object"
+        },
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
@@ -19738,6 +19882,49 @@
             "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
+        "MaxErrorTrackingIssueContext": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "description": "Name of the user or role assigned to this issue",
+                    "type": ["string", "null"]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "first_seen": {
+                    "description": "ISO timestamp of when the issue was first seen",
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "occurrences": {
+                    "description": "Total number of occurrences of this issue",
+                    "type": ["number", "null"]
+                },
+                "sessions": {
+                    "description": "Number of unique sessions affected by this issue",
+                    "type": ["number", "null"]
+                },
+                "status": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                },
+                "users": {
+                    "description": "Number of unique users affected by this issue",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -20091,6 +20278,17 @@
                 "dashboards": {
                     "items": {
                         "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "error_tracking_issue": {
+                    "$ref": "#/definitions/MaxErrorTrackingIssueContext",
+                    "description": "The singular, currently viewed issue (issue detail view)."
+                },
+                "error_tracking_issues": {
+                    "description": "Issues in context (typically list view or manually attached context).",
+                    "items": {
+                        "$ref": "#/definitions/MaxErrorTrackingIssueContext"
                     },
                     "type": "array"
                 },

@@ -38,6 +38,7 @@ class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"
     SESSION_REPLAY = "session_replay"
+    ERROR_TRACKING = "error_tracking"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -72,6 +73,8 @@ class AlertState(StrEnum):
 class ArtifactContentType(StrEnum):
     VISUALIZATION = "visualization"
     NOTEBOOK = "notebook"
+    ERROR_TRACKING_FILTERS = "error_tracking_filters"
+    ERROR_TRACKING_IMPACT = "error_tracking_impact"
 
 
 class ArtifactSource(StrEnum):
@@ -293,8 +296,9 @@ class AssistantTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
-    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
+    CREATE_ERROR_TRACKING_FILTERS = "create_error_tracking_filters"
     ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
+    ERROR_TRACKING_ISSUE_IMPACT = "error_tracking_issue_impact"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1194,6 +1198,25 @@ class ErrorTrackingExplainIssueToolContext(BaseModel):
     )
     issue_name: str
     stacktrace: str
+
+
+class ErrorTrackingFiltersArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Literal["error_tracking_filters"] = Field(
+        default="error_tracking_filters", description="Error Tracking filters artifact (UI/API query object)"
+    )
+    filters: dict[str, Any] = Field(..., description="Error Tracking query/filters object (same shape as the UI/API).")
+
+
+class ErrorTrackingImpactSegment(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float = Field(..., description="Number of occurrences for this segment")
+    percentage: float = Field(..., description="Percentage of total occurrences")
+    value: str = Field(..., description="Segment value (e.g., 'Chrome', 'Windows')")
 
 
 class FirstEvent(BaseModel):
@@ -2296,6 +2319,22 @@ class MaxBillingContextTrial(BaseModel):
     expires_at: str | None = None
     is_active: bool
     target: str | None = None
+
+
+class MaxErrorTrackingIssueContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: str | None = Field(default=None, description="Name of the user or role assigned to this issue")
+    description: str | None = None
+    first_seen: str | None = Field(default=None, description="ISO timestamp of when the issue was first seen")
+    id: str
+    name: str | None = None
+    occurrences: float | None = Field(default=None, description="Total number of occurrences of this issue")
+    sessions: float | None = Field(default=None, description="Number of unique sessions affected by this issue")
+    status: str | None = None
+    type: Literal["error_tracking_issue"] = "error_tracking_issue"
+    users: float | None = Field(default=None, description="Number of unique users affected by this issue")
 
 
 class MaxEventContext(BaseModel):
@@ -4478,6 +4517,29 @@ class ErrorTrackingExternalReferenceIntegration(BaseModel):
     display_name: str
     id: float
     kind: IntegrationKind
+
+
+class ErrorTrackingImpactArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Literal["error_tracking_impact"] = Field(
+        default="error_tracking_impact", description="Error Tracking impact analysis artifact"
+    )
+    first_seen: str | None = Field(default=None, description="When the issue was first seen (ISO timestamp)")
+    issue_id: str = Field(..., description="The error tracking issue ID")
+    issue_name: str = Field(..., description="The error tracking issue name")
+    last_seen: str | None = Field(default=None, description="When the issue was last seen (ISO timestamp)")
+    occurrences: float = Field(..., description="Total number of occurrences")
+    sessions_affected: float = Field(..., description="Number of unique sessions affected")
+    top_browsers: list[ErrorTrackingImpactSegment] | None = Field(default=None, description="Top browsers affected")
+    top_os: list[ErrorTrackingImpactSegment] | None = Field(default=None, description="Top operating systems affected")
+    top_urls: list[ErrorTrackingImpactSegment] | None = Field(
+        default=None, description="Top URLs where the error occurs"
+    )
+    trend: str = Field(..., description="Trend direction: 'increasing', 'decreasing', or 'stable'")
+    trend_percentage: float | None = Field(default=None, description="Percentage change in trend")
+    users_affected: float = Field(..., description="Number of unique users affected")
 
 
 class ErrorTrackingIssueAssignee(BaseModel):
@@ -16452,7 +16514,12 @@ class ArtifactMessage(BaseModel):
         extra="forbid",
     )
     artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
-    content: VisualizationArtifactContent | NotebookArtifactContent = Field(..., description="Content of artifact")
+    content: (
+        VisualizationArtifactContent
+        | NotebookArtifactContent
+        | ErrorTrackingFiltersArtifactContent
+        | ErrorTrackingImpactArtifactContent
+    ) = Field(..., description="Content of artifact")
     id: str | None = None
     parent_tool_call_id: str | None = None
     source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
@@ -16713,6 +16780,12 @@ class MaxUIContext(BaseModel):
     )
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
+    error_tracking_issue: MaxErrorTrackingIssueContext | None = Field(
+        default=None, description="The singular, currently viewed issue (issue detail view)."
+    )
+    error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = Field(
+        default=None, description="Issues in context (typically list view or manually attached context)."
+    )
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
