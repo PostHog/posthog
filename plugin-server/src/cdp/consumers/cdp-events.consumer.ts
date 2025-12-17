@@ -21,7 +21,8 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
-import { counterHogFunctionStateOnEvent, counterParseError, counterQuotaLimited, counterRateLimited } from './metrics'
+import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
+import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
@@ -138,27 +139,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
-                    item.teamId,
-                    'cdp_trigger_events'
-                )
+                const shouldBlock = await shouldBlockInvocationDueToQuota(item, {
+                    hub: this.hub,
+                    hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                    teamsById,
+                })
 
-                // The legacy addon was not usage based so we skip dropping if they are on it
-                const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
-
-                if (isQuotaLimited && !isTeamOnLegacyAddon) {
-                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
-
-                    this.hogFunctionMonitoringService.queueAppMetric(
-                        {
-                            team_id: item.teamId,
-                            app_source_id: item.functionId,
-                            metric_kind: 'failure',
-                            metric_name: 'quota_limited',
-                            count: 1,
-                        },
-                        'hog_function'
-                    )
+                if (shouldBlock) {
                     return
                 }
 
