@@ -1024,9 +1024,8 @@
         "model": "deepseek/deepseek-chat-v3-0324",
         "cost": {
             "default": {
-                "prompt_token": 2e-7,
-                "completion_token": 8.8e-7,
-                "cache_read_token": 1.06e-7
+                "prompt_token": 1.5e-7,
+                "completion_token": 7.5e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.16e-7,
@@ -1063,8 +1062,8 @@
                 "completion_token": 0.00000125
             },
             "mara": {
-                "prompt_token": 3.9e-7,
-                "completion_token": 0.0000012
+                "prompt_token": 1.5e-7,
+                "completion_token": 7.5e-7
             },
             "nebius-fast": {
                 "prompt_token": 7.5e-7,
@@ -1268,6 +1267,19 @@
             "novita-bf16": {
                 "prompt_token": 4.8e-8,
                 "completion_token": 7.2e-8
+            }
+        }
+    },
+    {
+        "model": "deepseek/deepseek-r1-0528:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "modelrun-fp4": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -2355,6 +2367,19 @@
             "together-fp8": {
                 "prompt_token": 0.0000035,
                 "completion_token": 0.0000035
+            }
+        }
+    },
+    {
+        "model": "meta-llama/llama-3.1-405b-instruct:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "modelrun-fp8": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -5324,6 +5349,19 @@
         }
     },
     {
+        "model": "qwen/qwen-2.5-vl-7b-instruct:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "modelrun": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "qwen/qwen-max",
         "cost": {
             "default": {
@@ -6211,6 +6249,19 @@
         }
     },
     {
+        "model": "qwen/qwen3-vl-32b-instruct",
+        "cost": {
+            "default": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000015
+            },
+            "together": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000015
+            }
+        }
+    },
+    {
         "model": "qwen/qwen3-vl-8b-instruct",
         "cost": {
             "default": {
@@ -6232,6 +6283,10 @@
             "parasail-bf16": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 7.5e-7
+            },
+            "together": {
+                "prompt_token": 1.8e-7,
+                "completion_token": 6.8e-7
             }
         }
     },
