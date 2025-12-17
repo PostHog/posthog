@@ -1269,6 +1269,40 @@ class TestManagementCommands(BaseTest):
         self.assertIn("DATA_MISMATCH", output)
         self.assertIn("FIXED", output)
 
+    def test_verify_cache_detects_evaluation_tag_rename(self):
+        """Test that verification detects when a tag used by a flag is renamed."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        # Create a flag with an evaluation tag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="original-tag-name")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Warm the cache
+        update_flags_cache(self.team)
+
+        # Rename the tag directly in DB (bypassing signals to simulate stale cache)
+        Tag.objects.filter(id=tag.id).update(name="renamed-tag-name")
+
+        # Verify should detect the mismatch
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(len(result["diffs"]), 1)
+        self.assertEqual(result["diffs"][0]["type"], "FIELD_MISMATCH")
+        self.assertIn("evaluation_tags", result["diffs"][0]["diff_fields"])
+
+        # Verify the actual values in the diff
+        field_diffs = result["diffs"][0]["field_diffs"]
+        eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_tags")
+        self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
+        self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
+
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""
         from io import StringIO
