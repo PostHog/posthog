@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -42,7 +42,6 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
     const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
 
-    const [showAiSuggestion, setShowAiSuggestion] = useState(true)
     const [messageContent, setMessageContent] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -170,43 +169,6 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                             </>
                         )}
                     </div>
-
-                    {/* AI suggested reply */}
-                    {showAiSuggestion && ticket?.aiInsights && (
-                        <div className="border-t border-b bg-accent-3000-light p-3">
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold">💡 AI suggested reply</span>
-                                    <div className="flex flex-wrap gap-1">
-                                        {ticket.aiInsights.referencedContent?.map((item: string) => (
-                                            <LemonTag key={item} type="muted" size="small">
-                                                {item}
-                                            </LemonTag>
-                                        ))}
-                                    </div>
-                                </div>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    onClick={() => setShowAiSuggestion(false)}
-                                    icon={<span className="text-xs">✕</span>}
-                                />
-                            </div>
-                            <div className="text-xs p-2 bg-bg-light rounded border mb-2">
-                                {ticket.aiInsights.suggestedReply}
-                            </div>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => {
-                                    setMessageContent(ticket.aiInsights.suggestedReply)
-                                    setShowAiSuggestion(false)
-                                }}
-                            >
-                                Use this reply
-                            </LemonButton>
-                        </div>
-                    )}
 
                     {/* Reply input */}
                     <div className="border-t p-3">

@@ -18,14 +18,23 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadTickets: true,
         setAutoUpdate: (enabled: boolean) => ({ enabled }),
-        setPollingInterval: (interval: number) => ({ interval }),
+        setPollingInterval: (interval: NodeJS.Timeout | null) => ({ interval }),
         setTickets: (tickets: Ticket[]) => ({ tickets }),
+        setTicketsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         tickets: [
             [] as Ticket[],
             {
                 setTickets: (_, { tickets }) => tickets,
+            },
+        ],
+        ticketsLoading: [
+            false,
+            {
+                loadTickets: () => true,
+                setTickets: () => false,
+                setTicketsLoading: (_, { loading }) => loading,
             },
         ],
         statusFilter: [
@@ -131,33 +140,33 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
             // Clear any existing interval
             if (values.pollingInterval) {
                 clearInterval(values.pollingInterval)
-                values.pollingInterval = null
+                actions.setPollingInterval(null)
             }
 
             // Start polling if enabled
             if (enabled) {
-                values.pollingInterval = setInterval(() => {
+                const interval = setInterval(() => {
                     actions.loadTickets()
                 }, TICKETS_POLL_INTERVAL)
+                actions.setPollingInterval(interval)
             }
         },
     })),
     afterMount(({ actions, values }) => {
         actions.loadTickets()
-        // Clear any existing interval
 
         // Start new polling interval only if auto-update is enabled
         if (values.autoUpdateEnabled) {
-            values.pollingInterval = setInterval(() => {
+            const interval = setInterval(() => {
                 actions.loadTickets()
             }, TICKETS_POLL_INTERVAL)
+            actions.setPollingInterval(interval)
         }
     }),
-    beforeUnmount(({ values }) => {
-        // Clear polling interval on unmount
+    beforeUnmount(({ values, actions }) => {
         if (values.pollingInterval) {
             clearInterval(values.pollingInterval)
-            values.pollingInterval = null
+            actions.setPollingInterval(null)
         }
     }),
 ])
