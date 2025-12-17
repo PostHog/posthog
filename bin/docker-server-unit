@@ -20,7 +20,13 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     # With Django ASGI + sync views (thread_sensitive=True), each worker
     # handles 1 sync request at a time - only workers give concurrency.
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
-    export GRANIAN_THREADS=${GRANIAN_THREADS:-2}
+    export GRANIAN_THREADS=${GRANIAN_THREADS:-1}
+
+    # HTTP/1 keep-alive: disable to improve SO_REUSEPORT load distribution
+    KEEPALIVE_FLAG=""
+    if [ "${GRANIAN_HTTP1_KEEP_ALIVE:-true}" = "false" ]; then
+        KEEPALIVE_FLAG="--no-http1-keep-alive"
+    fi
 
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
@@ -34,6 +40,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         posthog.asgi:application \
         --workers $GRANIAN_WORKERS \
         --runtime-threads $GRANIAN_THREADS \
+        $KEEPALIVE_FLAG \
         --loop uvloop \
         --host 0.0.0.0 \
         --port 8000 \
