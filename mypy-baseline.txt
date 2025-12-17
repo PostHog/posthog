@@ -215,7 +215,6 @@ posthog/api/shared.py:0: error: Incompatible return value type (got "int | None"
 posthog/api/signup.py:0: error: Argument 1 to "create_user" of "UserManager" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/api/survey.py:0: error: Item "list[_ErrorFullDetails]" of "_FullDetailDict | list[_ErrorFullDetails] | dict[str, _ErrorFullDetails]" has no attribute "get"  [union-attr]
 posthog/api/survey.py:0: error: Item "object" of "object | Any" has no attribute "__iter__" (not iterable)  [union-attr]
-posthog/api/survey.py:0: error: Unsupported target for indexed assignment ("Any | None")  [index]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Value of type variable "_S" of "assertAlmostEqual" of "TestCase" cannot be "datetime | None"  [type-var]
 posthog/api/test/dashboards/test_dashboard_duplication.py:0: error: List comprehension has incompatible type List[Any | None]; expected List[int]  [misc]
 posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is not indexable  [index]
