@@ -425,7 +425,7 @@ class TestReadDataTool(BaseTest):
         assert "# Data warehouse tables" in result
         assert "- hubspot_contacts" in result
         assert "- stripe_customers" in result
-        assert "Use `data_warehouse_table` with the table name to get the full schema" in result
+        assert "Use the `read_data` tool with the `data_warehouse_table` kind" in result
 
     async def test_list_tables_includes_views(self):
         """Test that data_warehouse_schema includes view names."""
