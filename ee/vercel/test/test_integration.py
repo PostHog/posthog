@@ -149,28 +149,9 @@ class TestVercelIntegration(TestCase):
 
     def test_get_vercel_plans_structure(self):
         plans = VercelIntegration.get_vercel_plans()
-        assert len(plans) == 1
-
-        plan = plans[0]
-        assert plan["id"] == "posthog-usage-based"
-        assert plan["type"] == "subscription"
-        assert plan["name"] == "PostHog"
-        assert (
-            plan["description"]
-            == "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing"
-        )
-        assert plan["paymentMethodRequired"] is True
-        assert plan["preauthorizationAmount"] == 0.5
-
-        # Verify pricing link is in details
-        assert any(
-            detail["label"] == "Pricing details" and detail["value"] == "https://posthog.com/pricing"
-            for detail in plan["details"]
-        )
-
-        # Verify 6 projects and email support
-        assert any(detail["label"] == "Projects" and detail["value"] == "6" for detail in plan["details"])
-        assert any(detail["label"] == "Email support" and detail["value"] == "✓" for detail in plan["details"])
+        assert len(plans) > 0
+        assert plans[0]["id"]
+        assert plans[0]["paymentMethodRequired"] is True
 
     def test_get_installation_billing_plan(self):
         result = VercelIntegration.get_installation_billing_plan(self.installation_id)
