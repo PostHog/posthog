@@ -5,18 +5,11 @@ gazelle(
     gazelle = "@rules_python_gazelle_plugin//python:gazelle_binary",
 )
 
-# Export requirements from frozen uv.lock to requirements_lock.txt
-# This respects the locked versions instead of re-resolving
-# Note: --no-hashes is used because uv export generates universal hashes
-# which don't match platform-specific wheels that bazel downloads
-genrule(
-    name = "requirements",
-    srcs = [
-        "uv.lock",
-        "pyproject.toml",
-    ],
-    outs = ["requirements_lock.txt"],
-    cmd = "uv export --format requirements-txt --all-extras --group dev --no-hashes --directory $(RULEDIR)/../../../ > $@",
+# Update requirements_lock.txt from uv.lock
+# Run with: bazel run //:requirements.update
+sh_binary(
+    name = "requirements.update",
+    srcs = ["bin/update-requirements-lock"],
 )
 
 # gazelle:python_root
