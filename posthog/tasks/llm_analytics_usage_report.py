@@ -70,6 +70,10 @@ class TeamMetrics:
     request_cost: float = 0.0
     web_search_cost: float = 0.0
 
+    # Cost anomaly counts
+    total_cost_negative_count: int = 0
+    total_cost_zero_count: int = 0
+
     # Token metrics
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -278,6 +282,10 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.cache_read_tokens += row[17] or 0
             metrics.cache_creation_tokens += row[18] or 0
 
+            # Cost anomaly counts (indices 19-20)
+            metrics.total_cost_negative_count += row[19] or 0
+            metrics.total_cost_zero_count += row[20] or 0
+
     return team_metrics
 
 
@@ -321,7 +329,10 @@ def get_all_ai_metrics(
             SUM(toInt64OrNull(properties_group_ai['$ai_total_tokens'])) as total_tokens,
             SUM(toInt64OrNull(properties_group_ai['$ai_reasoning_tokens'])) as reasoning_tokens,
             SUM(toInt64OrNull(properties_group_ai['$ai_cache_read_input_tokens'])) as cache_read_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens
+            SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens,
+            -- Cost anomaly counts
+            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) < 0) as total_cost_negative_count,
+            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count
         FROM events
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
@@ -535,6 +546,8 @@ def _get_all_llm_analytics_reports(
                 "output_cost_usd": 0.0,
                 "request_cost_usd": 0.0,
                 "web_search_cost_usd": 0.0,
+                "total_cost_negative_count": 0,
+                "total_cost_zero_count": 0,
                 "total_prompt_tokens": 0,
                 "total_completion_tokens": 0,
                 "total_tokens": 0,
@@ -569,6 +582,8 @@ def _get_all_llm_analytics_reports(
             report["output_cost_usd"] += metrics.output_cost
             report["request_cost_usd"] += metrics.request_cost
             report["web_search_cost_usd"] += metrics.web_search_cost
+            report["total_cost_negative_count"] += metrics.total_cost_negative_count
+            report["total_cost_zero_count"] += metrics.total_cost_zero_count
 
             report["total_prompt_tokens"] += metrics.prompt_tokens
             report["total_completion_tokens"] += metrics.completion_tokens
