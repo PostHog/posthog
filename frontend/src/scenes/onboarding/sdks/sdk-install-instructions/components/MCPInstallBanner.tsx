@@ -40,6 +40,7 @@ export function MCPInstallBanner({ variant }: { variant?: 'top' | 'sdk' }): JSX.
                     <CodeSnippet language={Language.Text}>Help me set up PostHog</CodeSnippet>
                     <Link
                         to="https://posthog.com/docs/model-context-protocol"
+                        className="pt-2"
                         onClick={() => {
                             if (typeof posthog !== 'undefined') {
                                 posthog.capture('onboarding_mcp_docs_clicked')
@@ -47,6 +48,7 @@ export function MCPInstallBanner({ variant }: { variant?: 'top' | 'sdk' }): JSX.
                         }}
                         target="_blank"
                         targetBlankIcon
+                        disableDocsPanel
                     >
                         Learn more about our MCP server
                     </Link>
