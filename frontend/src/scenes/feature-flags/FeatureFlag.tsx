@@ -12,6 +12,7 @@ import {
     IconExpand,
     IconGlobe,
     IconLaptop,
+    IconPerson,
     IconPlusSmall,
     IconRewind,
     IconServer,
@@ -90,6 +91,7 @@ import {
     DashboardPlacement,
     DashboardType,
     EarlyAccessFeatureStage,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagType,
@@ -518,6 +520,85 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )}
                                 </LemonField>
                             )}
+                            {featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER] &&
+                                !featureFlag.is_remote_configuration && (
+                                    <>
+                                        <SceneDivider />
+                                        <SceneSection title="Bucketing identifier">
+                                            <div className="text-secondary text-sm mb-2">
+                                                This setting controls which identifier is used to bucket users into
+                                                rollout percentages and variants. By default, flags use the user's
+                                                distinct_id (User ID) for bucketing.{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/feature-flags/creating-feature-flags#bucketing-identifier"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                >
+                                                    Learn more about bucketing identifiers
+                                                </Link>
+                                            </div>
+                                            <LemonField name="bucketing_identifier">
+                                                {({ value, onChange }) => (
+                                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                                        {[
+                                                            {
+                                                                value: FeatureFlagBucketingIdentifier.DISTINCT_ID,
+                                                                icon: <IconPerson />,
+                                                                title: 'User ID (default)',
+                                                                description:
+                                                                    'Use distinct_id for consistent bucketing per user',
+                                                            },
+                                                            {
+                                                                value: FeatureFlagBucketingIdentifier.DEVICE_ID,
+                                                                icon: <IconLaptop />,
+                                                                title: 'Device ID',
+                                                                description:
+                                                                    'Use device_id for consistent bucketing per device',
+                                                            },
+                                                        ].map((option) => (
+                                                            <div
+                                                                key={option.value}
+                                                                className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                                    (value ||
+                                                                        FeatureFlagBucketingIdentifier.DISTINCT_ID) ===
+                                                                    option.value
+                                                                        ? 'border-primary bg-primary-highlight'
+                                                                        : 'border-border'
+                                                                }`}
+                                                                onClick={() => onChange(option.value)}
+                                                            >
+                                                                <div className="flex items-start gap-3">
+                                                                    <div className="text-lg text-muted">
+                                                                        {option.icon}
+                                                                    </div>
+                                                                    <div className="flex-1">
+                                                                        <div className="font-medium text-sm">
+                                                                            {option.title}
+                                                                        </div>
+                                                                        <div className="text-xs text-muted mt-1">
+                                                                            {option.description}
+                                                                        </div>
+                                                                    </div>
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="bucketing-identifier"
+                                                                        checked={
+                                                                            (value ||
+                                                                                FeatureFlagBucketingIdentifier.DISTINCT_ID) ===
+                                                                            option.value
+                                                                        }
+                                                                        onChange={() => onChange(option.value)}
+                                                                        className="cursor-pointer"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </LemonField>
+                                        </SceneSection>
+                                    </>
+                                )}
                             {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                                 <>
                                     <SceneDivider />
@@ -1162,6 +1243,34 @@ function FeatureFlagRollout({
                                     across authentication events.
                                 </div>
                             </div>
+
+                            {featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER] && (
+                                <div className="mt-4">
+                                    <span className="card-secondary">Bucketing identifier</span>
+                                    <div className="mt-2">
+                                        <div className="flex items-center gap-2">
+                                            {featureFlag.bucketing_identifier ===
+                                            FeatureFlagBucketingIdentifier.DEVICE_ID ? (
+                                                <>
+                                                    <IconLaptop className="text-lg text-muted" />
+                                                    <span className="font-medium">Device ID</span>
+                                                    <LemonTag type="completion" size="small">
+                                                        Per device
+                                                    </LemonTag>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <IconPerson className="text-lg text-muted" />
+                                                    <span className="font-medium">User ID (default)</span>
+                                                    <LemonTag type="primary" size="small">
+                                                        Per user
+                                                    </LemonTag>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {!experimentLoading &&
                                 experiment &&
