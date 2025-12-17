@@ -1773,10 +1773,12 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     let output_url = props["$ai_output"].as_str().unwrap();
 
     // Verify S3 URLs point to same file with different ranges
-    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
+    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
+    // Token is hashed (first 16 chars of SHA-256) to prevent path traversal attacks
+    let token_hash = "896566b02a7f7462"; // SHA-256 of "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
     let expected_prefix = format!(
         "s3://{}/{}{}/",
-        TEST_BLOB_BUCKET, TEST_BLOB_PREFIX, "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
+        TEST_BLOB_BUCKET, TEST_BLOB_PREFIX, token_hash
     );
     assert!(
         input_url.starts_with(&expected_prefix),
@@ -1788,7 +1790,7 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     );
 
     // Extract UUIDs from both URLs (should be the same)
-    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
+    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
     let input_uuid = input_url
         .split('/')
         .nth(5)
