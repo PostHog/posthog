@@ -44,6 +44,7 @@ def create_event(
     group3_created_at: Optional[Union[datetime, str]] = None,
     group4_created_at: Optional[Union[datetime, str]] = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
+    historical_migration: bool = False,
 ) -> str:
     if properties is None:
         properties = {}
@@ -81,6 +82,7 @@ def create_event(
         "group3_created_at": format_clickhouse_timestamp(group3_created_at, ZERO_DATE),
         "group4_created_at": format_clickhouse_timestamp(group4_created_at, ZERO_DATE),
         "person_mode": person_mode,
+        "historical_migration": historical_migration,
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
@@ -166,7 +168,8 @@ def bulk_create_events(
                 %(person_mode_{i})s,
                 %(created_at_{i})s,
                 %(_timestamp_{i})s,
-                0
+                0,
+                %(historical_migration_{i})s
             )""".format(i=index)
         )
 
@@ -264,6 +267,7 @@ def bulk_create_events(
             ),
             "_timestamp": _timestamp,
             "person_mode": person_mode,
+            "historical_migration": event.get("historical_migration", False),
         }
 
         params = {
