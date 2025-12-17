@@ -307,6 +307,7 @@ The response includes the formatted text and metadata about the rendering.
                 return Response(cached_result, status=status.HTTP_200_OK)
 
             # Cache miss - generate text representation
+            # The formatter will handle max_length by randomly dropping lines if needed
             start_time = time.time()
             if event_type == "$ai_trace":
                 # For traces, expect data to have trace and hierarchy
@@ -320,15 +321,31 @@ The response includes the formatted text and metadata about the rendering.
                 text = format_event_text_repr(event=data, options=options)
             duration_seconds = time.time() - start_time
 
-            # Apply max_length cap if output exceeds limit
-            max_len = options.get("max_length", 4000000)
-            original_length = len(text)
-            truncated_by_max_length = original_length > max_len
+            # Check if text was reduced by looking for dropped chunk markers
+            # Markers look like: "L10-L12: [...3 lines...]"
+            truncated_by_max_length = "[..." in text and "lines...]" in text
 
+            # For UI display, fail if truncation was needed - let frontend fallback to collapsed view
+            # This prevents showing a wall of "[...3 lines...]" markers for extreme outliers
             if truncated_by_max_length:
-                truncation_msg = f"\n\n... [Output truncated at {max_len:,} characters. Original length: {original_length:,} characters]"
-                # Reserve space for truncation message
-                text = text[: max_len - len(truncation_msg)] + truncation_msg
+                max_length = options.get("max_length")
+                logger.info(
+                    "Text representation exceeded max_length, returning error for fallback",
+                    event_type=event_type,
+                    entity_id=entity_id,
+                    team_id=self.team_id,
+                    char_count=len(text),
+                    max_length=max_length,
+                )
+                # Format max_length for display, with fallback if not set
+                max_length_display = f"{max_length:,}" if max_length else "the configured limit"
+                return Response(
+                    {
+                        "error": "Trace too large for text view",
+                        "detail": f"This trace exceeds the maximum size for text view ({max_length_display} chars). Use the collapsed view instead.",
+                    },
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                )
 
             # Build response with metadata
             # Extract trace_id - different location for traces vs events
@@ -345,7 +362,7 @@ The response includes the formatted text and metadata about the rendering.
                     "trace_id": trace_id,
                     "rendering": "detailed",
                     "char_count": len(text),
-                    "truncated": truncated_by_max_length,
+                    "truncated": False,  # We now fail instead of returning truncated content
                 },
             }
 
@@ -367,7 +384,6 @@ The response includes the formatted text and metadata about the rendering.
                     "event_type": event_type,
                     "entity_id": entity_id,
                     "char_count": len(text),
-                    "truncated": truncated_by_max_length,
                     "duration_seconds": duration_seconds,
                 },
                 self.team,
