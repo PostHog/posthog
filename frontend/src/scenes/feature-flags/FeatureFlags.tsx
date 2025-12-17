@@ -379,11 +379,7 @@ export function OverViewTab({
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <div className="flex justify-start gap-1">
-                        {featureFlag.performed_rollback ? (
-                            <LemonTag type="warning" className="uppercase">
-                                Rolled Back
-                            </LemonTag>
-                        ) : featureFlag.active ? (
+                        {featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>

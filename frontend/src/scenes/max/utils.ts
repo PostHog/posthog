@@ -6,7 +6,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import {
     AgentMode,
     AnyAssistantGeneratedQuery,
-    AnyAssistantSupportedQuery,
     ArtifactContent,
     ArtifactContentType,
     ArtifactMessage,
@@ -21,16 +20,18 @@ import {
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
+    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    FunnelsQuery,
-    HogQLQuery,
+    DataVisualizationNode,
     HogQLVariable,
-    RetentionQuery,
-    TrendsQuery,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
@@ -109,19 +110,11 @@ export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]
     return false
 }
 
-export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
-): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
-    if (isTrendsQuery(query)) {
-        return query
-    } else if (isFunnelsQuery(query)) {
-        return query
-    } else if (isRetentionQuery(query)) {
-        return query
-    } else if (isHogQLQuery(query)) {
-        return query
+export function castAssistantQuery(query: AnyAssistantGeneratedQuery | QuerySchemaRoot | null): QuerySchemaRoot | null {
+    if (query) {
+        return query as QuerySchemaRoot
     }
-    throw new Error(`Unsupported query type: ${query?.kind}`)
+    return null
 }
 
 export function formatConversationDate(updatedAt: string | null): string {
@@ -284,4 +277,17 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
         }
     }
     return null
+}
+
+export const visualizationTypeToQuery = (
+    visualization: VisualizationItem | VisualizationArtifactContent
+): QuerySchema | null => {
+    const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
+    if (isHogQLQuery(source)) {
+        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+    }
+    if (isInsightQueryNode(source)) {
+        return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
+    }
+    return source
 }
