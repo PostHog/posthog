@@ -55,11 +55,7 @@ from products.batch_exports.backend.temporal.spmc import (
     raise_on_task_failure,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.utils import (
-    JsonType,
-    handle_non_retryable_errors,
-    make_retryable_with_exponential_backoff,
-)
+from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
@@ -681,6 +677,7 @@ class BigQueryClient:
         return await self.execute_query(merge_query)
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
+        """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
             job_config = bigquery.LoadJobConfig(
@@ -698,33 +695,42 @@ class BigQueryClient:
         self.logger.info("Creating BigQuery load job", format=format, table_id=table.name)
 
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
-        load_job = await asyncio.to_thread(
-            self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
-        )
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
-        result = await run_load_job(load_job)
+        result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
 
         return result
 
+    def _run_load_job(self, file, bq_table, job_config):
+        """Run a BigQuery LoadJob and return its result.
 
-async def run_load_job(load_job: bigquery.LoadJob):
-    """Run a BigQuery LoadJob and return its result.
+        This method blocks and should only be run on an executor.
 
-    Ensures we retry on transient ``TooManyRequests`` errors.
-    """
-    run_in_retryable_thread = make_retryable_with_exponential_backoff(
-        asyncio.to_thread, max_attempts=None, retryable_exceptions=(TooManyRequests,)
-    )
+        Ensures we retry on transient ``TooManyRequests`` errors.
+        """
+        max_attempts = 10
+        initial_retry = 1
+        backoff_factor = 2
+        max_retry = 32
+        attempt = 0
 
-    try:
-        result = await run_in_retryable_thread(load_job.result)
-    except Forbidden as err:
-        if err.reason == "quotaExceeded":
-            raise BigQueryQuotaExceededError(err.message) from err
-        raise
-    return result
+        while True:
+            try:
+                load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+                result = load_job.result()
+            except Forbidden as err:
+                if err.reason == "quotaExceeded":
+                    raise BigQueryQuotaExceededError(err.message) from err
+                raise
+            except TooManyRequests:
+                if attempt >= max_attempts:
+                    raise
+
+                time.sleep(min(max_retry, initial_retry * (backoff_factor**attempt)))
+                attempt += 1
+            else:
+                return result
 
 
 class MissingRequiredPermissionsError(Exception):
