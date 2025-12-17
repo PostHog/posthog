@@ -17253,6 +17253,8 @@ class VisualizationArtifactContent(BaseModel):
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
