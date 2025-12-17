@@ -103,6 +103,8 @@ async def init_redis(url: str | None) -> Redis[bytes] | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    import os
+
     settings = get_settings()
 
     if settings.anthropic_api_key:
@@ -110,7 +112,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.openai_api_key:
         litellm.openai_key = settings.openai_api_key
     if settings.gemini_api_key:
-        litellm.gemini_key = settings.gemini_api_key
+        os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(
