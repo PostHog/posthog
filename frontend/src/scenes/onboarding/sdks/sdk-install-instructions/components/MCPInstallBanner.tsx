@@ -12,12 +12,10 @@ export function MCPInstallBanner({ variant }: { variant?: 'top' | 'sdk' }): JSX.
 
     const flagValue = featureFlags[FEATURE_FLAGS.ONBOARDING_MCP_OPTION]
 
-    // Control variant - show nothing
     if (!flagValue || flagValue === 'control') {
         return null
     }
 
-    // Check if this banner should show for this variant
     if (variant === 'top' && flagValue !== 'banner-top') {
         return null
     }

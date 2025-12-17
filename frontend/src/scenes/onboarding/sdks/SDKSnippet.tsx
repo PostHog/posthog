@@ -6,7 +6,6 @@ import { SDK, SDKKey } from '~/types'
 import { MCPInstallBanner } from './sdk-install-instructions/components/MCPInstallBanner'
 import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
 
-// SDKs that have wizard support
 const SDKS_WITH_WIZARD = [SDKKey.REACT, SDKKey.NEXT_JS, SDKKey.SVELTE, SDKKey.REACT_NATIVE, SDKKey.ASTRO]
 
 export const SDKSnippet = ({
