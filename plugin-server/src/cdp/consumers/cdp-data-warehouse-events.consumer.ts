@@ -82,10 +82,11 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-        const [hogFunctionsByTeam, teamsById] = await Promise.all([
-            this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
-            this.hub.teamManager.getTeams(teamsToLoad),
-        ])
+        const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
+            teamsToLoad,
+            this.hogTypes,
+            this.filterHogFunction
+        )
 
         const possibleInvocations = (
             await Promise.all(
@@ -143,7 +144,6 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
                 const shouldBlock = await shouldBlockInvocationDueToQuota(item, {
                     hub: this.hub,
                     hogFunctionMonitoringService: this.hogFunctionMonitoringService,
-                    teamsById,
                 })
 
                 if (shouldBlock) {

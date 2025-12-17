@@ -1,5 +1,4 @@
 import { QuotaResource } from '../../common/services/quota-limiting.service'
-import { Team } from '../../types'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { CyclotronJobInvocationHogFunction } from '../types'
 import { counterQuotaLimited } from './metrics'
@@ -11,7 +10,6 @@ export interface QuotaLimitingContext {
         }
     }
     hogFunctionMonitoringService: HogFunctionMonitoringService
-    teamsById: Record<string, Team | null>
 }
 
 /**
@@ -24,10 +22,7 @@ export async function shouldBlockInvocationDueToQuota(
 ): Promise<boolean> {
     const isQuotaLimited = await context.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_trigger_events')
 
-    // The legacy addon was not usage based so we skip dropping if they are on it
-    const isTeamOnLegacyAddon = !!context.teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
-
-    if (isQuotaLimited && !isTeamOnLegacyAddon) {
+    if (isQuotaLimited) {
         counterQuotaLimited.labels({ team_id: item.teamId }).inc()
 
         context.hogFunctionMonitoringService.queueAppMetric(
