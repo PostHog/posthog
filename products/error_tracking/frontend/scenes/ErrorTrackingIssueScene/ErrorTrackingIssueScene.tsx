@@ -96,7 +96,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
 
-                                <div className="ErrorTrackingIssue flex grow-1">
+                                <div className="ErrorTrackingIssue flex flex-grow">
                                     <div className="flex flex-1 h-full w-full">
                                         <LeftHandColumn />
                                         <RightHandColumn />
