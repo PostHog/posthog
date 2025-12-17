@@ -45,7 +45,9 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { performQuery } from '~/queries/query'
+import { DatabaseSchemaField, DatabaseSchemaTable, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
@@ -61,6 +63,7 @@ import {
     biLogic,
     buildCreateTableStatement,
     columnAlias,
+    columnExpression,
     columnKey,
     defaultColumnForTable,
     formatSchemaFilePath,
@@ -69,6 +72,7 @@ import {
     getTableSourceId,
     isDirectQueryTable,
     isJsonField,
+    resolveFieldAndExpression,
 } from './biLogic'
 
 const COLORS = ['#5375ff', '#ff7a9e', '#2bc4ff', '#f6a700', '#7a49ff']
@@ -1747,6 +1751,11 @@ function ColumnFiltersPopover({
     onSetAggregation: (aggregation?: BIAggregation | null) => void
 }): JSX.Element {
     const [draft, setDraft] = useState('')
+    const [popularBreakdown, setPopularBreakdown] = useState<{ value: unknown; count: number }[] | null>(null)
+    const [popularBreakdownLoading, setPopularBreakdownLoading] = useState(false)
+    const [popularBreakdownError, setPopularBreakdownError] = useState<string | null>(null)
+    const [selectedBreakdownValues, setSelectedBreakdownValues] = useState<unknown[]>([])
+    const { selectedTableObject, database, filters: allFilters } = useValues(biLogic)
     const availableAggregations: BIAggregation[] = isNumericField(field)
         ? ['count', 'min', 'max', 'sum']
         : ['count', 'min', 'max']
@@ -1754,12 +1763,168 @@ function ColumnFiltersPopover({
     useEffect(() => {
         if (!isOpen) {
             setDraft('')
+            setSelectedBreakdownValues([])
         }
     }, [isOpen])
 
     const handleAddFilter = (): void => {
         onAddFilter(draft)
         setDraft('')
+        onOpenChange(false)
+    }
+
+    const resolvedField = useMemo(() => {
+        if (!selectedTableObject) {
+            return null
+        }
+
+        return resolveFieldAndExpression(column.field, selectedTableObject, database)
+    }, [column.field, database, selectedTableObject])
+
+    const fetchPopularBreakdown = useCallback(async () => {
+        if (!selectedTableObject || !resolvedField) {
+            return
+        }
+
+        const baseColumnExpression = columnExpression(
+            { ...column, aggregation: undefined, timeInterval: undefined },
+            resolvedField.field,
+            selectedTableObject,
+            resolvedField.expression,
+            resolvedField.table
+        )
+
+        const otherFilters = allFilters.filter(({ column: filterColumn }) => !columnsEqual(filterColumn, column))
+        const whereParts: string[] = []
+        const havingParts: string[] = []
+
+        otherFilters.forEach(({ column: filterColumn, expression }) => {
+            const filterResolution = resolveFieldAndExpression(filterColumn.field, selectedTableObject, database)
+
+            if (!filterResolution) {
+                return
+            }
+
+            const target = columnExpression(
+                filterColumn,
+                filterResolution.field,
+                selectedTableObject,
+                filterResolution.expression,
+                filterResolution.table
+            )
+
+            if (filterColumn.aggregation) {
+                havingParts.push(`${target} ${expression}`)
+            } else {
+                whereParts.push(`${target} ${expression}`)
+            }
+        })
+
+        const whereClause = whereParts.length ? `\nWHERE ${whereParts.join(' AND ')}` : ''
+        const havingClause = havingParts.length ? `\nHAVING ${havingParts.join(' AND ')}` : ''
+
+        const query = `SELECT ${baseColumnExpression} AS value, count(*) AS count\nFROM ${selectedTableObject.name}${whereClause}\nGROUP BY value${havingClause}\nORDER BY count DESC\nLIMIT 20`
+
+        const dialect = getTableDialect(selectedTableObject)
+        const sourceId = getTableSourceId(selectedTableObject)
+        const prefixedQuery =
+            dialect === 'postgres'
+                ? `${sourceId && isDirectQueryTable(selectedTableObject) ? `--pg:${sourceId}` : '--pg'}\n${query}`
+                : query
+
+        setPopularBreakdownLoading(true)
+        setPopularBreakdownError(null)
+
+        try {
+            const response: HogQLQueryResponse<{ value: unknown; count: number }[]> = await performQuery(
+                setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: prefixedQuery }),
+                undefined,
+                'force_blocking'
+            )
+
+            setPopularBreakdown(response.results ?? [])
+        } catch (error: any) {
+            setPopularBreakdownError(error?.message || 'Could not load breakdown values')
+        } finally {
+            setPopularBreakdownLoading(false)
+        }
+    }, [allFilters, column, database, resolvedField, selectedTableObject])
+
+    useEffect(() => {
+        if (isOpen) {
+            void fetchPopularBreakdown()
+        }
+    }, [fetchPopularBreakdown, isOpen])
+
+    const breakdownMaxCount = useMemo(() => {
+        return Math.max(...(popularBreakdown?.map((item) => item.count) || [0]))
+    }, [popularBreakdown])
+
+    const toggleBreakdownValue = (value: unknown): void => {
+        setSelectedBreakdownValues((current) => {
+            const exists = current.some((item) => item === value)
+            if (exists) {
+                return current.filter((item) => item !== value)
+            }
+
+            return [...current, value]
+        })
+    }
+
+    const buildFilterExpressionForValue = (value: unknown): string => {
+        if (value === null) {
+            return `isNull(${columnExpression(
+                column,
+                resolvedField?.field as DatabaseSchemaField,
+                selectedTableObject as DatabaseSchemaTable,
+                resolvedField?.expression,
+                resolvedField?.table
+            )})`
+        }
+
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return `IN (${value})`
+        }
+
+        const stringValue = typeof value === 'string' ? value : JSON.stringify(value)
+        const escapedValue = (stringValue || '').replace(/'/g, "\\'")
+        return `IN ('${escapedValue}')`
+    }
+
+    const handleAddBreakdownFilters = (): void => {
+        if (!selectedBreakdownValues.length || !resolvedField || !selectedTableObject) {
+            return
+        }
+
+        const nonNullValues = selectedBreakdownValues.filter((item) => item !== null)
+        const hasNull = selectedBreakdownValues.length !== nonNullValues.length
+
+        const parts: string[] = []
+
+        if (nonNullValues.length) {
+            const literals = nonNullValues.map((value) => buildFilterExpressionForValue(value).replace('IN ', ''))
+            parts.push(`IN (${literals.join(', ')})`)
+        }
+
+        if (hasNull) {
+            parts.push(
+                `isNull(${columnExpression(
+                    column,
+                    resolvedField.field,
+                    selectedTableObject,
+                    resolvedField.expression,
+                    resolvedField.table
+                )})`
+            )
+        }
+
+        if (!parts.length) {
+            return
+        }
+
+        const expression = parts.join(' OR ')
+        onAddFilter(expression)
+        setSelectedBreakdownValues([])
         onOpenChange(false)
     }
 
@@ -1808,6 +1973,68 @@ function ColumnFiltersPopover({
                     <LemonButton type="secondary" size="small" icon={<IconFilter />} onClick={handleAddFilter}>
                         Add filter
                     </LemonButton>
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2 text-muted text-xs">
+                            <span>Popular values</span>
+                            {popularBreakdown ? <span className="text-xxs">Top {popularBreakdown.length}</span> : null}
+                        </div>
+                        {popularBreakdownLoading ? (
+                            <div className="flex items-center gap-2 text-xs text-muted">
+                                <Spinner />
+                                <span>Loading popular values…</span>
+                            </div>
+                        ) : popularBreakdownError ? (
+                            <LemonBanner type="error">{popularBreakdownError}</LemonBanner>
+                        ) : popularBreakdown?.length ? (
+                            <div className="space-y-1 max-h-80 overflow-y-auto">
+                                {popularBreakdown.map(({ value, count }, index) => {
+                                    const isSelected = selectedBreakdownValues.some((item) => item === value)
+                                    const percentage = breakdownMaxCount
+                                        ? Math.max(0.1, (count / breakdownMaxCount) * 100)
+                                        : 0
+
+                                    return (
+                                        <button
+                                            key={`${String(value)}-${index}`}
+                                            type="button"
+                                            className={clsx(
+                                                'w-full text-left rounded border px-2 py-1 text-xs flex items-center gap-2 relative overflow-hidden',
+                                                isSelected
+                                                    ? 'border-primary text-primary bg-primary-highlight'
+                                                    : 'border-border bg-bg-3000'
+                                            )}
+                                            onClick={() => toggleBreakdownValue(value)}
+                                        >
+                                            <span
+                                                className="absolute inset-y-0 left-0 bg-primary/10"
+                                                style={{ width: `${percentage}%` }}
+                                                aria-hidden
+                                            />
+                                            <span className="relative flex-1 min-w-0">
+                                                <ClampedText text={String(value ?? 'NULL')} lines={1} />
+                                            </span>
+                                            <span className="relative text-xs text-muted">
+                                                {humanFriendlyNumber(count)}
+                                            </span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        ) : (
+                            <div className="text-muted text-xs">No popular values yet.</div>
+                        )}
+                        {selectedBreakdownValues.length > 0 ? (
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                type="primary"
+                                onClick={handleAddBreakdownFilters}
+                                icon={<IconFilter />}
+                            >
+                                Add selected values
+                            </LemonButton>
+                        ) : null}
+                    </div>
                     <div className="space-y-1">
                         <div className="text-muted text-xs">Aggregation</div>
                         <div className="grid grid-cols-4 gap-1">

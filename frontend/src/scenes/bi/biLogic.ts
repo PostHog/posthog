@@ -620,7 +620,7 @@ export function isJsonField(field?: DatabaseSchemaField): boolean {
     return type.includes('json') || type.includes('map') || type.includes('struct')
 }
 
-function columnExpression(
+export function columnExpression(
     column: BIQueryColumn,
     field: DatabaseSchemaField,
     table: DatabaseSchemaTable,
@@ -867,7 +867,7 @@ function parseColumnItem(item: string, table: string): BIQueryColumn | null {
     }
 }
 
-function resolveFieldAndExpression(
+export function resolveFieldAndExpression(
     fieldPath: string,
     table: DatabaseSchemaTable,
     database: DatabaseSchemaQueryResponse | null

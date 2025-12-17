@@ -571,6 +571,9 @@ export function humanFriendlyNumber(
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     minimumFractionDigits: number = 0
 ): string {
+    if (d === undefined || d === null) {
+        return 'NaN'
+    }
     if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
         maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
