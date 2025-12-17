@@ -34,11 +34,16 @@ def _run_cache_verification(cache_type: CacheType) -> None:
     Run verification for a specific cache type.
 
     Shared logic for all HyperCache verification tasks. Handles:
-    - Distributed lock to prevent concurrent executions
     - Early exit if FLAGS_REDIS_URL not configured
+    - Distributed lock to prevent concurrent executions
     - Importing cache-specific config and verify function
     - Running verification with timing and error handling
     """
+    # Check Redis URL first to avoid holding a lock when no work will be done
+    if not settings.FLAGS_REDIS_URL:
+        logger.info("Flags Redis URL not set, skipping cache verification", cache_type=cache_type)
+        return
+
     lock_key = f"posthog:hypercache_verification:{cache_type}:lock"
 
     # Attempt to acquire lock - cache.add returns False if key already exists
@@ -48,10 +53,6 @@ def _run_cache_verification(cache_type: CacheType) -> None:
 
     try:
         logger.info("Starting cache verification", cache_type=cache_type)
-
-        if not settings.FLAGS_REDIS_URL:
-            logger.info("Flags Redis URL not set, skipping cache verification", cache_type=cache_type)
-            return
 
         from posthog.storage.hypercache_verifier import _run_verification_for_cache
 
