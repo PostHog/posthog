@@ -3,6 +3,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_variables_to_dict,
 )
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -50,7 +51,7 @@ class InsightContext:
         return_exceptions: bool = False,
     ) -> str:
         """Execute query and format results."""
-        effective_query = self._get_effective_query()
+        effective_query = await self._get_effective_query()
         query_schema = effective_query.model_dump_json(exclude_none=True)
 
         try:
@@ -69,25 +70,25 @@ class InsightContext:
         return format_prompt_string(
             prompt_template,
             insight_name=self.name or "Insight",
-            insight_id=self.insight_model_id,
+            insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
         )
 
-    def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
+    async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
         """Format insight as schema-only (no execution)."""
-        effective_query = self._get_effective_query()
+        effective_query = await self._get_effective_query()
         query_schema = effective_query.model_dump_json(exclude_none=True)
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,
-            insight_id=self.insight_id or "",
+            insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
         )
 
-    def _get_effective_query(self):
+    async def _get_effective_query(self):
         """Apply dashboard filters/overrides if provided."""
         if not (self.dashboard_filters or self.filters_override or self.variables_override):
             return self.query
@@ -95,10 +96,14 @@ class InsightContext:
         query_dict = self.query.model_dump(mode="json")
 
         if self.dashboard_filters:
-            query_dict = apply_dashboard_filters_to_dict(query_dict, self.dashboard_filters, self.team)
+            query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
+                query_dict, self.dashboard_filters, self.team
+            )
 
         if self.filters_override:
-            query_dict = apply_dashboard_filters_to_dict(query_dict, self.filters_override, self.team)
+            query_dict = await database_sync_to_async(apply_dashboard_filters_to_dict)(
+                query_dict, self.filters_override, self.team
+            )
 
         if self.variables_override:
             query_dict = apply_dashboard_variables_to_dict(query_dict, self.variables_override, self.team)

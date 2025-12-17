@@ -153,31 +153,32 @@ class AssistantContextManager(AssistantContextMixin):
             dashboard_contexts = []
             for dashboard in ui_context.dashboards:
                 dashboard_filters = (
-                    dashboard.filters.model_dump() if hasattr(dashboard, "filters") and dashboard.filters else None
+                    dashboard.filters.model_dump(exclude_none=True)
+                    if hasattr(dashboard, "filters") and dashboard.filters
+                    else None
                 )
 
                 # Build DashboardInsightContext models for this dashboard
                 insights_data: list[DashboardInsightContext] = []
-                if dashboard.insights:
-                    for insight in dashboard.insights:
-                        filters_override = (
-                            insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
+                for insight in dashboard.insights:
+                    filters_override = (
+                        insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
+                    )
+                    variables_override = (
+                        {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
+                        if insight.variablesOverride
+                        else None
+                    )
+                    insights_data.append(
+                        DashboardInsightContext(
+                            query=insight.query,
+                            name=insight.name,
+                            description=insight.description,
+                            short_id=insight.id,
+                            filters_override=filters_override,
+                            variables_override=variables_override,
                         )
-                        variables_override = (
-                            {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
-                            if insight.variablesOverride
-                            else None
-                        )
-                        insights_data.append(
-                            DashboardInsightContext(
-                                query=insight.query,
-                                name=insight.name,
-                                description=insight.description,
-                                short_id=insight.id,
-                                filters_override=filters_override,
-                                variables_override=variables_override,
-                            )
-                        )
+                    )
 
                 # Create DashboardContext and execute
                 dashboard_ctx = DashboardContext(

@@ -14,7 +14,7 @@ from .prompts import DASHBOARD_RESULT_TEMPLATE
 
 
 class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
-    """Data structure for creating an InsightContext within a dashboard."""
+    """Normalization for dashboard insights: data might come from the UI context, an insight model, or an artifact."""
 
     query: AnyPydanticModelQuery
     name: str | None = None
@@ -90,7 +90,7 @@ class DashboardContext:
             insights="\n\n".join(insight_results),
         )
 
-    def format_schema(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
+    async def format_schema(self, prompt_template: str = DASHBOARD_RESULT_TEMPLATE) -> str:
         """Format all insight schemas without execution."""
         if not self.insights:
             return format_prompt_string(
@@ -102,15 +102,15 @@ class DashboardContext:
 
         insight_schemas = []
         for insight in self.insights:
-            schema = insight.format_schema()
+            schema = await insight.format_schema()
             insight_schemas.append(schema)
 
         insights_text = "\n\n".join(insight_schemas) if insight_schemas else ""
 
         return format_prompt_string(
             prompt_template,
-            name=self.name or "Dashboard",  # For ROOT_DASHBOARD_CONTEXT_PROMPT
-            dashboard_name=self.name or "Dashboard",  # For DASHBOARD_RESULT_TEMPLATE
+            name=self.name or "Dashboard",
+            dashboard_name=self.name or "Dashboard",
             dashboard_id=self.dashboard_id,
             description=self.description,
             insights=insights_text,

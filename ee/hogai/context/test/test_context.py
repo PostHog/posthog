@@ -181,9 +181,9 @@ class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
 
         self.assertIsNotNone(result)
         assert result is not None  # Type guard for mypy
-        self.assertIn("## Dashboard: Test Dashboard", result)
+        self.assertIn("## Dashboard name: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("### Dashboard insights", result)
+        self.assertIn("Dashboard insights:", result)
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
 

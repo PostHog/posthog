@@ -216,7 +216,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         # The agent wants to read the schema, just return it
         if not execute:
-            text_result = context.format_schema()
+            text_result = await context.format_schema()
             return text_result, None
 
         # Create a new artifact message, so the user can see the results in the UI
