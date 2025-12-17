@@ -2,8 +2,9 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
+import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -92,6 +93,36 @@ export function InsightsTable({
     const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
+    // Pinned breakdown columns state (persisted in localStorage per insight)
+    const storageKey = insight?.short_id
+        ? `insight-pinned-columns-${insight.short_id}`
+        : 'insight-pinned-columns-default'
+    const [pinnedBreakdownColumns, setPinnedBreakdownColumns] = useLocalStorage<string[]>(storageKey, [])
+
+    const pinnedColumns = useMemo(() => {
+        const pinned: string[] = ['label'] // Series column is always pinned
+        return [...pinned, ...pinnedBreakdownColumns]
+    }, [pinnedBreakdownColumns])
+
+    const toggleColumnPin = useCallback(
+        (columnKey: string): void => {
+            setPinnedBreakdownColumns((current) => {
+                if (current.includes(columnKey)) {
+                    return current.filter((k) => k !== columnKey)
+                }
+                return [...current, columnKey]
+            })
+        },
+        [setPinnedBreakdownColumns]
+    )
+
+    const isColumnPinned = useCallback(
+        (columnKey: string): boolean => {
+            return pinnedBreakdownColumns.includes(columnKey)
+        },
+        [pinnedBreakdownColumns]
+    )
+
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
             typeKey: filterKey,
@@ -172,7 +203,13 @@ export function InsightsTable({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
+            title: (
+                <BreakdownColumnTitle
+                    breakdownFilter={breakdownFilter}
+                    isPinned={isColumnPinned('breakdown')}
+                    onTogglePin={() => toggleColumnPin('breakdown')}
+                />
+            ),
             render: (_, item) => {
                 return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
             },
@@ -210,16 +247,20 @@ export function InsightsTable({
                     index
                 )
 
+            const columnKey = `breakdown-${breakdown.property?.toString() || index}`
             columns.push({
                 title: (
-                    <MultipleBreakdownColumnTitle>
+                    <MultipleBreakdownColumnTitle
+                        isPinned={isColumnPinned(columnKey)}
+                        onTogglePin={() => toggleColumnPin(columnKey)}
+                    >
                         {extractExpressionComment(breakdown.property?.toString())}
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
                     return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },
-                key: `breakdown-${breakdown.property?.toString() || index}`,
+                key: columnKey,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
                     const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value
@@ -351,6 +392,7 @@ export function InsightsTable({
                     : undefined
             }
             firstColumnSticky
+            pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
         />
     )
