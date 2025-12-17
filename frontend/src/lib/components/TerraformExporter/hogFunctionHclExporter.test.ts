@@ -42,7 +42,6 @@ describe('hogFunctionHclExporter test', () => {
                 type: 'internal_destination',
                 enabled: true,
                 hog: 'print("Hello World")',
-                inputs_schema: [{ key: 'channel', type: 'string', label: 'Channel' }],
                 inputs: { channel: { value: '#general' } },
                 filters: {
                     events: [{ id: '$insight_alert_firing', type: 'events' }],
@@ -61,14 +60,6 @@ describe('hogFunctionHclExporter test', () => {
             expect(hcl).toContain('enabled = true')
             expect(hcl).toContain('hog = "print(\\"Hello World\\")"')
             expect(hcl).toContain('icon_url = "https://example.com/icon.png"')
-
-            expect(hcl).toContain(`inputs_schema_json = jsonencode([
-    {
-      "key": "channel",
-      "type": "string",
-      "label": "Channel"
-    }
-  ])`)
 
             expect(hcl).toContain(`inputs_json = jsonencode({
     "channel": {

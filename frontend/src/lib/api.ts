@@ -3129,6 +3129,7 @@ const api = {
                         },
                     ],
                     type: 'internal_destination',
+                    full: 'true',
                 })
                 .get()
         },

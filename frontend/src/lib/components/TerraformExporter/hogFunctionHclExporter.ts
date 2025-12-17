@@ -47,12 +47,6 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>, HogFun
         shouldInclude: (v) => !!v,
     },
     {
-        source: 'inputs_schema',
-        target: 'inputs_schema_json',
-        shouldInclude: (v) => Array.isArray(v) && v.length > 0,
-        transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
-    },
-    {
         source: 'inputs',
         target: 'inputs_json',
         shouldInclude: (v) => !!v && typeof v === 'object' && Object.keys(v as object).length > 0,
