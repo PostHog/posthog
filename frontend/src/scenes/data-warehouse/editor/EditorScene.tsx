@@ -2,9 +2,11 @@ import './EditorScene.scss'
 
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo, useRef, useState } from 'react'
 
+import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -19,6 +21,9 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
+import { NodeKind } from '~/queries/schema/schema-general'
+
+import { MAX_AI_ENDPOINT_OPERATION, captureMaxAIEndpointException } from 'products/endpoints/frontend/utils'
 
 import { ViewLinkModal } from '../ViewLinkModal'
 import { QueryWindow } from './QueryWindow'
@@ -129,31 +134,61 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         },
     }
 
+    const maxToolContext = useMemo(() => {
+        if (!queryInput) {
+            return {}
+        }
+        return {
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: queryInput,
+            },
+            source: 'SQL Editor',
+        }
+    }, [queryInput])
+
     return (
-        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                    <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                        <BindLogic logic={variablesLogic} props={variablesLogicProps}>
-                            <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                    <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
-                                        <div className="flex h-[calc(100vh-var(--scene-layout-header-height))]">
-                                            <DatabaseTree databaseTreeRef={databaseTreeRef} />
-                                            <div
-                                                data-attr="editor-scene"
-                                                className="EditorScene flex-1 flex flex-row overflow-hidden"
-                                                ref={ref}
-                                            >
-                                                <QueryWindow
-                                                    tabId={tabId || ''}
-                                                    onSetMonacoAndEditor={(monaco, editor) =>
-                                                        setMonacoAndEditor([monaco, editor])
-                                                    }
-                                                />
+        <MaxTool
+            identifier="create_endpoint"
+            context={maxToolContext}
+            callback={(toolOutput: { endpoint_name?: string; url?: string; error?: string }) => {
+                if (toolOutput?.error) {
+                    captureMaxAIEndpointException(
+                        toolOutput.error,
+                        MAX_AI_ENDPOINT_OPERATION.CREATE,
+                        toolOutput.endpoint_name
+                    )
+                } else if (toolOutput?.url) {
+                    router.actions.push(toolOutput.url)
+                }
+            }}
+            suggestions={['Create an endpoint from this query', 'Expose this as an API']}
+        >
+            <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                    <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
+                        <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                            <BindLogic logic={variablesLogic} props={variablesLogicProps}>
+                                <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                                    <BindLogic logic={outputPaneLogic} props={{ tabId }}>
+                                        <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
+                                            <div className="flex h-[calc(100vh-var(--scene-layout-header-height))]">
+                                                <DatabaseTree databaseTreeRef={databaseTreeRef} />
+                                                <div
+                                                    data-attr="editor-scene"
+                                                    className="EditorScene flex-1 flex flex-row overflow-hidden"
+                                                    ref={ref}
+                                                >
+                                                    <QueryWindow
+                                                        tabId={tabId || ''}
+                                                        onSetMonacoAndEditor={(monaco, editor) =>
+                                                            setMonacoAndEditor([monaco, editor])
+                                                        }
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
-                                        <ViewLinkModal />
+                                            <ViewLinkModal />
+                                        </BindLogic>
                                     </BindLogic>
                                 </BindLogic>
                             </BindLogic>
@@ -161,6 +196,6 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                     </BindLogic>
                 </BindLogic>
             </BindLogic>
-        </BindLogic>
+        </MaxTool>
     )
 }

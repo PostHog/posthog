@@ -325,6 +325,8 @@ class AssistantTool(StrEnum):
     CREATE_FORM = "create_form"
     TASK = "task"
     UPSERT_DASHBOARD = "upsert_dashboard"
+    CREATE_ENDPOINT = "create_endpoint"
+    UPDATE_ENDPOINT = "update_endpoint"
 
 
 class AssistantToolCall(BaseModel):

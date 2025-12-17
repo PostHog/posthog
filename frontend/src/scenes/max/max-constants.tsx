@@ -723,6 +723,30 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating experiment...'
         },
     },
+    create_endpoint: {
+        name: 'Create an endpoint',
+        description: 'Create an endpoint to expose query data via REST API',
+        product: Scene.Endpoints,
+        icon: iconForType('endpoints'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created endpoint'
+            }
+            return 'Creating endpoint...'
+        },
+    },
+    update_endpoint: {
+        name: 'Update an endpoint',
+        description: 'Update an endpoint configuration or query',
+        product: Scene.Endpoint,
+        icon: iconForType('endpoints'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Updated endpoint'
+            }
+            return 'Updating endpoint...'
+        },
+    },
     create_task: {
         name: 'Create a task',
         description: 'Create a task for an AI agent to execute coding changes in a repository',

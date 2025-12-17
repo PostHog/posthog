@@ -11,6 +11,7 @@ import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
+import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -24,6 +25,7 @@ import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsLogic } from './endpointsLogic'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
+import { MAX_AI_ENDPOINT_OPERATION, captureMaxAIEndpointException } from './utils'
 
 const ENDPOINTS_PRODUCT_DESCRIPTION =
     'Create reusable SQL queries and expose them as API endpoints. Query your data programmatically from any application. Note: Endpoints is in beta - features and APIs may change.'
@@ -53,76 +55,97 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
         },
     ]
     return (
-        <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
-            <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
-                <SceneContent>
-                    <SceneTitleSection
-                        name={sceneConfigurations[Scene.EndpointsScene].name}
-                        description={sceneConfigurations[Scene.EndpointsScene].description}
-                        resourceType={{
-                            type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
-                        }}
-                        actions={
-                            <AppShortcut
-                                name="EndpointsNew"
-                                keybind={[keyBinds.new]}
-                                intent="New endpoint"
-                                interaction="click"
-                                scope={Scene.EndpointsScene}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            className: 'new-endpoint-overlay',
-                                            actionable: true,
-                                            overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
-                                        },
-                                        'data-attr': 'new-endpoint-dropdown',
-                                    }}
-                                    data-attr="new-endpoint-button"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
+        <MaxTool
+            identifier="create_endpoint"
+            context={{}}
+            callback={(toolOutput: { endpoint_name?: string; url?: string; error?: string }) => {
+                if (toolOutput?.error) {
+                    captureMaxAIEndpointException(
+                        toolOutput.error,
+                        MAX_AI_ENDPOINT_OPERATION.CREATE,
+                        toolOutput.endpoint_name
+                    )
+                } else if (toolOutput?.url) {
+                    router.actions.push(toolOutput.url)
+                }
+            }}
+            suggestions={[
+                'Create an endpoint for daily active users',
+                'Make an endpoint that counts signups by country',
+                'Create an endpoint for top pages by pageviews',
+            ]}
+        >
+            <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
+                <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
+                    <SceneContent>
+                        <SceneTitleSection
+                            name={sceneConfigurations[Scene.EndpointsScene].name}
+                            description={sceneConfigurations[Scene.EndpointsScene].description}
+                            resourceType={{
+                                type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
+                            }}
+                            actions={
+                                <AppShortcut
+                                    name="EndpointsNew"
+                                    keybind={[keyBinds.new]}
+                                    intent="New endpoint"
+                                    interaction="click"
+                                    scope={Scene.EndpointsScene}
                                 >
-                                    New
-                                </LemonButton>
-                            </AppShortcut>
-                        }
-                    />
-                    <LemonBanner
-                        type="warning"
-                        dismissKey="endpoints-beta-banner"
-                        action={{ children: 'Send feedback', id: 'endpoints-feedback-button' }}
-                    >
-                        <p>
-                            Endpoints is in beta and it may not be fully reliable. We are actively working on it and it
-                            may change while we work with you on what works best. Please let us know what you'd like to
-                            see here and/or report any issues directly to us!
-                        </p>
-                    </LemonBanner>
-                    <ProductIntroduction
-                        productName="endpoints"
-                        productKey={ProductKey.ENDPOINTS}
-                        thingName="endpoint"
-                        description={
-                            activeTab === 'endpoints'
-                                ? ENDPOINTS_PRODUCT_DESCRIPTION
-                                : ENDPOINTS_API_USAGE_PRODUCT_DESCRIPTION
-                        }
-                        docsURL="https://posthog.com/docs/endpoints"
-                        customHog={BigLeaguesHog}
-                        isEmpty={false}
-                        action={() =>
-                            router.actions.push(
-                                urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
-                            )
-                        }
-                    />
-                    <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
-                </SceneContent>
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)}
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                className: 'new-endpoint-overlay',
+                                                actionable: true,
+                                                overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
+                                            },
+                                            'data-attr': 'new-endpoint-dropdown',
+                                        }}
+                                        data-attr="new-endpoint-button"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                    >
+                                        New
+                                    </LemonButton>
+                                </AppShortcut>
+                            }
+                        />
+                        <LemonBanner
+                            type="warning"
+                            dismissKey="endpoints-beta-banner"
+                            action={{ children: 'Send feedback', id: 'endpoints-feedback-button' }}
+                        >
+                            <p>
+                                Endpoints is in beta and it may not be fully reliable. We are actively working on it and
+                                it may change while we work with you on what works best. Please let us know what you'd
+                                like to see here and/or report any issues directly to us!
+                            </p>
+                        </LemonBanner>
+                        <ProductIntroduction
+                            productName="endpoints"
+                            productKey={ProductKey.ENDPOINTS}
+                            thingName="endpoint"
+                            description={
+                                activeTab === 'endpoints'
+                                    ? ENDPOINTS_PRODUCT_DESCRIPTION
+                                    : ENDPOINTS_API_USAGE_PRODUCT_DESCRIPTION
+                            }
+                            docsURL="https://posthog.com/docs/endpoints"
+                            customHog={BigLeaguesHog}
+                            isEmpty={false}
+                            action={() =>
+                                router.actions.push(
+                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
+                                )
+                            }
+                        />
+                        <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    </SceneContent>
+                </BindLogic>
             </BindLogic>
-        </BindLogic>
+        </MaxTool>
     )
 }
