@@ -42,7 +42,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.utils import _get_query_timeout
+from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -1313,7 +1313,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             field.snowflake_type = SnowflakeType("VARIANT", repeated=False)
 
         # Calculate timeout for long-running queries (COPY INTO and MERGE)
-        long_running_query_timeout = _get_query_timeout(
+        long_running_query_timeout = get_query_timeout(
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None,
             dt.datetime.fromisoformat(inputs.data_interval_end),
         )

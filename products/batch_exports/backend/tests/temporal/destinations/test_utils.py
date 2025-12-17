@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from products.batch_exports.backend.temporal.destinations.utils import _get_query_timeout
+from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
 
 
 @pytest.mark.parametrize(
@@ -19,4 +19,4 @@ from products.batch_exports.backend.temporal.destinations.utils import _get_quer
     ],
 )
 def test_get_query_timeout(data_interval_start, data_interval_end, expected_timeout):
-    assert _get_query_timeout(data_interval_start, data_interval_end) == expected_timeout
+    assert get_query_timeout(data_interval_start, data_interval_end) == expected_timeout

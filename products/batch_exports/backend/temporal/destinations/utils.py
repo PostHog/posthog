@@ -1,7 +1,7 @@
 import datetime as dt
 
 
-def _get_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
+def get_query_timeout(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime) -> float:
     """Get the timeout to use for long running queries.
 
     Operations like COPY INTO TABLE and MERGE can take a long time to complete, especially if there is a lot of data and
