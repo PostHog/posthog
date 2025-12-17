@@ -12,11 +12,9 @@ Endpoints:
 import time
 from typing import cast
 
-from django.conf import settings
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
@@ -35,10 +33,6 @@ from posthog.rate_limit import (
     LLMAnalyticsSummarizationSustainedThrottle,
 )
 
-from products.llm_analytics.backend.summarization.constants import (
-    EARLY_ADOPTERS_FEATURE_FLAG,
-    SUMMARIZATION_FEATURE_FLAG,
-)
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
@@ -143,44 +137,14 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         ]
 
     def _validate_feature_access(self, request: Request) -> None:
-        """Validate that the user has access to the summarization feature."""
+        """Validate that the user is authenticated and AI data processing is approved."""
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        if settings.DEBUG:
-            return
-
-        user = cast(User, request.user)
-        distinct_id = str(user.distinct_id)
-        organization_id = str(self.team.organization_id)
-
-        # Include person properties for cohort-based targeting and
-        # groups/group_properties for organization-level targeting (including Early Access Features)
-        person_properties = {"email": user.email}
-        groups = {"organization": organization_id}
-        group_properties = {"organization": {"id": organization_id}}
-
-        if not (
-            posthoganalytics.feature_enabled(
-                SUMMARIZATION_FEATURE_FLAG,
-                distinct_id,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied(
+                "AI data processing must be approved by your organization before using summarization"
             )
-            or posthoganalytics.feature_enabled(
-                EARLY_ADOPTERS_FEATURE_FLAG,
-                distinct_id,
-                person_properties=person_properties,
-                groups=groups,
-                group_properties=group_properties,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        ):
-            raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 
     def _get_cache_key(self, summarize_type: str, entity_id: str, mode: str) -> str:
         """Generate cache key for summary results.
@@ -351,9 +315,6 @@ representation, and uses an LLM to create a concise summary with line references
 - 5-10 bullet points covering main flow and key decisions
 - "Interesting Notes" section for failures, successes, or unusual patterns
 - Line references in [L45] or [L45-52] format pointing to relevant sections
-
-**Feature Flag:**
-- Requires `llm-analytics-summarization` feature flag enabled at team level
 
 **Use Cases:**
 - Quick understanding of complex traces

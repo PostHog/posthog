@@ -44,7 +44,8 @@ env:
     PGUSER: posthog
     PGPASSWORD: posthog
     PGPORT: 5432
-    OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+    # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
+    OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

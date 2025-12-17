@@ -598,7 +598,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         """
         Query precalculated_events using conditionHash for realtime behavioral matching.
-        Uses the precalculated_events table populated by CdpBehaviouralEventsConsumer.
+        Uses the precalculated_events table populated by CdpRealtimeCohortsConsumer.
         """
         condition_hash = getattr(prop, "conditionHash", None)
         if not condition_hash:
@@ -777,6 +777,58 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 {
                     "cohort_id": ast.Constant(value=cohort_id),
                     "team_id": ast.Constant(value=self.team.pk),
+                },
+            ),
+        )
+
+    def get_person_condition(self, prop: Property) -> ast.SelectQuery:
+        """
+        Query precalculated_person_properties using conditionHash for realtime person property matching.
+        Table for precalculated person properties evaluations populated by CdpRealtimeCohortsConsumer and backfill workflows.
+        """
+        condition_hash = getattr(prop, "conditionHash", None)
+        if not condition_hash:
+            cohort_id = self.cohort.id if self.cohort else "unknown"
+            raise ValueError(
+                f"BUG: Realtime cohort (cohort_id={cohort_id}) has person property without conditionHash. "
+                f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
+            )
+
+        # Build query using precalculated_person_properties with argMax pattern
+        query_str = """
+            SELECT
+                pdi2.person_id as id
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    argMax(matches, _timestamp) as latest_matches
+                FROM precalculated_person_properties
+                WHERE
+                    team_id = {team_id}
+                    AND condition = {condition_hash}
+                GROUP BY distinct_id
+                HAVING latest_matches = 1
+            ) AS ppp
+            INNER JOIN
+            (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) as person_id
+                FROM raw_person_distinct_ids
+                WHERE team_id = {team_id}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hash": ast.Constant(value=condition_hash),
                 },
             ),
         )

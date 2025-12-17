@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -16,6 +17,9 @@ import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 
 export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
+    const activityEventBannerCopy = useFeatureFlag('ACTIVITY_EVENT_BANNER_WORDING', 'test')
+        ? 'What makes a user active in your product? Choose an event that signals real engagement, like completing a core action, rather than generic pageviews.'
+        : 'You are currently using the pageview event to define user activity. Consider using a more specific event or action to track activity accurately.'
 
     // Check if using pageview as default, with no properties filter
     const isOnlyPageview =
@@ -27,8 +31,7 @@ export function ActiveUsersInsights(): JSX.Element {
         <div className="space-y-2">
             {isOnlyPageview && (
                 <LemonBanner type="warning">
-                    You are currently using the pageview event to define user activity. Consider using a more specific
-                    event or action to track activity accurately.
+                    {activityEventBannerCopy}
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
                         <LemonButton
                             data-attr="customer-analytics-configure-activity-event"
@@ -95,7 +98,7 @@ function PowerUsersTable(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2 -mb-2">
+            <div className="flex items-center gap-2">
                 <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
                 <LemonButton size="small" noPadding targetBlank to={buttonTo} tooltip={tooltip} />
             </div>

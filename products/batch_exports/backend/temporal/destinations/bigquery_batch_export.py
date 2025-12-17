@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import typing
 import asyncio
 import datetime as dt
@@ -10,8 +11,10 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
-from google.api_core.exceptions import Forbidden, NotFound
+import requests
+from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
 from google.cloud import bigquery
+from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -65,6 +68,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
+    # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
+    "StartQueryTimeoutError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -385,13 +390,56 @@ class BigQueryClient:
             table = await self.create_table(table)
             return table
 
+    async def execute_query(
+        self, query: str, start_query_timeout: float | int = 10 * 60, poll_interval: float | int = 0.5
+    ) -> RowIterator | _EmptyRowIterator:
+        """Execute a query and wait for it to complete.
+
+        Args:
+            query: The query to execute.
+            start_query_timeout: The timeout (in seconds) to wait for the query to start.
+            poll_interval: The interval (in seconds) to poll for job state changes (PENDING -> RUNNING).
+
+        Returns:
+            The query result.
+
+        Raises:
+            StartQueryTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
+                longer than the timeout duration).
+        """
+        job_config = bigquery.QueryJobConfig()
+        query_start_time = time.monotonic()
+        query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
+
+        # if query is in "PENDING" state, wait for it to start (and timeout if it takes too long)
+        if query_job.state == "PENDING":
+            while True:
+                await asyncio.to_thread(query_job.reload)
+                if query_job.state != "PENDING":
+                    break
+                query_duration = time.monotonic() - query_start_time
+                if query_duration > start_query_timeout:
+                    query_id = query_job.query_id
+                    error_msg = f"Query still in 'PENDING' state after {start_query_timeout} seconds; timing out."
+                    if query_id is not None:
+                        error_msg += f" Query ID: {query_id}"
+                    self.external_logger.error(error_msg)
+                    # best-effort attempt to cancel the query
+                    try:
+                        await asyncio.to_thread(query_job.cancel)
+                    except (GoogleAPICallError, requests.exceptions.RequestException) as err:
+                        self.external_logger.warning("Failed to cancel query when cleaning up: %s", err)
+                    raise StartQueryTimeoutError(query_id, start_query_timeout)
+                await asyncio.sleep(poll_interval)
+
+        # wait for the query to complete and return the result
+        return await asyncio.to_thread(query_job.result)
+
     async def check_for_query_permissions(
         self,
         table: BigQueryTable | TableReference,
     ) -> bool:
         """Attempt to SELECT from table to check for query permissions."""
-        job_config = bigquery.QueryJobConfig()
-
         if isinstance(table, BigQueryTable) and "timestamp" in table:
             query = f"""
             SELECT 1 FROM  `{table.fully_qualified_name}` TABLESAMPLE SYSTEM (0.0001 PERCENT) WHERE timestamp IS NOT NULL
@@ -409,8 +457,7 @@ class BigQueryClient:
             """
 
         try:
-            query_job = self.sync_client.query(query, job_config=job_config)
-            await asyncio.to_thread(query_job.result)
+            await self.execute_query(query)
         except Forbidden:
             return False
         return True
@@ -476,7 +523,6 @@ class BigQueryClient:
         stage: BigQueryTable,
     ):
         """Insert data from `stage` into `final`."""
-        job_config = bigquery.QueryJobConfig()
         into_table_fields = ",".join(f"`{field.name}`" for field in final.fields)
 
         fields_to_cast = {
@@ -524,8 +570,7 @@ class BigQueryClient:
 
         self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
 
-        query_job = self.sync_client.query(query, job_config=job_config)
-        result = await asyncio.to_thread(query_job.result)
+        result = await self.execute_query(query)
         return result
 
     async def merge_into_final_from_stage(
@@ -534,7 +579,6 @@ class BigQueryClient:
         stage: BigQueryTable,
     ):
         """Merge two identical person model tables in BigQuery."""
-        job_config = bigquery.QueryJobConfig()
 
         fields_to_cast = {
             field.name
@@ -625,8 +669,8 @@ class BigQueryClient:
             VALUES ({values});
         """
 
-        query_job = self.sync_client.query(merge_query, job_config=job_config)
-        return await asyncio.to_thread(query_job.result)
+        self.logger.info("Merging into final table", table_id=final.name, stage_table_id=stage.name)
+        return await self.execute_query(merge_query)
 
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
         schema = tuple(field.to_destination_field() for field in table.fields)
@@ -678,6 +722,16 @@ class BigQueryQuotaExceededError(Exception):
 
     def __init__(self, message: str):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
+
+
+class StartQueryTimeoutError(TimeoutError):
+    """Exception raised when a query takes too long to start."""
+
+    def __init__(self, query_id: str | None, timeout: float | int):
+        error_msg = f"Query still in 'PENDING' state after {timeout} seconds; timing out."
+        if query_id is not None:
+            error_msg += f" Query ID: {query_id}"
+        super().__init__(error_msg)
 
 
 class BigQueryConsumer(Consumer):

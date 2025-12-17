@@ -6,6 +6,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonDivider,
+    LemonInput,
     LemonLabel,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -30,6 +31,7 @@ import { TriggersSummary } from 'lib/components/Triggers/TriggersSummary'
 import { UrlConfig } from 'lib/components/Triggers/UrlConfig'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Triggers/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { isNumeric } from 'lib/utils'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
@@ -375,6 +377,22 @@ function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    const currentSampleRate =
+        typeof currentTeam?.session_recording_sample_rate === 'string'
+            ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
+            : 100
+
+    const [value, setValue] = useState<number | undefined>(currentSampleRate)
+
+    const updateSampling = (): void => {
+        const returnRate = typeof value == 'number' ? value / 100 : 0
+        if (returnRate > 1) {
+            lemonToast.error('Session recording sample rate must be between 0 to 100')
+        } else {
+            updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
+        }
+    }
+
     return (
         <>
             <div className="flex flex-row justify-between mt-2">
@@ -385,107 +403,27 @@ function Sampling(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonSelect
-                        onChange={(v) => {
-                            updateCurrentTeam({ session_recording_sample_rate: v })
-                        }}
-                        dropdownMatchSelectWidth={false}
-                        options={[
-                            {
-                                label: '100% (no sampling)',
-                                value: '1.00',
-                            },
-                            {
-                                label: '95%',
-                                value: '0.95',
-                            },
-                            {
-                                label: '90%',
-                                value: '0.90',
-                            },
-                            {
-                                label: '85%',
-                                value: '0.85',
-                            },
-                            {
-                                label: '80%',
-                                value: '0.80',
-                            },
-                            {
-                                label: '75%',
-                                value: '0.75',
-                            },
-                            {
-                                label: '70%',
-                                value: '0.70',
-                            },
-                            {
-                                label: '65%',
-                                value: '0.65',
-                            },
-                            {
-                                label: '60%',
-                                value: '0.60',
-                            },
-                            {
-                                label: '55%',
-                                value: '0.55',
-                            },
-                            {
-                                label: '50%',
-                                value: '0.50',
-                            },
-                            {
-                                label: '45%',
-                                value: '0.45',
-                            },
-                            {
-                                label: '40%',
-                                value: '0.40',
-                            },
-                            {
-                                label: '35%',
-                                value: '0.35',
-                            },
-                            {
-                                label: '30%',
-                                value: '0.30',
-                            },
-                            {
-                                label: '25%',
-                                value: '0.25',
-                            },
-                            {
-                                label: '20%',
-                                value: '0.20',
-                            },
-                            {
-                                label: '15%',
-                                value: '0.15',
-                            },
-                            {
-                                label: '10%',
-                                value: '0.10',
-                            },
-                            {
-                                label: '5%',
-                                value: '0.05',
-                            },
-                            {
-                                label: '1%',
-                                value: '0.01',
-                            },
-                            {
-                                label: '0% (replay disabled)',
-                                value: '0.00',
-                            },
-                        ]}
-                        value={
-                            typeof currentTeam?.session_recording_sample_rate === 'string'
-                                ? currentTeam?.session_recording_sample_rate
-                                : '1.00'
-                        }
-                    />
+                    <div className="flex flex-row gap-x-2">
+                        <LemonInput
+                            type="number"
+                            className="[&>input::-webkit-inner-spin-button]:appearance-none"
+                            onChange={(value) => setValue(value)}
+                            min={0}
+                            max={100}
+                            suffix={<>%</>}
+                            value={value}
+                            onPressEnter={updateSampling}
+                            data-attr="sampling-setting-input"
+                        />
+                        <LemonButton
+                            type="primary"
+                            disabledReason={currentSampleRate === value && 'there was no change in sample rate'}
+                            onClick={updateSampling}
+                            data-attr="sampling-setting-update"
+                        >
+                            Update
+                        </LemonButton>
+                    </div>
                 </AccessControlAction>
             </div>
             <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>

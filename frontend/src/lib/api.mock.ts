@@ -236,6 +236,8 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     member_count: 2,
     logo_media_id: null,
     default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
+    is_active: true,
+    is_not_active_reason: null,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -276,7 +278,16 @@ export const MOCK_DEFAULT_USER: UserType = {
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(
-        ({ id, name, slug, membership_level, members_can_use_personal_api_keys, allow_publicly_shared_resources }) => ({
+        ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
+            is_active,
+            is_not_active_reason,
+        }) => ({
             id,
             name,
             slug,
@@ -284,6 +295,8 @@ export const MOCK_DEFAULT_USER: UserType = {
             members_can_use_personal_api_keys,
             allow_publicly_shared_resources,
             logo_media_id: null,
+            is_active,
+            is_not_active_reason,
         })
     ),
     events_column_config: {

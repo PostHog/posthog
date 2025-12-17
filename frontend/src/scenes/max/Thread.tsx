@@ -66,9 +66,8 @@ import {
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
-    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
@@ -89,7 +88,6 @@ import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
-    castAssistantQuery,
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -100,12 +98,18 @@ import {
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
     isVisualizationArtifactContent,
+    visualizationTypeToQuery,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
+// Helper function to check if a message is an error or failure
+function isErrorMessage(message: ThreadMessage): boolean {
+    return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -125,7 +129,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading ? (
+            {conversationLoading && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -138,6 +142,36 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             ) : threadGrouped.length > 0 ? (
                 <>
                     {threadGrouped.map((message, index) => {
+                        // Hide failed AI messages when retrying
+                        if (threadLoading && isErrorMessage(message)) {
+                            return null
+                        }
+
+                        // Hide old failed attempts - only show the most recent error
+                        if (isErrorMessage(message)) {
+                            const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                            if (hasNewerError) {
+                                return null
+                            }
+                        }
+
+                        // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
+                        // This specific pattern only occurs when "Try again" is clicked after a failure
+                        if (message.type === 'human' && 'content' in message && index >= 2) {
+                            const prevMessage = threadGrouped[index - 1]
+                            const prevPrevMessage = threadGrouped[index - 2]
+
+                            const isRetryPattern =
+                                isErrorMessage(prevMessage) &&
+                                prevPrevMessage.type === 'human' &&
+                                'content' in prevPrevMessage &&
+                                prevPrevMessage.content === message.content
+
+                            if (isRetryPattern) {
+                                return null
+                            }
+                        }
+
                         const nextMessage = threadGrouped[index + 1]
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
@@ -316,23 +350,44 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                             (message.tool_calls && message.tool_calls.length > 0)
                         )
 
-                        let thinkingElement = null
-                        const thinkingContent = getThinkingMessageFromResponse(message)
-                        if (thinkingContent) {
+                        let thinkingElements = null
+                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
+                            // 1. The thread has finished streaming (thinking might be at the end), OR
                             // 1. The message has content or tool_calls, OR
                             // 2. The message is not the last in group (there are subsequent messages)
                             // Otherwise, keep expanded to show active thinking progress
                             const isThinkingComplete = hasContent || !isLastInGroup || !threadLoading
-                            thinkingElement = (
-                                <ReasoningAnswer
-                                    key={`${key}-thinking`}
-                                    content={thinkingContent}
-                                    id={message.id || key}
-                                    completed={isThinkingComplete}
-                                    showCompletionIcon={false}
-                                    animate={!inStorybookTestRunner() && message.id === 'loader'} // Avoiding flaky snapshots in Storybook
-                                />
+                            thinkingElements = thinkingBlocks.map((block, index) =>
+                                block.type === 'server_tool_use' ? (
+                                    <ToolCallsAnswer
+                                        key={`thinking-${index}`}
+                                        toolCalls={[
+                                            {
+                                                type: 'tool_call',
+                                                id: block.id,
+                                                name: block.name,
+                                                args: block.input,
+                                                status: block.results
+                                                    ? ExecutionStatus.Completed
+                                                    : ExecutionStatus.InProgress,
+                                                updates: block.results
+                                                    ? block.results.map((result) => `[${result.title}](${result.url})`)
+                                                    : [],
+                                            },
+                                        ]}
+                                        registeredToolMap={registeredToolMap}
+                                    />
+                                ) : (
+                                    <ReasoningAnswer
+                                        key={`thinking-${index}`}
+                                        content={block.thinking}
+                                        id={message.id || key}
+                                        completed={isThinkingComplete}
+                                        showCompletionIcon={false}
+                                    />
+                                )
                             )
                         }
 
@@ -430,7 +485,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
 
                         return (
                             <div key={key} className="flex flex-col gap-1.5 w-full">
-                                {thinkingElement}
+                                {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
                                 {multiQuestionFormElement}
@@ -729,7 +784,10 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     return (
         <div className="flex flex-col text-xs">
             <div
-                className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
+                className={clsx(
+                    'flex items-center select-none',
+                    !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer'
+                )}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
@@ -814,6 +872,10 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 }
 
 function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (content.at(0) === '[' && content.at(-1) === ')') {
+        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search results, _not_ an action
+        return content
+    }
     if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
         return content + '...'
     } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
@@ -845,7 +907,7 @@ function AssistantActionComponent({
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
+    const showChevron = !!substeps.length
     // Initialize with the same logic as the effect to prevent flickering
     const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
@@ -859,7 +921,7 @@ function AssistantActionComponent({
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex',
+                    'transition-all duration-500 flex select-none',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showChevron ? 'cursor-default' : 'cursor-pointer'
@@ -884,8 +946,6 @@ function AssistantActionComponent({
                             <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
-                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                     {showChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
@@ -895,6 +955,8 @@ function AssistantActionComponent({
                             </button>
                         </div>
                     )}
+                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                 </div>
             </div>
             {isExpanded && substeps && substeps.length > 0 && (
@@ -909,13 +971,7 @@ function AssistantActionComponent({
                         const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
 
                         return (
-                            <div
-                                key={substepIndex}
-                                className="animate-fade-in"
-                                style={{
-                                    animationDelay: `${substepIndex * 50}ms`,
-                                }}
-                            >
+                            <div key={substepIndex} className="animate-fade-in">
                                 <MarkdownMessage
                                     id={id}
                                     className={clsx(
@@ -1036,14 +1092,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             )}
         </>
     )
-}
-
-const visualizationTypeToQuery = (visualization: VisualizationItem): InsightVizNode | DataVisualizationNode | null => {
-    const source = castAssistantQuery(visualization.answer)
-    if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
-    }
-    return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
 }
 
 const Visualization = React.memo(function Visualization({

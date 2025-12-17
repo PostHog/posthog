@@ -422,6 +422,8 @@ export interface OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
+    is_active: boolean | null
+    is_not_active_reason: string | null
 }
 
 interface OrganizationMetadata {
@@ -3235,12 +3237,31 @@ export type SurveyResponseRow = Array<null | string | string[]>
 export type SurveyRawResults = SurveyResponseRow[]
 
 // Product Tours
+export type ProductTourSurveyQuestionType = 'open' | 'rating'
+
+export interface ProductTourSurveyQuestion {
+    type: ProductTourSurveyQuestionType
+    questionText: string
+    /** Rating display type - emoji or number */
+    display?: 'emoji' | 'number'
+    /** Rating scale - 3 or 5 for emoji, 5 or 10 for number */
+    scale?: 3 | 5 | 10
+    /** Label for low end of rating scale (e.g., "Not likely") */
+    lowerBoundLabel?: string
+    /** Label for high end of rating scale (e.g., "Very likely") */
+    upperBoundLabel?: string
+}
+
 export interface ProductTourStep {
     id: string
     selector: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Inline survey question config - if present, this is a survey step */
+    survey?: ProductTourSurveyQuestion
+    /** ID of the auto-created survey for this step (set by backend) */
+    linkedSurveyId?: string
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3257,7 +3278,7 @@ export interface ProductTourContent {
     appearance?: Record<string, any>
     conditions?: {
         url?: string
-        urlMatchType?: 'exact' | 'contains' | 'regex'
+        urlMatchType?: SurveyMatchType
         selector?: string
     }
     /** History of step order changes for funnel analysis */
@@ -3546,13 +3567,10 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
-    rollback_conditions: FeatureFlagRollbackConditions[]
-    performed_rollback: boolean
     can_edit: boolean
     tags: string[]
     evaluation_tags: string[]
     usage_dashboard?: number
-    analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
@@ -3585,13 +3603,6 @@ export type OrganizationFeatureFlags = {
     team_id: TeamType['id']
     active: FeatureFlagType['active']
 }[]
-
-export interface FeatureFlagRollbackConditions {
-    threshold: number
-    threshold_type: string
-    threshold_metric?: FilterType
-    operator?: string
-}
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
@@ -3664,6 +3675,13 @@ export enum ScheduledChangeOperationType {
     UpdateVariants = 'update_variants',
 }
 
+// Keep in sync with posthog/models/scheduled_change.py RecurrenceInterval
+export enum RecurrenceInterval {
+    Daily = 'daily',
+    Weekly = 'weekly',
+    Monthly = 'monthly',
+}
+
 export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
@@ -3683,6 +3701,10 @@ export interface ScheduledChangeType {
     failure_reason: string | null
     created_at: string | null
     created_by: UserBasicType
+    is_recurring: boolean
+    recurrence_interval: RecurrenceInterval | null
+    last_executed_at: string | null
+    end_date: string | null
 }
 
 export interface PrevalidatedInvite {
@@ -4625,11 +4647,6 @@ export interface MediaUploadResponse {
     name: string
 }
 
-export enum RolloutConditionType {
-    Insight = 'insight',
-    Sentry = 'sentry',
-}
-
 export enum Resource {
     FEATURE_FLAGS = 'feature flags',
 }
@@ -4676,6 +4693,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_prompt'
     | 'llm_provider_key'
     | 'logs'
     | 'notebook'
@@ -4882,7 +4900,8 @@ export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string
-    query: HogQLQuery
+    /** Only included when fetching a single saved query, not in list responses */
+    query?: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
@@ -6150,6 +6169,17 @@ export interface DatasetItem {
     created_by: UserBasicType
     updated_at: string
     created_at: string
+    deleted: boolean
+}
+
+export interface LLMPrompt {
+    id: string
+    name: string
+    prompt: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
     deleted: boolean
 }
 

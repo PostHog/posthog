@@ -41,6 +41,7 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.surveys.survey import Survey
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
@@ -201,6 +202,7 @@ class UsageReportCounters:
     php_events_count_in_period: int
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
+    unity_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
     # Workflow metrics
@@ -615,6 +617,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-php', 'php_events',
                 {lib_expression} = 'posthog-dotnet', 'dotnet_events',
                 {lib_expression} = 'posthog-elixir', 'elixir_events',
+                {lib_expression} = 'posthog-unity', 'unity_events',
                 'other'
             ) AS metric,
             count(1) as count
@@ -645,6 +648,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "php_events": {},
             "dotnet_events": {},
             "elixir_events": {},
+            "unity_events": {},
         }
 
         # Process each result set
@@ -902,6 +906,11 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # Get survey IDs that are linked to product tours (these are free and shouldn't be billed)
+    product_tour_survey_ids = list(
+        Survey.objects.filter(product_tour__isnull=False).values_list("id", flat=True).distinct()
+    )
+
     # Construct the subquery for unique event UUIDs
     unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
         base_conditions_sql=[
@@ -913,6 +922,11 @@ def get_teams_with_survey_responses_count_in_period(
         ],
     )
 
+    # Build exclusion clause for product tour surveys
+    product_tour_exclusion = ""
+    if product_tour_survey_ids:
+        product_tour_exclusion = "AND JSONExtractString(properties, '$survey_id') NOT IN %(product_tour_survey_ids)s"
+
     query = f"""
         SELECT
             team_id,
@@ -922,12 +936,17 @@ def get_teams_with_survey_responses_count_in_period(
             event = 'survey sent'
             AND timestamp >= %(begin)s AND timestamp < %(end)s
             AND uuid IN {unique_uuids_subquery}
+            {product_tour_exclusion}
         GROUP BY team_id
     """
 
+    params: dict[str, Any] = {"begin": begin, "end": end}
+    if product_tour_survey_ids:
+        params["product_tour_survey_ids"] = [str(sid) for sid in product_tour_survey_ids]
+
     results = sync_execute(
         query,
-        {"begin": begin, "end": end},
+        params,
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -1682,6 +1701,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
+        "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -2016,6 +2036,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
+        unity_events_count_in_period=all_data["teams_with_unity_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
