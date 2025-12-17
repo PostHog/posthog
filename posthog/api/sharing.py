@@ -637,6 +637,15 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             if request.method == "GET" and not is_jwt_authenticated:
                 exported_data["type"] = "unlock"
+
+                # Apply whitelabel setting from resource.settings for the unlock page
+                # This must be checked here because we return early for unauthenticated requests
+                settings_data = getattr(resource, "settings", {}) or {}
+                if settings_data.get("whitelabel") and resource.team.organization.is_feature_available(
+                    AvailableFeature.WHITE_LABELLING
+                ):
+                    exported_data["whitelabel"] = True
+
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
                 return render_template(
