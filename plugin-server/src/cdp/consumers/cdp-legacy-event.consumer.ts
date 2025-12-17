@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
@@ -54,6 +55,12 @@ type PluginConfigHogFunction = {
     hogFunction: HogFunctionType
 }
 
+const legacyPluginConfigComparisonCounter = new Counter({
+    name: 'cdp_legacy_event_consumer_plugin_config_comparison_total',
+    help: 'The number of times we have compared plugin configs to hog functions',
+    labelNames: ['result'],
+})
+
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
@@ -65,7 +72,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
     private pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
-
     private legacyPluginExecutor: LegacyPluginExecutorService
 
     constructor(hub: Hub) {
@@ -250,14 +256,26 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         try {
             const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
 
+            if (invocations.length !== pluginMethodsToRun.length) {
+                logger.warn('Legacy plugin hog function invocations count does not match plugin methods to run count', {
+                    hog_function_invocations_count: invocations.length,
+                    plugin_methods_to_run_count: pluginMethodsToRun.length,
+                    event_uuid: invocation.event.uuid,
+                    team_id: invocation.project.id,
+                })
+                legacyPluginConfigComparisonCounter.labels('mismatch').inc()
+            } else {
+                legacyPluginConfigComparisonCounter.labels('match').inc()
+            }
+
             if (!invocations.length) {
                 return
             }
 
-            for (const invocation of invocations) {
-                // TODO: Dont do this - just log what we would have done...
-                await this.legacyPluginExecutor.execute(invocation)
-            }
+            // TODO: This will be how it is done in the future
+            // for (const invocation of invocations) {
+            //     await this.legacyPluginExecutor.execute(invocation)
+            // }
         } catch (error: any) {
             logger.error('Error comparing plugin configs to hog functions', {
                 error: error?.message,
