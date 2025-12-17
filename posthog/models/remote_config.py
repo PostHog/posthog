@@ -624,13 +624,19 @@ def user_saved(sender, instance: "User", created, **kwargs):
 
     When a user's is_active status changes, their Personal API Keys need to be
     added or removed from team authentication caches.
+
+    We track the original is_active value via User.from_db() to detect actual changes,
+    avoiding unnecessary cache warming on unrelated user saves.
     """
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "is_active" not in update_fields:
-        logger.debug(f"User {instance.id} updated but is_active unchanged, skipping cache update")
+    original_is_active = getattr(instance, "_original_is_active", instance.is_active)
+    is_active_changed = created or instance.is_active != original_is_active
+
+    if not is_active_changed:
+        logger.debug(f"User {instance.id} saved but is_active unchanged, skipping cache update")
         return
 
-    # If update_fields is None, we need to update cache since all fields (including is_active) might have changed
+    # Update the snapshot to prevent double-fires if the same instance is saved again
+    instance._original_is_active = instance.is_active
 
     from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
 

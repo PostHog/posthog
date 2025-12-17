@@ -206,6 +206,20 @@ class User(AbstractUser, UUIDTClassicModel):
 
     objects: UserManager = UserManager()
 
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # We need to store the original is_active value so we know if it has changed
+        # in the user_saved signal handler. This is used to determine if we need to
+        # update the team access cache.
+        instance._original_is_active = instance.is_active
+        return instance
+
+    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+        if fields is None or "is_active" in fields:
+            self._original_is_active = self.is_active
+
     @property
     def is_superuser(self) -> bool:
         return self.is_staff

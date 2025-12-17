@@ -18,27 +18,32 @@ class TestUserSavedSignalHandler(TestCase):
 
     @parameterized.expand(
         [
-            # (update_fields, should_schedule_update, description)
-            (["is_active", "email"], True, "is_active in update_fields"),
-            (None, True, "update_fields is None (bulk operation)"),
-            (["email", "name"], False, "is_active not in update_fields"),
-            ([], False, "empty update_fields list"),
-            (["is_active"], True, "only is_active in update_fields"),
+            # (created, is_active, original_is_active, should_schedule_update, description)
+            # New user creation always triggers cache update
+            (True, True, True, True, "new user created"),
+            (True, False, False, True, "new inactive user created"),
+            # Existing user - is_active actually changed
+            (False, False, True, True, "user deactivated"),
+            (False, True, False, True, "user reactivated"),
+            # Existing user - is_active unchanged (should NOT trigger)
+            (False, True, True, False, "user saved but is_active unchanged (still active)"),
+            (False, False, False, False, "user saved but is_active unchanged (still inactive)"),
         ]
     )
     @patch("django.db.transaction.on_commit")
-    def test_user_saved_update_fields_scenarios(
-        self, update_fields, should_schedule_update, description, mock_on_commit
+    def test_user_saved_is_active_change_detection(
+        self, created, is_active, original_is_active, should_schedule_update, description, mock_on_commit
     ):
-        """Test user_saved signal handler for various update_fields scenarios."""
+        """Test user_saved signal handler detects actual is_active changes via _original_is_active."""
 
-        # Create mock user
+        # Create mock user with _original_is_active tracking
         mock_user = MagicMock()
         mock_user.id = 42
-        mock_user.is_active = True
+        mock_user.is_active = is_active
+        mock_user._original_is_active = original_is_active
 
-        # Call user_saved with specified update_fields
-        user_saved(sender=User, instance=mock_user, created=False, update_fields=update_fields)
+        # Call user_saved
+        user_saved(sender=User, instance=mock_user, created=created)
 
         # Verify transaction.on_commit behavior
         if should_schedule_update:
@@ -51,16 +56,17 @@ class TestUserSavedSignalHandler(TestCase):
     def test_user_saved_logs_debug_when_skipping_update(self, mock_on_commit, mock_logger):
         """Test that user_saved logs debug message when skipping cache update."""
 
-        # Create mock user
+        # Create mock user with is_active unchanged
         mock_user = MagicMock()
         mock_user.id = 42
         mock_user.is_active = True
+        mock_user._original_is_active = True  # Same as current, so no change
 
-        # Call user_saved with is_active NOT in update_fields
-        user_saved(sender=User, instance=mock_user, created=False, update_fields=["email", "name"])
+        # Call user_saved
+        user_saved(sender=User, instance=mock_user, created=False)
 
         # Verify debug message was logged
-        mock_logger.debug.assert_called_once_with("User 42 updated but is_active unchanged, skipping cache update")
+        mock_logger.debug.assert_called_once_with("User 42 saved but is_active unchanged, skipping cache update")
 
         # Verify transaction.on_commit was not called
         mock_on_commit.assert_not_called()
@@ -70,13 +76,14 @@ class TestUserSavedSignalHandler(TestCase):
     def test_user_saved_uses_transaction_on_commit(self, mock_on_commit, mock_update_cache):
         """Test that user_saved uses transaction.on_commit to defer cache updates."""
 
-        # Create mock user
+        # Create mock user with is_active change (deactivation)
         mock_user = MagicMock()
         mock_user.id = 42
-        mock_user.is_active = True
+        mock_user.is_active = False
+        mock_user._original_is_active = True  # Changed from True to False
 
-        # Call user_saved with is_active in update_fields
-        user_saved(sender=User, instance=mock_user, created=False, update_fields=["is_active"])
+        # Call user_saved
+        user_saved(sender=User, instance=mock_user, created=False)
 
         # Verify transaction.on_commit was called
         mock_on_commit.assert_called_once()
@@ -86,8 +93,28 @@ class TestUserSavedSignalHandler(TestCase):
         on_commit_lambda()
 
         # Verify that the update function would be called after transaction commits
-        # The lambda passes instance and **kwargs (which doesn't include created)
-        mock_update_cache.assert_called_once_with(mock_user, update_fields=["is_active"])
+        mock_update_cache.assert_called_once_with(mock_user)
+
+    @patch("django.db.transaction.on_commit")
+    def test_user_saved_updates_snapshot_to_prevent_double_fires(self, mock_on_commit):
+        """Test that user_saved updates _original_is_active to prevent repeated cache updates on subsequent saves."""
+
+        # Create mock user with is_active change (deactivation)
+        mock_user = MagicMock()
+        mock_user.id = 42
+        mock_user.is_active = False
+        mock_user._original_is_active = True  # Changed from True to False
+
+        # First save - should trigger cache update
+        user_saved(sender=User, instance=mock_user, created=False)
+        self.assertEqual(mock_on_commit.call_count, 1)
+
+        # Verify the snapshot was updated to current value
+        self.assertEqual(mock_user._original_is_active, False)
+
+        # Second save of same instance - should NOT trigger cache update
+        user_saved(sender=User, instance=mock_user, created=False)
+        self.assertEqual(mock_on_commit.call_count, 1)  # Still 1, not 2
 
 
 class TestOrganizationMembershipDeletedSignalHandler(TestCase):
