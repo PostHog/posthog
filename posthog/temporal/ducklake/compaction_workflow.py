@@ -5,7 +5,8 @@ from typing import NamedTuple
 import structlog
 from temporalio import activity, common, workflow
 
-from posthog.ducklake.common import attach_catalog, configure_connection, get_config
+from posthog.ducklake.common import attach_catalog, get_config
+from posthog.ducklake.storage import configure_connection
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
@@ -54,7 +55,7 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
 
         try:
             # Configure S3 access and install DuckLake extension
-            configure_connection(conn, config, install_extension=True)
+            configure_connection(conn, install_extensions=True)
 
             # Attach the DuckLake catalog
             attach_catalog(conn, config, alias="ducklake")
