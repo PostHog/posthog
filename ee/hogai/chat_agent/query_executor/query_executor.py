@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
+from posthoganalytics import capture_exception
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -55,6 +56,8 @@ from ee.hogai.chat_agent.query_executor.format import (
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.query import validate_assistant_query
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
@@ -74,21 +77,6 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
-
-SupportedQueryTypes = (
-    AssistantTrendsQuery
-    | TrendsQuery
-    | AssistantFunnelsQuery
-    | FunnelsQuery
-    | AssistantRetentionQuery
-    | RetentionQuery
-    | AssistantHogQLQuery
-    | HogQLQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsTopCustomersQuery
-)
 
 
 class AssistantQueryExecutor:
@@ -117,7 +105,7 @@ class AssistantQueryExecutor:
 
     async def arun_and_format_query(
         self,
-        query: SupportedQueryTypes,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
         execution_mode: Optional[ExecutionMode] = None,
         insight_id=None,
         debug_timing=False,
@@ -168,9 +156,8 @@ class AssistantQueryExecutor:
                     )
                 return formatted_results, False  # No fallback used
             except Exception as err:
-                if isinstance(err, NotImplementedError):
-                    # Re-raise NotImplementedError for unsupported query types
-                    raise
+                if not isinstance(err, NotImplementedError):
+                    capture_exception(err, properties={"tag": "max_ai"})
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
@@ -190,7 +177,10 @@ class AssistantQueryExecutor:
 
     @async_to_sync
     async def run_and_format_query(
-        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None, debug_timing=False
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        execution_mode: Optional[ExecutionMode] = None,
+        debug_timing=False,
     ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
@@ -234,7 +224,10 @@ class AssistantQueryExecutor:
             raise
 
     async def aexecute_query(
-        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None, debug_timing=False
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        execution_mode: Optional[ExecutionMode] = None,
+        debug_timing=False,
     ) -> dict:
         """
         Execute a query and return the response dict.
@@ -387,7 +380,9 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")
         return response_dict
 
-    async def _compress_results(self, query: SupportedQueryTypes, response: dict, debug_timing=False) -> str:
+    async def _compress_results(
+        self, query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery, response: dict, debug_timing=False
+    ) -> str:
         """
         Format query results using appropriate formatter based on query type.
 
@@ -449,7 +444,7 @@ class AssistantQueryExecutor:
             raise
 
 
-def is_revenue_analytics_query(query: SupportedQueryTypes) -> bool:
+def is_revenue_analytics_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
     return isinstance(
         query,
         RevenueAnalyticsGrossRevenueQuery
@@ -459,7 +454,7 @@ def is_revenue_analytics_query(query: SupportedQueryTypes) -> bool:
     )
 
 
-def get_example_prompt(query: SupportedQueryTypes) -> str:
+def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> str:
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
         return TRENDS_EXAMPLE_PROMPT
     if isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
@@ -487,7 +482,7 @@ def get_example_prompt(query: SupportedQueryTypes) -> str:
     raise NotImplementedError(f"Unsupported query type: {type(query)}")
 
 
-async def execute_and_format_query(team: Team, query: SupportedQueryTypes) -> str:
+async def execute_and_format_query(team: Team, query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
 
@@ -504,6 +499,7 @@ async def execute_and_format_query(team: Team, query: SupportedQueryTypes) -> st
     Returns:
         The formatted query results.
     """
+    query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime)
     results, used_fallback = await query_runner.arun_and_format_query(query)

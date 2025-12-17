@@ -66,9 +66,8 @@ import {
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
-    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
@@ -89,7 +88,6 @@ import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
-    castAssistantQuery,
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -100,6 +98,7 @@ import {
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
     isVisualizationArtifactContent,
+    visualizationTypeToQuery,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
@@ -1058,14 +1057,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             )}
         </>
     )
-}
-
-const visualizationTypeToQuery = (visualization: VisualizationItem): InsightVizNode | DataVisualizationNode | null => {
-    const source = castAssistantQuery(visualization.answer)
-    if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
-    }
-    return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
 }
 
 const Visualization = React.memo(function Visualization({

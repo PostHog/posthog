@@ -1,5 +1,4 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
@@ -13,17 +12,12 @@ import {
     RawKafkaEvent,
 } from '../types'
 import { chainToElements } from './db/elements-chain'
-import {
-    hasDifferenceWithProposedNewNormalisationMode,
-    personInitialAndUTMProperties,
-    sanitizeString,
-} from './db/utils'
+import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import { parseJSON } from './json-parse'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
-    getKnownLibValueOrSentinel,
 } from './utils'
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -33,12 +27,6 @@ const KNOWN_SET_EVENTS = new Set([
     'survey dismissed',
     'survey sent',
 ])
-
-const DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER = new Counter({
-    name: 'difference_with_proposed_normalisation_mode',
-    help: 'Counter for events that would give a different result with the new proposed normalisation mode',
-    labelNames: ['library'],
-})
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -203,14 +191,24 @@ export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(ev
     return event
 }
 
-export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
+/**
+ * Sanitizes event inputs and merges top-level $set/$set_once into properties.
+ * Does NOT call personInitialAndUTMProperties - that's done in normalizeEvent
+ * which should only be called once after transformations.
+ *
+ * This split ensures:
+ * - Transformations see clean events without pre-computed $set/$set_once from UTM/browser fields
+ * - Transformations can add properties that become person properties
+ * - personInitialAndUTMProperties runs only once, after transformations
+ */
+export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
     if ('token' in event) {
         event.token = sanitizeString(String(event.token))
     }
 
-    let properties = event.properties ?? {}
+    const properties = event.properties ?? {}
     if (event['$set']) {
         properties['$set'] = { ...properties['$set'], ...event['$set'] }
     }
@@ -224,20 +222,27 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     // For safety while PluginEvent still has an `ip` field
     event.ip = null
 
-    if (hasDifferenceWithProposedNewNormalisationMode(properties)) {
-        DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER.labels({
-            library: getKnownLibValueOrSentinel(properties['$lib']),
-        }).inc()
-    }
-
-    if (!['$snapshot', '$performance_event'].includes(event.event)) {
-        properties = personInitialAndUTMProperties(properties)
-    }
     if (event.sent_at) {
         properties['$sent_at'] = event.sent_at
     }
 
     event.properties = properties
+    return event
+}
+
+/**
+ * Full event normalization including person property mapping.
+ * This should only be called ONCE per event, after any transformations.
+ * Calling it multiple times is wasteful as personInitialAndUTMProperties
+ * does significant work iterating properties.
+ */
+export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
+    event = sanitizeEvent(event)
+
+    if (!['$snapshot', '$performance_event'].includes(event.event)) {
+        event.properties = personInitialAndUTMProperties(event.properties!)
+    }
+
     return event
 }
 
@@ -258,7 +263,9 @@ export function formPipelineEvent(message: Message): PipelineEvent {
         setUsageInNonPersonEventsCounter.inc()
     }
 
-    const event: PipelineEvent = normalizeEvent({
+    // Use sanitize-only normalization here. Full normalization (including
+    // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
+    const event: PipelineEvent = sanitizeEvent({
         ...combinedEvent,
     })
     return event
