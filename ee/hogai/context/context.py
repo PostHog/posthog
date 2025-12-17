@@ -309,7 +309,7 @@ class AssistantContextManager(AssistantContextMixin):
                 result_template=ROOT_INSIGHT_CONTEXT_PROMPT,
             )
 
-            return await context.aformat_results()
+            return await context.execute()
 
         except Exception as err:
             # Skip insights that fail to run

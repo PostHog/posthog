@@ -230,7 +230,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         # Execute the query and return the results
-        text_result = await context.aformat_results(
+        text_result = await context.execute(
             insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None
         )
         tool_call_message = AssistantToolCallMessage(
@@ -424,7 +424,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             )
 
             try:
-                return await context.aformat_results(insight_model_id=insight.id)
+                return await context.execute(insight_model_id=insight.id)
             except Exception as e:
                 # Return formatted error message
                 return format_prompt_string(

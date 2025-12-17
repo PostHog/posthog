@@ -1,5 +1,5 @@
 QUERY_RESULTS_PROMPT = """
-Here is the results table of the {{{query_kind}}} I created to answer your latest question:
+Here is the results table of the {{{query_kind}}} created to answer your latest question:
 
 ```
 {{{results}}}

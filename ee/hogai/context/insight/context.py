@@ -46,40 +46,7 @@ class InsightContext:
         self.schema_template = schema_template
         self.result_template = result_template
 
-    def _get_effective_query(self) -> AnyPydanticModelQuery | AnyAssistantGeneratedQuery:
-        """Apply dashboard filters/overrides if provided."""
-        if not (self.dashboard_filters or self.filters_override or self.variables_override):
-            return self.query
-
-        query_dict = self.query.model_dump(mode="json")
-
-        if self.dashboard_filters:
-            query_dict = apply_dashboard_filters_to_dict(query_dict, self.dashboard_filters, self.team)
-
-        if self.filters_override:
-            query_dict = apply_dashboard_filters_to_dict(query_dict, self.filters_override, self.team)
-
-        if self.variables_override:
-            query_dict = apply_dashboard_variables_to_dict(query_dict, self.variables_override, self.team)
-
-        return validate_assistant_query(query_dict)
-
-    def format_schema(self) -> str:
-        """Format insight as schema-only (no execution)."""
-        if not self.schema_template:
-            raise ValueError("schema_template must be provided to format schema")
-
-        query_schema = self.query.model_dump_json(exclude_none=True)
-        return format_prompt_string(
-            self.schema_template,
-            insight_name=self.name,
-            insight_id=self.insight_id or "",
-            description=self.description,
-            query_type=self.query.kind,
-            query_schema=query_schema,
-        )
-
-    async def aformat_results(self, insight_model_id: Optional[int] = None) -> str:
+    async def execute(self, insight_model_id: Optional[int] = None) -> str:
         """Execute query and format results."""
         if not self.result_template:
             raise ValueError("result_template must be provided to format results")
@@ -104,3 +71,36 @@ class InsightContext:
             insight_id=self.insight_id or "",
             results=results,
         )
+
+    def format_schema(self) -> str:
+        """Format insight as schema-only (no execution)."""
+        if not self.schema_template:
+            raise ValueError("schema_template must be provided to format schema")
+
+        query_schema = self.query.model_dump_json(exclude_none=True)
+        return format_prompt_string(
+            self.schema_template,
+            insight_name=self.name,
+            insight_id=self.insight_id or "",
+            description=self.description,
+            query_type=getattr(self.query, "kind", "insight"),
+            query_schema=query_schema,
+        )
+
+    def _get_effective_query(self):
+        """Apply dashboard filters/overrides if provided."""
+        if not (self.dashboard_filters or self.filters_override or self.variables_override):
+            return self.query
+
+        query_dict = self.query.model_dump(mode="json")
+
+        if self.dashboard_filters:
+            query_dict = apply_dashboard_filters_to_dict(query_dict, self.dashboard_filters, self.team)
+
+        if self.filters_override:
+            query_dict = apply_dashboard_filters_to_dict(query_dict, self.filters_override, self.team)
+
+        if self.variables_override:
+            query_dict = apply_dashboard_variables_to_dict(query_dict, self.variables_override, self.team)
+
+        return validate_assistant_query(query_dict)
