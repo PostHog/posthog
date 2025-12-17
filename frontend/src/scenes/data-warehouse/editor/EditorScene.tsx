@@ -139,7 +139,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
-                                        <SceneProvider className="flex flex-row grow">
+                                        <SceneProvider className="flex flex-row grow" tabId={tabId}>
                                             <DatabaseTree databaseTreeRef={databaseTreeRef} />
                                             <div
                                                 data-attr="editor-scene"

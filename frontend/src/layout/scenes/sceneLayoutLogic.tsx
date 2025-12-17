@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import React from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
@@ -15,7 +16,14 @@ const SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN = 1358
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], panelLayoutLogic, ['mainContentRect']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            panelLayoutLogic,
+            ['mainContentRect'],
+            sceneLogic,
+            ['activeTabId'],
+        ],
     })),
     actions({
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
@@ -23,7 +31,10 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setScenePanelOpen: (open: boolean) => ({ open }),
         setForceScenePanelClosedWhenRelative: (closed: boolean) => ({ closed }),
         setSceneLayoutConfig: (config: SceneConfig) => ({ config }),
-        setSceneContextClassName: (className: string | undefined) => ({ className }),
+        setSceneContextClassName: (tabId: string | undefined, className: string | undefined) => ({
+            tabId,
+            className,
+        }),
     }),
     reducers({
         scenePanelElement: [
@@ -57,10 +68,22 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
                 setSceneLayoutConfig: (_, { config }) => config,
             },
         ],
-        sceneContextClassName: [
-            undefined as string | undefined,
+        sceneContextClassNameByTab: [
+            {} as Record<string, string | undefined>,
             {
-                setSceneContextClassName: (_, { className }) => className,
+                setSceneContextClassName: (state, { tabId, className }) => {
+                    if (!tabId) {
+                        // If no tabId provided, treat as global (backwards compatibility)
+                        return { ...state, __global__: className }
+                    }
+                    const newState = { ...state }
+                    if (className === undefined) {
+                        delete newState[tabId]
+                    } else {
+                        newState[tabId] = className
+                    }
+                    return newState
+                },
             },
         ],
     }),
@@ -73,6 +96,16 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             (s) => [s.scenePanelIsRelative, s.forceScenePanelClosedWhenRelative, s.scenePanelOpenManual],
             (scenePanelIsRelative, forceScenePanelClosedWhenRelative, scenePanelOpenManual) =>
                 scenePanelIsRelative ? !forceScenePanelClosedWhenRelative : scenePanelOpenManual,
+        ],
+        sceneContextClassName: [
+            (s) => [s.sceneContextClassNameByTab, s.activeTabId],
+            (sceneContextClassNameByTab, activeTabId): string | undefined => {
+                if (activeTabId && sceneContextClassNameByTab[activeTabId] !== undefined) {
+                    return sceneContextClassNameByTab[activeTabId]
+                }
+                // Fall back to global className for backwards compatibility
+                return sceneContextClassNameByTab['__global__']
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

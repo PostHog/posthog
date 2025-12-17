@@ -6,17 +6,18 @@ import { sceneLayoutLogic } from './sceneLayoutLogic'
 export interface SceneProviderProps {
     className?: string
     children: React.ReactNode
+    tabId?: string
 }
 
-export function SceneProvider({ className, children }: SceneProviderProps): JSX.Element {
+export function SceneProvider({ className, children, tabId }: SceneProviderProps): JSX.Element {
     const { setSceneContextClassName } = useActions(sceneLayoutLogic)
 
     useEffect(() => {
-        setSceneContextClassName(className)
+        setSceneContextClassName(tabId, className)
         return () => {
-            setSceneContextClassName(undefined)
+            setSceneContextClassName(tabId, undefined)
         }
-    }, [className, setSceneContextClassName])
+    }, [className, tabId, setSceneContextClassName])
 
     return <>{children}</>
 }
