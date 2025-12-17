@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { UserBasicType } from '~/types'
 
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { Message } from '../../components/Chat/Message'
@@ -299,9 +300,8 @@ export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JS
                                         ? null
                                         : assignedTo
                                 }
-                                onChange={(user) =>
-                                    // @ts-expect-error - kea typegen will fix this
-                                    setAssignedTo(user?.id || 'All users')
+                                onChange={(user: UserBasicType | null) =>
+                                    setAssignedTo(user?.id?.toString() || ('All users' as string))
                                 }
                             />
                         </div>

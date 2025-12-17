@@ -27,7 +27,6 @@ export const scene: SceneExport = {
 
 export function ConversationsTicketsScene(): JSX.Element {
     const logic = conversationsTicketsSceneLogic()
-    // @ts-expect-error - kea typegen will fix this
     const {
         filteredTickets,
         statusFilter,
@@ -38,7 +37,6 @@ export function ConversationsTicketsScene(): JSX.Element {
         ticketsLoading,
         autoUpdateEnabled,
     } = useValues(logic)
-    // @ts-expect-error - kea typegen will fix this
     const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setAutoUpdate } = useActions(logic)
     const { push } = useActions(router)
 
