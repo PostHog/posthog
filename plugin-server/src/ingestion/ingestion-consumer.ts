@@ -5,7 +5,7 @@ import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
@@ -81,7 +81,6 @@ export class IngestionConsumer {
     protected topic: string
     protected dlqTopic: string
     protected overflowTopic?: string
-    protected testingTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
@@ -112,7 +111,6 @@ export class IngestionConsumer {
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
                 | 'INGESTION_CONSUMER_DLQ_TOPIC'
-                | 'INGESTION_CONSUMER_TESTING_TOPIC'
             >
         > = {}
     ) {
@@ -134,7 +132,6 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
         this.overflowRateLimiter = new MemoryRateLimiter(
@@ -305,10 +302,8 @@ export class IngestionConsumer {
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(eventsPerDistinctId).map(async (events) => {
-                    const eventsToProcess = this.redirectEvents(events)
-
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, groupStoreForBatch)
+                        this.processEventsForDistinctId(events, groupStoreForBatch)
                     )
                 })
             )
@@ -376,28 +371,6 @@ export class IngestionConsumer {
             })
         )
         await this.kafkaProducer!.flush()
-    }
-
-    /**
-     * Redirect events to testing topic if configured.
-     * Note: Overflow redirection is now handled in the preprocessing pipeline.
-     */
-    private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
-        if (!eventsForDistinctId.events.length) {
-            return eventsForDistinctId
-        }
-
-        if (this.testingTopic) {
-            void this.promiseScheduler.schedule(
-                this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message))
-            )
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        return eventsForDistinctId
     }
 
     private async processEventsForDistinctId(
@@ -468,28 +441,6 @@ export class IngestionConsumer {
     }
 
     private overflowEnabled(): boolean {
-        return (
-            !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
-            !this.testingTopic
-        )
-    }
-
-    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
-        const testingTopic = this.testingTopic
-        if (!testingTopic) {
-            throw new Error('No testing topic configured')
-        }
-
-        await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaOverflowProducer!.produce({
-                    topic: this.testingTopic!,
-                    value: message.value,
-                    key: message.key ?? null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            )
-        )
+        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
     }
 }
