@@ -6,6 +6,7 @@ use axum_client_ip::InsecureClientIp;
 use common_types::{CapturedEvent, HasEventName};
 use flate2::read::GzDecoder;
 use futures::stream;
+use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,6 +16,12 @@ use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::{debug, warn};
 use uuid::Uuid;
+
+// Blob metrics
+const AI_BLOB_COUNT_PER_EVENT: &str = "capture_ai_blob_count_per_event";
+const AI_BLOB_SIZE_BYTES: &str = "capture_ai_blob_size_bytes";
+const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_event";
+const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::prometheus::report_dropped_events;
@@ -214,7 +221,34 @@ pub async fn ai_handler(
     // Step 5: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
 
-    // Step 6: Upload blobs to S3 and insert URLs into event properties
+    // Step 6: Record blob metrics and upload to S3
+    let blob_count = parsed.blob_parts.len();
+    if blob_count > 0 {
+        // Record blob metrics
+        histogram!(AI_BLOB_COUNT_PER_EVENT).record(blob_count as f64);
+
+        let mut total_blob_bytes: usize = 0;
+        for blob in &parsed.blob_parts {
+            let blob_size = blob.data.len();
+            total_blob_bytes += blob_size;
+            histogram!(AI_BLOB_SIZE_BYTES).record(blob_size as f64);
+
+            // Track content type distribution (normalize to known types)
+            let content_type = match blob.content_type.as_deref() {
+                Some("application/json") => "application/json",
+                Some("application/octet-stream") => "application/octet-stream",
+                Some(ct) if ct.starts_with("text/plain") => "text/plain",
+                Some(_) => "other",
+                None => "unknown",
+            };
+            counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "true", "content_type" => content_type).increment(1);
+        }
+        histogram!(AI_BLOB_TOTAL_BYTES_PER_EVENT).record(total_blob_bytes as f64);
+    } else {
+        counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "false", "content_type" => "none").increment(1);
+    }
+
+    // Upload blobs to S3 and insert URLs into event properties
     if !parsed.blob_parts.is_empty() {
         let blob_storage = state.ai_blob_storage.as_ref().ok_or_else(|| {
             warn!("AI endpoint received blobs but S3 is not configured");

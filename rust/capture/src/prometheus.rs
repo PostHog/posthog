@@ -75,6 +75,8 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         16777216.0,  // 16MB
         33554432.0,  // 32MB
     ];
+    // Blob count per event (2x increments)
+    const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
 
     PrometheusBuilder::new()
         .add_global_label("role", role)
@@ -99,6 +101,21 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_s3_upload_body_size_bytes".to_string()),
             S3_BODY_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_blob_count_per_event".to_string()),
+            BLOB_COUNTS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_blob_size_bytes".to_string()),
+            S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_blob_total_bytes_per_event".to_string()),
+            S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
         )
         .unwrap()
         .install_recorder()
