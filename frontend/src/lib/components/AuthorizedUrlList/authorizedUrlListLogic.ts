@@ -243,14 +243,14 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     select properties.$current_url, count()
                     from events
                         where event = '$pageview'
-                        and timestamp >= now() - interval 3 day 
+                        and timestamp >= now() - interval 3 day
                         and timestamp <= now()
                         and properties.$current_url is not null
                         group by properties.$current_url
                         order by count() desc
                     limit 25`
 
-                const response = await api.queryHogQL(query)
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query)
                 const result = response.results as [string, number][]
 
                 if (result && result.length === 0) {

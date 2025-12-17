@@ -1,6 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { InsightMetaContent } from 'lib/components/Cards/InsightCard/InsightMeta'
@@ -11,7 +11,7 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isValidFunnelQuery } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { AnyEntityNode, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {
@@ -19,9 +19,11 @@ import {
     customerAnalyticsSceneLogic,
 } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
-import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID, SERIES_TO_EVENT_NAME_MAPPING } from '../constants'
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../constants'
+import { EventSelectorProps } from '../scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { customerAnalyticsDashboardEventsLogic } from '../scenes/CustomerAnalyticsConfigurationScene/events/customerAnalyticsDashboardEventsLogic'
 import { buildDashboardItemId } from '../utils'
+import { ConfigureWithAIButton } from './ConfigureWithAIButton'
 
 interface CustomerAnalyticsQueryCardProps {
     insight: InsightDefinition
@@ -32,8 +34,8 @@ function anyValueIsNull(object: object): boolean {
     return Object.values(object).some((value) => value === null)
 }
 
-function getEmptySeriesNames(requiredSeries: object): string[] {
-    return Object.entries(requiredSeries)
+function getEmptySeriesNames(requiredSeries: Record<string, AnyEntityNode | null> | undefined): string[] {
+    return Object.entries(requiredSeries || {})
         .filter(([, value]) => !value)
         .map(([key]) => key)
 }
@@ -45,7 +47,7 @@ function generateUniqueKey(name: string, tabId: string, businessType: string, gr
 
 export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalyticsQueryCardProps): JSX.Element {
     const { businessType, selectedGroupType } = useValues(customerAnalyticsSceneLogic)
-    const { addEventToHighlight } = useActions(customerAnalyticsDashboardEventsLogic)
+    const { eventSelectors } = useValues(customerAnalyticsDashboardEventsLogic)
     const needsConfig = insight?.requiredSeries ? anyValueIsNull(insight.requiredSeries) : false
     const uniqueKey = generateUniqueKey(insight.name, tabId || '', businessType, selectedGroupType)
     const insightProps: InsightLogicProps<QuerySchema> = {
@@ -67,13 +69,11 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
     ) : null
 
     if (needsConfig) {
-        const missingSeries = insight?.requiredSeries ? getEmptySeriesNames(insight.requiredSeries) : []
-
-        const handleClick = (): void => {
-            missingSeries.forEach((seriesName) => {
-                addEventToHighlight(SERIES_TO_EVENT_NAME_MAPPING[seriesName])
-            })
-        }
+        const eventsToConfigure = getEmptySeriesNames(insight.requiredSeries)
+            .map((seriesName) =>
+                eventSelectors.find((selector: EventSelectorProps) => selector.relatedSeries.includes(seriesName))
+            )
+            .filter((event): event is EventSelectorProps => event !== undefined)
 
         return (
             <LemonCard hoverEffect={false} className="h-[400px] p-0">
@@ -83,16 +83,20 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
                 />
 
                 <LemonBanner type="warning">
-                    This insight requires configuration.
-                    <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton
-                            data-attr="customer-analytics-insight-configure-events"
-                            to={urls.customerAnalyticsConfiguration()}
-                            type="primary"
-                            onClick={handleClick}
-                        >
-                            Configure events
-                        </LemonButton>
+                    <div className="flex flex-row items-center gap-2">This insight requires configuration</div>
+                    <div className="flex flex-col items-start gap-2 mt-2 max-w-160">
+                        {eventsToConfigure.map((event) => (
+                            <ConfigureWithAIButton
+                                data-attr={`customer-analytics-configure-${event.title.toLowerCase().replaceAll(' ', '-')}-with-ai`}
+                                to={urls.customerAnalyticsConfiguration()}
+                                type="primary"
+                                eventToHighlight={event.title}
+                                prompt={event.prompt}
+                                className="border-0"
+                            >
+                                Configure {event.title.toLowerCase()}
+                            </ConfigureWithAIButton>
+                        ))}
                     </div>
                 </LemonBanner>
             </LemonCard>
