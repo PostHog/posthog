@@ -43,14 +43,14 @@ def _run_cache_verification(cache_type: CacheType) -> None:
 
     # Attempt to acquire lock - cache.add returns False if key already exists
     if not django_cache.add(lock_key, "locked", timeout=LOCK_TIMEOUT_SECONDS):
-        logger.info(f"Skipping {cache_type} cache verification - already running")
+        logger.info("Skipping cache verification - already running", cache_type=cache_type)
         return
 
     try:
-        logger.info(f"Starting {cache_type} cache verification")
+        logger.info("Starting cache verification", cache_type=cache_type)
 
         if not settings.FLAGS_REDIS_URL:
-            logger.info(f"Flags Redis URL not set, skipping {cache_type} cache verification")
+            logger.info("Flags Redis URL not set, skipping cache verification", cache_type=cache_type)
             return
 
         from posthog.storage.hypercache_verifier import _run_verification_for_cache
@@ -72,12 +72,12 @@ def _run_cache_verification(cache_type: CacheType) -> None:
         try:
             _run_verification_for_cache(config=config, verify_team_fn=verify_fn, cache_type=cache_type)
         except Exception as e:
-            logger.exception(f"Failed {cache_type} cache verification", error=str(e))
+            logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
             capture_exception(e)
             raise
 
         duration = time.time() - start_time
-        logger.info(f"Completed {cache_type} cache verification", duration_seconds=duration)
+        logger.info("Completed cache verification", cache_type=cache_type, duration_seconds=duration)
     finally:
         django_cache.delete(lock_key)
 
