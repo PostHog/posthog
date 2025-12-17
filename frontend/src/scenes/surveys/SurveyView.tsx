@@ -1,16 +1,15 @@
 import './SurveyView.scss'
 
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGraph, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { TZLabel } from 'lib/components/TZLabel'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -26,6 +25,7 @@ import { SurveyResultDemo } from 'scenes/surveys/SurveyResultDemo'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyStartSchedulePicker } from 'scenes/surveys/components/SurveyStartSchedulePicker'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -39,6 +39,7 @@ import {
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { ProductIntentContext } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -57,7 +58,7 @@ const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
+    const { editingSurvey, updateSurvey, stopSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -65,6 +66,48 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+
+    const [isResumeDialogOpen, setIsResumeDialogOpen] = useState(false)
+    const [resumeScheduledStartTime, setResumeScheduledStartTime] = useState<string | undefined>(undefined)
+
+    const [isStopDialogOpen, setIsStopDialogOpen] = useState(false)
+    const [stopScheduledEndTime, setStopScheduledEndTime] = useState<string | undefined>(undefined)
+
+    const closeResumeDialog = (): void => {
+        setIsResumeDialogOpen(false)
+    }
+
+    const closeStopDialog = (): void => {
+        setIsStopDialogOpen(false)
+    }
+
+    const resumeSurveyWithSchedule = async (): Promise<void> => {
+        try {
+            await updateSurvey({
+                end_date: null,
+                scheduled_start_datetime: resumeScheduledStartTime ?? null,
+                intentContext: ProductIntentContext.SURVEY_RESUMED,
+            })
+            closeResumeDialog()
+        } catch {
+            lemonToast.error('Failed to resume survey. Please try again.')
+        }
+    }
+
+    const stopSurveyWithSchedule = async (): Promise<void> => {
+        try {
+            if (!stopScheduledEndTime) {
+                await stopSurvey()
+            } else {
+                await updateSurvey({
+                    scheduled_end_datetime: stopScheduledEndTime,
+                })
+            }
+            closeStopDialog()
+        } catch {
+            lemonToast.error('Failed to stop survey. Please try again.')
+        }
+    }
 
     const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
 
@@ -193,26 +236,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             type="secondary"
                                             size="small"
                                             onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Resume this survey?',
-                                                    content: (
-                                                        <div className="text-sm text-secondary">
-                                                            Once resumed, the survey will be visible to your users
-                                                            again.
-                                                        </div>
-                                                    ),
-                                                    primaryButton: {
-                                                        children: 'Resume',
-                                                        type: 'primary',
-                                                        onClick: () => resumeSurvey(),
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
+                                                setResumeScheduledStartTime(
+                                                    survey.scheduled_start_datetime
+                                                        ? survey.scheduled_start_datetime
+                                                        : undefined
+                                                )
+                                                setIsResumeDialogOpen(true)
                                             }}
                                         >
                                             Resume
@@ -231,38 +260,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 status="danger"
                                                 size="small"
                                                 onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: 'Stop this survey?',
-                                                        content: (
-                                                            <div>
-                                                                <div className="text-sm text-secondary">
-                                                                    The survey will no longer be displayed to users.
-                                                                </div>
-                                                                {survey.scheduled_end_datetime && !survey.end_date && (
-                                                                    <LemonBanner type="info" hideIcon className="mt-5">
-                                                                        <div>
-                                                                            This survey is scheduled to end{' '}
-                                                                            <TZLabel
-                                                                                time={survey.scheduled_end_datetime}
-                                                                            />
-                                                                            . Proceed to end it immediately.
-                                                                        </div>
-                                                                    </LemonBanner>
-                                                                )}
-                                                            </div>
-                                                        ),
-                                                        primaryButton: {
-                                                            children: 'Stop',
-                                                            type: 'primary',
-                                                            onClick: () => stopSurvey(),
-                                                            size: 'small',
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                            type: 'tertiary',
-                                                            size: 'small',
-                                                        },
-                                                    })
+                                                    setStopScheduledEndTime(
+                                                        survey.scheduled_end_datetime
+                                                            ? survey.scheduled_end_datetime
+                                                            : undefined
+                                                    )
+                                                    setIsStopDialogOpen(true)
                                                 }}
                                             >
                                                 Stop
@@ -273,6 +276,76 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
+
+                    {isResumeDialogOpen && (
+                        <LemonDialog
+                            title="Resume this survey?"
+                            onClose={closeResumeDialog}
+                            onAfterClose={closeResumeDialog}
+                            shouldAwaitSubmit
+                            content={
+                                <div>
+                                    <div className="text-sm text-secondary mb-4">
+                                        Once resumed, the survey will be visible to your users again.
+                                    </div>
+                                    <SurveyStartSchedulePicker
+                                        value={resumeScheduledStartTime}
+                                        onChange={setResumeScheduledStartTime}
+                                        manualLabel="Immediately"
+                                        datetimeLabel="In the future"
+                                    />
+                                </div>
+                            }
+                            primaryButton={{
+                                children: resumeScheduledStartTime ? 'Schedule resume' : 'Resume',
+                                type: 'primary',
+                                onClick: resumeSurveyWithSchedule,
+                                preventClosing: true,
+                                size: 'small',
+                            }}
+                            secondaryButton={{
+                                children: 'Cancel',
+                                type: 'tertiary',
+                                size: 'small',
+                            }}
+                        />
+                    )}
+
+                    {isStopDialogOpen && (
+                        <LemonDialog
+                            title="Stop this survey?"
+                            onClose={closeStopDialog}
+                            onAfterClose={closeStopDialog}
+                            shouldAwaitSubmit
+                            content={
+                                <div>
+                                    <div className="text-sm text-secondary mb-4">
+                                        Stop displaying this survey to users:
+                                    </div>
+                                    <SurveyStartSchedulePicker
+                                        value={stopScheduledEndTime}
+                                        onChange={setStopScheduledEndTime}
+                                        manualLabel="Immediately"
+                                        datetimeLabel="In the future"
+                                        defaultDatetimeValue={() => new Date(Date.now() + 60 * 60 * 1000).toISOString()}
+                                    />
+                                </div>
+                            }
+                            primaryButton={{
+                                children: stopScheduledEndTime ? 'Schedule stop' : 'Stop',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: stopSurveyWithSchedule,
+                                preventClosing: true,
+                                size: 'small',
+                            }}
+                            secondaryButton={{
+                                children: 'Cancel',
+                                type: 'tertiary',
+                                size: 'small',
+                            }}
+                        />
+                    )}
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}

@@ -609,6 +609,28 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         user = self.context["request"].user
         changes = []
 
+        # If a survey is started or ended manually, clear any scheduled times so we don't keep stale scheduling
+        # state around. This also causes `_add_launch_schedules` to delete any pending ScheduledChange jobs.
+        #
+        # Note: When changes are applied via scheduled changes, we intentionally avoid clearing these fields
+        # here, as those updates aren't initiated directly by a user action.
+        now = datetime.now(UTC)
+        trigger_source = self.context.get("trigger_source")
+
+        is_starting_now = "start_date" in validated_data and validated_data.get("start_date") is not None
+        is_ending_now = "end_date" in validated_data and validated_data.get("end_date") is not None
+        is_resuming_now = "end_date" in validated_data and validated_data.get("end_date") is None
+        scheduled_start_in_request = (
+            validated_data.get("scheduled_start_datetime") if "scheduled_start_datetime" in validated_data else None
+        )
+
+        if trigger_source != "scheduled_change":
+            if is_starting_now or is_ending_now:
+                validated_data["scheduled_start_datetime"] = None
+                validated_data["scheduled_end_datetime"] = None
+            elif is_resuming_now and (scheduled_start_in_request is None or scheduled_start_in_request <= now):
+                validated_data["scheduled_start_datetime"] = None
+
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 # Manually delete the flag and log the change

@@ -114,8 +114,8 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                                     <TZLabel time={survey.start_date} />
                                 </SurveyOption>
                             )}
-                            {survey.scheduled_start_datetime && !survey.start_date && (
-                                <SurveyOption label="Scheduled start date">
+                            {survey.scheduled_start_datetime && survey.end_date && (
+                                <SurveyOption label={`Scheduled ${survey.start_date ? 'resume' : 'start'} date`}>
                                     <TZLabel time={survey.scheduled_start_datetime} />
                                 </SurveyOption>
                             )}

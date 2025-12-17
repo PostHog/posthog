@@ -31,6 +31,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Survey, Team, User
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
@@ -4960,6 +4961,170 @@ class TestAddLaunchSchedules(APIBaseTest):
             created_by_id=self.user.id,
             team_id=self.team.id,
             payload={"scheduled_end_datetime": end.isoformat()},
+        )
+
+
+class TestSurveyStartResumeClearsScheduling(APIBaseTest):
+    def test_starting_survey_clears_scheduled_start_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Scheduled survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "scheduled_start_datetime": scheduled_start.isoformat(),
+                "scheduled_end_datetime": scheduled_end.isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        start_now = datetime.now(UTC)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"start_date": start_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is None
+        assert response.json()["scheduled_end_datetime"] is None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_stopping_survey_clears_scheduled_times_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey to stop",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "scheduled_start_datetime": scheduled_start.isoformat(),
+                "scheduled_end_datetime": scheduled_end.isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        stop_now = datetime.now(UTC)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"end_date": stop_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is None
+        assert response.json()["scheduled_end_datetime"] is None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_resuming_immediately_clears_scheduled_start_and_deletes_jobs(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Ended survey",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=datetime.now(UTC) - timedelta(days=2),
+            end_date=datetime.now(UTC) - timedelta(days=1),
+        )
+
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"scheduled_start_datetime": scheduled_start.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is not None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey.id),
+                executed_at__isnull=True,
+                payload__has_key="scheduled_start_datetime",
+            ).count()
+            == 1
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey.id),
+                executed_at__isnull=True,
+                payload__has_key="scheduled_start_datetime",
+            ).count()
+            == 0
+        )
+
+    def test_resuming_with_future_schedule_keeps_scheduled_start_and_jobs(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Ended survey scheduled resume",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=datetime.now(UTC) - timedelta(days=2),
+            end_date=datetime.now(UTC) - timedelta(days=1),
+        )
+
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None, "scheduled_start_datetime": scheduled_start.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is not None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey.id),
+                executed_at__isnull=True,
+                payload__has_key="scheduled_start_datetime",
+            ).count()
+            == 1
         )
 
 

@@ -320,6 +320,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             "request": http_request,
             "team_id": self.team_id,
             "project_id": self.team.project_id,
+            "trigger_source": "scheduled_change",
         }
 
         before_start_date = self.start_date

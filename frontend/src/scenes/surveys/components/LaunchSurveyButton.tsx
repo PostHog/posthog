@@ -1,82 +1,134 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useCallback, useMemo, useState } from 'react'
 
-import { LemonBanner, LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import { SurveyStartSchedulePicker } from 'scenes/surveys/components/SurveyStartSchedulePicker'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyFeatureWarning, getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
 import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
 
-import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
-import dayjs from 'dayjs'
 import { ProductIntentContext } from '~/queries/schema/schema-general'
-import SurveyLaunchSchedule from 'scenes/surveys/components/SurveyLaunchSchedule';
+import { AccessControlLevel, AccessControlResourceType, Survey, SurveyType } from '~/types'
+
+import { NewSurvey } from '../constants'
+
+function LaunchDialogContent({
+    survey,
+    surveyWarnings,
+    scheduledStartTime,
+    setScheduledStartTime,
+}: {
+    survey: Survey | NewSurvey
+    surveyWarnings: SurveyFeatureWarning[]
+    scheduledStartTime: string | undefined
+    setScheduledStartTime: (time: string | undefined) => void
+}): JSX.Element {
+    return (
+        <div>
+            <div className="text-sm text-secondary mb-4">
+                Start displaying to{' '}
+                {doesSurveyHaveDisplayConditions(survey) ? 'users matching the display conditions' : 'all your users'}:
+            </div>
+            <SurveyStartSchedulePicker
+                value={scheduledStartTime}
+                onChange={setScheduledStartTime}
+                manualLabel="Immediately"
+                datetimeLabel="In the future"
+            />
+            <SdkVersionWarnings warnings={surveyWarnings} />
+        </div>
+    )
+}
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
-    const { survey, surveyWarnings } = useValues(surveyLogic)
-    console.log('survey', survey)
-    const { showSurveysDisabledBanner } = useValues(surveysLogic)
+    const { survey } = useValues(surveyLogic)
     const { updateSurvey } = useActions(surveyLogic)
+    const { showSurveysDisabledBanner } = useValues(surveysLogic)
+    const { teamSdkVersions } = useValues(surveysSdkLogic)
+    const [scheduledStartTime, setScheduledStartTime] = useState<string | undefined>(
+        survey.scheduled_start_datetime || undefined
+    )
+    const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(false)
+
+    const surveyWarnings = useMemo(() => {
+        return typeof (survey as Survey).id === 'number' ? getSurveyWarnings(survey as Survey, teamSdkVersions) : []
+    }, [survey, teamSdkVersions])
+
+    const closeDialog = useCallback(() => {
+        setIsLaunchDialogOpen(false)
+    }, [])
+
+    const updateSurveyCallback = useCallback(async () => {
+        const updatedSurvey = { id: survey.id, intentContext: ProductIntentContext.SURVEY_LAUNCHED } as Partial<Survey>
+        if (!scheduledStartTime) {
+            updatedSurvey['start_date'] = dayjs().toISOString()
+        } else {
+            updatedSurvey['scheduled_start_datetime'] = scheduledStartTime
+        }
+        try {
+            await updateSurvey(updatedSurvey)
+            closeDialog()
+        } catch {
+            lemonToast.error('Failed to launch survey. Please try again.')
+        }
+    }, [closeDialog, scheduledStartTime, survey.id, updateSurvey])
 
     return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Survey}
-            minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={survey.user_access_level}
-        >
-            <LemonButton
-                type="primary"
-                data-attr="launch-survey"
-                disabledReason={
-                    showSurveysDisabledBanner && survey.type !== SurveyType.API
-                        ? 'Please enable surveys in the banner below before launching'
-                        : undefined
-                }
-                size="small"
-                onClick={() => {
-                    LemonDialog.open({
-                        title: 'Launch this survey?',
-                        content: (
-                            <div>
-                                <div className="text-sm text-secondary">
-                                    The survey will immediately start displaying to{' '}
-                                    {doesSurveyHaveDisplayConditions(survey)
-                                        ? 'users matching the display conditions'
-                                        : 'all your users'}
-                                    .
-                                </div>
-                                {survey.scheduled_start_datetime && !survey.start_date && (
-                                    <LemonBanner type="info" hideIcon className="mt-5">
-                                        <div>
-                                            This survey is scheduled to launch{' '}
-                                            <TZLabel time={survey.scheduled_start_datetime} />. Proceed to launch it
-                                            immediately.
-                                        </div>
-                                    </LemonBanner>
-                                )}
-                                <SdkVersionWarnings warnings={surveyWarnings} />
-                                <SurveyLaunchSchedule />
-                            </div>
-                        ),
-                        primaryButton: {
-                            children: 'Launch',
-                            type: 'primary',
-                            onClick: () => updateSurvey({ id: survey.id, start_date: dayjs().toISOString(), intentContext: ProductIntentContext.SURVEY_LAUNCHED }),
-                            size: 'small',
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                            type: 'tertiary',
-                            size: 'small',
-                        },
-                    })
-                }}
+        <>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Survey}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={survey.user_access_level}
             >
-                {children}
-            </LemonButton>
-        </AccessControlAction>
+                <LemonButton
+                    type="primary"
+                    data-attr="launch-survey"
+                    disabledReason={
+                        showSurveysDisabledBanner && survey.type !== SurveyType.API
+                            ? 'Please enable surveys in the banner below before launching'
+                            : undefined
+                    }
+                    size="small"
+                    onClick={() => setIsLaunchDialogOpen(true)}
+                >
+                    {children}
+                </LemonButton>
+            </AccessControlAction>
+
+            {isLaunchDialogOpen && (
+                <LemonDialog
+                    title="Launch this survey?"
+                    onClose={closeDialog}
+                    onAfterClose={closeDialog}
+                    shouldAwaitSubmit
+                    content={
+                        <LaunchDialogContent
+                            survey={survey}
+                            surveyWarnings={surveyWarnings}
+                            setScheduledStartTime={setScheduledStartTime}
+                            scheduledStartTime={scheduledStartTime}
+                        />
+                    }
+                    primaryButton={{
+                        children: scheduledStartTime ? `Schedule launch` : 'Launch',
+                        type: 'primary',
+                        onClick: updateSurveyCallback,
+                        preventClosing: true,
+                        size: 'small',
+                    }}
+                    secondaryButton={{
+                        children: 'Cancel',
+                        type: 'tertiary',
+                        size: 'small',
+                    }}
+                />
+            )}
+        </>
     )
 }
