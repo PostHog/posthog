@@ -441,7 +441,7 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 
 LLM_GATEWAY_MODEL_RATE_LIMITS: dict[str, dict[str, str]] = {
-    "haiku": {"burst": "500/minute", "sustained": "20000/hour"},
+    "haiku": {"burst": "1000/minute", "sustained": "20000/hour"},
 }
 
 LLM_GATEWAY_DEFAULT_BURST_RATE = "100/minute"
