@@ -192,8 +192,7 @@ export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(ev
 }
 
 /**
- * Basic event normalization for preprocessing phase.
- * Sanitizes inputs and merges top-level $set/$set_once into properties.
+ * Sanitizes event inputs and merges top-level $set/$set_once into properties.
  * Does NOT call personInitialAndUTMProperties - that's done in normalizeEvent
  * which should only be called once after transformations.
  *
@@ -202,7 +201,7 @@ export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(ev
  * - Transformations can add properties that become person properties
  * - personInitialAndUTMProperties runs only once, after transformations
  */
-export function normalizeEventSanitize<T extends PipelineEvent | PluginEvent>(event: T): T {
+export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
     if ('token' in event) {
@@ -238,7 +237,7 @@ export function normalizeEventSanitize<T extends PipelineEvent | PluginEvent>(ev
  * does significant work iterating properties.
  */
 export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
-    event = normalizeEventSanitize(event)
+    event = sanitizeEvent(event)
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         event.properties = personInitialAndUTMProperties(event.properties!)
@@ -266,7 +265,7 @@ export function formPipelineEvent(message: Message): PipelineEvent {
 
     // Use sanitize-only normalization here. Full normalization (including
     // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
-    const event: PipelineEvent = normalizeEventSanitize({
+    const event: PipelineEvent = sanitizeEvent({
         ...combinedEvent,
     })
     return event

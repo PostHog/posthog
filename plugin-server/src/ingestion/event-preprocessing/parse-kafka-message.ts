@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { IncomingEvent, PipelineEvent } from '../../types'
-import { normalizeEventSanitize } from '../../utils/event'
+import { sanitizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { drop, ok } from '../pipelines/results'
@@ -14,7 +14,7 @@ function parseKafkaMessage(message: Message): IncomingEvent | null {
         const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
         // Use sanitize-only normalization here. Full normalization (including
         // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
-        const event: PipelineEvent = normalizeEventSanitize(combinedEvent)
+        const event: PipelineEvent = sanitizeEvent(combinedEvent)
 
         return { event }
     } catch (error) {

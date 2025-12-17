@@ -105,7 +105,8 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
         return properties
     }
 
-    // Handle $os_name special case
+    // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
+    // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
     const osName = properties.$os_name
     if (osName !== undefined) {
         if (!('$os' in properties)) {
@@ -117,7 +118,7 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
         if (!('$initial_os' in $set_once!)) {
             $set_once!.$initial_os = osName
         }
-        // Remove $os_name from $set/$set_once as it shouldn't be there
+        // $os_name is normalized to $os, so remove it from person properties
         delete $set.$os_name
         delete $set_once!.$initial_os_name
     }
