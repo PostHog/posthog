@@ -3278,7 +3278,7 @@ export interface ProductTourContent {
     appearance?: Record<string, any>
     conditions?: {
         url?: string
-        urlMatchType?: 'exact' | 'contains' | 'regex'
+        urlMatchType?: SurveyMatchType
         selector?: string
     }
     /** History of step order changes for funnel analysis */
