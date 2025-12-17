@@ -105,8 +105,8 @@ describe('CdpLegacyEventsConsumer', () => {
         jest.useRealTimers()
     })
 
-    describe('convertPluginConfigToHogFunctionInvocation', () => {
-        it('should convert a lightweight plugin config to a hog function invocation', () => {
+    describe('convertPluginConfigToHogFunction', () => {
+        it('should convert a lightweight plugin config to a hog function', () => {
             const lightweightConfig = {
                 id: pluginConfig.id,
                 team_id: team.id,
@@ -125,13 +125,13 @@ describe('CdpLegacyEventsConsumer', () => {
                 },
             }
 
-            const result = consumer['convertPluginConfigToHogFunctionInvocation'](lightweightConfig, invocation)
+            const result = consumer['convertPluginConfigToHogFunction'](lightweightConfig)
 
             expect(result).toBeTruthy()
-            expect(result?.hogFunction.template_id).toBe('plugin-customerio-plugin')
-            expect(result?.hogFunction.type).toBe('destination')
-            expect(result?.hogFunction.team_id).toBe(team.id)
-            expect(result?.state.globals.inputs).toMatchObject({
+            expect(result?.template_id).toBe('plugin-customerio-plugin')
+            expect(result?.type).toBe('destination')
+            expect(result?.team_id).toBe(team.id)
+            expect(result?.inputs).toMatchObject({
                 customerioSiteId: '1234567890',
                 customerioToken: 'cio-token',
                 email: 'test@posthog.com',
@@ -155,9 +155,9 @@ describe('CdpLegacyEventsConsumer', () => {
                 },
             }
 
-            const result = consumer['convertPluginConfigToHogFunctionInvocation'](lightweightConfig, invocation)
+            const result = consumer['convertPluginConfigToHogFunction'](lightweightConfig)
 
-            expect(result?.hogFunction.template_id).toBe('plugin-semver-flattener-plugin')
+            expect(result?.template_id).toBe('plugin-semver-flattener-plugin')
         })
 
         it('should return null if plugin has no URL', () => {
@@ -170,7 +170,7 @@ describe('CdpLegacyEventsConsumer', () => {
                 created_at: '2025-01-01T00:00:00.000Z',
             }
 
-            const result = consumer['convertPluginConfigToHogFunctionInvocation'](lightweightConfig, invocation)
+            const result = consumer['convertPluginConfigToHogFunction'](lightweightConfig)
 
             expect(result).toBeNull()
         })
