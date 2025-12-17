@@ -252,9 +252,9 @@ export const QueryDatabase = (): JSX.Element => {
                                             <ButtonPrimitive
                                                 menuItem
                                                 disabledReasons={{
-                                                    'Materialization is already running': item.record?.view?.status === 'Running',
+                                                    'Materialization is already running':
+                                                        item.record?.view?.status === 'Running',
                                                 }}
-                                            >
                                             >
                                                 Sync now
                                             </ButtonPrimitive>
