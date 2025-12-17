@@ -18,7 +18,6 @@ import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 
-jest.mock('../../../src/worker/plugins/run')
 jest.mock('../../../src/utils/logger')
 jest.mock('./../../../src/worker/ingestion/utils')
 
