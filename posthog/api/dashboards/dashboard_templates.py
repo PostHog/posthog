@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import NoReturn
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -53,7 +54,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "availability_contexts",
         ]
 
-    def _handle_integrity_error(self, exc: IntegrityError) -> None:
+    def _handle_integrity_error(self, exc: IntegrityError) -> NoReturn:
         error_str = str(exc)
         if "unique_template_name_per_team" in error_str:
             raise ValidationError(
