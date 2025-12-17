@@ -133,7 +133,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if vercel_integration and vercel_integration.integration_id:
             account_url = vercel_integration.config.get("account", {}).get("url", "")
             if account_url:
-                response["vercel_invoices_url"] = f"{account_url}/invoices"
+                response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
         return Response(response)
 

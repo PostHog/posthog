@@ -11,7 +11,7 @@ export const StripePortalButton = (): JSX.Element | null => {
         return null
     }
 
-    const billingUrl = billing.vercel_invoices_url || billing.stripe_portal_url
+    const billingUrl = billing.external_billing_provider_invoices_url || billing.stripe_portal_url
 
     if (!billingUrl) {
         return null
