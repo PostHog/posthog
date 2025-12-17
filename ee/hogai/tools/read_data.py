@@ -75,6 +75,25 @@ The user does not have admin access to view detailed billing information. They w
 Suggest the user to contact the admins.
 """.strip()
 
+READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
+# Core PostHog tables
+{{{posthog_tables}}}
+{{#data_warehouse_tables}}
+
+# Data warehouse tables
+{{{data_warehouse_tables}}}
+{{/data_warehouse_tables}}
+{{#data_warehouse_views}}
+
+# Data warehouse views
+{{{data_warehouse_views}}}
+{{/data_warehouse_views}}
+
+<system_reminder>
+Use the `read_data` tool with the `data_warehouse_table` kind to get column and relationship details for a specific table.
+</system_reminder>
+""".strip()
+
 INSIGHT_NOT_FOUND_PROMPT = """
 The insight with the ID "{short_id}" was not found or uses an unsupported query type. Please verify the insight ID is correct.
 """.strip()
@@ -318,32 +337,25 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         core_tables = {"events", "groups", "persons", "sessions"}
         serialized = database.serialize(hogql_context, include_only=core_tables)
 
-        lines: list[str] = ["# Core PostHog tables\n"]
-
+        system_table_lines: list[str] = []
         for table_name, table in serialized.items():
-            lines.append(f"## Table `{table_name}`")
+            system_table_lines.append(f"## Table `{table_name}`")
             for field in table.fields.values():
-                lines.append(f"- {field.name} ({field.type})")
-            lines.append("")
+                system_table_lines.append(f"- {field.name} ({field.type})")
+            system_table_lines.append("")
 
         warehouse_tables = database.get_warehouse_table_names()
         views = database.get_view_names()
 
-        if warehouse_tables:
-            lines.append("# Data warehouse tables")
-            lines.append("Use `data_warehouse_table` with the table name to get the full schema.\n")
-            for name in sorted(warehouse_tables):
-                lines.append(f"- {name}")
-            lines.append("")
+        listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
-        if views:
-            lines.append("# Views")
-            lines.append("Use `data_warehouse_table` with the view name to get the full schema.\n")
-            for name in sorted(views):
-                lines.append(f"- {name}")
-            lines.append("")
-
-        return "\n".join(lines)
+        return format_prompt_string(
+            READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
+            template_format="mustache",
+            posthog_tables="\n".join(system_table_lines),
+            data_warehouse_tables=listify(warehouse_tables),
+            data_warehouse_views=listify(views),
+        )
 
     @database_sync_to_async
     def _build_table_schema(self, database: Database, hogql_context: HogQLContext, table_name: str) -> str:
