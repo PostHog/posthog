@@ -238,4 +238,28 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(`[Action:function] Recipient opted out for action function`)
         expect(mockFetch).not.toHaveBeenCalled()
     })
+
+    it('should emit a single billable_invocation metric upon function completion', async () => {
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        const billableMetrics = invocationResult.metrics.filter(
+            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'billing'
+        )
+
+        expect(billableMetrics).toHaveLength(1)
+
+        expect(billableMetrics[0]).toMatchObject({
+            team_id: team.id,
+            app_source_id: invocation.functionId,
+            instance_id: invocation.id,
+            metric_kind: 'billing',
+            metric_name: 'billable_invocation',
+            count: 1,
+        })
+    })
 })
