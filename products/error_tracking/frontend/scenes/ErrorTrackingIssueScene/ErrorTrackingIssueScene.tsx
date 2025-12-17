@@ -97,10 +97,15 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         type: FilterLogicalOperator.And,
                                                         values: [
                                                             {
-                                                                key: '$exception_issue_id',
-                                                                type: PropertyFilterType.Event,
-                                                                operator: PropertyOperator.Exact,
-                                                                value: [issue.id],
+                                                                type: FilterLogicalOperator.And,
+                                                                values: [
+                                                                    {
+                                                                        key: '$exception_issue_id',
+                                                                        type: PropertyFilterType.Event,
+                                                                        operator: PropertyOperator.Exact,
+                                                                        value: [issue.id],
+                                                                    },
+                                                                ],
                                                             },
                                                         ],
                                                     },

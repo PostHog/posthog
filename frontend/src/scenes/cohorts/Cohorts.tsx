@@ -103,10 +103,15 @@ export function Cohorts(): JSX.Element {
                                                 type: FilterLogicalOperator.And,
                                                 values: [
                                                     {
-                                                        type: PropertyFilterType.Cohort,
-                                                        key: 'id',
-                                                        operator: PropertyOperator.In,
-                                                        value: cohortId,
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                type: PropertyFilterType.Cohort,
+                                                                key: 'id',
+                                                                operator: PropertyOperator.In,
+                                                                value: cohortId,
+                                                            },
+                                                        ],
                                                     },
                                                 ],
                                             },

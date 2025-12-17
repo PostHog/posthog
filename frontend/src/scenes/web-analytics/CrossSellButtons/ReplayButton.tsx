@@ -87,16 +87,21 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                 type: FilterLogicalOperator.And,
                 values: [
                     {
-                        key: '$viewport_width',
-                        type: PropertyFilterType.Event,
-                        value: [value[0]],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$viewport_height',
-                        type: PropertyFilterType.Event,
-                        value: [value[1]],
-                        operator: PropertyOperator.Exact,
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: '$viewport_width',
+                                type: PropertyFilterType.Event,
+                                value: [value[0]],
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: '$viewport_height',
+                                type: PropertyFilterType.Event,
+                                value: [value[1]],
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
                     },
                 ],
             },
@@ -118,22 +123,27 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                 type: FilterLogicalOperator.And,
                 values: [
                     {
-                        key: '$entry_utm_source',
-                        type: PropertyFilterType.Session,
-                        value: [values[0] || ''],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$entry_utm_medium',
-                        type: PropertyFilterType.Session,
-                        value: [values[1] || ''],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$entry_utm_campaign',
-                        type: PropertyFilterType.Session,
-                        value: [values[2] || ''],
-                        operator: PropertyOperator.Exact,
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: '$entry_utm_source',
+                                type: PropertyFilterType.Session,
+                                value: [values[0] || ''],
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: '$entry_utm_medium',
+                                type: PropertyFilterType.Session,
+                                value: [values[1] || ''],
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: '$entry_utm_campaign',
+                                type: PropertyFilterType.Session,
+                                value: [values[2] || ''],
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
                     },
                 ],
             },
@@ -160,10 +170,15 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
             type: FilterLogicalOperator.And,
             values: [
                 {
-                    key: key,
-                    type: type,
-                    value: [value],
-                    operator: PropertyOperator.Exact,
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: key,
+                            type: type,
+                            value: [value],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
                 },
             ],
         },
