@@ -1338,30 +1338,73 @@ export function formatSchemaFilePath(tableName: string, databaseName: string): s
     return `schema/${databaseName}/${stripTableName(tableName, databaseName)}.sql`
 }
 
+type CreateTableLineCategory = 'primary' | 'normal' | 'connection'
+
+interface CreateTableLine {
+    name: string
+    base: string
+    suffix: string
+    category: CreateTableLineCategory
+}
+
 export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseName: string | null): string {
     const fields = Object.values(table.fields || {})
+    const primaryKeyFields = new Set(getPrimaryKeyFieldNames(table))
+    const foreignKeys = (table as any)?.schema_metadata?.foreign_keys || []
+    const foreignKeyColumnsToHide = getForeignKeyColumnsToHide(table)
     const effectiveDatabaseName = databaseName || getDatabaseNameFromTableName(table.name)
     const tableLabel = stripTableName(table.name, effectiveDatabaseName)
 
-    const baseFieldLines = fields.map((field) => {
+    const baseFieldLines: CreateTableLine[] = fields.map((field) => {
         const typeLabel = typeof field.type === 'string' ? field.type : 'string'
-        const expression = buildFieldExpression(field, table)
+        const expression = buildFieldExpression(field, table, { includeForeignKeyExpressions: false })
+        const modifiers = foreignKeyColumnsToHide.has(field.name) ? ['hidden'] : []
 
         return {
-            base: `    "${field.name}" ${typeLabel}`,
-            expression,
+            name: field.name,
+            base: `    "${field.name}" ${typeLabel}${modifiers.length ? ` ${modifiers.join(' ')}` : ''}`,
+            suffix: expression ? `expr ${expression}` : '',
+            category: primaryKeyFields.has(field.name) ? 'primary' : 'normal',
         }
     })
 
-    const maxBaseLength = baseFieldLines.reduce((max, { base, expression }) => {
-        return expression ? Math.max(max, base.length) : max
+    const connectionLines: CreateTableLine[] = foreignKeys
+        .map((foreignKey: DatabaseSchemaForeignKey) => {
+            const relationName = foreignKeyFieldName(foreignKey.column)
+
+            if (!relationName) {
+                return null
+            }
+
+            const targetTableName = qualifyTableName(table.name, foreignKey.target_table)
+            const targetColumn = foreignKey.target_column || 'id'
+
+            return {
+                name: relationName,
+                base: `    "${relationName}" connect "${foreignKey.column}" to "${targetTableName}"."${targetColumn}"`,
+                suffix: '',
+                category: 'connection',
+            }
+        })
+        .filter(Boolean) as CreateTableLine[]
+
+    const categoryRank: Record<CreateTableLineCategory, number> = { primary: 0, normal: 1, connection: 2 }
+    const lines = [...baseFieldLines, ...connectionLines].sort((a, b) => {
+        if (categoryRank[a.category] !== categoryRank[b.category]) {
+            return categoryRank[a.category] - categoryRank[b.category]
+        }
+
+        return a.name.localeCompare(b.name)
+    })
+
+    const maxBaseLength = lines.reduce((max, { base, suffix }) => {
+        return suffix ? Math.max(max, base.length) : max
     }, 0)
 
-    const fieldLines = baseFieldLines.map(({ base, expression }) => {
-        const padding = expression ? ' '.repeat(Math.max(maxBaseLength - base.length, 0)) : ''
-        const expressionSuffix = expression ? ` -- ${expression}` : ''
+    const fieldLines = lines.map(({ base, suffix }) => {
+        const padding = suffix ? ' '.repeat(Math.max(maxBaseLength - base.length + 1, 1)) : ''
 
-        return `${base}${padding}${expressionSuffix}`
+        return `${base}${padding}${suffix}`
     })
 
     const fieldsBlock = fieldLines.length > 0 ? fieldLines.join(',\n') : '    -- add columns'
@@ -1371,34 +1414,29 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
     return `${connectionLine}\nCREATE TABLE "${effectiveDatabaseName}"."${tableLabel}" {\n${fieldsBlock}\n}`
 }
 
-function buildFieldExpression(field: DatabaseSchemaField, table: DatabaseSchemaTable): string | null {
+function buildFieldExpression(
+    field: DatabaseSchemaField,
+    table: DatabaseSchemaTable,
+    options?: { includeForeignKeyExpressions?: boolean }
+): string | null {
+    const includeForeignKeyExpressions = options?.includeForeignKeyExpressions ?? true
     const foreignKey = (table as any)?.schema_metadata?.foreign_keys?.find(
         (candidate: DatabaseSchemaForeignKey) => candidate.column === field.name
     ) as DatabaseSchemaForeignKey | undefined
 
-    const relationName = foreignKey
-        ? foreignKeyFieldName(foreignKey.column)
-        : field.table
-          ? stripTableName(field.table)
-          : null
+    if (foreignKey && !includeForeignKeyExpressions) {
+        return null
+    }
 
     const chainExpression = field.chain?.length
         ? [field.hogql_value || field.name, ...field.chain.map(String)].join('.')
         : null
     const hogqlExpression = field.hogql_value && field.hogql_value !== field.name ? field.hogql_value : null
     const foreignKeyExpression = foreignKey
-        ? `${relationName || foreignKey.column}.${foreignKey.target_column || 'id'}`
+        ? `${foreignKeyFieldName(foreignKey.column) || foreignKey.column}.${foreignKey.target_column || 'id'}`
         : null
 
-    const expression = chainExpression || hogqlExpression || foreignKeyExpression
-
-    if (!expression) {
-        return null
-    }
-
-    if (relationName) {
-        return `(${relationName}) -> { ${expression} }`
-    }
-
-    return `-> { ${expression} }`
+    return (
+        chainExpression || hogqlExpression || foreignKeyExpression || (field.table ? stripTableName(field.table) : null)
+    )
 }
