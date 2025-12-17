@@ -892,11 +892,28 @@ function resolveFieldAndExpression(
             const targetTable = getTableFromDatabase(database, qualifiedTargetTableName)
             const relationExpression = expression ? `${expression}.${relationFieldName}` : relationFieldName
 
-            if (!nextPart || nextPart === foreignKey.target_column || !targetTable) {
+            if (!nextPart || !targetTable) {
                 return {
                     field: foreignKeyField,
                     expression: targetTable ? relationExpression : foreignKeyExpression,
                     table: targetTable || currentTable,
+                }
+            }
+
+            if (nextPart === foreignKey.target_column) {
+                const targetField = targetTable.fields?.[nextPart]
+                if (targetField) {
+                    const { field: resolvedField, table: resolvedTable } = resolveFieldReference(
+                        targetField,
+                        targetTable,
+                        database
+                    )
+
+                    return {
+                        field: resolvedField,
+                        expression: `${relationExpression}.${resolvedField.hogql_value}`,
+                        table: resolvedTable || targetTable,
+                    }
                 }
             }
 
