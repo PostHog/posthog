@@ -55,30 +55,6 @@ INSIGHT_NOT_FOUND_PROMPT = """
 The insight with the ID "{short_id}" was not found or uses an unsupported query type. Please verify the insight ID is correct.
 """.strip()
 
-
-INSIGHT_RESULT_TEMPLATE = """
-Name: {{{insight_name}}}
-Insight ID: {{{insight_id}}}
-{{#description}}
-Description: {{{description}}}
-{{/description}}
-
-{{{results}}}
-""".strip()
-
-INSIGHT_SCHEMA_TEMPLATE = """
-Name: {{{insight_name}}}
-Insight ID: {{{insight_id}}}
-{{#description}}
-Description: {{{description}}}
-{{/description}}
-
-Query definition:
-```json
-{{{query_schema}}}
-```
-""".strip()
-
 DASHBOARD_NOT_FOUND_PROMPT = """
 The dashboard with the ID "{dashboard_id}" was not found. Please verify the dashboard ID is correct.
 """.strip()

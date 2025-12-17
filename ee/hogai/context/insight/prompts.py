@@ -1,3 +1,25 @@
+INSIGHT_RESULT_TEMPLATE = """
+Name: {{{insight_name}}}
+{{#insight_id}}
+Insight ID: {{{insight_id}}}
+{{/insight_id}}
+{{#insight_description}}
+Description: {{{insight_description}}}
+{{/insight_description}}
+{{#query_schema}}
+
+Query schema:
+```json
+{{{query_schema}}}
+```
+{{/query_schema}}
+{{#results}}
+
+{{{results}}}
+{{/results}}
+""".strip()
+
+
 QUERY_RESULTS_PROMPT = """
 Here is the results table of the {{{query_kind}}} created to answer your latest question:
 

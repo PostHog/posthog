@@ -7,9 +7,12 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.models import Team
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
+
+from .prompts import INSIGHT_RESULT_TEMPLATE
 
 
 class InsightContext:
@@ -24,16 +27,13 @@ class InsightContext:
         self,
         team: Team,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
-        name: str,
+        name: str | None = None,
         description: str | None = None,
         insight_id: str | None = None,
         # Optional dashboard filter handling
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
-        # Customizable prompts
-        schema_template: str | None = None,
-        result_template: str | None = None,
     ):
         self.team = team
         self.query = query
@@ -43,47 +43,41 @@ class InsightContext:
         self.dashboard_filters = dashboard_filters
         self.filters_override = filters_override
         self.variables_override = variables_override
-        self.schema_template = schema_template
-        self.result_template = result_template
 
-    async def execute(self, insight_model_id: Optional[int] = None) -> str:
+    async def execute(
+        self, prompt_template: str = INSIGHT_RESULT_TEMPLATE, insight_model_id: Optional[int] = None
+    ) -> str:
         """Execute query and format results."""
-        if not self.result_template:
-            raise ValueError("result_template must be provided to format results")
-
         effective_query = self._get_effective_query()
+        query_schema = effective_query.model_dump_json(exclude_none=True)
 
-        results = await execute_and_format_query(
-            self.team,
-            effective_query,
-            insight_id=insight_model_id,
-        )
+        try:
+            results = await execute_and_format_query(
+                self.team,
+                effective_query,
+                insight_id=insight_model_id,
+            )
+        except Exception as e:
+            raise MaxToolRetryableError(f"Error executing query: {str(e)}")
 
         return format_prompt_string(
-            self.result_template,
-            heading="",
-            name=self.name,
-            description=self.description,
-            query_schema=self.query.model_dump_json(exclude_none=True),
-            query=results,
-            # Legacy fields for backward compatibility
-            insight_name=self.name,
-            insight_id=self.insight_id or "",
+            prompt_template,
+            insight_name=self.name or "Insight",
+            insight_id=self.insight_id,
+            insight_description=self.description,
+            query_schema=query_schema,
             results=results,
         )
 
-    def format_schema(self) -> str:
+    def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
         """Format insight as schema-only (no execution)."""
-        if not self.schema_template:
-            raise ValueError("schema_template must be provided to format schema")
-
-        query_schema = self.query.model_dump_json(exclude_none=True)
+        effective_query = self._get_effective_query()
+        query_schema = effective_query.model_dump_json(exclude_none=True)
         return format_prompt_string(
-            self.schema_template,
+            prompt_template,
             insight_name=self.name,
             insight_id=self.insight_id or "",
-            description=self.description,
-            query_type=getattr(self.query, "kind", "insight"),
+            insight_description=self.description,
             query_schema=query_schema,
         )
 

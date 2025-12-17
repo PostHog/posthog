@@ -27,8 +27,6 @@ from ee.hogai.tools.read_data.prompts import (
     DASHBOARD_NOT_FOUND_PROMPT,
     DASHBOARD_RESULT_TEMPLATE,
     INSIGHT_NOT_FOUND_PROMPT,
-    INSIGHT_RESULT_TEMPLATE,
-    INSIGHT_SCHEMA_TEMPLATE,
     READ_DATA_ARTIFACTS_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
@@ -212,8 +210,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             name=insight_name,
             description=result.content.description,
             insight_id=artifact_or_insight_id,
-            schema_template=INSIGHT_SCHEMA_TEMPLATE,
-            result_template=INSIGHT_RESULT_TEMPLATE,
         )
 
         # The agent wants to read the schema, just return it
@@ -353,7 +349,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     continue
                 query_schema = json.dumps(query, default=str)
                 tile_schema = format_prompt_string(
-                    INSIGHT_SCHEMA_TEMPLATE,
+                    "",  # TODO: replace with a prompt
                     insight_name=insight.name or insight.derived_name or f"Insight {insight.short_id}",
                     insight_id=insight.short_id,
                     description=insight.description,
@@ -420,17 +416,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 name=insight_name,
                 description=insight.description,
                 insight_id=insight.short_id,
-                result_template=INSIGHT_RESULT_TEMPLATE,
             )
 
-            try:
-                return await context.execute(insight_model_id=insight.id)
-            except Exception as e:
-                # Return formatted error message
-                return format_prompt_string(
-                    INSIGHT_RESULT_TEMPLATE,
-                    insight_name=insight_name,
-                    insight_id=insight.short_id,
-                    description=insight.description,
-                    results=f"Error executing query: {e}",
-                )
+            return await context.execute(insight_model_id=insight.id)

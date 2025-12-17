@@ -301,15 +301,19 @@ class AssistantContextManager(AssistantContextMixin):
             context = InsightContext(
                 team=self._team,
                 query=insight.query,
-                name=insight.name or f"ID {insight.id}",
+                name=insight.name,
                 description=insight.description,
+                insight_id=insight.id,
                 dashboard_filters=dashboard_filters,
                 filters_override=filters_override,
                 variables_override=variables_override,
-                result_template=ROOT_INSIGHT_CONTEXT_PROMPT,
             )
-
-            return await context.execute()
+            insight_prompt = await context.execute()
+            return format_prompt_string(
+                ROOT_INSIGHT_CONTEXT_PROMPT,
+                heading=heading,
+                insight_prompt=insight_prompt,
+            )
 
         except Exception as err:
             # Skip insights that fail to run

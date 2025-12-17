@@ -54,7 +54,12 @@ from ee.hogai.context.insight.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
-from ee.hogai.context.insight.prompts import (
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.query import validate_assistant_query
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
+
+from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
     FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
@@ -68,10 +73,6 @@ from ee.hogai.context.insight.prompts import (
     SQL_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.query import validate_assistant_query
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
 logger = structlog.get_logger(__name__)
 
