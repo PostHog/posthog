@@ -155,7 +155,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 15
         name: Determine affected targets
         outputs:
             run_legacy: ${{ steps.determine.outputs.run_legacy }}
