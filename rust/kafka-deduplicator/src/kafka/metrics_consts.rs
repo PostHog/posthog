@@ -64,3 +64,12 @@ pub const BATCH_CONSUMER_BATCH_FILL_RATIO: &str = "kafka_batch_consumer_batch_fi
 /// Measures latency from start of batch collection to batch ready for processing
 pub const BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS: &str =
     "kafka_batch_consumer_batch_collection_duration_ms";
+
+// ==== Partition Worker metrics ====
+/// Counter for partition worker channel backpressure events
+/// Incremented when route_batch has to wait because the worker channel is full
+pub const PARTITION_WORKER_BACKPRESSURE_TOTAL: &str = "kafka_partition_worker_backpressure_total";
+
+/// Histogram for time spent waiting due to partition worker backpressure (in milliseconds)
+pub const PARTITION_WORKER_BACKPRESSURE_WAIT_MS: &str =
+    "kafka_partition_worker_backpressure_wait_ms";

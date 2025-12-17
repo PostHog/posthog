@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::async_trait;
+use futures::future::join_all;
 use tracing::warn;
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
@@ -65,14 +66,26 @@ where
                 .push(message);
         }
 
-        // Route each partition's messages to its worker
-        for (partition, partition_messages) in messages_by_partition {
-            if let Err(e) = self
-                .router
-                .route_batch(partition.clone(), partition_messages)
-                .await
-            {
-                // Log but don't fail the batch - the worker may have been removed during rebalance
+        // Route all partitions concurrently to avoid head-of-line blocking
+        // If one partition's channel is full (backpressure), it won't block other partitions
+        let route_futures: Vec<_> = messages_by_partition
+            .into_iter()
+            .map(|(partition, partition_messages)| {
+                let router = self.router.clone();
+                async move {
+                    let result = router
+                        .route_batch(partition.clone(), partition_messages)
+                        .await;
+                    (partition, result)
+                }
+            })
+            .collect();
+
+        let results = join_all(route_futures).await;
+
+        // Log any failures but don't fail the batch - workers may have been removed during rebalance
+        for (partition, result) in results {
+            if let Err(e) = result {
                 warn!(
                     "Failed to route batch to partition {}:{}: {}",
                     partition.topic(),

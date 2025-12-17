@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use dashmap::DashMap;
@@ -13,6 +14,9 @@ use tracing::info;
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
+use crate::kafka::metrics_consts::{
+    PARTITION_WORKER_BACKPRESSURE_TOTAL, PARTITION_WORKER_BACKPRESSURE_WAIT_MS,
+};
 use crate::kafka::partition_worker::{PartitionBatch, PartitionWorker, PartitionWorkerConfig};
 use crate::kafka::types::Partition;
 
@@ -137,26 +141,52 @@ where
         // Clone the sender and release the DashMap guard before awaiting.
         // This prevents blocking other partitions if this partition's channel
         // is full and backpressures.
-        let sender = self
-            .workers
-            .get(&partition)
-            .ok_or_else(|| {
+        let (sender, channel_capacity) = {
+            let worker = self.workers.get(&partition).ok_or_else(|| {
                 anyhow!(
                     "No worker for partition {}:{} - was it assigned?",
                     partition.topic(),
                     partition.partition_number()
                 )
-            })?
-            .sender();
+            })?;
+            (worker.sender(), worker.capacity())
+        };
         // DashMap guard is now released
 
-        sender.send(batch).await.map_err(|_| {
+        // Track backpressure: if channel is full, we'll wait and measure the wait time
+        let will_backpressure = channel_capacity == 0;
+        let send_start = if will_backpressure {
+            metrics::counter!(
+                PARTITION_WORKER_BACKPRESSURE_TOTAL,
+                "topic" => partition.topic().to_string(),
+                "partition" => partition.partition_number().to_string()
+            )
+            .increment(1);
+            Some(Instant::now())
+        } else {
+            None
+        };
+
+        let result = sender.send(batch).await.map_err(|_| {
             anyhow!(
                 "Failed to send batch to worker for {}:{}: channel closed",
                 partition.topic(),
                 partition.partition_number()
             )
-        })
+        });
+
+        // Record wait time if we experienced backpressure
+        if let Some(start) = send_start {
+            let wait_duration = start.elapsed();
+            metrics::histogram!(
+                PARTITION_WORKER_BACKPRESSURE_WAIT_MS,
+                "topic" => partition.topic().to_string(),
+                "partition" => partition.partition_number().to_string()
+            )
+            .record(wait_duration.as_millis() as f64);
+        }
+
+        result
     }
 
     /// Route multiple batches organized by partition

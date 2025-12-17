@@ -56,8 +56,8 @@ pub struct DeduplicationConfig {
 
 #[derive(Clone)]
 pub struct DuplicateEventProducerWrapper {
-    producer: Arc<FutureProducer<KafkaContext>>,
-    topic: String,
+    pub producer: Arc<FutureProducer<KafkaContext>>,
+    pub topic: String,
 }
 
 impl DuplicateEventProducerWrapper {
@@ -65,31 +65,36 @@ impl DuplicateEventProducerWrapper {
         Ok(Self { producer, topic })
     }
 
-    pub async fn send(
-        &self,
+    /// Send a duplicate event (static version for concurrent execution)
+    ///
+    /// Takes owned values so it can be collected into a Vec of futures and executed with join_all.
+    pub async fn send_static(
+        producer: Arc<FutureProducer<KafkaContext>>,
+        topic: String,
         duplicate_event: DuplicateEvent,
-        kafka_key: &str,
+        kafka_key: String,
         timeout: Duration,
-        metrics: &MetricsHelper,
+        partition_topic: String,
+        partition_number: i32,
     ) -> Result<()> {
         let payload =
             serde_json::to_vec(&duplicate_event).context("Failed to serialize duplicate event")?;
 
-        let delivery_result = self
-            .producer
+        let delivery_result = producer
             .send(
-                FutureRecord::to(&self.topic)
-                    .key(kafka_key)
-                    .payload(&payload),
+                FutureRecord::to(&topic).key(&kafka_key).payload(&payload),
                 Timeout::After(timeout),
             )
             .await;
+
+        let metrics = MetricsHelper::with_partition(&partition_topic, partition_number)
+            .with_label("service", "kafka-deduplicator");
 
         match delivery_result {
             Ok(_) => {
                 metrics
                     .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
-                    .with_label("topic", &self.topic)
+                    .with_label("topic", &topic)
                     .with_label("status", "success")
                     .increment(1);
                 Ok(())
@@ -97,14 +102,11 @@ impl DuplicateEventProducerWrapper {
             Err((e, _)) => {
                 metrics
                     .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
-                    .with_label("topic", &self.topic)
+                    .with_label("topic", &topic)
                     .with_label("status", "failure")
                     .increment(1);
 
-                error!(
-                    "Failed to publish duplicate event to topic {}: {}",
-                    self.topic, e
-                );
+                error!("Failed to publish duplicate event to topic {}: {}", topic, e);
                 Ok(())
             }
         }
@@ -235,63 +237,73 @@ impl BatchDeduplicationProcessor {
             .deduplicate_batch(partition.topic(), partition.partition_number(), events)
             .await?;
 
-        // Process results: emit metrics and publish events
+        // Process results: emit metrics and collect publish futures
+        // We batch all Kafka sends and execute them concurrently for better throughput
+        let mut unique_event_futures = Vec::new();
+        let mut duplicate_event_futures = Vec::new();
+
         for (idx, result) in dedup_results.iter().enumerate() {
             let payload = &payloads[idx];
             let headers = &headers_vec[idx];
             let key = &keys[idx];
 
-            // Emit deduplication result metrics
+            // Emit deduplication result metrics (synchronous, fast)
             self.emit_deduplication_result_metrics(
                 partition.topic(),
                 partition.partition_number(),
                 result,
             );
 
-            // Publish duplicate event if configured
+            // Collect duplicate event publish futures
             if let Some(ref duplicate_producer) = self.duplicate_producer {
                 if self.should_publish_duplicate_event(result) {
                     if let Some(original_event) = result.get_original_event() {
-                        let metrics = MetricsHelper::with_partition(
-                            partition.topic(),
-                            partition.partition_number(),
-                        )
-                        .with_label("service", "kafka-deduplicator");
-
-                        if let Err(e) = self
-                            .publish_duplicate_event(
-                                duplicate_producer,
-                                original_event,
-                                result,
-                                key,
-                                &metrics,
-                            )
-                            .await
-                        {
-                            error!("Failed to publish duplicate event: {}", e);
+                        let duplicate_event = DuplicateEvent::from_result(original_event, result);
+                        if let Some(event) = duplicate_event {
+                            duplicate_event_futures.push(DuplicateEventProducerWrapper::send_static(
+                                duplicate_producer.producer.clone(),
+                                duplicate_producer.topic.clone(),
+                                event,
+                                key.clone(),
+                                self.config.producer_send_timeout,
+                                partition.topic().to_string(),
+                                partition.partition_number(),
+                            ));
                         }
                     }
                 }
             }
 
-            // Publish non-duplicate events to output topic
+            // Collect unique event publish futures
             if !result.is_duplicate() {
                 if let Some(ref producer) = self.producer {
                     if let Some(ref output_topic) = self.config.output_topic {
-                        if let Err(e) = self
-                            .publish_event(
-                                producer,
-                                payload,
-                                headers.as_ref(),
-                                key.to_string(),
-                                output_topic,
-                            )
-                            .await
-                        {
-                            error!("Failed to publish non-duplicate event: {}", e);
-                            return Err(e);
-                        }
+                        unique_event_futures.push(Self::publish_event_static(
+                            producer.clone(),
+                            payload.clone(),
+                            headers.clone(),
+                            key.clone(),
+                            output_topic.clone(),
+                            self.config.producer_send_timeout,
+                        ));
                     }
+                }
+            }
+        }
+
+        // Execute all duplicate event publishes concurrently (fire-and-forget, errors logged inside)
+        if !duplicate_event_futures.is_empty() {
+            join_all(duplicate_event_futures).await;
+        }
+
+        // Execute all unique event publishes concurrently
+        if !unique_event_futures.is_empty() {
+            let results = join_all(unique_event_futures).await;
+            // Check for errors - fail the batch if any unique event fails to publish
+            for result in results {
+                if let Err(e) = result {
+                    error!("Failed to publish non-duplicate event: {}", e);
+                    return Err(e);
                 }
             }
         }
@@ -565,33 +577,6 @@ impl BatchDeduplicationProcessor {
         )
     }
 
-    /// Publish duplicate event to the duplicate events topic
-    async fn publish_duplicate_event(
-        &self,
-        producer_wrapper: &DuplicateEventProducerWrapper,
-        source_event: &RawEvent,
-        deduplication_result: &DeduplicationResult,
-        kafka_key: &str,
-        metrics: &MetricsHelper,
-    ) -> Result<()> {
-        // Create the duplicate event
-        let duplicate_event = match DuplicateEvent::from_result(source_event, deduplication_result)
-        {
-            Some(event) => event,
-            None => return Ok(()), // Couldn't create duplicate event
-        };
-
-        // Send using the wrapper's send method
-        producer_wrapper
-            .send(
-                duplicate_event,
-                kafka_key,
-                self.config.producer_send_timeout,
-                metrics,
-            )
-            .await
-    }
-
     /// Emit metrics for deduplication results
     fn emit_deduplication_result_metrics(
         &self,
@@ -633,25 +618,27 @@ impl BatchDeduplicationProcessor {
         }
     }
 
-    /// Publish event to output topic
-    async fn publish_event(
-        &self,
-        producer: &FutureProducer<KafkaContext>,
-        payload: &[u8],
-        headers: Option<&rdkafka::message::OwnedHeaders>,
+    /// Publish event to output topic (static version for concurrent execution)
+    ///
+    /// Takes owned values so it can be collected into a Vec of futures and executed with join_all.
+    async fn publish_event_static(
+        producer: Arc<FutureProducer<KafkaContext>>,
+        payload: Vec<u8>,
+        headers: Option<rdkafka::message::OwnedHeaders>,
         key: String,
-        output_topic: &str,
+        output_topic: String,
+        timeout: Duration,
     ) -> Result<()> {
-        let mut record = FutureRecord::to(output_topic).key(&key).payload(payload);
+        let mut record = FutureRecord::to(&output_topic)
+            .key(&key)
+            .payload(&payload);
 
-        if let Some(h) = headers {
+        if let Some(ref h) = headers {
             record = record.headers(h.clone());
         }
 
         let send_start = Instant::now();
-        let result = producer
-            .send(record, Timeout::After(self.config.producer_send_timeout))
-            .await;
+        let result = producer.send(record, Timeout::After(timeout)).await;
         let send_duration = send_start.elapsed();
         metrics::histogram!(KAFKA_PRODUCER_SEND_DURATION_MS)
             .record(send_duration.as_millis() as f64);
