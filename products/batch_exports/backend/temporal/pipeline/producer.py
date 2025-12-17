@@ -20,6 +20,9 @@ if typing.TYPE_CHECKING:
 LOGGER = get_write_only_logger(__name__)
 
 
+KEY_ATTEMPT_NUMBER_REGEX = re.compile(r"attempt_(\d+)")
+
+
 class Producer:
     """
     This is an alternative implementation of the `spmc.Producer` class that reads data from the internal S3 staging area.
@@ -92,7 +95,7 @@ class Producer:
         """List the S3 files to read from.
 
         We use the Temporal activity attempt number in the S3 key, in case several attempts are running at the same time
-        (e.g. due to retiees caused by heartbeat timeouts).
+        (e.g. due to retries caused by heartbeat timeouts).
         Therefore, we need to return only the files that correspond to the most recent attempt.
         """
         response = await s3_client.list_objects_v2(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder)
@@ -102,12 +105,12 @@ class Producer:
         # Find the max attempt number from the keys using a regex.
         # The attempt number is present in the key as `attempt_<number>`.
         # If no match found, assume fallback to using all files (for backwards compatibility).
-        matches = [re.search(r"attempt_(\d+)", key) for key in keys]
-        attempt_numbers = [int(match.group(1)) for match in matches if match is not None]
-        if not attempt_numbers:
+        matches = [KEY_ATTEMPT_NUMBER_REGEX.search(key) for key in keys]
+        attempt_numbers = [int(match.group(1)) if match else None for match in matches]
+        if all(attempt_number is None for attempt_number in attempt_numbers):
             self.logger.warning("No attempt numbers found in S3 keys, assuming fallback to using all files")
             return keys, folder
-        max_attempt_number = max(attempt_numbers)
+        max_attempt_number = max(attempt_number for attempt_number in attempt_numbers if attempt_number is not None)
         common_prefix = f"{folder}/attempt_{max_attempt_number}/"
         return [
             key for key, attempt_number in zip(keys, attempt_numbers) if attempt_number == max_attempt_number
