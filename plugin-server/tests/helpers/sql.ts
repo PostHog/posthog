@@ -408,6 +408,7 @@ export async function createUserTeamAndOrganization(
         base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
         session_recording_retention_period: '30d',
+        conversations_enabled: false,
         ...otherTeamOverrides,
     }
 
@@ -564,6 +565,7 @@ export const createTeam = async (
         access_control: false,
         base_currency: 'USD',
         session_recording_retention_period: '30d',
+        conversations_enabled: false,
         ...teamSettings,
     })
     return id
