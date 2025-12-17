@@ -105,7 +105,7 @@ import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -125,7 +125,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading ? (
+            {conversationLoading && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -137,7 +137,37 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 </>
             ) : threadGrouped.length > 0 ? (
                 <>
+                    {}
                     {threadGrouped.map((message, index) => {
+                        // Hide failed AI messages when retrying
+                        if (
+                            threadLoading &&
+                            message.type !== 'human' &&
+                            (message.status === 'error' || message.type === 'ai/failure')
+                        ) {
+                            return null
+                        }
+
+                        // Hide old failed attempts - only show the most recent error for AI messages
+                        if (message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')) {
+                            const hasNewerError = threadGrouped
+                                .slice(index + 1)
+                                .some((m) => m.type !== 'human' && (m.status === 'error' || m.type === 'ai/failure'))
+                            if (hasNewerError) {
+                                return null
+                            }
+                        }
+
+                        // Deduplicate human messages - only show the first occurrence of each unique message
+                        if (message.type === 'human' && 'content' in message) {
+                            const hasSameMessageBefore = threadGrouped
+                                .slice(0, index)
+                                .some((m) => m.type === 'human' && 'content' in m && m.content === message.content)
+                            if (hasSameMessageBefore) {
+                                return null
+                            }
+                        }
+
                         const nextMessage = threadGrouped[index + 1]
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
