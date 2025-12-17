@@ -1498,7 +1498,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
-    FEED = 'feed',
+    PROFILE = 'profile',
     EVENTS = 'events',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
@@ -1511,7 +1511,7 @@ export enum PersonsTabType {
 }
 
 export enum GroupsTabType {
-    FEED = 'feed',
+    PROFILE = 'profile',
     NOTES = 'notes',
     OVERVIEW = 'overview',
 }
