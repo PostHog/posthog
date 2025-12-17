@@ -10,6 +10,8 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
 import { PropertyDefinitionType } from '~/types'
 
+import { sortProperties } from '../utils'
+
 interface PropertiesProps {
     properties: Record<string, any>
     pinnedProperties: string[]
@@ -46,25 +48,7 @@ export function Properties({
             entries = entries.filter(([, value]) => value !== null)
         }
 
-        entries.sort(([aKey], [bKey]) => {
-            const aIsPinned = pinnedProperties.includes(aKey)
-            const bIsPinned = pinnedProperties.includes(bKey)
-
-            if (aIsPinned && !bIsPinned) {
-                return -1
-            }
-            if (!aIsPinned && bIsPinned) {
-                return 1
-            }
-
-            // If both are pinned or both aren't, maintain their relative order
-            // based on the pinnedProperties array order for pinned items
-            if (aIsPinned && bIsPinned) {
-                return pinnedProperties.indexOf(aKey) - pinnedProperties.indexOf(bKey)
-            }
-
-            return aKey.localeCompare(bKey)
-        })
+        entries = sortProperties(entries, pinnedProperties)
 
         return Object.fromEntries(entries)
     }, [properties, searchTerm, hideNullValues, pinnedProperties])

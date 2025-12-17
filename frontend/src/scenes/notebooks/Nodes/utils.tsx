@@ -169,3 +169,25 @@ export const getLogicKey = ({
     const entityKey = personId || groupKey
     return `${tabId}-${entityKey}`
 }
+
+export function sortProperties(entries: [string, any][], pinnedProperties: string[]): [string, any][] {
+    return entries.sort(([aKey], [bKey]) => {
+        const aIsPinned = pinnedProperties.includes(aKey)
+        const bIsPinned = pinnedProperties.includes(bKey)
+
+        if (aIsPinned && !bIsPinned) {
+            return -1
+        }
+        if (!aIsPinned && bIsPinned) {
+            return 1
+        }
+
+        // If both are pinned or both aren't, maintain their relative order
+        // based on the pinnedProperties array order for pinned items
+        if (aIsPinned && bIsPinned) {
+            return pinnedProperties.indexOf(aKey) - pinnedProperties.indexOf(bKey)
+        }
+
+        return aKey.localeCompare(bKey)
+    })
+}
