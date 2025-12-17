@@ -162,6 +162,98 @@ class TestTeamAccessCacheIntegration(TestCase):
         assert cached_data["team_id"] == team.id
         assert "last_updated" in cached_data
 
+    def test_warm_team_token_cache_with_all_access_scope(self):
+        """Test that personal API keys with '*' (all access) scope are included in cache.
+
+        This is a regression test for a bug where keys created with 'all access'
+        (scopes=["*"]) were not being added to the team access cache because
+        the query only checked for feature_flag:read, feature_flag:write, null,
+        or empty scopes.
+        """
+        from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+        from posthog.models.personal_api_key import hash_key_value
+
+        # Create real test data
+        organization = Organization.objects.create(name="Test Organization All Access")
+        team = Team.objects.create(
+            organization=organization,
+            name="Test Team All Access",
+            api_token="phc_test_all_access_123",
+        )
+
+        # Create user with org membership
+        user = User.objects.create(email="user_all_access@test.com", is_active=True)
+        OrganizationMembership.objects.create(organization=organization, user=user)
+
+        # Create personal API key with "*" (all access) scope - this is what the UI creates
+        # when selecting "All access"
+        PersonalAPIKey.objects.create(
+            user=user,
+            label="All Access Key",
+            secure_value=hash_key_value("test_all_access_key"),
+            scopes=["*"],  # All access scope
+        )
+
+        # Warm the cache
+        result = warm_team_token_cache(team.api_token)
+
+        # Verify cache warming succeeded
+        assert result is True, "Cache warming should succeed"
+
+        # Verify cache was populated
+        cached_data = team_access_tokens_hypercache.get_from_cache(team.api_token)
+        assert cached_data is not None, "Cache should be populated"
+
+        hashed_tokens = cached_data["hashed_tokens"]
+        expected_all_access_key = hash_key_value("test_all_access_key", mode="sha256")
+
+        # The key with "*" scope should be in the cache
+        assert (
+            expected_all_access_key in hashed_tokens
+        ), "Personal API key with '*' (all access) scope should be included in cache"
+
+    def test_warm_team_token_cache_with_scoped_all_access(self):
+        """Test that team-scoped personal API keys with '*' scope are included in cache."""
+        from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+        from posthog.models.personal_api_key import hash_key_value
+
+        # Create real test data
+        organization = Organization.objects.create(name="Test Org Scoped All Access")
+        team = Team.objects.create(
+            organization=organization,
+            name="Test Team Scoped All Access",
+            api_token="phc_test_scoped_all_access_123",
+        )
+
+        # Create user with org membership
+        user = User.objects.create(email="user_scoped_all_access@test.com", is_active=True)
+        OrganizationMembership.objects.create(organization=organization, user=user)
+
+        # Create personal API key scoped to specific team with "*" scope
+        PersonalAPIKey.objects.create(
+            user=user,
+            label="Scoped All Access Key",
+            secure_value=hash_key_value("test_scoped_all_access_key"),
+            scopes=["*"],
+            scoped_teams=[team.id],
+        )
+
+        # Warm the cache
+        result = warm_team_token_cache(team.api_token)
+
+        # Verify cache warming succeeded
+        assert result is True, "Cache warming should succeed"
+
+        # Verify cache was populated
+        cached_data = team_access_tokens_hypercache.get_from_cache(team.api_token)
+        assert cached_data is not None, "Cache should be populated"
+
+        hashed_tokens = cached_data["hashed_tokens"]
+        expected_key = hash_key_value("test_scoped_all_access_key", mode="sha256")
+
+        # The team-scoped key with "*" scope should be in the cache
+        assert expected_key in hashed_tokens, "Team-scoped personal API key with '*' scope should be included in cache"
+
     @patch("posthog.models.team.team.Team.objects.get")
     def test_warm_team_token_cache_team_not_found(self, mock_team_get):
         """Test warming cache when team doesn't exist."""
