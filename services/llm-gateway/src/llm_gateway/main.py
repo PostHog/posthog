@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 import asyncpg
+import litellm
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -103,9 +104,6 @@ async def init_redis(url: str | None) -> Redis[bytes] | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
-
-    # Configure LiteLLM with API keys from settings
-    import litellm
 
     if settings.anthropic_api_key:
         litellm.anthropic_key = settings.anthropic_api_key
