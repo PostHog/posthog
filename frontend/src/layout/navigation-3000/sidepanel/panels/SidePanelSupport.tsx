@@ -96,7 +96,8 @@ const StatusPageAlert = (): JSX.Element | null => {
 
 //Support Christmas messaging
 const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
-const SUPPORT_MESSAGE_OVERRIDE_BODY = "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
+const SUPPORT_MESSAGE_OVERRIDE_BODY = 
+    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
 
 // Table shown to free users on Help panel, instead of email button
 // Support response times are pulled dynamically from billing plans (product.features) where available
