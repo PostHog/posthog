@@ -101,7 +101,11 @@ class MessageSerializer(MessageMinimalSerializer):
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
-                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                    {
+                        "content": data["content"],
+                        "ui_context": data.get("ui_context"),
+                        "trace_id": str(data["trace_id"]),
+                    }
                 )
             except pydantic.ValidationError:
                 if settings.DEBUG:

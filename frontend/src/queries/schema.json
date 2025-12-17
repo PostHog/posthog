@@ -16540,6 +16540,9 @@
                 "parent_tool_call_id": {
                     "type": "string"
                 },
+                "trace_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
