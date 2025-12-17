@@ -107,7 +107,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 breakdown_value ASC
             """,
             placeholders={
-                "outer_agg": self._aggregation_operation.get_outer_aggregation(ast.Field(chain=["total"])),
+                "outer_agg": self._aggregation_operation.get_outer_aggregation(
+                    ast.Field(chain=["total"]), is_histogram_breakdown=self.breakdown.is_histogram_breakdown
+                ),
                 "breakdown_select": self._breakdown_outer_query_select(
                     self.breakdown, breakdown_limit=self._get_breakdown_limit() + 1
                 ),
@@ -223,7 +225,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     "breakdown_limit": breakdown_limit_expr,
                     "breakdown_order": self._breakdown_query_order_by(self.breakdown),
                     "all_dates": self._get_date_subqueries(),
-                    "outer_agg": self._aggregation_operation.get_outer_aggregation(ast.Field(chain=["count"])),
+                    "outer_agg": self._aggregation_operation.get_outer_aggregation(
+                        ast.Field(chain=["count"]), is_histogram_breakdown=self.breakdown.is_histogram_breakdown
+                    ),
                     **self.query_date_range.to_placeholders(),
                 },
             )
@@ -369,7 +373,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 FROM {inner_query}
             """,
                 placeholders={
-                    "outer_agg": self._aggregation_operation.get_outer_aggregation(ast.Field(chain=["total"])),
+                    "outer_agg": self._aggregation_operation.get_outer_aggregation(
+                        ast.Field(chain=["total"]), is_histogram_breakdown=self.breakdown.is_histogram_breakdown
+                    ),
                     "inner_query": inner_query,
                 },
             ),

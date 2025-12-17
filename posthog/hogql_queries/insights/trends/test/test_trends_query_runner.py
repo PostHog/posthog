@@ -1750,6 +1750,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_by_breakdown["[2,3.01]"]["data"] == [0, 200.0, 0]
 
+    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_error(self):
+        with pytest.raises(ValueError) as exc_info:
+            self._run_trends_query(
+                "2020-01-11",
+                "2020-01-13",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="agg_prop")],
+                None,
+                BreakdownFilter(
+                    breakdown_type=BreakdownType.EVENT,
+                    breakdown="breakdown_prop",
+                    breakdown_histogram_bin_count=2,
+                ),
+            )
+        assert "is not supported with histogram breakdowns" in str(exc_info.value)
+
     def test_trends_aggregation_hogql(self):
         self._create_test_events()
 
