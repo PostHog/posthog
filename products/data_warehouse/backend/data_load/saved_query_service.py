@@ -16,8 +16,9 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
+    a_pause_schedule,
     create_schedule,
     delete_schedule,
     pause_schedule,
@@ -102,6 +103,11 @@ def delete_saved_query_schedule(schedule_id: str):
 def pause_saved_query_schedule(id: str) -> None:
     temporal = sync_connect()
     pause_schedule(temporal, schedule_id=id)
+
+
+async def a_pause_saved_query_schedule(id: str) -> None:
+    temporal = await async_connect()
+    await a_pause_schedule(temporal, schedule_id=id)
 
 
 def unpause_saved_query_schedule(id: str) -> None:

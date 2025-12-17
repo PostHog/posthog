@@ -322,6 +322,7 @@
     --color-product-heatmaps-light: rgb(220 152 16);
     --color-product-heatmaps-dark: rgb(247 165 1);
     --color-product-logs-light: rgb(214 37 123);
+    --color-product-marketing-analytics-light: rgb(214 37 123);
     --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
@@ -1092,6 +1093,23 @@
     a[data-focused='true'],
     button[data-focused='true'] {
         outline: 2px solid var(--color-accent);
+    }
+
+    .input-like {
+        border-radius: var(--radius);
+        outline: 0 solid transparent;
+        box-shadow: 0 0 0 0 transparent;
+        transition: box-shadow 0.1s ease-in-out;
+
+        & input,
+        & textarea {
+            box-shadow: none;
+        }
+
+        &:not([disabled]):focus-visible,
+        &:not([disabled]):focus-within {
+            box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
+        }
     }
 
     body {

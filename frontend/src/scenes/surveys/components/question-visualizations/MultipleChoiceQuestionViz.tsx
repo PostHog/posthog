@@ -16,6 +16,7 @@ const barColor = CHART_INSIGHTS_COLORS[2]
 
 interface Props {
     responseData: ChoiceQuestionResponseData[]
+    totalResponses: number
 }
 
 interface ProcessedData {
@@ -23,7 +24,7 @@ interface ProcessedData {
     openEndedResponses: ChoiceQuestionResponseData[]
 }
 
-export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element | null {
+export function MultipleChoiceQuestionViz({ responseData, totalResponses }: Props): JSX.Element | null {
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
@@ -79,6 +80,7 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
                                 backgroundColor: barColor,
                                 borderColor: barColor,
                                 hoverBackgroundColor: barColor,
+                                totalResponses,
                             },
                         ]}
                         labels={chartData.map((d) => d.label)}

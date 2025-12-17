@@ -142,7 +142,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 }
 
 export function PlayerController(): JSX.Element {
-    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -181,9 +181,7 @@ export function PlayerController(): JSX.Element {
                             <ClipRecording />
                         </>
                     )}
-                    {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
-                        <PlayerUpNext playlistLogic={playlistLogic} />
-                    ) : undefined}
+                    {ModesWithInteractions.includes(playerMode) ? <PlayerUpNext /> : undefined}
                     {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>

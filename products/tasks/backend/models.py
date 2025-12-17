@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import time
 import uuid
 from typing import Literal, Optional
 
@@ -135,6 +134,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        create_pr: bool = True,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -165,6 +165,7 @@ class Task(DeletedMetaFields, models.Model):
             run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=user_id,
+            create_pr=create_pr,
         )
 
         return task
@@ -287,16 +288,20 @@ class TaskRun(models.Model):
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
 
-    def _get_timestamp_ms(self) -> int:
-        return int(time.time() * 1000)
-
     def emit_console_event(self, level: LogLevel, message: str) -> None:
-        """Emit a console-style log event (debug, info, warn, error)."""
+        """Emit a console-style log event in ACP notification format."""
         event = {
-            "type": "console",
-            "ts": self._get_timestamp_ms(),
-            "level": level,
-            "message": message,
+            "type": "notification",
+            "timestamp": timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/console",
+                "params": {
+                    "sessionId": str(self.id),
+                    "level": level,
+                    "message": message,
+                },
+            },
         }
         self.append_log([event])
 

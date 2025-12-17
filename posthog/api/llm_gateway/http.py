@@ -1,13 +1,19 @@
+import os
 import json
+import time
+import uuid
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from django.conf import settings
 from django.http import StreamingHttpResponse
 
 import litellm
+import posthoganalytics
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -33,6 +39,35 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
+_litellm_configured = False
+
+
+def _serialize_response(obj: Any) -> Any:
+    """Recursively serialize LiteLLM responses, converting Pydantic models to dicts."""
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    if isinstance(obj, dict):
+        return {k: _serialize_response(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize_response(item) for item in obj]
+    return obj
+
+
+# TRICKY: We only want to register the callback on the first request, once the PostHog api key and host are defined.
+def _setup_litellm():
+    global _litellm_configured
+    if _litellm_configured:
+        return
+    try:
+        if posthoganalytics.api_key and posthoganalytics.host:
+            os.environ["POSTHOG_API_KEY"] = posthoganalytics.api_key
+            os.environ["POSTHOG_API_URL"] = posthoganalytics.host
+            litellm.success_callback = ["posthog"]
+            litellm.failure_callback = ["posthog"]
+            _litellm_configured = True
+    except Exception:
+        pass
+
 
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -42,6 +77,57 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def get_throttles(self):
         return [LLMGatewayBurstRateThrottle(), LLMGatewaySustainedRateThrottle()]
+
+    def _capture_anthropic_generation(
+        self,
+        request: Request,
+        response: dict[str, Any] | None,
+        input_messages: list[dict[str, Any]],
+        model: str,
+        latency_ms: float,
+        trace_id: str | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """Capture an LLM generation event to PostHog following the LLM Analytics spec."""
+        try:
+            distinct_id = str(request.user.distinct_id) if request.user.is_authenticated else str(uuid.uuid4())
+            span_id = str(uuid.uuid4())
+
+            properties: dict[str, Any] = {
+                "$ai_model": response.get("model", model) if response else model,
+                "$ai_input": input_messages,
+                "$ai_latency": latency_ms / 1000.0,
+                "$ai_trace_id": trace_id or str(uuid.uuid4()),
+                "$ai_span_id": span_id,
+                "$ai_http_status": 200 if not error else getattr(error, "status_code", 500),
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "ai_product": "llm_gateway",
+            }
+
+            if response:
+                usage = response.get("usage", {})
+                properties["$ai_input_tokens"] = usage.get("input_tokens", 0)
+                properties["$ai_output_tokens"] = usage.get("output_tokens", 0)
+                content = response.get("content", [])
+                role = response.get("role", "assistant")
+                properties["$ai_output_choices"] = [
+                    {"role": role, "content": block.get("text", str(block)) if isinstance(block, dict) else str(block)}
+                    for block in content
+                ]
+
+            if error:
+                properties["$ai_is_error"] = True
+                properties["$ai_error"] = getattr(error, "message", str(error))
+
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties=properties,
+                groups={"organization": str(self.organization.id), "project": str(self.team.id)},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to capture LLM generation event: {e}")
 
     async def _anthropic_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
         response = await litellm.anthropic_messages(**data)
@@ -113,6 +199,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=["task:write"])
     def anthropic_messages(self, request: Request, *args, **kwargs):
+        _setup_litellm()
         serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
         if not serializer.is_valid():
@@ -124,15 +211,38 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = dict(serializer.validated_data)
         is_streaming = data.get("stream", False)
 
+        trace_id = request.data.get("metadata", {}).get(
+            "user_id"
+        )  # Claude Code passes a user_id in the metadata which is a concatenation of the user_id and the session_id
+
+        data["metadata"] = {
+            "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
+            "team_id": str(self.team.id),
+            "organization_id": str(self.organization.id),
+            "ai_product": "llm_gateway",
+            **{
+                "trace_id": trace_id,
+            },
+        }
+
+        model = data.get("model", "")
+        input_messages = data.get("messages", [])
+
         if is_streaming:
             sse_stream = self._format_as_sse(self._anthropic_stream(data), request)
             return self._create_streaming_response(sse_stream)
         else:
+            start_time = time.perf_counter()
+            response_data = None
+            error = None
+
             try:
                 response = asyncio.run(litellm.anthropic_messages(**data))
-                response_dict = response.model_dump() if hasattr(response, "model_dump") else response
-                return Response(response_dict)
+                response_data = response.model_dump() if hasattr(response, "model_dump") else response
+                response_data = _serialize_response(response_data)
+                return Response(response_data)
             except Exception as e:
+                error = e
                 logger.exception(f"Error in Anthropic messages endpoint: {e}")
                 error_response = {
                     "error": {
@@ -143,6 +253,17 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 }
                 status_code = getattr(e, "status_code", 500)
                 return Response(error_response, status=status_code)
+            finally:
+                latency_ms = (time.perf_counter() - start_time) * 1000
+                self._capture_anthropic_generation(
+                    request=request,
+                    response=response_data,
+                    input_messages=input_messages,
+                    model=model,
+                    latency_ms=latency_ms,
+                    trace_id=trace_id,
+                    error=error,
+                )
 
     @extend_schema(
         summary="OpenAI Chat Completions API",
@@ -186,6 +307,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["task:write"],
     )
     def chat_completions(self, request: Request, *args, **kwargs):
+        _setup_litellm()
         serializer = ChatCompletionRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -196,13 +318,21 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = dict(serializer.validated_data)
         is_streaming = data.get("stream", False)
 
+        data["metadata"] = {
+            "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
+            "team_id": str(self.team.id),
+            "ai_product": "llm_gateway",
+            "organization_id": str(self.organization.id),
+        }
+
         if is_streaming:
             sse_stream = self._format_as_sse(self._openai_stream(data), request)
             return self._create_streaming_response(sse_stream)
         else:
             try:
-                response = asyncio.run(litellm.acompletion(**data))
+                response = litellm.completion(**data)
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
+                response_dict = _serialize_response(response_dict)
                 return Response(response_dict)
             except Exception as e:
                 logger.exception(f"Error in chat completions endpoint: {e}")

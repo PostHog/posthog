@@ -15,13 +15,19 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
-from posthog.schema import AgentMode, AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
+from posthog.schema import (
+    AgentMode,
+    AssistantMessage,
+    AssistantTool,
+    AssistantToolCallMessage,
+    ContextMessage,
+    HumanMessage,
+)
 
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.prompts import CONTEXT_INITIAL_MODE_PROMPT
 from ee.hogai.core.agent_modes.prompts import ROOT_AGENT_MODE_REMINDER_PROMPT
-from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.types import AssistantMessageUnion
 
@@ -98,6 +104,13 @@ class ConversationCompactionManager(ABC):
         """
         # Avoid summarizing the conversation if there is only two human messages.
         human_messages = [message for message in messages if isinstance(message, LangchainHumanMessage)]
+        if tools:
+            # Filter out server-side tools for token counting purposes
+            tools = [
+                tool
+                for tool in tools
+                if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
+            ]
         if len(human_messages) <= 2:
             tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
             return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
@@ -346,7 +359,7 @@ class ConversationCompactionManager(ABC):
         for message in messages:
             if isinstance(message, AssistantMessage) and message.tool_calls:
                 for tool_call in message.tool_calls:
-                    if tool_call.name == SWITCH_MODE_TOOL_NAME:
+                    if tool_call.name == AssistantTool.SWITCH_MODE:
                         return True
         return False
 

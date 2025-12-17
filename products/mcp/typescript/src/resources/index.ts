@@ -33,18 +33,23 @@ async function fetchDocumentation(url: string): Promise<string> {
  * This ZIP contains both example projects and LLM prompts
  *
  * For local testing, set POSTHOG_MCP_LOCAL_EXAMPLES_URL to a local HTTP URL
+ * When using a local URL override, caching is disabled for development workflow
  */
 async function fetchExamplesMarkdown(context: Context): Promise<Unzipped> {
-    if (cachedExamplesMarkdown) {
+    // Check for local URL override in environment (for testing)
+    // @ts-expect-error - env might have this property
+    const localUrlRaw = context.env?.POSTHOG_MCP_LOCAL_EXAMPLES_URL
+    // Treat empty string as undefined to avoid issues with default values
+    const localUrl = localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
+    const url = localUrl || EXAMPLES_MARKDOWN_URL
+
+    // If using local URL override, skip cache to enable hot-reloading during development
+    // Otherwise, use cache for production
+    if (cachedExamplesMarkdown && !localUrl) {
         return cachedExamplesMarkdown
     }
 
-    // Check for local URL override in environment (for testing)
-    // @ts-expect-error - env might have this property
-    const localUrl = context.env?.POSTHOG_MCP_LOCAL_EXAMPLES_URL
-    const url = localUrl || EXAMPLES_MARKDOWN_URL
-
-    const response = await fetch(url)
+    const response = await fetch(url, localUrl ? { cache: 'no-store' } : {})
 
     if (!response.ok) {
         throw new Error(`Failed to fetch examples markdown from ${url}: ${response.statusText}`)
@@ -52,9 +57,14 @@ async function fetchExamplesMarkdown(context: Context): Promise<Unzipped> {
 
     const arrayBuffer = await response.arrayBuffer()
     const uint8Array = new Uint8Array(arrayBuffer)
-    cachedExamplesMarkdown = unzipSync(uint8Array)
+    const unzipped = unzipSync(uint8Array)
 
-    return cachedExamplesMarkdown
+    // Only cache if not using local URL override
+    if (!localUrl) {
+        cachedExamplesMarkdown = unzipped
+    }
+
+    return unzipped
 }
 
 /**
