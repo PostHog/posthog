@@ -2,6 +2,7 @@ from typing import Literal, Self, Union
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
+from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, create_model
 
 from posthog.schema import ArtifactContentType, AssistantToolCallMessage
@@ -352,7 +353,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
                 try:
                     query = validate_assistant_query(query)
-                except Exception:
+                except Exception as e:
+                    capture_exception(
+                        e, distinct_id=self._user.distinct_id, properties=self._get_debug_props(self._config)
+                    )
                     continue
 
             insight_name = insight.name or insight.derived_name or f"Insight {insight.short_id}"
