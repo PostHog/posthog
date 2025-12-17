@@ -20,7 +20,7 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
@@ -122,8 +122,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if "include_forecasting" in request.query_params:
             query["include_forecasting"] = request.query_params.get("include_forecasting")
         response = billing_manager.get_billing(org, query)
-
-        from posthog.models import OrganizationIntegration
 
         vercel_integration = OrganizationIntegration.objects.filter(
             organization=org,
