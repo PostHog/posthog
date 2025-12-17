@@ -23,6 +23,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
 import {
     RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsMRRNode,
@@ -37,6 +38,8 @@ import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdow
 import {
     isDataTableNode,
     isDataVisualizationNode,
+    isEndpointsUsageOverviewQuery,
+    isEndpointsUsageTrendsQuery,
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
@@ -218,6 +221,24 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (
             <RevenueAnalyticsTopCustomersNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isEndpointsUsageOverviewQuery(query)) {
+        component = (
+            <EndpointsUsageOverviewNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isEndpointsUsageTrendsQuery(query)) {
+        component = (
+            <EndpointsUsageTrendsNode
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}

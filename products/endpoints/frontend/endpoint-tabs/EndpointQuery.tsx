@@ -14,8 +14,8 @@ import { Query } from '~/queries/Query/Query'
 import { HogQLQuery, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
-import { endpointLogic } from './endpointLogic'
-import { endpointSceneLogic } from './endpointSceneLogic'
+import { endpointLogic } from '../endpointLogic'
+import { endpointSceneLogic } from '../endpointSceneLogic'
 
 function formatVariableValue(variable: HogQLVariable): { text: string; isPlaceholder: boolean } {
     if (variable.value === undefined || variable.value === null || variable.value === '') {

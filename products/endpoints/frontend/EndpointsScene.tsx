@@ -9,7 +9,6 @@ import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -23,20 +22,19 @@ import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsLogic } from './endpointsLogic'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
-import { MAX_AI_ENDPOINT_OPERATION, captureMaxAIEndpointException } from './utils'
 
 const ENDPOINTS_PRODUCT_DESCRIPTION =
     'Create reusable SQL queries and expose them as API endpoints. Query your data programmatically from any application. Note: Endpoints is in beta - features and APIs may change.'
-const ENDPOINTS_API_USAGE_PRODUCT_DESCRIPTION =
-    'Monitor API request volume, response times, and costs for your endpoints. Track which endpoints are most used and identify performance issues.'
+const ENDPOINTS_USAGE_PRODUCT_DESCRIPTION =
+    'Monitor endpoint execution metrics including bytes read, CPU usage, and query duration. Compare materialized vs inline executions.'
 
 export const scene: SceneExport = {
     component: EndpointsScene,
-    logic: endpointsUsageLogic,
+    logic: endpointsLogic,
 }
 
 export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
-    const { activeTab } = useValues(endpointsUsageLogic({ tabId: tabId || '' }))
+    const { activeTab } = useValues(endpointsLogic({ tabId: tabId || '' }))
 
     const tabs: LemonTab<string>[] = [
         {
@@ -53,28 +51,9 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
         },
     ]
     return (
-        <MaxTool
-            identifier="create_endpoint"
-            context={{}}
-            callback={(toolOutput: { endpoint_name?: string; url?: string; error?: string }) => {
-                if (toolOutput?.error) {
-                    captureMaxAIEndpointException(
-                        toolOutput.error,
-                        MAX_AI_ENDPOINT_OPERATION.CREATE,
-                        toolOutput.endpoint_name
-                    )
-                } else if (toolOutput?.url) {
-                    router.actions.push(toolOutput.url)
-                }
-            }}
-            suggestions={[
-                'Create an endpoint for daily active users',
-                'Make an endpoint that counts signups by country',
-                'Create an endpoint for top pages by pageviews',
-            ]}
-        >
-            <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
-                <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
+        <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
+            <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
+                <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageLogic', tabId: tabId || '' }}>
                     <SceneContent>
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.EndpointsScene].name}
@@ -119,9 +98,9 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             productKey={ProductKey.ENDPOINTS}
                             thingName="endpoint"
                             description={
-                                activeTab === 'endpoints'
-                                    ? ENDPOINTS_PRODUCT_DESCRIPTION
-                                    : ENDPOINTS_API_USAGE_PRODUCT_DESCRIPTION
+                                activeTab === 'usage'
+                                    ? ENDPOINTS_USAGE_PRODUCT_DESCRIPTION
+                                    : ENDPOINTS_PRODUCT_DESCRIPTION
                             }
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
@@ -136,6 +115,6 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                     </SceneContent>
                 </BindLogic>
             </BindLogic>
-        </MaxTool>
+        </BindLogic>
     )
 }
