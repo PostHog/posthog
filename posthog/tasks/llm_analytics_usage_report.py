@@ -65,15 +65,13 @@ class TeamMetrics:
 
     # Cost metrics
     total_cost: float = 0.0
+    total_cost_count: int = 0
+    total_cost_negative_count: int = 0
+    total_cost_zero_count: int = 0
     input_cost: float = 0.0
     output_cost: float = 0.0
     request_cost: float = 0.0
     web_search_cost: float = 0.0
-
-    # Cost anomaly counts
-    total_cost_count: int = 0
-    total_cost_negative_count: int = 0
-    total_cost_zero_count: int = 0
 
     # Token metrics
     prompt_tokens: int = 0
