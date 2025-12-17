@@ -709,7 +709,6 @@ class BigQueryClient:
 
         Ensures we retry on transient ``TooManyRequests`` errors.
         """
-        max_attempts = 10
         initial_retry = 1
         backoff_factor = 2
         max_retry = 32
@@ -732,9 +731,6 @@ class BigQueryClient:
                     "LoadJob rate limit exceeded",
                     attempt=attempt,
                 )
-                if attempt >= max_attempts:
-                    raise
-
                 time.sleep(min(max_retry, initial_retry * (backoff_factor**attempt)))
                 attempt += 1
             else:
