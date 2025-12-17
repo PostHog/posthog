@@ -408,6 +408,13 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
     default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
 
+    // Conversations config
+    conversations_enabled: createBooleanToggleHandler('conversations'),
+    conversations_greeting_text: createSimpleValueHandler('conversations greeting text'),
+    conversations_color: createSimpleValueHandler('conversations widget color'),
+    conversations_public_token: createApiTokenHandler('conversations public token', 'set', 'reset'),
+    conversations_widget_domains: createArrayChangeHandler('conversations widget domains'),
+
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
     autocapture_exceptions_opt_in: createBooleanToggleHandler('exception autocapture'),

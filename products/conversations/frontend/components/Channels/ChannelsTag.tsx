@@ -3,7 +3,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
 
-import type { TicketChannel } from '../../data/tickets'
+import type { TicketChannel } from '../../types'
 
 const channelIcon: Record<TicketChannel, JSX.Element> = {
     widget: <IconComment />,
