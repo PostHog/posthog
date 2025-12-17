@@ -7,7 +7,6 @@ from rest_framework import status
 
 from products.llm_analytics.backend.translation.constants import (
     DEFAULT_TARGET_LANGUAGE,
-    LLM_ANALYTICS_TRANSLATION,
     SUPPORTED_LANGUAGES,
     TRANSLATION_MODEL,
 )
@@ -19,11 +18,9 @@ class TestTranslateAPI(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/translate")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("openai.OpenAI")
-    def test_successful_translation(self, mock_openai_class, mock_settings, mock_feature_enabled):
-        mock_settings.DEBUG = False
+    def test_successful_translation(self, mock_openai_class, mock_settings):
         mock_settings.OPENAI_API_KEY = "test-key"
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -41,11 +38,9 @@ class TestTranslateAPI(APIBaseTest):
         assert response.data["translation"] == "Hola mundo"
         assert response.data["provider"] == "openai"
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("openai.OpenAI")
-    def test_translation_uses_correct_model(self, mock_openai_class, mock_settings, mock_feature_enabled):
-        mock_settings.DEBUG = False
+    def test_translation_uses_correct_model(self, mock_openai_class, mock_settings):
         mock_settings.OPENAI_API_KEY = "test-key"
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -64,13 +59,9 @@ class TestTranslateAPI(APIBaseTest):
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == TRANSLATION_MODEL
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("openai.OpenAI")
-    def test_translation_uses_default_language_when_not_specified(
-        self, mock_openai_class, mock_settings, mock_feature_enabled
-    ):
-        mock_settings.DEBUG = False
+    def test_translation_uses_default_language_when_not_specified(self, mock_openai_class, mock_settings):
         mock_settings.OPENAI_API_KEY = "test-key"
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -90,12 +81,10 @@ class TestTranslateAPI(APIBaseTest):
         target_name = SUPPORTED_LANGUAGES.get(DEFAULT_TARGET_LANGUAGE, DEFAULT_TARGET_LANGUAGE)
         assert target_name in call_kwargs["messages"][0]["content"]
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
-    def test_translation_fails_without_openai_key(self, mock_settings, mock_feature_enabled):
+    def test_translation_fails_without_openai_key(self, mock_settings):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_settings.DEBUG = False
         mock_settings.OPENAI_API_KEY = None
 
         response = self.client.post(
@@ -107,8 +96,7 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "not configured" in response.data["detail"]
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
-    def test_translation_validates_text_max_length(self, mock_feature_enabled):
+    def test_translation_validates_text_max_length(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         long_text = "a" * 10001
@@ -122,8 +110,7 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data["attr"] == "text"
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
-    def test_translation_requires_text(self, mock_feature_enabled):
+    def test_translation_requires_text(self):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         response = self.client.post(
@@ -135,11 +122,9 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data["attr"] == "text"
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("openai.OpenAI")
-    def test_translation_handles_openai_error(self, mock_openai_class, mock_settings, mock_feature_enabled):
-        mock_settings.DEBUG = False
+    def test_translation_handles_openai_error(self, mock_openai_class, mock_settings):
         mock_settings.OPENAI_API_KEY = "test-key"
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -154,11 +139,9 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data["detail"] == "Translation failed due to an internal error."
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("openai.OpenAI")
-    def test_translation_preserves_formatting(self, mock_openai_class, mock_settings, mock_feature_enabled):
-        mock_settings.DEBUG = False
+    def test_translation_preserves_formatting(self, mock_openai_class, mock_settings):
         mock_settings.OPENAI_API_KEY = "test-key"
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -178,11 +161,9 @@ class TestTranslateAPI(APIBaseTest):
         system_content = call_kwargs["messages"][0]["content"]
         assert "Preserve formatting" in system_content
 
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.llm_analytics.backend.api.translate.settings")
     @patch("openai.OpenAI")
-    def test_translation_handles_empty_response(self, mock_openai_class, mock_settings, mock_feature_enabled):
-        mock_settings.DEBUG = False
+    def test_translation_handles_empty_response(self, mock_openai_class, mock_settings):
         mock_settings.OPENAI_API_KEY = "test-key"
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -199,29 +180,7 @@ class TestTranslateAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["translation"] == ""
 
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled")
-    def test_translation_denied_when_feature_flag_disabled(self, mock_feature_enabled, mock_settings):
-        mock_settings.DEBUG = False
-        mock_feature_enabled.return_value = False
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/translate",
-            {"text": "Hello world", "target_language": "es"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert mock_feature_enabled.call_count == 2
-        call_kwargs = mock_feature_enabled.call_args_list[0][1]
-        assert call_kwargs["only_evaluate_locally"] is False
-        assert call_kwargs["send_feature_flag_events"] is False
-
-    @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled")
-    def test_translation_denied_when_ai_consent_not_approved(self, mock_feature_enabled, mock_settings):
-        mock_settings.DEBUG = False
-        mock_feature_enabled.return_value = True
+    def test_translation_denied_when_ai_consent_not_approved(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
@@ -236,13 +195,8 @@ class TestTranslateAPI(APIBaseTest):
 
     @patch("openai.OpenAI")
     @patch("products.llm_analytics.backend.api.translate.settings")
-    @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled")
-    def test_translation_allowed_when_feature_flag_enabled_and_ai_consent_approved(
-        self, mock_feature_enabled, mock_settings, mock_openai_class
-    ):
-        mock_settings.DEBUG = False
+    def test_translation_allowed_when_ai_consent_approved(self, mock_settings, mock_openai_class):
         mock_settings.OPENAI_API_KEY = "test-key"
-        mock_feature_enabled.return_value = True
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_response = MagicMock()
@@ -256,8 +210,3 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert mock_feature_enabled.call_count == 1
-        call_args = mock_feature_enabled.call_args
-        assert call_args[0][0] == LLM_ANALYTICS_TRANSLATION
-        assert call_args[1]["only_evaluate_locally"] is False
-        assert call_args[1]["send_feature_flag_events"] is False

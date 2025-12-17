@@ -136,7 +136,8 @@ export function isInitialProperty(propertyName: string): boolean {
     return INITIAL_PROPERTIES.has(propertyName)
 }
 
-export const eventToPersonProperties = new Set([...EVENT_TO_PERSON_PROPERTIES])
+export const eventToPersonProperties = new Set([...EVENT_TO_PERSON_PROPERTIES, ...CAMPAIGN_PROPERTIES])
+
 export const initialCampaignParams = new Set(
     Array.from(CAMPAIGN_PROPERTIES, (key) => `$initial_${key.replace('$', '')}`)
 )

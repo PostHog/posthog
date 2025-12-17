@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconMagicWand, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck, IconMagicWand, IconMessage, IconPlus, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -47,6 +47,7 @@ export function ProductToursEditingBar(): JSX.Element | null {
         generateWithAI,
         setTourFormValue,
         addModalStep,
+        addSurveyStep,
     } = useActions(productToursLogic)
 
     const themeProps = { theme } as { theme?: string }
@@ -180,16 +181,30 @@ export function ProductToursEditingBar(): JSX.Element | null {
                         </div>
                     )
                 })}
-                <Tooltip title="Add modal step (not attached to element)">
+                <LemonMenu
+                    items={[
+                        {
+                            icon: <IconMessage />,
+                            label: 'Add modal step',
+                            onClick: () => addModalStep(),
+                        },
+                        {
+                            icon: <IconQuestion />,
+                            label: 'Add survey step',
+                            onClick: () => addSurveyStep(),
+                        },
+                    ]}
+                    placement="bottom"
+                    className="min-w-48"
+                >
                     <button
                         type="button"
-                        onClick={() => addModalStep()}
                         disabled={aiGenerating}
                         className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-50 ml-1"
                     >
                         <IconPlus className="w-3 h-3" />
                     </button>
-                </Tooltip>
+                </LemonMenu>
             </div>
 
             {/* Right: Actions */}
