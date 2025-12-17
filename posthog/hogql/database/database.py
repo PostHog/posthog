@@ -1136,6 +1136,8 @@ class Database(BaseModel):
 
             direct_query_schemas = _get_direct_query_schema_info(team)
 
+            direct_query_tables: list[tuple[PostgresTable, DirectQuerySchemaInfo]] = []
+
             for dq_schema in direct_query_schemas:
                 try:
                     source_type = dq_schema.source_type
@@ -1189,7 +1191,7 @@ class Database(BaseModel):
                         fields=fields,
                     )
 
-                    _add_foreign_key_lazy_joins(pg_table, dq_schema, database)
+                    direct_query_tables.append((pg_table, dq_schema))
 
                     # Add to warehouse tables using dot notation chain
                     table_chain = table_key.split(".")
@@ -1197,6 +1199,9 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
                     continue
+
+            for pg_table, dq_schema in direct_query_tables:
+                _add_foreign_key_lazy_joins(pg_table, dq_schema, database)
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
