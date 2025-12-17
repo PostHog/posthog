@@ -20,40 +20,42 @@ function LinkedFlagSelector(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <IngestionControls.FlagTrigger
-            logicKey="session-recording-linked-flag"
-            flag={currentTeam?.session_recording_linked_flag ?? null}
-            onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
-        >
-            <div className="flex flex-col deprecated-space-y-2 mt-2">
-                <div className="flex justify-between">
-                    <LemonLabel className="text-base">
-                        {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable recordings
-                        using feature flag
-                        <Since
-                            web={{ version: '1.110.0' }}
-                            ios={{ version: '3.11.0' }}
-                            android={{ version: '3.11.0' }}
-                            reactNative={{ version: '3.6.3' }}
-                            flutter={{ version: '4.7.0' }}
-                        />
-                    </LemonLabel>
-                    <IngestionControls.FlagSelector />
-                </div>
+        <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
+            <IngestionControls.FlagTrigger
+                logicKey="session-recording-linked-flag"
+                flag={currentTeam?.session_recording_linked_flag ?? null}
+                onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
+            >
+                <div className="flex flex-col deprecated-space-y-2 mt-2">
+                    <div className="flex justify-between">
+                        <LemonLabel className="text-base">
+                            {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
+                            recordings using feature flag
+                            <Since
+                                web={{ version: '1.110.0' }}
+                                ios={{ version: '3.11.0' }}
+                                android={{ version: '3.11.0' }}
+                                reactNative={{ version: '3.6.3' }}
+                                flutter={{ version: '4.7.0' }}
+                            />
+                        </LemonLabel>
+                        <IngestionControls.FlagSelector />
+                    </div>
 
-                <p>
-                    Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
-                </p>
-                <IngestionControls.FlagVariantSelector
-                    tooltip={
-                        <>
-                            <p>Record for "any" variant, or only for a specific variant.</p>
-                            <p>Variant targeting requires posthog-js v1.110.0+</p>
-                        </>
-                    }
-                />
-            </div>
-        </IngestionControls.FlagTrigger>
+                    <p>
+                        Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
+                    </p>
+                    <IngestionControls.FlagVariantSelector
+                        tooltip={
+                            <>
+                                <p>Record for "any" variant, or only for a specific variant.</p>
+                                <p>Variant targeting requires posthog-js v1.110.0+</p>
+                            </>
+                        }
+                    />
+                </div>
+            </IngestionControls.FlagTrigger>
+        </PayGateMini>
     )
 }
 
@@ -173,7 +175,7 @@ function Sampling(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <>
+        <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-row justify-between mt-2">
                 <LemonLabel className="text-base">
                     <IngestionControls.MatchTypeTag /> Sampling <Since web={{ version: '1.85.0' }} />
@@ -188,7 +190,7 @@ function Sampling(): JSX.Element {
                 />
             </div>
             <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
-        </>
+        </PayGateMini>
     )
 }
 
@@ -246,12 +248,8 @@ export function ReplayTriggers(): JSX.Element {
                         <LemonDivider />
                         <UrlTriggerOptions />
                         <EventTriggerOptions />
-                        <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
-                            <LinkedFlagSelector />
-                        </PayGateMini>
-                        <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-                            <Sampling />
-                        </PayGateMini>
+                        <LinkedFlagSelector />
+                        <Sampling />
                     </div>
                     <MinimumDurationSetting />
                     <LemonDivider />
@@ -267,9 +265,7 @@ export function ReplayTriggers(): JSX.Element {
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
-                    <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
-                        <LinkedFlagSelector />
-                    </PayGateMini>
+                    <LinkedFlagSelector />
                 </div>
             ),
         },
