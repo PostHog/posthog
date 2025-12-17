@@ -41,6 +41,7 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.surveys.survey import Survey
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
@@ -905,6 +906,11 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # Get survey IDs that are linked to product tours (these are free and shouldn't be billed)
+    product_tour_survey_ids = list(
+        Survey.objects.filter(product_tour__isnull=False).values_list("id", flat=True).distinct()
+    )
+
     # Construct the subquery for unique event UUIDs
     unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
         base_conditions_sql=[
@@ -916,6 +922,11 @@ def get_teams_with_survey_responses_count_in_period(
         ],
     )
 
+    # Build exclusion clause for product tour surveys
+    product_tour_exclusion = ""
+    if product_tour_survey_ids:
+        product_tour_exclusion = "AND JSONExtractString(properties, '$survey_id') NOT IN %(product_tour_survey_ids)s"
+
     query = f"""
         SELECT
             team_id,
@@ -925,12 +936,17 @@ def get_teams_with_survey_responses_count_in_period(
             event = 'survey sent'
             AND timestamp >= %(begin)s AND timestamp < %(end)s
             AND uuid IN {unique_uuids_subquery}
+            {product_tour_exclusion}
         GROUP BY team_id
     """
 
+    params: dict[str, Any] = {"begin": begin, "end": end}
+    if product_tour_survey_ids:
+        params["product_tour_survey_ids"] = [str(sid) for sid in product_tour_survey_ids]
+
     results = sync_execute(
         query,
-        {"begin": begin, "end": end},
+        params,
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
