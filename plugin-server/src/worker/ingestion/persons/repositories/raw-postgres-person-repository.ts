@@ -37,7 +37,8 @@ export interface RawPostgresPersonRepository {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient,
         forcedId?: number
     ): Promise<CreatePersonResult>

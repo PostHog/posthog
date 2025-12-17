@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-11 10:03:47 UTC
+// Generated at: 2025-12-16 20:02:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -46,6 +46,7 @@ export type CanonicalProvider =
     | 'fireworks-fp16'
     | 'fireworks-fp8'
     | 'friendli'
+    | 'gmicloud-bf16'
     | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'gmicloud-int4'
@@ -89,6 +90,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita-bf16'
     | 'novita-fp16'
+    | 'novita-fp4'
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
@@ -126,5 +128,6 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xai-fast'
+    | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

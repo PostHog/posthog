@@ -5,11 +5,14 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
-import { EventHeaders, Hub, Person, PipelineEvent, PreIngestionEvent, Team } from '../../../types'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { EventHeaders, Person, PipelineEvent, PreIngestionEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { TeamManager } from '../../../utils/team-manager'
+import { GroupTypeManager } from '../group-type-manager'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
 import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
@@ -48,6 +51,18 @@ export type EventPipelineHeatmapResult = RunnerResult<{
 
 export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
 
+export interface EventPipelineRunnerOptions {
+    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    PERSON_MERGE_ASYNC_TOPIC: string
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
+    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+    PERSON_PROPERTIES_UPDATE_ALL: boolean
+}
+
 class StepErrorNoRetry extends Error {
     step: string
     args: any[]
@@ -58,31 +73,31 @@ class StepErrorNoRetry extends Error {
     }
 }
 export class EventPipelineRunner {
-    hub: Hub
-    originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
-    hogTransformer: HogTransformerService | null
-    personsStore: PersonsStore
-    groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
-    headers?: EventHeaders
 
     constructor(
-        hub: Hub,
-        event: PipelineEvent,
-        hogTransformer: HogTransformerService | null = null,
-        personsStore: PersonsStore,
-        groupStoreForBatch: GroupStoreForBatch,
-        headers?: EventHeaders
+        private options: EventPipelineRunnerOptions,
+        private kafkaProducer: KafkaProducerWrapper,
+        teamManager: TeamManager,
+        groupTypeManager: GroupTypeManager,
+        private originalEvent: PipelineEvent,
+        private hogTransformer: HogTransformerService | null = null,
+        private personsStore: PersonsStore,
+        private groupStoreForBatch: GroupStoreForBatch,
+        private headers?: EventHeaders
     ) {
-        this.hub = hub
-        this.originalEvent = event
-        this.eventsProcessor = new EventsProcessor(hub)
-        this.hogTransformer = hogTransformer
-        this.personsStore = personsStore
-        this.groupStoreForBatch = groupStoreForBatch
-        this.mergeMode = determineMergeMode(hub)
-        this.headers = headers
+        this.eventsProcessor = new EventsProcessor(
+            teamManager,
+            groupTypeManager,
+            options.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
+        )
+        this.mergeMode = determineMergeMode(
+            options.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+            options.PERSON_MERGE_ASYNC_ENABLED,
+            options.PERSON_MERGE_ASYNC_TOPIC,
+            options.PERSON_MERGE_SYNC_BATCH_SIZE
+        )
     }
 
     /**
@@ -103,7 +118,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this, normalizedEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, normalizedEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,
@@ -189,7 +204,7 @@ export class EventPipelineRunner {
 
         const dropOldResult = await this.runStep<PluginEvent | null, typeof dropOldEventsStep>(
             dropOldEventsStep,
-            [this, event, team],
+            [this.kafkaProducer, event, team],
             team.id,
             true,
             kafkaAcks,
@@ -227,7 +242,7 @@ export class EventPipelineRunner {
 
         const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
             normalizeEventStep,
-            [transformedEvent, processPerson, this.headers, this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
+            [transformedEvent, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             team.id,
             true,
             kafkaAcks,
@@ -259,7 +274,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this, postPersonEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, postPersonEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,
@@ -325,7 +340,17 @@ export class EventPipelineRunner {
                 typeof processPersonsStep
             >(
                 processPersonsStep,
-                [this, event, team, timestamp, true, this.personsStore],
+                [
+                    this.kafkaProducer,
+                    this.mergeMode,
+                    this.options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                    this.options.PERSON_PROPERTIES_UPDATE_ALL,
+                    event,
+                    team,
+                    timestamp,
+                    true,
+                    this.personsStore,
+                ],
                 teamId,
                 true,
                 kafkaAcks,
@@ -373,14 +398,14 @@ export class EventPipelineRunner {
         const timer = new Date()
         const sendException = false
         const timeout = timeoutGuard(
-            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            `Event pipeline step stalled. Timeout warning after ${this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
                 teamId: teamId,
                 event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
-            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
             sendException,
             this.reportStalled.bind(this, step.name)
         )
@@ -406,14 +431,14 @@ export class EventPipelineRunner {
         const timer = new Date()
         const sendException = false
         const timeout = timeoutGuard(
-            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            `Event pipeline step stalled. Timeout warning after ${this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
                 teamId: teamId,
                 event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
-            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            this.options.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
             sendException,
             this.reportStalled.bind(this, step.name)
         )

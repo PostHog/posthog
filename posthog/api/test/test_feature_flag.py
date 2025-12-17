@@ -51,6 +51,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.product_tours.backend.models import ProductTour
 
 
 class TestExtractEtagFromHeader:
@@ -5109,6 +5110,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = flags_list.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
+
+    def test_get_flags_dont_return_product_tour_internal_targeting_flags(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+
+        internal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="product-tour-targeting-test-tour-abc123",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        ProductTour.objects.create(
+            team=self.team,
+            name="Test Tour",
+            content={"steps": []},
+            internal_targeting_flag=internal_flag,
+        )
+
+        flags_list = self.client.get("/api/projects/@current/feature_flags")
+        response = flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "red_button"
 
     def test_get_flags_with_active_and_created_by_id_filters(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")

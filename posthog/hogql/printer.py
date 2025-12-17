@@ -482,8 +482,9 @@ class _Printer(Visitor[str]):
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
-            if node.offset is not None:
-                clauses.append(f"OFFSET {self.visit(node.offset)}")
+
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self.visit(node.offset)}")
 
         if (
             self.context.output_format
@@ -1786,7 +1787,11 @@ class _Printer(Visitor[str]):
             self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
         )
 
-    def visit_sample_expr(self, node: ast.SampleExpr):
+    def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
+        # SAMPLE 1 means no sampling, skip it entirely
+        if node.sample_value.left.value == 1 and node.sample_value.right is None and node.offset_value is None:
+            return None
+
         sample_value = self.visit_ratio_expr(node.sample_value)
         offset_clause = ""
         if node.offset_value:

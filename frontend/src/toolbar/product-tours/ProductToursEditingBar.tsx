@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-import { IconCheck, IconMagicWand, IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconCheck, IconMagicWand, IconMessage, IconPlus, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -19,20 +19,25 @@ const GENERATION_STATUS: Record<string, string> = {
     error: '',
 }
 
+/** Get display title for a step */
+function getStepTitle(step: TourStep, index: number): string {
+    return step.content?.content?.[0]?.content?.[0]?.text || `Step ${index + 1}`
+}
+
+/** Check if step has content */
+function stepHasContent(step: TourStep): boolean {
+    return !!(step.content?.content && step.content.content.length > 0)
+}
+
+/** PostHog brand blue - used for step indicators */
+const POSTHOG_BLUE = '#1d4aff'
+
 const BAR_HEIGHT = 56
 
 export function ProductToursEditingBar(): JSX.Element | null {
     const { theme } = useValues(toolbarLogic)
-    const {
-        selectedTourId,
-        tourForm,
-        inspectingElement,
-        aiGenerating,
-        aiGenerationStep,
-        aiGoal,
-        isSelectingElements,
-        stepCount,
-    } = useValues(productToursLogic)
+    const { selectedTourId, tourForm, tourFormErrors, inspectingElement, aiGenerating, aiGenerationStep, stepCount } =
+        useValues(productToursLogic)
     const {
         selectTour,
         editStep,
@@ -40,80 +45,54 @@ export function ProductToursEditingBar(): JSX.Element | null {
         inspectForElementWithIndex,
         saveTour,
         generateWithAI,
-        finishSelectionAndCreate,
+        setTourFormValue,
+        addModalStep,
+        addSurveyStep,
     } = useActions(productToursLogic)
 
     const themeProps = { theme } as { theme?: string }
     const steps = tourForm?.steps || []
     const generationStatus = GENERATION_STATUS[aiGenerationStep] || ''
 
-    // Show bar during selection mode OR when editing a tour
-    const shouldShowBar = isSelectingElements || selectedTourId !== null
+    // Drag state for reordering
+    const [dragIndex, setDragIndex] = useState<number | null>(null)
+    const [dropIndex, setDropIndex] = useState<number | null>(null)
+
+    const handleDragStart = (index: number): void => {
+        setDragIndex(index)
+    }
+
+    const handleDragOver = (e: React.DragEvent, index: number): void => {
+        e.preventDefault()
+        if (dragIndex !== null && dragIndex !== index) {
+            setDropIndex(index)
+        }
+    }
+
+    const handleDragEnd = (): void => {
+        if (dragIndex !== null && dropIndex !== null && dragIndex !== dropIndex) {
+            const newSteps = [...steps]
+            const [moved] = newSteps.splice(dragIndex, 1)
+            newSteps.splice(dropIndex, 0, moved)
+            setTourFormValue('steps', newSteps)
+        }
+        setDragIndex(null)
+        setDropIndex(null)
+    }
 
     useEffect(() => {
-        if (shouldShowBar) {
+        if (selectedTourId !== null) {
             document.body.style.marginTop = `${BAR_HEIGHT}px`
             return () => {
                 document.body.style.marginTop = ''
             }
         }
-    }, [shouldShowBar])
+    }, [selectedTourId])
 
-    if (!shouldShowBar) {
+    if (selectedTourId === null) {
         return null
     }
 
-    // Selection mode UI
-    if (isSelectingElements) {
-        return (
-            <div
-                className="fixed top-0 left-0 right-0 flex items-center gap-3 px-4 bg-bg-light border-b shadow-lg pointer-events-auto"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ zIndex: 2147483019, height: BAR_HEIGHT }}
-                onClick={(e) => e.stopPropagation()}
-                {...themeProps}
-            >
-                {/* Left: Goal reminder */}
-                <div className="flex-1 flex items-center gap-2">
-                    <span className="text-sm font-medium">Goal:</span>
-                    <span className="text-sm text-muted truncate max-w-md">{aiGoal || 'Not set'}</span>
-                </div>
-
-                {/* Center: Selected elements count */}
-                <div className="flex items-center gap-2">
-                    {steps.map((_step: TourStep, index: number) => (
-                        <div
-                            key={_step.id}
-                            className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold toolbar-animate-pop"
-                        >
-                            {index + 1}
-                        </div>
-                    ))}
-                    {stepCount === 0 && (
-                        <span className="text-muted text-sm">Click elements on the page to select them...</span>
-                    )}
-                </div>
-
-                {/* Right: Actions */}
-                <div className="flex items-center gap-2">
-                    <LemonButton size="small" type="secondary" icon={<IconX />} onClick={() => selectTour(null)}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        icon={<IconMagicWand />}
-                        onClick={finishSelectionAndCreate}
-                        disabledReason={stepCount === 0 ? 'Select at least one element' : undefined}
-                    >
-                        Create Tour ({stepCount} {stepCount === 1 ? 'step' : 'steps'})
-                    </LemonButton>
-                </div>
-            </div>
-        )
-    }
-
-    // Editing mode UI (like Product Fruits)
     return (
         <div
             className="fixed top-0 left-0 right-0 flex items-center gap-3 px-4 bg-bg-light border-b shadow-lg pointer-events-auto"
@@ -124,44 +103,108 @@ export function ProductToursEditingBar(): JSX.Element | null {
         >
             {/* Left: Tour name */}
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium truncate max-w-48">{tourForm?.name || '(no name)'}</span>
+                <LemonInput
+                    size="small"
+                    placeholder="Tour name"
+                    value={tourForm?.name || ''}
+                    onChange={(value) => setTourFormValue('name', value)}
+                    status={tourFormErrors?.name ? 'danger' : undefined}
+                    className="w-48"
+                />
             </div>
 
-            {/* Center: Step buttons (like Product Fruits) */}
-            <div className="flex-1 flex items-center justify-center gap-1">
+            {/* Center: Step buttons with titles */}
+            <div className="flex-1 flex items-center justify-center gap-1.5">
+                {stepCount === 0 && (
+                    <span className="text-muted text-sm">Click an element on the page to add a step</span>
+                )}
                 {steps.map((step: TourStep, index: number) => {
                     const isActive = inspectingElement === index
+                    const isDragging = dragIndex === index
+                    const isDropTarget = dropIndex === index && dragIndex !== index
+                    const hasContent = stepHasContent(step)
+                    const title = getStepTitle(step, index)
+                    // Truncate to ~15 chars for compact display
+                    const displayTitle = title.length > 15 ? title.slice(0, 14) + '…' : title
+
                     return (
-                        <div key={step.id} className="flex items-center gap-1 toolbar-animate-blur-right">
-                            {index > 0 && <span className="text-muted-alt">+</span>}
-                            <LemonButton
-                                size="small"
-                                type={isActive ? 'primary' : 'secondary'}
-                                onClick={() => {
-                                    if (isActive) {
-                                        inspectForElementWithIndex(null)
-                                    } else {
-                                        editStep(index)
-                                    }
-                                }}
-                                sideAction={{
-                                    icon: <IconTrash className="w-3 h-3" />,
-                                    tooltip: 'Remove step',
-                                    onClick: () => removeStep(index),
-                                }}
+                        <div
+                            key={step.id}
+                            className={`flex items-center toolbar-animate-blur-right transition-all ${
+                                isDragging ? 'opacity-50 scale-95' : ''
+                            } ${isDropTarget ? 'translate-x-1' : ''}`}
+                            draggable
+                            onDragStart={() => handleDragStart(index)}
+                            onDragOver={(e) => handleDragOver(e, index)}
+                            onDragEnd={handleDragEnd}
+                        >
+                            {index > 0 && <span className="text-muted text-xs mx-0.5">→</span>}
+                            <Tooltip title={title !== displayTitle ? title : undefined}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (isActive) {
+                                            inspectForElementWithIndex(null)
+                                        } else {
+                                            editStep(index)
+                                        }
+                                    }}
+                                    className={`
+                                        flex items-center gap-1.5 px-2 py-1 rounded-md text-xs
+                                        cursor-grab active:cursor-grabbing transition-all
+                                        ${
+                                            isActive
+                                                ? 'bg-primary text-white'
+                                                : 'bg-bg-3000 hover:bg-border text-default'
+                                        }
+                                    `}
+                                >
+                                    <span
+                                        className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{ backgroundColor: POSTHOG_BLUE }}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                    <span className="font-medium">{displayTitle}</span>
+                                    {!hasContent && <span className="w-1.5 h-1.5 rounded-full bg-warning shrink-0" />}
+                                </button>
+                            </Tooltip>
+                            <button
+                                type="button"
+                                onClick={() => removeStep(index)}
+                                className="ml-0.5 w-5 h-5 rounded flex items-center justify-center text-muted hover:text-danger transition-colors opacity-60 hover:opacity-100"
+                                title="Remove step"
                             >
-                                Step #{index + 1}
-                            </LemonButton>
+                                <IconTrash className="w-3 h-3" />
+                            </button>
                         </div>
                     )
                 })}
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconPlus />}
-                    onClick={() => inspectForElementWithIndex(steps.length)}
-                    disabled={aiGenerating}
-                />
+                <LemonMenu
+                    items={[
+                        {
+                            icon: <IconMessage />,
+                            label: 'Add modal step',
+                            onClick: () => addModalStep(),
+                        },
+                        {
+                            icon: <IconQuestion />,
+                            label: 'Add survey step',
+                            onClick: () => addSurveyStep(),
+                        },
+                    ]}
+                    placement="bottom"
+                    className="min-w-48"
+                >
+                    <button
+                        type="button"
+                        disabled={aiGenerating}
+                        className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-50 ml-1"
+                    >
+                        <IconPlus className="w-3 h-3" />
+                    </button>
+                </LemonMenu>
             </div>
 
             {/* Right: Actions */}
@@ -197,9 +240,11 @@ export function ProductToursEditingBar(): JSX.Element | null {
                             ? 'Wait for generation'
                             : stepCount === 0
                               ? 'Add at least one step'
-                              : !tourForm?.name
-                                ? 'Generate content first'
-                                : undefined
+                              : tourFormErrors?.name
+                                ? String(tourFormErrors.name)
+                                : !tourForm?.name
+                                  ? 'Enter a tour name'
+                                  : undefined
                     }
                 >
                     Save

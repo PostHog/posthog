@@ -352,16 +352,6 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
-        "AgentArtifactContent": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/DocumentArtifactContent"
-                },
-                {
-                    "$ref": "#/definitions/VisualizationArtifactContent"
-                }
-            ]
-        },
         "AgentMode": {
             "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
@@ -444,35 +434,6 @@
                 }
             ],
             "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
-        },
-        "AnyAssistantSupportedQuery": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RetentionQuery"
-                },
-                {
-                    "$ref": "#/definitions/HogQLQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
-                }
-            ],
-            "description": "The union type with all supported base queries for the assistant."
         },
         "AnyDataNode": {
             "anyOf": [
@@ -1613,6 +1574,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
@@ -1717,6 +1679,9 @@
                     "$ref": "#/definitions/AssistantGroupPropertyFilter"
                 }
             ]
+        },
+        "AssistantQuerySchema": {
+            "$ref": "#/definitions/QuerySchema"
         },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
@@ -1941,12 +1906,14 @@
                 "list_tasks",
                 "list_task_runs",
                 "list_repositories",
+                "web_search",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
                 "filter_session_recordings",
                 "create_insight",
-                "create_form"
+                "create_form",
+                "task"
             ],
             "type": "string"
         },
@@ -3559,6 +3526,9 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
                 },
                 "timeseries": {
                     "items": {
@@ -11419,6 +11389,10 @@
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
                     "type": "object"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Specific endpoint version to execute. If not provided, the latest version is used."
                 }
             },
             "type": "object"
@@ -13154,6 +13128,9 @@
                 "kind": {
                     "const": "ExperimentExposureQuery",
                     "type": "string"
+                },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
                 },
                 "timeseries": {
                     "items": {
@@ -16395,6 +16372,9 @@
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
+                "usePreaggregatedIntermediateResults": {
+                    "type": "boolean"
+                },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
@@ -17481,6 +17461,9 @@
                 "inputState": {},
                 "inputTokens": {
                     "type": "number"
+                },
+                "isSupportTrace": {
+                    "type": "boolean"
                 },
                 "outputCost": {
                     "type": "number"
@@ -20997,6 +20980,7 @@
                 "survey_bulk_duplicated",
                 "survey_edited",
                 "survey_analyzed",
+                "quick_survey_started",
                 "revenue_analytics_viewed",
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
@@ -22488,6 +22472,9 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "sample_ratio_mismatch": {
+                            "$ref": "#/definitions/SampleRatioMismatch"
                         },
                         "timeseries": {
                             "items": {
@@ -27341,6 +27328,22 @@
                 }
             ]
         },
+        "SampleRatioMismatch": {
+            "additionalProperties": false,
+            "properties": {
+                "expected": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "p_value": {
+                    "type": "number"
+                }
+            },
+            "required": ["expected", "p_value"],
+            "type": "object"
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
@@ -28310,7 +28313,7 @@
             "type": "string"
         },
         "SlashCommandName": {
-            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
         },
         "SourceConfig": {
@@ -28919,6 +28922,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SubagentUpdateEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/AssistantToolCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
         "SubscriptionDropoffMode": {
@@ -29862,6 +29881,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterSupportTraces": {
+                    "type": "boolean"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -30669,7 +30691,7 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/AssistantQuerySchema"
                         }
                     ]
                 }
@@ -30700,7 +30722,28 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         }
                     ]
                 },
@@ -30727,7 +30770,28 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         }
                     ]
                 },

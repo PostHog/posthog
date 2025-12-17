@@ -1439,6 +1439,11 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0",
         )
 
+        self.assertEqual(
+            self._select("select event from (select event from events offset 10)"),
+            f"SELECT event AS event FROM (SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) OFFSET 10) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_select_limit_by(self):
         self.assertEqual(
             self._select("select event from events limit 10 offset 0 by 1,event"),
@@ -1494,7 +1499,7 @@ class TestPrinter(BaseTest):
     def test_select_sample(self):
         self.assertEqual(
             self._select("SELECT events.event FROM events SAMPLE 1"),
-            f"SELECT events.event AS event FROM events SAMPLE 1 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         self.assertEqual(

@@ -4,9 +4,10 @@ kafka:
     topic: 'events_plugin_ingestion'
     group_id: 'livestream-dev'
     session_recording_enabled: true
+    session_recording_security_protocol: 'PLAINTEXT'
 mmdb:
     path: 'GeoLite2-City.mmdb'
 jwt:
-    token: '<randomly generated secret key>'
+    secret: '<randomly generated secret key>'
 postgres:
     url: 'postgres://posthog:posthog@db:5432/posthog'

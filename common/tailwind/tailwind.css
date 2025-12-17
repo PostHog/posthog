@@ -3,13 +3,12 @@
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
-@theme {
+@theme inline {
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
 
+    --spacing-scene-height: calc(var(--scene-layout-rect-height) - var(--scene-layout-header-height));
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
-
-    --animate-input-focus-pulse: inputFocusPulse 1s ease-in-out forwards;
 
     @keyframes inputFocusPulse {
         0% {

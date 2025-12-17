@@ -103,14 +103,13 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
                             scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                        'min-h-[calc(100vh-var(--scene-layout-header-height))] p-0':
+                        'min-h-scene-height p-0':
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                        'min-h-[calc(100vh-var(--scene-layout-header-height))] p-4':
+                        'min-h-scene-height p-4':
                             sceneConfig?.layout !== 'app-raw-no-header' &&
                             sceneConfig?.layout !== 'app-raw' &&
                             sceneConfig?.layout !== 'context',
-                        'min-h-[calc(100vh-var(--scene-layout-header-height))] h-[calc(100vh-var(--scene-layout-header-height))]':
-                            sceneConfig?.layout === 'app-full-scene-height',
+                        'min-h-scene-height h-scene-height': sceneConfig?.layout === 'app-full-scene-height',
                     },
                     sceneConfig?.layout === 'context' ? sceneContextClassName : undefined
                 )}

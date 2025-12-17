@@ -22,6 +22,8 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     IntervalType,
+    PathsFilter,
+    PathsQuery,
     RetentionFilter,
     RetentionQuery,
     RevenueAnalyticsBreakdown,
@@ -40,6 +42,7 @@ from posthog.errors import ExposedCHQueryError
 
 from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.utils.query import validate_assistant_query
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -136,9 +139,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
 
+    @patch("ee.hogai.chat_agent.query_executor.query_executor.capture_exception")
     @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
-    async def test_run_and_format_query_with_fallback_on_compression_error(self, mock_process_query):
-        """Test fallback to JSON when compression fails"""
+    async def test_run_and_format_query_with_fallback_on_compression_error(self, mock_process_query, mock_capture):
+        """Test fallback to JSON when compression fails and capture_exception is called"""
         mock_process_query.return_value = {"results": [{"invalid": "data"}]}
 
         # Use a query that will cause compression to fail
@@ -154,6 +158,30 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertTrue(used_fallback)
         # Should be JSON formatted
         self.assertIn('{"invalid":"data"}', result)
+        # Should capture the exception for non-NotImplementedError
+        mock_capture.assert_called_once()
+
+    @patch("ee.hogai.chat_agent.query_executor.query_executor.capture_exception")
+    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    async def test_run_and_format_query_with_fallback_on_not_implemented_error_no_capture(
+        self, mock_process_query, mock_capture
+    ):
+        """Test fallback to JSON when NotImplementedError is raised - should NOT capture exception"""
+        mock_process_query.return_value = {"results": [{"path": "data"}]}
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch.object(
+            self.query_runner,
+            "_compress_results",
+            side_effect=NotImplementedError("Unsupported query type"),
+        ):
+            result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        self.assertIsInstance(result, str)
+        self.assertTrue(used_fallback)
+        # Should NOT capture NotImplementedError
+        mock_capture.assert_not_called()
 
     @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_api_exception(self, mock_process_query):
@@ -548,6 +576,11 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
     CLASS_DATA_LEVEL_SETUP = False
 
+    def setUp(self):
+        super().setUp()
+        with freeze_time("2025-01-20T12:00:00Z"):
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+
     @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
     async def test_includes_insight_schema_for_trends_query(self, mock_process_query):
         """Verify insight schema is included for TrendsQuery"""
@@ -598,3 +631,40 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
         # The schema should not be present
         self.assertNotIn("SELECT 1", result)
+
+    async def test_compress_results_raises_for_unsupported_paths_query(self):
+        """Test that _compress_results raises NotImplementedError for PathsQuery."""
+        paths_query = PathsQuery(pathsFilter=PathsFilter(includeEventTypes=["$pageview"]))
+        response = {"results": [{"path": "data"}]}
+
+        with self.assertRaises(NotImplementedError) as context:
+            await self.query_runner._compress_results(paths_query, response)
+
+        self.assertIn("PathsQuery", str(context.exception))
+
+
+class TestValidateAssistantQuery(NonAtomicBaseTest):
+    """Tests for the validate_assistant_query function"""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_validates_assistant_trends_query(self):
+        """Test that assistant-specific queries are validated via AssistantSupportedQueryRoot."""
+        query_dict = {"kind": "TrendsQuery", "series": []}
+        result = validate_assistant_query(query_dict)
+        self.assertIsInstance(result, AssistantTrendsQuery)
+
+    def test_validates_paths_query_via_fallback(self):
+        """Test that PathsQuery is validated via QuerySchemaRoot fallback."""
+        query_dict = {
+            "kind": "PathsQuery",
+            "pathsFilter": {"includeEventTypes": ["$pageview"]},
+        }
+        result = validate_assistant_query(query_dict)
+        self.assertIsInstance(result, PathsQuery)
+
+    def test_validates_funnels_query(self):
+        """Test that FunnelsQuery can be validated."""
+        query_dict = {"kind": "FunnelsQuery", "series": []}
+        result = validate_assistant_query(query_dict)
+        self.assertIsInstance(result, AssistantFunnelsQuery)
