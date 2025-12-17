@@ -142,6 +142,61 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
 
+    def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
+        """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create events with positive cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={"$ai_total_cost_usd": 0.05},
+        )
+
+        # Create events with zero cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            2,
+            properties={"$ai_total_cost_usd": 0},
+        )
+
+        # Create events with negative cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            4,
+            properties={"$ai_total_cost_usd": -0.01},
+        )
+
+        # Create events without cost (null)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={},
+        )
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
+
+        assert metrics.ai_generation_count == 14  # 3 + 2 + 4 + 5
+        assert metrics.total_cost_count == 9  # 3 + 2 + 4 (events with non-null cost)
+        assert metrics.total_cost_negative_count == 4
+        assert metrics.total_cost_zero_count == 2
+        assert metrics.total_cost == pytest.approx(0.11, rel=1e-6)  # 3*0.05 + 2*0 + 4*(-0.01)
+
     def test_get_all_ai_dimension_breakdowns(self) -> None:
         """Test that we correctly get dimension breakdowns using the combined Map-based query."""
         distinct_id = str(uuid4())
