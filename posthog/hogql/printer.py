@@ -22,7 +22,13 @@ from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
+    FunctionCallTable,
+    SavedQuery,
+    Table,
+)
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
@@ -1774,7 +1780,7 @@ class _Printer(Visitor[str]):
             return None
 
         table_name = table.table.to_printed_clickhouse(self.context)
-        if field is None:
+        if field is None or not isinstance(field, DatabaseField):
             return None
         field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
