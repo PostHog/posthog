@@ -23,7 +23,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
@@ -71,8 +71,9 @@ def _setup_litellm():
 
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "task"
+    posthog_feature_flag = {"tasks": ["anthropic_messages", "chat_completions"]}
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
