@@ -11,6 +11,7 @@ import structlog
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
@@ -493,3 +494,12 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
+
+
+@receiver(post_save, sender=FeatureFlagEvaluationTag)
+@receiver(post_delete, sender=FeatureFlagEvaluationTag)
+def evaluation_tag_changed(sender, instance: "FeatureFlagEvaluationTag", **kwargs):
+    from posthog.tasks.feature_flags import update_team_flags_cache
+
+    team_id = instance.feature_flag.team_id
+    transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-16 10:03:40 UTC
+// Generated at: 2025-12-16 20:02:21 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -128,5 +128,6 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xai-fast'
+    | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

@@ -1,21 +1,22 @@
-from typing import Literal, Self
+from typing import Literal, Self, Union
+from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 
-from posthog.schema import ArtifactMessage
+from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 
 from posthog.models import Team, User
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
+from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState, NodePath
-
-from .read_billing_tool.tool import ReadBillingTool
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
 
 READ_DATA_BILLING_PROMPT = """
 # Billing information
@@ -43,8 +44,16 @@ You MUST use this tool when:
 - Working with SQL.
 - The request is about data warehouse, connected data sources, etc.
 
-{{{artifacts_prompt}}}
+# Insight
 
+Retrieves and optionally queries data for an existing insight by its ID.
+
+## Use this when:
+- You have an insight ID and want to retrieve the data for that insight or read the insight schema.
+- The user wants to see or discuss a specific saved insight.
+- You need to understand what an existing insight shows.
+
+{{{artifacts_prompt}}}
 {{{billing_prompt}}}
 """.strip()
 
@@ -53,35 +62,76 @@ The user does not have admin access to view detailed billing information. They w
 Suggest the user to contact the admins.
 """.strip()
 
-ReadDataKind = Literal["datawarehouse_schema"]
-ReadDataAdminAccessKind = Literal["datawarehouse_schema", "billing_info"]
-ReadDataWithArtifactsKind = Literal["datawarehouse_schema", "artifacts"]
-ReadDataAdminAccessWithArtifactsKind = Literal["datawarehouse_schema", "billing_info", "artifacts"]
+INSIGHT_NOT_FOUND_PROMPT = """
+The insight with the ID "{short_id}" was not found or uses an unsupported query type. Please verify the insight ID is correct.
+""".strip()
 
-KindUnion = ReadDataWithArtifactsKind | ReadDataAdminAccessWithArtifactsKind | ReadDataKind | ReadDataAdminAccessKind
+INSIGHT_RESULT_TEMPLATE = """
+Name: {{{insight_name}}}
+Insight ID: {{{insight_id}}}
+{{#description}}
+Description: {{{description}}}
+{{/description}}
+
+{{{results}}}
+""".strip()
+
+INSIGHT_SCHEMA_TEMPLATE = """
+Name: {{{insight_name}}}
+Insight ID: {{{insight_id}}}
+{{#description}}
+Description: {{{description}}}
+{{/description}}
+
+Query definition:
+```json
+{{{query_schema}}}
+```
+""".strip()
 
 
-class ReadDataWithArtifactToolArgs(BaseModel):
-    kind: ReadDataWithArtifactsKind
+class ReadDataWarehouseSchema(BaseModel):
+    """Returns the SQL ClickHouse schema for the user's data warehouse."""
+
+    kind: Literal["datawarehouse_schema"] = "datawarehouse_schema"
 
 
-class ReadDataAdminAccessWithArtifactToolArgs(BaseModel):
-    kind: ReadDataAdminAccessWithArtifactsKind
+class ReadInsight(BaseModel):
+    """Retrieves an existing saved insight by its short ID."""
+
+    kind: Literal["insight"] = "insight"
+    insight_id: str = Field(description="The short ID of the insight (found in URLs like /insights/abc123).")
+    execute: bool = Field(
+        default=False,
+        description="If true, executes the insight query and returns results. If false, returns only the insight definition.",
+    )
 
 
-class ReadDataToolArgs(BaseModel):
-    kind: ReadDataKind
+class ReadBillingInfo(BaseModel):
+    """Retrieves billing information for the organization."""
+
+    kind: Literal["billing_info"] = "billing_info"
 
 
-class ReadDataAdminAccessToolArgs(BaseModel):
-    kind: ReadDataAdminAccessKind
+class ReadArtifacts(BaseModel):
+    """Reads conversation artifacts created by the agent."""
+
+    kind: Literal["artifacts"] = "artifacts"
+
+
+ReadDataQuery = ReadDataWarehouseSchema | ReadInsight | ReadBillingInfo | ReadArtifacts
+
+
+class _InternalReadDataToolArgs(BaseModel):
+    query: ReadDataQuery = Field(..., discriminator="kind")
 
 
 class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     name: Literal["read_data"] = "read_data"
     description: str = READ_DATA_PROMPT
-    context_prompt_template: str = "Reads user data created in PostHog (data warehouse schema, billing information)"
-    args_schema: type[BaseModel] = ReadDataToolArgs
+    context_prompt_template: str = (
+        "Reads user data created in PostHog (data warehouse schema, saved insights, billing information)"
+    )
 
     @classmethod
     async def create_tool_class(
@@ -100,6 +150,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         Override this factory to add additional args schemas or descriptions.
         """
+        kinds: list[type[BaseModel]] = []
+        prompt_vars: dict[str, str] = {}
+
         if not context_manager:
             context_manager = AssistantContextManager(team, user, config)
 
@@ -107,18 +160,24 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         # Subagents don't have access to artifacts
         if can_read_artifacts:
-            args: type[BaseModel] = (
-                ReadDataAdminAccessWithArtifactToolArgs if has_billing_access else ReadDataWithArtifactToolArgs
-            )
-            artifacts_prompt = ""
-        else:
-            args = ReadDataAdminAccessToolArgs if has_billing_access else ReadDataToolArgs
-            artifacts_prompt = READ_DATA_ARTIFACTS_PROMPT
+            prompt_vars["artifacts_prompt"] = READ_DATA_ARTIFACTS_PROMPT
+            kinds.append(ReadArtifacts)
+        if has_billing_access:
+            prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
+            kinds.append(ReadBillingInfo)
 
-        billing_prompt = READ_DATA_BILLING_PROMPT if has_billing_access else ""
-        description = format_prompt_string(
-            READ_DATA_PROMPT, artifacts_prompt=artifacts_prompt, billing_prompt=billing_prompt
+        ReadDataKind = Union[ReadDataWarehouseSchema, ReadInsight, *kinds]  # type: ignore
+
+        ReadDataToolArgs = create_model(
+            "ReadDataToolArgs",
+            __base__=BaseModel,
+            query=(
+                ReadDataKind,
+                Field(discriminator="kind"),
+            ),
         )
+
+        description = format_prompt_string(READ_DATA_PROMPT, template_format="mustache", **prompt_vars).strip()
 
         return cls(
             team=team,
@@ -126,18 +185,18 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             state=state,
             node_path=node_path,
             config=config,
-            args_schema=args,
+            args_schema=ReadDataToolArgs,
             description=description,
             context_manager=context_manager,
         )
 
-    async def _arun_impl(self, kind: KindUnion) -> tuple[str, None]:
-        match kind:
-            case "billing_info":
+    async def _arun_impl(self, query: dict) -> tuple[str, ToolMessagesArtifact | None]:
+        validated_query = _InternalReadDataToolArgs(query=query).query
+        match validated_query:
+            case ReadBillingInfo():
                 has_access = await self._context_manager.check_user_has_billing_access()
                 if not has_access:
                     raise MaxToolFatalError(BILLING_INSUFFICIENT_ACCESS_PROMPT)
-                # used for routing
                 billing_tool = ReadBillingTool(
                     team=self._team,
                     user=self._user,
@@ -147,20 +206,77 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 )
                 result = await billing_tool.execute()
                 return result, None
-            case "datawarehouse_schema":
+            case ReadDataWarehouseSchema():
                 return await self._serialize_database_schema(), None
-            case "artifacts":
-                conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifact_messages()
-                return self._format_artifacts(conversation_artifacts), None
+            case ReadArtifacts():
+                return await self._read_artifacts()
+            case ReadInsight() as schema:
+                return await self._read_insight(schema.insight_id, schema.execute)
 
-    def _format_artifacts(self, artifact_message: list[ArtifactMessage]) -> str:
+    async def _read_insight(
+        self, artifact_or_insight_id: str, execute: bool
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        # Fetch the artifact content along with its source
+        result = await self._context_manager.artifacts.aget_insight_with_source(
+            self._state.messages, artifact_or_insight_id
+        )
+
+        if result is None:
+            raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
+
+        content, source = result
+        query_type = content.query.kind
+        insight_name = content.name or f"Insight {artifact_or_insight_id}"
+
+        # The agent wants to read the schema, just return it
+        if not execute:
+            query_schema = content.query.model_dump_json(exclude_none=True)
+            text_result = format_prompt_string(
+                INSIGHT_SCHEMA_TEMPLATE,
+                insight_name=insight_name,
+                insight_id=artifact_or_insight_id,
+                description=content.description,
+                query_type=query_type,
+                query_schema=query_schema,
+            )
+            return text_result, None
+
+        # Create a new artifact message, so the user can see the results in the UI
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            artifact_id=artifact_or_insight_id,
+            source=source,
+            id=str(uuid4()),
+        )
+
+        # Execute the query and return the results
+        results = await execute_and_format_query(self._team, content.query)
+        text_result = format_prompt_string(
+            INSIGHT_RESULT_TEMPLATE,
+            insight_name=insight_name,
+            insight_id=artifact_or_insight_id,
+            description=content.description,
+            query_type=query_type,
+            results=results,
+        )
+        tool_call_message = AssistantToolCallMessage(
+            content=text_result,
+            id=str(uuid4()),
+            tool_call_id=self.tool_call_id,
+        )
+
+        return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
+
+    async def _read_artifacts(self) -> tuple[str, None]:
+        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifact_messages()
         formatted_artifacts = []
-        for message in artifact_message:
+
+        for message in conversation_artifacts:
             viz_content = unwrap_visualization_artifact_content(message)
             if viz_content:
                 formatted_artifacts.append(
                     f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
                 )
         if len(formatted_artifacts) == 0:
-            return "No artifacts available"
-        return "\n\n".join(formatted_artifacts)
+            return "No artifacts available", None
+        return "\n\n".join(formatted_artifacts), None

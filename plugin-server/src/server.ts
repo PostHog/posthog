@@ -10,7 +10,6 @@ import express from 'ultimate-express'
 import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -20,6 +19,7 @@ import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
+import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -267,9 +267,9 @@ export class PluginServer {
                 return Promise.resolve(serverCommands.service)
             })
 
-            if (capabilities.cdpBehaviouralEvents) {
+            if (capabilities.cdpPrecalculatedFilters) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpBehaviouralEventsConsumer(hub)
+                    const worker = new CdpPrecalculatedFiltersConsumer(hub)
                     await worker.start()
                     return worker.service
                 })
