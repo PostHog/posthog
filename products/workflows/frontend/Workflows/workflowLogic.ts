@@ -108,45 +108,6 @@ export function sanitizeWorkflow(
     return workflow
 }
 
-function workflowToTemplate(
-    workflow: HogFlow,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
-): HogFlow {
-    const newTemplate = {
-        ...workflow,
-        name: `${workflow.name}`,
-        status: 'template' as const,
-        actions: workflow.actions.map((action) => ({
-            ...action,
-            config: { ...action.config } as typeof action.config,
-        })) as typeof workflow.actions,
-    }
-    delete (newTemplate as any).id
-    delete (newTemplate as any).team_id
-    delete (newTemplate as any).created_at
-    delete (newTemplate as any).updated_at
-
-    newTemplate.actions.forEach((action) => {
-        if (isFunctionAction(action) || isTriggerFunction(action)) {
-            const template = hogFunctionTemplatesById[action.config.template_id]
-            if (template) {
-                // Reset inputs to defaults from the template
-                const defaultInputs: Record<string, { value: any }> = {}
-                template.inputs_schema?.forEach((schema) => {
-                    if (schema.default !== undefined) {
-                        defaultInputs[schema.key] = { value: schema.default }
-                    }
-                })
-                action.config = {
-                    ...action.config,
-                    inputs: defaultInputs,
-                }
-            }
-        }
-    })
-    return newTemplate
-}
-
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
     props({ id: 'new' } as WorkflowLogicProps),
@@ -176,7 +137,6 @@ export const workflowLogic = kea<workflowLogicType>([
         discardChanges: true,
         duplicate: true,
         deleteWorkflow: true,
-        saveAsTemplate: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -262,7 +222,6 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         },
     })),
-
     selectors({
         logicProps: [() => [(_, props) => props], (props): WorkflowLogicProps => props],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
@@ -490,16 +449,6 @@ export const workflowLogic = kea<workflowLogicType>([
             const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
-        },
-        saveAsTemplate: async () => {
-            const workflow = values.workflow
-            if (!workflow) {
-                return
-            }
-
-            const template = workflowToTemplate(workflow, values.hogFunctionTemplatesById)
-            await api.hogFlowTemplates.createHogFlowTemplate(template)
-            lemonToast.success('Workflow template created')
         },
         deleteWorkflow: async () => {
             const workflow = values.originalWorkflow

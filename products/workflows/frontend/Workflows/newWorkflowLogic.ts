@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { HogFlow } from './hogflows/types'
+import type { HogFlowTemplate } from './hogflows/types'
 import type { newWorkflowLogicType } from './newWorkflowLogicType'
 
 export const newWorkflowLogic = kea<newWorkflowLogicType>([
@@ -11,7 +11,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     actions({
         showNewWorkflowModal: true,
         hideNewWorkflowModal: true,
-        createWorkflowFromTemplate: (template: HogFlow) => ({ template }),
+        createWorkflowFromTemplate: (template: HogFlowTemplate) => ({ template }),
         createEmptyWorkflow: true,
     }),
     reducers({

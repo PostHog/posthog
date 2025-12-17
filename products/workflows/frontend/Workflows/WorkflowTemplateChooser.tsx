@@ -1,10 +1,11 @@
+import './WorkflowTemplateChooser.scss'
+
 import clsx from 'clsx'
-import FuseClass from 'fuse.js'
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -12,31 +13,20 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import BlankWorkflowHog from 'public/blank-dashboard-hog.png'
 
-import type { HogFlow } from './hogflows/types'
+import type { HogFlowTemplate } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
-import { workflowsLogic } from './workflowsLogic'
+import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
+// Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience
 export function WorkflowTemplateChooser(): JSX.Element {
-    const { workflowTemplates, workflowTemplatesLoading, templateFilter } = useValues(workflowsLogic)
-    const { deleteHogflowTemplate } = useActions(workflowsLogic)
+    const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
+    const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
-    const filteredTemplates = React.useMemo(() => {
-        if (!templateFilter) {
-            return workflowTemplates
-        }
-        const fuse = new FuseClass(workflowTemplates, {
-            keys: [{ name: 'name', weight: 2 }, 'description'],
-            threshold: 0.3,
-            ignoreLocation: true,
-        })
-        return fuse.search(templateFilter).map((result) => result.item)
-    }, [workflowTemplates, templateFilter])
-
     return (
         <div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4 py-4">
+            <div className="WorkflowTemplateChooser">
                 <TemplateItem
                     template={{
                         name: 'Empty workflow',
@@ -50,7 +40,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                 {workflowTemplatesLoading ? (
                     <Spinner className="text-6xl" />
                 ) : (
-                    filteredTemplates.map((template, index) => (
+                    filteredTemplates.map((template: HogFlowTemplate, index: number) => (
                         <TemplateItem
                             key={template.id}
                             template={template}
@@ -59,9 +49,14 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                 e.stopPropagation()
                                 LemonDialog.open({
                                     title: 'Delete template?',
-                                    // TODOdin: Put in a proper warning for situations where this will remove the template for EVERYONE
-                                    // (Maybe make them type "everyone" to confirm)
-                                    description: `Are you sure you want to delete "${template.name}"? This action cannot be undone and may affect more than just your team.`,
+                                    description: (
+                                        <>
+                                            Are you sure you want to delete "{template.name}"?
+                                            <br />
+                                            This action cannot be undone
+                                            {template.scope === 'team' ? '!' : ' and will affect all posthog users!'}
+                                        </>
+                                    ),
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -96,7 +91,7 @@ function TemplateItem({
     index,
     'data-attr': dataAttr,
 }: {
-    template: Pick<HogFlow, 'name' | 'description'> & { image_url?: string }
+    template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope'>
     onClick: () => void
     onDelete?: (e: React.MouseEvent) => void
     index: number
@@ -104,9 +99,11 @@ function TemplateItem({
 }): JSX.Element {
     const [isHovering, setIsHovering] = useState(false)
 
+    const scopeTag = template.scope === 'global' ? 'official' : template.scope === 'team' ? 'team' : null
+
     return (
         <div
-            className="cursor-pointer border rounded flex flex-col transition-all relative min-h-[200px] bg-bg-light hover:border-primary hover:shadow-md"
+            className="cursor-pointer border rounded TemplateItem flex flex-col transition-all relative"
             onClick={onClick}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
@@ -126,11 +123,23 @@ function TemplateItem({
             <div
                 className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
             >
-                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} imageClassName="h-30" />
+                <FallbackCoverImage
+                    src={template?.image_url || undefined}
+                    alt="cover photo"
+                    index={index}
+                    imageClassName="h-30"
+                />
             </div>
 
             <h5 className="px-2 mb-1">{template?.name || 'Unnamed template'}</h5>
-            <div className="px-2 py-1 overflow-y-auto grow">
+            <div className="flex gap-x-1 px-2 mb-1">
+                {scopeTag && (
+                    <LemonTag key="scope" type="option">
+                        {scopeTag}
+                    </LemonTag>
+                )}
+            </div>
+            <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden')}>
                 <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>
                     {template?.description ?? ' '}
                 </p>

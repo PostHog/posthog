@@ -22,13 +22,11 @@ export const workflowsLogic = kea<workflowsLogicType>([
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
-        deleteHogflowTemplate: (template: HogFlow) => ({ template }),
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
         setCreatedBy: (createdBy: string | null) => ({ createdBy }),
         setStatus: (status: string | null) => ({ status }),
-        setTemplateFilter: (search: string) => ({ search }),
     }),
     reducers({
         filters: [
@@ -38,12 +36,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 setSearchTerm: (state, { search }) => ({ ...state, search }),
                 setCreatedBy: (state, { createdBy }) => ({ ...state, createdBy }),
                 setStatus: (state, { status }) => ({ ...state, status }),
-            },
-        ],
-        templateFilter: [
-            '' as string,
-            {
-                setTemplateFilter: (_, { search }) => search,
             },
         ],
     }),
@@ -72,19 +64,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 deleteWorkflow: async ({ workflow }) => {
                     await api.hogFlows.deleteHogFlow(workflow.id)
                     return values.workflows.filter((c) => c.id !== workflow.id)
-                },
-            },
-        ],
-        workflowTemplates: [
-            [] as HogFlow[],
-            {
-                loadWorkflowTemplates: async (): Promise<HogFlow[]> => {
-                    const response = await api.hogFlowTemplates.getHogFlowTemplates()
-                    return response.results as HogFlow[]
-                },
-                deleteHogflowTemplate: async ({ template }) => {
-                    await api.hogFlowTemplates.deleteHogFlowTemplate(template.id)
-                    return values.workflowTemplates.filter((t) => t.id !== template.id)
                 },
             },
         ],

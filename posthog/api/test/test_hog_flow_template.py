@@ -1,9 +1,14 @@
 from posthog.test.base import APIBaseTest
 
+from inline_snapshot import snapshot
+
+from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
+
+webhook_template = MOCK_NODE_TEMPLATES[0]
 
 
 class TestHogFlowTemplateAPI(APIBaseTest):
@@ -11,6 +16,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         super().setUp()
         # Create slack template in DB
         sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
 
         # Create a template with default inputs for testing
         self.template_with_defaults = HogFunctionTemplate.objects.create(
@@ -97,25 +103,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         return hog_flow_data
 
-    def test_template_creation_removes_metadata_fields(self):
-        """Test that metadata fields (id, team_id, created_at, updated_at, status) are removed"""
-        hog_flow_data = self._create_hog_flow_data(include_metadata=True)
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 201, response.json()
-
-        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
-
-        # Verify metadata fields are not in the saved template
-        assert template.id != "should-be-removed-id"
-        assert template.team_id == self.team.id  # Should be set from context, not from data
-
-        # Verify response doesn't include the removed fields
-        response_data = response.json()
-        assert response_data["id"] != "should-be-removed-id"
-        assert "team_id" not in response_data
-        assert "status" not in response_data  # Templates don't have status field
-
     def test_template_creation_resets_function_inputs_to_defaults(self):
         """Test that function action inputs are reset to template defaults"""
         hog_flow_data = self._create_hog_flow_data(custom_inputs={"url": {"value": "https://custom.example.com"}})
@@ -132,19 +119,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             "method": {"value": "POST"},
             "headers": {"value": {"Content-Type": "application/json"}},
         }
-
-    def test_template_creation_derives_trigger_from_actions(self):
-        """Test that trigger is derived from trigger action config"""
-        hog_flow_data = self._create_hog_flow_data()
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 201, response.json()
-
-        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
-
-        # Verify trigger was derived from the trigger action
-        trigger_action = next(action for action in template.actions if action["type"] == "trigger")
-        assert template.trigger == trigger_action["config"]
 
     def test_template_creation_validates_actions(self):
         """Test that actions are validated before saving"""
@@ -241,33 +215,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                 "headers": {"value": {"Content-Type": "application/json"}},
             }
 
-    def test_template_creation_with_trigger_function(self):
-        """Test that trigger functions also have inputs reset to defaults"""
-        trigger_action = {
-            "id": "trigger_node",
-            "name": "trigger_1",
-            "type": "trigger",
-            "config": {
-                "type": "webhook",
-                "template_id": "template-webhook-defaults",
-                "inputs": {"url": {"value": "https://custom-webhook.example.com"}},
-            },
-        }
-
-        hog_flow_data = {
-            "name": "Test Template Flow",
-            "actions": [trigger_action],
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 201, response.json()
-
-        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
-        trigger_action_saved = template.actions[0]
-
-        # Verify trigger function inputs were reset to defaults
-        assert trigger_action_saved["config"]["inputs"] == {"url": {"value": "https://webhook-default.example.com"}}
-
     def test_template_creation_sets_team_and_created_by(self):
         """Test that team_id and created_by are set from context"""
         hog_flow_data = self._create_hog_flow_data()
@@ -280,3 +227,345 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Verify team_id and created_by are set correctly
         assert template.team_id == self.team.id
         assert template.created_by == self.user
+
+    def test_template_function_trigger_check(self):
+        """Test that exactly one trigger action is required"""
+        hog_flow_data = {
+            "name": "Test Flow",
+            "actions": [],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions",
+            "code": "invalid_input",
+            "detail": "Exactly one trigger action is required",
+            "type": "validation_error",
+        }
+
+    def test_template_function_validation(self):
+        """Test that function actions validate template_id exists"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "missing",
+                "inputs": {},
+            },
+        }
+
+        hog_flow_data = {
+            "name": "Test Flow",
+            "actions": [trigger_action, action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__template_id",
+            "code": "invalid_input",
+            "detail": "Template not found",
+            "type": "validation_error",
+        }
+
+    def test_template_bytecode_compilation(self):
+        """Test that bytecode is compiled for filters and inputs"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook-simple",
+                "inputs": {"url": {"value": "https://custom.example.com"}},  # This will be reset to default
+            },
+        }
+
+        action["filters"] = {
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
+        }
+
+        hog_flow_data = {
+            "name": "Test Flow",
+            "actions": [trigger_action, action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+
+        assert template.trigger["filters"].get("bytecode") == snapshot(
+            ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+
+        assert template.actions[1]["filters"].get("bytecode") == snapshot(
+            ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
+        )
+
+        # Templates reset inputs to defaults but don't compile bytecode (unlike regular workflows)
+        # Bytecode compilation happens when a workflow is created from a template
+        assert template.actions[1]["config"]["inputs"] == snapshot({"url": {"value": "https://example.com"}})
+
+    def test_template_conditional_branch_filters_bytecode(self):
+        """Test that conditional branch filters have bytecode compiled"""
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "conditions": [
+                    {
+                        "filters": {
+                            "properties": [
+                                {
+                                    "key": "event",
+                                    "type": "event_metadata",
+                                    "value": ["custom_event"],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+        }
+
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow_data = {
+            "name": "Test Flow",
+            "actions": [trigger_action, conditional_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        conditions = response.json()["actions"][1]["config"]["conditions"]
+        assert "filters" in conditions[0]
+        assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
+        assert conditions[0]["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+
+    def test_template_single_condition_field(self):
+        """Test that single condition field has bytecode compiled"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "condition": {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "event",
+                                "type": "event_metadata",
+                                "value": ["custom_event"],
+                                "operator": "exact",
+                            }
+                        ]
+                    }
+                },
+            },
+        }
+
+        hog_flow_data = {
+            "name": "Test Flow Single Condition",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        condition = response.json()["actions"][1]["config"]["condition"]
+        assert "filters" in condition
+        assert "bytecode" in condition["filters"], condition["filters"]
+        assert condition["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+
+    def test_template_condition_and_conditions_mutually_exclusive(self):
+        """Test that condition and conditions fields are mutually exclusive"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "condition": {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "event",
+                                "type": "event_metadata",
+                                "value": ["custom_event"],
+                                "operator": "exact",
+                            }
+                        ]
+                    }
+                },
+                "conditions": [
+                    {
+                        "filters": {
+                            "properties": [
+                                {
+                                    "key": "event",
+                                    "type": "event_metadata",
+                                    "value": ["another_event"],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+        }
+
+        hog_flow_data = {
+            "name": "Test Flow Mutually Exclusive",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 400, response.json()
+
+        data = response.json()
+        assert data["attr"] == "actions__1__config"
+        assert data["code"] == "invalid_input"
+        assert data["type"] == "validation_error"
+
+    def test_template_conditional_event_filter_rejected(self):
+        """Test that event filters in conditionals are rejected"""
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "conditions": [
+                    {
+                        "filters": {
+                            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}]
+                        }
+                    }
+                ],
+            },
+        }
+
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow_data = {
+            "name": "Test Flow",
+            "actions": [trigger_action, conditional_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__non_field_errors",
+            "code": "invalid_input",
+            "detail": "Event filters are not allowed in conditionals",
+            "type": "validation_error",
+        }
+
+    def test_template_scope_field(self):
+        """Test that scope field can be set to team or global"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "global"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.scope == "global"
+
+        # Test team scope
+        hog_flow_data["scope"] = "team"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.scope == "team"
+
+    def test_template_image_url_field(self):
+        """Test that image_url field can be set"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["image_url"] = "https://example.com/image.png"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.image_url == "https://example.com/image.png"

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
@@ -7,22 +6,14 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { WorkflowTemplateChooser } from './WorkflowTemplateChooser'
 import { newWorkflowLogic } from './newWorkflowLogic'
-import { workflowsLogic } from './workflowsLogic'
+import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
 export function NewWorkflowModal(): JSX.Element {
     const { hideNewWorkflowModal } = useActions(newWorkflowLogic)
     const { newWorkflowModalVisible } = useValues(newWorkflowLogic)
 
-    const { workflowTemplates, workflowTemplatesLoading, templateFilter } = useValues(workflowsLogic)
-    const { loadWorkflowTemplates, setTemplateFilter } = useActions(workflowsLogic)
-
-    useEffect(() => {
-        if (newWorkflowModalVisible && workflowTemplates.length === 0 && !workflowTemplatesLoading) {
-            loadWorkflowTemplates()
-        }
-        // We don't want this to trigger on changes to workflowTemplates or workflowTemplatesLoading
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [newWorkflowModalVisible])
+    const { templateFilter } = useValues(workflowTemplatesLogic)
+    const { setTemplateFilter } = useActions(workflowTemplatesLogic)
 
     return (
         <LemonModal

@@ -20,7 +20,7 @@ export const HogFlowSchema = z.object({
     version: z.number(),
     name: z.string(),
     description: z.string().optional(),
-    status: z.enum(['active', 'draft', 'archived', 'template']),
+    status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema.optional(),
     // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
     trigger_masking: z
@@ -52,6 +52,11 @@ export const HogFlowSchema = z.object({
     created_at: z.string(),
 })
 
+export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({
+    image_url: z.string().optional().nullable(),
+    scope: z.enum(['team', 'global']).optional().nullable(),
+})
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
@@ -64,7 +69,6 @@ export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult &
     schema: z.ZodError | null
 }
 
-// TODOdin: Do we need a separate schema?
-export interface HogFlowTemplate extends z.infer<typeof HogFlowSchema> {
+export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {
     created_by?: UserBasicType | null
 }

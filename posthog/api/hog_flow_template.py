@@ -3,9 +3,11 @@ from typing import Optional, cast
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 
+from posthog.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
@@ -62,7 +64,7 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
             else:
                 raise serializers.ValidationError({"config": "Invalid trigger type"})
 
-        # For templates, we skip the input validation since we allow default/empty values
+        # For templates, we skip the input validation since we allow default/empty values and reset inputs anyway
         # Instead, we just verify the template exists
         if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
@@ -99,12 +101,8 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
 
     created_by = serializers.SerializerMethodField()
     actions = serializers.ListField(child=HogFlowTemplateActionSerializer(), required=True)
-    trigger_masking = serializers.DictField(required=False, allow_null=True)
-    variables = serializers.ListField(
-        child=serializers.DictField(child=serializers.CharField(allow_blank=True)),
-        required=False,
-        allow_empty=True,
-    )
+    trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
+    variables = HogFlowVariableSerializer(required=False)
 
     class Meta:
         model = HogFlowTemplate
@@ -112,6 +110,8 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "image_url",
+            "scope",
             "created_at",
             "created_by",
             "updated_at",
@@ -135,6 +135,14 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         instance = cast(Optional[HogFlowTemplate], self.instance)
+
+        name = data.get("name")
+        if name is None:
+            if not instance or not instance.name:
+                raise serializers.ValidationError({"name": "Name is required"})
+        elif not name.strip():
+            raise serializers.ValidationError({"name": "Name cannot be empty"})
+
         actions = data.get("actions", instance.actions if instance else [])
 
         # Validate actions using our custom serializer (which skips input validation)
@@ -142,18 +150,15 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
             serializer = HogFlowTemplateActionSerializer(data=action_data, context=self.context)
             serializer.is_valid(raise_exception=True)
 
-        # The trigger is derived from the actions
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
         if len(trigger_actions) != 1:
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
         data["trigger"] = trigger_actions[0]["config"]
 
-        # Remove metadata fields that shouldn't be in templates
         data.pop("id", None)
         data.pop("team_id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
-        data.pop("status", None)
 
         # Reset function action inputs to defaults from templates
         for action in actions:
@@ -190,15 +195,11 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
 
 
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
-    """
-    ViewSet for hog flow templates.
-    Templates can be used to create new hog flows.
-    """
-
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()
     serializer_class = HogFlowTemplateSerializer
     log_source = "hog_flow_template"
+    app_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -209,21 +210,37 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
 
     def perform_create(self, serializer):
         serializer.save()
-        logger.info(
-            "hog_flow_template_created",
-            template_id=str(serializer.instance.id),
-            template_name=serializer.instance.name,
-            team_id=self.team_id,
-        )
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
             was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=serializer.instance.id,
-            scope="HogFlow",
+            scope="HogFlowTemplate",
             activity="created",
-            detail=Detail(name=serializer.instance.name, type="template"),
+            detail=Detail(name=serializer.instance.name, type="standard"),
         )
 
-        # TODOdin: Add posthoganalytics.capture(...)
+        try:
+            # Extract trigger type from the trigger config
+            # trigger_type = serializer.instance.trigger.get("type", "unknown")
+
+            # Count edges and actions
+            edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
+            actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
+
+            posthoganalytics.capture(
+                distinct_id=str(serializer.context["request"].user.distinct_id),
+                event="hog_flow_template_created",
+                properties={
+                    "workflow_template_id": str(serializer.instance.id),
+                    "workflow_template_name": serializer.instance.name,
+                    "edges_count": edges_count,
+                    "actions_count": actions_count,
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization.id),
+                    "scope": serializer.instance.scope if serializer.instance else None,
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to capture hog_flow_template_created event", error=str(e))

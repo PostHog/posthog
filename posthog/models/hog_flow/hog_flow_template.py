@@ -29,9 +29,17 @@ class HogFlowTemplate(UUIDTModel):
         TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
         ONLY_AT_END = "exit_only_at_end"
 
-    name = models.CharField(max_length=400, null=True, blank=True)
+    class Scope(models.TextChoices):
+        """Visibility of the workflow template"""
+
+        ONLY_TEAM = "team", "Only team"
+        GLOBAL = "global", "Global"
+
+    name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    image_url = models.CharField(max_length=8201, null=True, blank=True)
+    scope = models.CharField(max_length=24, choices=Scope.choices, null=True, blank=True)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

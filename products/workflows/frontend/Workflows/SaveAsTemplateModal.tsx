@@ -1,0 +1,63 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { WorkflowTemplateLogicProps, workflowTemplateLogic } from './workflowTemplateLogic'
+
+export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX.Element {
+    const logic = workflowTemplateLogic(props)
+    const { saveAsTemplateModalVisible, isTemplateFormSubmitting, templateForm } = useValues(logic)
+    const { hideSaveAsTemplateModal, submitTemplateForm } = useActions(logic)
+
+    return (
+        <LemonModal
+            onClose={hideSaveAsTemplateModal}
+            isOpen={saveAsTemplateModalVisible}
+            title="Save as template"
+            description="The actions in the template will be reset to default inputs."
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={hideSaveAsTemplateModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitTemplateForm}
+                        loading={isTemplateFormSubmitting}
+                        disabledReason={!templateForm.name ? 'Name is required' : undefined}
+                    >
+                        Save template
+                    </LemonButton>
+                </>
+            }
+        >
+            <Form logic={workflowTemplateLogic} props={props} formKey="templateForm">
+                <div className="space-y-4">
+                    <LemonField name="name" label="Name">
+                        <LemonInput placeholder="Template name" autoFocus />
+                    </LemonField>
+
+                    <LemonField name="description" label="Description (optional)">
+                        <LemonTextArea placeholder="Template description" rows={3} />
+                    </LemonField>
+
+                    <LemonField name="image_url" label="Image URL (optional)">
+                        <LemonInput placeholder="https://example.com/image.png" />
+                    </LemonField>
+
+                    <LemonField name="scope" label="Scope">
+                        <LemonSelect
+                            options={[
+                                { value: 'team', label: 'Team only' },
+                                { value: 'global', label: 'Official (visible to everyone)' },
+                            ]}
+                        />
+                    </LemonField>
+                </div>
+            </Form>
+        </LemonModal>
+    )
+}
