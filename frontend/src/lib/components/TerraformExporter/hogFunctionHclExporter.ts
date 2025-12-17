@@ -1,6 +1,6 @@
 import { formatJsonForHcl } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { HogFunctionType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionType } from '~/types'
 
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
 
@@ -60,7 +60,9 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>, HogFun
         target: 'filters_json',
         shouldInclude: (v) => !!v && typeof v === 'object' && Object.keys(v as object).length > 0,
         transform: (v, _, options) => {
-            let result = `jsonencode(${formatJsonForHcl(v)})`
+            // bytecode is computed on the server, no need to confuse our users by including that.
+            const { bytecode, ...rest } = v as CyclotronJobFiltersType
+            let result = `jsonencode(${formatJsonForHcl(rest)})`
             if (options.alertIdReplacements?.size) {
                 for (const [alertId, tfRef] of options.alertIdReplacements) {
                     result = result.replace(new RegExp(`"${alertId}"`, 'g'), tfRef)
