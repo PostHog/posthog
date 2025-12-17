@@ -157,7 +157,13 @@ struct BuiltDocument {
 /// Clients can parse the extracted range as HTTP-style headers + body.
 fn build_multipart_document(event_uuid: &str, blobs: Vec<BlobData>) -> BuiltDocument {
     let boundary = generate_boundary(event_uuid);
-    let mut document = BytesMut::new();
+
+    // Pre-allocate capacity to avoid reallocations.
+    // Per-blob overhead (~200 bytes): boundary, headers, CRLF sequences.
+    // Plus ~100 bytes for closing boundary.
+    let blob_data_size: usize = blobs.iter().map(|b| b.data.len()).sum();
+    let estimated_capacity = blob_data_size + (blobs.len() * 200) + 100;
+    let mut document = BytesMut::with_capacity(estimated_capacity);
     let mut parts = Vec::with_capacity(blobs.len());
 
     for blob in &blobs {
