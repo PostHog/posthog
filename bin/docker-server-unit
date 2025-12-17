@@ -16,13 +16,11 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
 
     # Granian configuration
-    # K8s best practice: 1 worker per pod, scale via replicas
-    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-1}
+    # Match Unit's 4 workers for equivalent sync view concurrency.
+    # With Django ASGI + sync views (thread_sensitive=True), each worker
+    # handles 1 sync request at a time - only workers give concurrency.
+    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
     export GRANIAN_THREADS=${GRANIAN_THREADS:-2}
-    # st mode: single-threaded runtimes, better tail latency for sync Django views
-    export GRANIAN_RUNTIME_MODE=${GRANIAN_RUNTIME_MODE:-st}
-    # Lower backpressure helps with sync workloads (default was higher)
-    export GRANIAN_BACKPRESSURE=${GRANIAN_BACKPRESSURE:-16}
 
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
@@ -36,8 +34,6 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         posthog.asgi:application \
         --workers $GRANIAN_WORKERS \
         --runtime-threads $GRANIAN_THREADS \
-        --runtime-mode $GRANIAN_RUNTIME_MODE \
-        --backpressure $GRANIAN_BACKPRESSURE \
         --loop uvloop \
         --host 0.0.0.0 \
         --port 8000 \
