@@ -167,25 +167,20 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         }
 
         // Extract plugin ID from URL (following the migration.py pattern)
-        let pluginId = pluginConfig.plugin.url.replace('inline://', '').replace('https://github.com/PostHog/', '')
-
-        // Handle special cases for inline plugins
-        if (pluginId === 'semver-flattener') {
-            pluginId = 'semver-flattener-plugin'
-        } else if (pluginId === 'user-agent') {
-            pluginId = 'user-agent-plugin'
-        }
+        const pluginId = pluginConfig.plugin.url.replace('inline://', '').replace('https://github.com/PostHog/', '')
 
         const templateId = `plugin-${pluginId}`
 
         // Build inputs from plugin config
-        const inputs: Record<string, any> = {
-            ...pluginConfig.config,
+        const inputs: HogFunctionType['inputs'] = {}
+
+        for (const [key, value] of Object.entries(pluginConfig.config)) {
+            inputs[key] = { value: value?.toString() ?? '' }
         }
 
         // Add legacy_plugin_config_id for plugins that use legacy storage
-        if (pluginId === 'first-time-event-tracker' || pluginId === 'customerio-plugin') {
-            inputs.legacy_plugin_config_id = pluginConfig.id
+        if (pluginId === 'customerio-plugin') {
+            inputs.legacy_plugin_config_id = { value: pluginConfig.id }
         }
 
         // Create a HogFunctionType
