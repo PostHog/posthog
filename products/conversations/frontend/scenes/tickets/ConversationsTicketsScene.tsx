@@ -1,12 +1,13 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import { LemonBadge, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -16,15 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import {
-    type Ticket,
-    type TicketChannel,
-    type TicketSlaState,
-    type TicketStatus,
-    channelOptions,
-    slaOptions,
-    statusOptions,
-} from '../../types'
+import { type Ticket, type TicketPriority, type TicketStatus, priorityOptions, statusOptions } from '../../types'
 import { conversationsTicketsSceneLogic } from './conversationsTicketsSceneLogic'
 
 export const scene: SceneExport = {
@@ -34,14 +27,20 @@ export const scene: SceneExport = {
 
 export function ConversationsTicketsScene(): JSX.Element {
     const logic = conversationsTicketsSceneLogic()
-    const { filteredTickets, statusFilter, channelFilter, slaFilter, ticketsLoading, autoUpdateEnabled } =
-        useValues(logic)
-    const { setStatusFilter, setChannelFilter, setSlaFilter, setAutoUpdate } = useActions(logic)
+    // @ts-expect-error - kea typegen will fix this
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        assigneeFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        autoUpdateEnabled,
+    } = useValues(logic)
+    // @ts-expect-error - kea typegen will fix this
+    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setAutoUpdate } = useActions(logic)
     const { push } = useActions(router)
-    const [dateRange, setDateRange] = useState<{ dateFrom: string | null; dateTo: string | null }>({
-        dateFrom: '-7d',
-        dateTo: null,
-    })
 
     return (
         <SceneContent>
@@ -56,9 +55,9 @@ export function ConversationsTicketsScene(): JSX.Element {
             <div className="flex flex-wrap gap-3 items-center justify-between">
                 <div className="flex flex-wrap gap-3 items-center">
                     <DateFilter
-                        dateFrom={dateRange.dateFrom}
-                        dateTo={dateRange.dateTo}
-                        onChange={(dateFrom, dateTo) => setDateRange({ dateFrom, dateTo })}
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={(dateFrom, dateTo) => setDateRange(dateFrom, dateTo)}
                     />
                     <LemonSelect
                         value={statusFilter}
@@ -68,18 +67,20 @@ export function ConversationsTicketsScene(): JSX.Element {
                         placeholder="Status"
                     />
                     <LemonSelect
-                        value={channelFilter}
-                        onChange={(value) => value && setChannelFilter(value as TicketChannel | 'all')}
-                        options={channelOptions}
+                        value={priorityFilter}
+                        onChange={(value) => value && setPriorityFilter(value as TicketPriority | 'all')}
+                        options={[{ value: 'all', label: 'All priorities' }, ...priorityOptions]}
                         size="small"
-                        placeholder="Channel"
+                        placeholder="Priority"
                     />
-                    <LemonSelect
-                        value={slaFilter}
-                        onChange={(value) => value && setSlaFilter(value as TicketSlaState | 'all')}
-                        options={slaOptions}
-                        size="small"
-                        placeholder="SLA"
+                    <MemberSelect
+                        value={typeof assigneeFilter === 'number' ? assigneeFilter : null}
+                        onChange={(user) => setAssigneeFilter(user?.id ?? 'all')}
+                    />
+                    <LemonCheckbox
+                        checked={assigneeFilter === 'unassigned'}
+                        onChange={(checked) => setAssigneeFilter(checked ? 'unassigned' : 'all')}
+                        label="Unassigned only"
                     />
                 </div>
                 <LemonCheckbox checked={autoUpdateEnabled} onChange={setAutoUpdate} label="Autoupdate" />
@@ -153,6 +154,38 @@ export function ConversationsTicketsScene(): JSX.Element {
                                 {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
                             </LemonTag>
                         ),
+                    },
+                    {
+                        title: 'Priority',
+                        key: 'priority',
+                        render: (_, ticket) =>
+                            ticket.priority ? (
+                                <LemonTag
+                                    type={
+                                        ticket.priority === 'high'
+                                            ? 'danger'
+                                            : ticket.priority === 'medium'
+                                              ? 'warning'
+                                              : 'default'
+                                    }
+                                >
+                                    {ticket.priority}
+                                </LemonTag>
+                            ) : (
+                                <span className="text-muted-alt text-xs">—</span>
+                            ),
+                    },
+                    {
+                        title: 'Assignee',
+                        key: 'assignee',
+                        render: (_, ticket) =>
+                            ticket.assigned_to_user ? (
+                                <div className="flex flex-row items-center flex-nowrap">
+                                    <ProfilePicture user={ticket.assigned_to_user} size="md" showName />
+                                </div>
+                            ) : (
+                                <span className="text-muted-alt text-xs">Unassigned</span>
+                            ),
                     },
                     {
                         title: 'Channel',

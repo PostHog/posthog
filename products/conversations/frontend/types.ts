@@ -3,10 +3,23 @@ export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 
+export interface UserBasic {
+    id: number
+    uuid: string
+    distinct_id: string
+    first_name: string
+    last_name: string
+    email: string
+    is_email_verified: boolean
+}
+
 export interface Ticket {
     id: string
     distinct_id: string
     status: TicketStatus
+    priority?: TicketPriority
+    assigned_to?: number | null
+    assigned_to_user?: UserBasic | null
     channel_source: TicketChannel
     anonymous_traits: Record<string, any>
     ai_resolved: boolean

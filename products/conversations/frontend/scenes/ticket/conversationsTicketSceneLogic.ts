@@ -22,9 +22,10 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
         loadOlderMessages: true,
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
-        setAssignedTo: (assignedTo: string) => ({ assignedTo }),
+        setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
         sendMessage: (content: string) => ({ content }),
         updateTicket: true,
+        setPollingInterval: (interval: number) => ({ interval }),
     }),
     loaders(({ props, values }) => ({
         ticket: {
@@ -41,7 +42,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 const data: Partial<{
                     status: string
                     priority: string
-                    assigned_to: string
+                    assigned_to: number | null
                 }> = {}
 
                 if (values.status) {
@@ -50,9 +51,13 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 if (values.priority) {
                     data.priority = values.priority
                 }
-                if (values.assignedTo) {
-                    data.assigned_to = values.assignedTo
-                }
+                // Always include assigned_to, convert 'All users' to null
+                data.assigned_to =
+                    values.assignedTo === 'All users' || !values.assignedTo
+                        ? null
+                        : typeof values.assignedTo === 'string'
+                          ? parseInt(values.assignedTo, 10)
+                          : values.assignedTo
 
                 return await api.conversationsTickets.update(props.id.toString(), data)
             },
@@ -119,7 +124,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             },
         ],
         assignedTo: [
-            null as string | null,
+            null as number | string | null,
             {
                 setAssignedTo: (_, { assignedTo }) => assignedTo,
                 loadTicketSuccess: (_, { ticket }) => ticket?.assigned_to || null,
@@ -151,7 +156,7 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             },
         ],
     }),
-    listeners(({ actions, cache, values, props }) => ({
+    listeners(({ actions, values, props }) => ({
         loadOlderMessages: async () => {
             const currentMessages = values.messages
             if (props.id === 'new' || currentMessages.length === 0 || !values.hasMoreMessages) {
@@ -202,12 +207,12 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             actions.loadMessages()
 
             // Clear any existing interval
-            if (cache.pollingInterval) {
-                clearInterval(cache.pollingInterval)
+            if (values.pollingInterval) {
+                clearInterval(values.pollingInterval)
             }
 
             // Start new polling interval
-            cache.pollingInterval = setInterval(() => {
+            values.pollingInterval = setInterval(() => {
                 actions.loadMessages()
             }, MESSAGE_POLL_INTERVAL)
         },
@@ -217,11 +222,11 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             actions.loadTicket()
         }
     }),
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ values }) => {
         // Clear polling interval on unmount
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-            cache.pollingInterval = null
+        if (values.pollingInterval) {
+            clearInterval(values.pollingInterval)
+            values.pollingInterval = null
         }
     }),
 ])

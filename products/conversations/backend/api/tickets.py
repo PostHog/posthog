@@ -7,7 +7,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.comment import Comment
+from posthog.utils import relative_date_parse
 
 from products.conversations.backend.models import Ticket
 
@@ -23,6 +25,7 @@ class TicketSerializer(serializers.ModelSerializer):
     message_count = serializers.SerializerMethodField()
     last_message_at = serializers.SerializerMethodField()
     last_message_text = serializers.SerializerMethodField()
+    assigned_to_user = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -31,6 +34,9 @@ class TicketSerializer(serializers.ModelSerializer):
             "channel_source",
             "distinct_id",
             "status",
+            "priority",
+            "assigned_to",
+            "assigned_to_user",
             "anonymous_traits",
             "ai_resolved",
             "escalation_reason",
@@ -50,6 +56,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "assigned_to_user",
         ]
 
     def get_message_count(self, obj: Ticket) -> int:
@@ -81,6 +88,12 @@ class TicketSerializer(serializers.ModelSerializer):
             .first()
         )
         return last_comment.content if last_comment else None
+
+    def get_assigned_to_user(self, obj: Ticket) -> dict | None:
+        """Get full user details for assigned_to."""
+        if obj.assigned_to:
+            return UserBasicSerializer(obj.assigned_to).data
+        return None
 
 
 class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -139,6 +152,33 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         status = self.request.query_params.get("status")
         if status:
             queryset = queryset.filter(status=status)
+
+        # Filter by priority if provided
+        priority = self.request.query_params.get("priority")
+        if priority:
+            queryset = queryset.filter(priority=priority)
+
+        # Filter by channel_source if provided
+        channel_source = self.request.query_params.get("channel_source")
+        if channel_source:
+            queryset = queryset.filter(channel_source=channel_source)
+
+        # Filter by assigned_to if provided
+        assigned_to = self.request.query_params.get("assigned_to")
+        if assigned_to:
+            if assigned_to.lower() == "unassigned":
+                queryset = queryset.filter(assigned_to__isnull=True)
+            else:
+                queryset = queryset.filter(assigned_to_id=assigned_to)
+
+        # Filter by created_at date range
+        date_from = self.request.query_params.get("date_from")
+        if date_from:
+            queryset = queryset.filter(created_at__gte=relative_date_parse(date_from, self.team.timezone_info))
+
+        date_to = self.request.query_params.get("date_to")
+        if date_to:
+            queryset = queryset.filter(created_at__lte=relative_date_parse(date_to, self.team.timezone_info))
 
         # Search by distinct_id if provided
         distinct_id = self.request.query_params.get("distinct_id")

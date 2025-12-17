@@ -15,6 +15,12 @@ class Status(models.TextChoices):
     RESOLVED = "resolved", "Resolved"
 
 
+class Priority(models.TextChoices):
+    LOW = "low", "Low"
+    MEDIUM = "medium", "Medium"
+    HIGH = "high", "High"
+
+
 class RuleType(models.TextChoices):
     TONE = "tone", "Tone"
     ESCALATION = "escalation", "Escalation"

@@ -2,7 +2,7 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
-from .constants import Channel, Status
+from .constants import Channel, Priority, Status
 
 
 class Ticket(UUIDTModel):
@@ -13,6 +13,8 @@ class Ticket(UUIDTModel):
     )  # Random UUID for access control (NOT session replay session_id)
     distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
+    priority = models.CharField(max_length=20, choices=Priority.choices, null=True, blank=True)
+    assigned_to = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
