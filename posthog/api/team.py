@@ -127,6 +127,11 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "conversations_enabled",
+            "conversations_greeting_text",
+            "conversations_color",
+            "conversations_public_token",
+            "conversations_widget_domains",
         ]
         read_only_fields = fields
 
