@@ -1,4 +1,4 @@
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from datetime import datetime
 from numbers import Number
 from typing import Literal, Optional, Union, cast
@@ -586,6 +586,9 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
     different tables for realtime cohort calculation.
     """
 
+    # Operators that support merging into IN clauses
+    MERGEABLE_OPERATORS = {"icontains", "not_icontains", "exact", "is_not"}
+
     def __init__(
         self,
         cohort_query: Optional[CohortQuery] = None,
@@ -594,6 +597,223 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
     ):
         super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
         self.cohort = cohort
+        # Preprocess to merge properties with same key and operator
+        self.property_groups = self._preprocess_property_groups(self.property_groups)  # type: ignore[assignment]
+
+    def _is_mergeable_property(self, prop: Property) -> bool:
+        """Check if a property can be merged with others."""
+        return (
+            prop.type == "person"
+            and prop.operator in self.MERGEABLE_OPERATORS
+            and not prop.negation
+            and hasattr(prop, "conditionHash")
+            and bool(prop.conditionHash)
+        )
+
+    def _deduplicate_hashes(self, hashes: list[str]) -> list[str]:
+        """
+        Deduplicate hashes while preserving order.
+
+        Deduplication is necessary for an edge case: if the same filter appears twice
+        (e.g., user accidentally added "email contains @gmail.com" twice), we need to
+        ensure the count matches the distinct conditions in the GROUP BY condition query.
+        Without deduplication, HAVING matching_count = 2 would fail because IN would only
+        match 1 distinct condition.
+        """
+        seen: set[str] = set()
+        unique_hashes: list[str] = []
+        for h in hashes:
+            if h not in seen:
+                seen.add(h)
+                unique_hashes.append(h)
+        return unique_hashes
+
+    def _create_merged_property(self, template: Property, unique_hashes: list[str], is_or_group: bool) -> Property:
+        """Create a merged property from a template with multiple condition hashes."""
+        merged_prop = template.copy() if hasattr(template, "copy") else Property(**template.to_dict())
+        merged_prop._merged_condition_hashes = unique_hashes  # type: ignore[union-attr]
+        merged_prop._is_or_group = is_or_group  # type: ignore[union-attr]
+        return merged_prop
+
+    def _unwrap_single_property_groups(
+        self, prop_or_group: Union[Property, PropertyGroup]
+    ) -> Union[Property, PropertyGroup]:
+        """
+        Unwrap PropertyGroups that contain only a single child.
+
+        FOSSCohortQuery.unwrap_cohort creates nested PropertyGroups like:
+        PropertyGroup(AND) -> PropertyGroup(AND) -> Property
+
+        This unwraps them to just: Property
+        """
+        if not isinstance(prop_or_group, PropertyGroup):
+            return prop_or_group
+
+        # Recursively unwrap children first
+        unwrapped_values: list[Union[Property, PropertyGroup]] = [
+            self._unwrap_single_property_groups(v) for v in prop_or_group.values
+        ]
+        prop_or_group.values = unwrapped_values  # type: ignore[assignment]
+
+        # If this group has only one child, return the child instead
+        if len(prop_or_group.values) == 1:
+            return prop_or_group.values[0]
+
+        return prop_or_group
+
+    def _preprocess_property_groups(self, prop_group: Optional[PropertyGroup]) -> Optional[PropertyGroup]:
+        """
+        Preprocess property groups to merge person properties with same key and operator.
+
+        For example, multiple email contains filters become a single merged property with
+        multiple conditionHashes that will be queried with IN clause.
+        """
+
+        if not prop_group or not isinstance(prop_group, PropertyGroup):
+            return prop_group
+
+        # First, unwrap deeply nested single-property groups
+        unwrapped = self._unwrap_single_property_groups(prop_group)
+        if not isinstance(unwrapped, PropertyGroup):
+            # If unwrapping resulted in a single Property, wrap it back in a PropertyGroup
+            # so it can be processed normally
+            single_property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[unwrapped])
+            return single_property_group
+        prop_group = unwrapped
+
+        # Process both AND and OR groups for merging
+        is_and_group = prop_group.type == PropertyOperatorType.AND
+        is_or_group = prop_group.type == PropertyOperatorType.OR
+
+        if not is_and_group and not is_or_group:
+            # For other group types, just recursively process children
+            processed_values: list[Union[Property, PropertyGroup]] = [
+                cast(Union[Property, PropertyGroup], self._preprocess_property_groups(v))
+                if isinstance(v, PropertyGroup)
+                else v
+                for v in prop_group.values
+            ]
+            prop_group.values = processed_values  # type: ignore[assignment]
+            return prop_group
+
+        # Group person properties by (key, operator)
+        groups: dict[tuple[str, str], list[Property]] = defaultdict(list)
+        non_mergeable: list[Union[Property, PropertyGroup]] = []
+
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                processed = self._preprocess_property_groups(value)
+                if processed is not None:
+                    non_mergeable.append(processed)
+            elif isinstance(value, Property):
+                if self._is_mergeable_property(value):
+                    key = (value.key, str(value.operator))
+                    groups[key].append(value)
+                else:
+                    non_mergeable.append(value)
+
+        # Merge groups with 2+ properties
+        merged_values: list[Union[Property, PropertyGroup]] = []
+        for props in groups.values():
+            if len(props) >= 2:
+                # Collect and deduplicate hashes
+                hashes = [p.conditionHash for p in props if p.conditionHash]
+                unique_hashes = self._deduplicate_hashes(hashes)
+                # Create merged property
+                merged_prop = self._create_merged_property(props[0], unique_hashes, is_or_group)
+                merged_values.append(merged_prop)
+            else:
+                merged_values.extend(props)
+
+        merged_values.extend(non_mergeable)
+        prop_group.values = merged_values  # type: ignore[assignment]
+
+        # After merging within groups, also merge sibling single-property groups
+        prop_group = self._merge_sibling_single_property_groups(prop_group)
+
+        return prop_group
+
+    def _merge_sibling_single_property_groups(self, prop_group: PropertyGroup) -> PropertyGroup:
+        """
+        Merge sibling single-property groups under an OR that have the same key and operator.
+
+        Example:
+        OR:
+          - AND: [email icontains @gmail.com, email is_not user2@gmail.com]
+          - OR: [email icontains yahoo.com]  # single property
+          - OR: [email icontains @protonmail.com, email icontains @live.com]  # already merged
+
+        Result: Last two groups merge into one with 3 hashes (yahoo + protonmail + live).
+        """
+        if prop_group.type != PropertyOperatorType.OR:
+            return prop_group
+
+        # Collect hashes by (key, operator) and track templates for creating merged properties
+        mergeable_by_key: dict[tuple[str, str], list[str]] = defaultdict(list)
+        first_property_by_key: dict[tuple[str, str], Property] = {}
+        other_values: list[Union[Property, PropertyGroup]] = []
+
+        for value in prop_group.values:
+            # Extract child from single-value groups or plain properties
+            child = None
+            if isinstance(value, PropertyGroup) and len(value.values) == 1:
+                child = value.values[0]
+            elif isinstance(value, Property):
+                child = value
+            else:
+                # Multi-value groups can't be merged
+                other_values.append(value)
+                continue
+
+            if isinstance(child, Property) and self._is_mergeable_property(child):
+                key = (child.key, str(child.operator))
+
+                # Collect hashes: property may already be merged (has multiple hashes) or single hash
+                if hasattr(child, "_merged_condition_hashes"):
+                    mergeable_by_key[key].extend(getattr(child, "_merged_condition_hashes", []))
+                elif hasattr(child, "conditionHash") and child.conditionHash:
+                    mergeable_by_key[key].append(child.conditionHash)
+                else:
+                    other_values.append(value)
+                    continue
+
+                # Save first property as template for merged property
+                if key not in first_property_by_key:
+                    first_property_by_key[key] = child
+            else:
+                other_values.append(value)
+
+        # Create merged properties for each (key, operator) with 2+ unique hashes
+        merged_values: list[Union[Property, PropertyGroup]] = []
+        for key, hashes in mergeable_by_key.items():
+            unique_hashes = self._deduplicate_hashes(hashes)
+
+            if len(unique_hashes) >= 2:
+                template = first_property_by_key[key]
+                merged_prop = self._create_merged_property(template, unique_hashes, is_or_group=True)
+                merged_values.append(merged_prop)
+            elif len(unique_hashes) == 1:
+                # Single hash after dedup: wrap back in group to preserve structure
+                template = first_property_by_key[key]
+                single_prop = template.copy() if hasattr(template, "copy") else Property(**template.to_dict())
+                if hasattr(single_prop, "_merged_condition_hashes"):
+                    delattr(single_prop, "_merged_condition_hashes")
+                merged_values.append(PropertyGroup(type=PropertyOperatorType.OR, values=[single_prop]))
+
+        merged_values.extend(other_values)
+        prop_group.values = merged_values  # type: ignore[assignment]
+        return prop_group
+
+    def _should_combine_person_properties(self) -> bool:
+        """
+        Disable person property combining optimization for realtime cohorts.
+
+        Each person property in realtime cohorts has its own conditionHash in
+        precalculated_person_properties, so we can't combine them into a single
+        query like the parent class does with the person table. Instead, we rely
+        on individual get_person_condition calls which query precalculated_person_properties.
+        """
+        return False
 
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         """
@@ -785,53 +1005,160 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """
         Query precalculated_person_properties using conditionHash for realtime person property matching.
         Table for precalculated person properties evaluations populated by CdpRealtimeCohortsConsumer and backfill workflows.
+
+        If prop has _merged_condition_hashes, uses IN clause to combine multiple conditions.
         """
-        condition_hash = getattr(prop, "conditionHash", None)
-        if not condition_hash:
-            cohort_id = self.cohort.id if self.cohort else "unknown"
-            raise ValueError(
-                f"BUG: Realtime cohort (cohort_id={cohort_id}) has person property without conditionHash. "
-                f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
+        # Check if this property was merged in preprocessing
+        merged_hashes = getattr(prop, "_merged_condition_hashes", None)
+
+        if merged_hashes:
+            # Check if this is from an OR group (OR semantics) or AND group (AND semantics)
+            is_or_group = getattr(prop, "_is_or_group", False)
+
+            if is_or_group:
+                # OR semantics: At least ONE condition must match
+                # For example: email contains X OR email contains Y
+                query_str = """
+                    SELECT
+                        pdi2.person_id as id
+                    FROM
+                    (
+                        SELECT
+                            distinct_id,
+                            countIf(latest_matches = 1) as matching_count
+                        FROM
+                        (
+                            SELECT
+                                distinct_id,
+                                condition,
+                                argMax(matches, _timestamp) as latest_matches
+                            FROM precalculated_person_properties
+                            WHERE
+                                team_id = {team_id}
+                                AND condition IN {condition_hashes}
+                            GROUP BY distinct_id, condition
+                        )
+                        GROUP BY distinct_id
+                        HAVING matching_count >= 1
+                    ) AS ppp
+                    INNER JOIN
+                    (
+                        SELECT
+                            distinct_id,
+                            argMax(person_id, version) as person_id
+                        FROM raw_person_distinct_ids
+                        WHERE team_id = {team_id}
+                        GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
+                    ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+                """
+
+                return cast(
+                    ast.SelectQuery,
+                    parse_select(
+                        query_str,
+                        {
+                            "team_id": ast.Constant(value=self.team.pk),
+                            "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
+                        },
+                    ),
+                )
+            else:
+                # AND semantics: ALL conditions must match
+                # For example: email contains X AND email contains Y
+                query_str = """
+                    SELECT
+                        pdi2.person_id as id
+                    FROM
+                    (
+                        SELECT
+                            distinct_id,
+                            countIf(latest_matches = 1) as matching_count
+                        FROM
+                        (
+                            SELECT
+                                distinct_id,
+                                condition,
+                                argMax(matches, _timestamp) as latest_matches
+                            FROM precalculated_person_properties
+                            WHERE
+                                team_id = {team_id}
+                                AND condition IN {condition_hashes}
+                            GROUP BY distinct_id, condition
+                        )
+                        GROUP BY distinct_id
+                        HAVING matching_count = {num_conditions}
+                    ) AS ppp
+                    INNER JOIN
+                    (
+                        SELECT
+                            distinct_id,
+                            argMax(person_id, version) as person_id
+                        FROM raw_person_distinct_ids
+                        WHERE team_id = {team_id}
+                        GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
+                    ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+                """
+
+                return cast(
+                    ast.SelectQuery,
+                    parse_select(
+                        query_str,
+                        {
+                            "team_id": ast.Constant(value=self.team.pk),
+                            "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
+                            "num_conditions": ast.Constant(value=len(merged_hashes)),
+                        },
+                    ),
+                )
+        else:
+            # Single condition - original logic
+            condition_hash = getattr(prop, "conditionHash", None)
+            if not condition_hash:
+                cohort_id = self.cohort.id if self.cohort else "unknown"
+                raise ValueError(
+                    f"BUG: Realtime cohort (cohort_id={cohort_id}) has person property without conditionHash. "
+                    f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
+                )
+
+            query_str = """
+                SELECT
+                    pdi2.person_id as id
+                FROM
+                (
+                    SELECT
+                        distinct_id,
+                        argMax(matches, _timestamp) as latest_matches
+                    FROM precalculated_person_properties
+                    WHERE
+                        team_id = {team_id}
+                        AND condition = {condition_hash}
+                    GROUP BY distinct_id
+                    HAVING latest_matches = 1
+                ) AS ppp
+                INNER JOIN
+                (
+                    SELECT
+                        distinct_id,
+                        argMax(person_id, version) as person_id
+                    FROM raw_person_distinct_ids
+                    WHERE team_id = {team_id}
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0
+                ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+            """
+
+            return cast(
+                ast.SelectQuery,
+                parse_select(
+                    query_str,
+                    {
+                        "team_id": ast.Constant(value=self.team.pk),
+                        "condition_hash": ast.Constant(value=condition_hash),
+                    },
+                ),
             )
-
-        # Build query using precalculated_person_properties with argMax pattern
-        query_str = """
-            SELECT
-                pdi2.person_id as id
-            FROM
-            (
-                SELECT
-                    distinct_id,
-                    argMax(matches, _timestamp) as latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition = {condition_hash}
-                GROUP BY distinct_id
-                HAVING latest_matches = 1
-            ) AS ppp
-            INNER JOIN
-            (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) as person_id
-                FROM raw_person_distinct_ids
-                WHERE team_id = {team_id}
-                GROUP BY distinct_id
-                HAVING argMax(is_deleted, version) = 0
-            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
-        """
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hash": ast.Constant(value=condition_hash),
-                },
-            ),
-        )
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         """

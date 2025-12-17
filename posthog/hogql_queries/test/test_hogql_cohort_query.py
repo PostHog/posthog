@@ -430,3 +430,641 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
             hogql_query.query_str("clickhouse")
 
         self.assertIn("static cohort", str(context.exception).lower())
+
+    def test_or_group_with_same_key_operator_merges(self) -> None:
+        """
+        Test that OR groups with same key and operator are merged with OR semantics.
+
+        For example: email contains "@gmail.com" OR email contains "@yahoo.com"
+        This should find users whose email contains ANY of these strings (at least one).
+
+        Also tests that properties with different operators or keys are NOT merged.
+        """
+        cohort_filters = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        # These 3 should merge (same key, operator, not negated)
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "a5c1c77ac5bfac89",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["@yahoo.com"],
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@yahoo.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "102924b91ae29fc8",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@live.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@live.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "e849069d7a368305",
+                        },
+                        # Different operator - should NOT merge
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "admin@company.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "admin@company.com",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                15,
+                            ],
+                            "negation": False,
+                            "operator": "exact",
+                            "conditionHash": "different_operator_hash",
+                        },
+                        # Same operator but different value type - should NOT merge
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@hotmail.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@hotmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "not_icontains",
+                            "conditionHash": "not_icontains_hash",
+                        },
+                        # Different key - should NOT merge
+                        {
+                            "key": "name",
+                            "type": "person",
+                            "value": "John",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%John%",
+                                32,
+                                "name",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "different_key_hash",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test OR Group Merge", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # The 3 mergeable email icontains should be in a single merged query with IN clause
+        # Looking at the IN clause specifically
+        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
+
+        # Should have exactly 1 IN clause for the merged conditions
+        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
+
+        # Should have exactly 3 single condition checks (one for each non-mergeable property)
+        single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
+        self.assertEqual(single_condition_count, 3, "Should have exactly 3 single condition checks")
+
+        # Should use IN clause for merged conditions
+        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+
+        # The merged query should check for at least 1 match
+        self.assertIn("greaterorequals(matching_count, 1)", query_str.lower())
+
+        # Should have UNION DISTINCT since we have non-mergeable properties too
+        self.assertIn("UNION DISTINCT", query_str)
+
+    def test_or_group_with_nested_single_property_groups_merges(self) -> None:
+        """
+        Test that nested OR groups with single properties get merged.
+
+        For example:
+        OR:
+          - Group 1: [email contains "@gmail.com"]
+          - Group 2: [email contains "@yahoo.com"]
+          - Group 3: [email contains "@live.com"]
+
+        These should be unwrapped and merged into a single query.
+        """
+        cohort_filters = {
+            "type": "OR",
+            "values": [
+                # Each of these is a separate OR group with a single property
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "nested1_gmail",
+                        },
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@yahoo.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@yahoo.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "nested2_yahoo",
+                        },
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@live.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@live.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "nested3_live",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Nested OR Groups Merge", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # All 3 nested single-property groups should be unwrapped and merged
+        # Should have exactly 1 IN clause for all 3 conditions
+        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
+        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for merged conditions")
+
+        # Should have no single condition checks (all merged)
+        single_condition_count = query_str.lower().count("equals(precalculated_person_properties.condition,")
+        self.assertEqual(single_condition_count, 0, "Should have no single condition checks (all merged)")
+
+        # Should NOT use UNION DISTINCT since all properties are merged
+        self.assertNotIn("UNION DISTINCT", query_str)
+
+    def test_and_group_with_same_key_operator_merges(self) -> None:
+        """
+        Test that AND groups with same key and operator are merged with AND semantics.
+
+        For example: email contains "@gmail" AND email contains ".com"
+        This should find users whose email contains ALL of these strings (all conditions must match).
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash1_gmail",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ".com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash2_dotcom",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "test",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%test%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash3_test",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test AND Group Merge", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # Should use IN clause to fetch all conditions at once
+        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
+        # Should use countIf for counting matches
+        self.assertIn("countif", query_str.lower())
+        # For AND semantics, should check that ALL 3 conditions matched
+        self.assertIn("equals(matching_count, 3)", query_str.lower())
+        # Should NOT use UNION DISTINCT since properties are merged
+        self.assertNotIn("UNION DISTINCT", query_str)
+
+    def test_sibling_single_property_groups_under_or_merge(self) -> None:
+        """
+        Test that sibling single-property groups under a top-level OR are merged together
+        when they have the same key and operator, including already-merged groups.
+
+        For example:
+        OR:
+          - AND: [email icontains @gmail.com, name icontains John]  # can't merge (different keys)
+          - OR: [email icontains yahoo.com]  # single property
+          - OR: [email icontains @protonmail.com, email icontains @live.com]  # already merged within group
+
+        The last two groups should ALL be merged together (yahoo + protonmail + live = 3 hashes).
+        """
+        cohort_filters = {
+            "type": "OR",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash1_gmail",
+                        },
+                        {
+                            "key": "name",
+                            "type": "person",
+                            "value": "John",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%John%",
+                                32,
+                                "name",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash2_john",
+                        },
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "yahoo.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%yahoo.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash3_yahoo",
+                        },
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@protonmail.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@protonmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash4_protonmail",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@live.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@live.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "hash5_live",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Sibling Single Property Groups Merge", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # Should have 1 IN clause for ALL merged email properties (yahoo + protonmail + live = 3 hashes)
+        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
+        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for all merged email properties")
+
+        # Verify the IN clause has a tuple with 3 values (all 3 hashes merged)
+        # The pattern will be: tuple(%(hogql_val_X)s, %(hogql_val_Y)s, %(hogql_val_Z)s)
+
+        # Match tuple with exactly 3 comma-separated parameter placeholders
+        tuple_pattern = r"tuple\(%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s\)"
+        self.assertRegex(query_str, tuple_pattern, "IN clause should have tuple with 3 values")
+
+        # Should use UNION DISTINCT since we have multiple top-level groups
+        self.assertIn("UNION DISTINCT", query_str)
+
+        # Should have INTERSECT DISTINCT for the AND group (email + name)
+        self.assertIn("INTERSECT DISTINCT", query_str)
