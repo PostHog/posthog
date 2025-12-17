@@ -1911,7 +1911,11 @@ function usePopularValues({ column, isOpen, onAddFilter, onClose }: PopularValue
                 .filter((value): value is string => Boolean(value))
 
             if (literals.length) {
-                parts.push(`IN (${literals.join(', ')})`)
+                if (literals.length === 1) {
+                    parts.push(`= ${literals[0]}`)
+                } else {
+                    parts.push(`IN (${literals.join(', ')})`)
+                }
             }
         }
 

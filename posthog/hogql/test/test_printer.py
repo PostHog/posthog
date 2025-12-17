@@ -3358,6 +3358,10 @@ class TestPostgresPrinter(BaseTest):
             "((event = 'test') OR (distinct_id = 'abc'))",
         )
 
+    def test_in_operations_render_value_lists(self):
+        self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
+        self.assertEqual(self._expr("1 in (1)"), "(1 IN (1))")
+
     def test_hogqlx_row_literals_render_without_tuple_function(self):
         hx_tag = convert_tag_to_hx(ast.HogQLXTag(kind="div", attributes=[]))
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -3374,4 +3378,4 @@ class TestPostgresPrinter(BaseTest):
             stack=[prepared_select_query],
         )
 
-        self.assertEqual(rendered, "ROW('__hx_tag', 'div')")
+        self.assertEqual(rendered, "('__hx_tag', 'div')")

@@ -673,9 +673,18 @@ class _Printer(Visitor[str]):
             return f"{visited_tuple}{symbol}{visited_index}"
         return f"({visited_tuple}){symbol}{visited_index}"
 
+    def _visit_postgres_tuple(self, node: ast.Tuple) -> str:
+        values = [self.visit(expr) for expr in node.exprs]
+
+        if len(values) == 1:
+            # Parentheses around a single value are just grouping in Postgres. Use ROW() to construct a 1-column tuple.
+            return f"ROW({values[0]})"
+
+        return f"({', '.join(values)})"
+
     def visit_tuple(self, node: ast.Tuple):
         if self.dialect == "postgres":
-            return f"ROW({', '.join([self.visit(expr) for expr in node.exprs])})"
+            return self._visit_postgres_tuple(node)
 
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
@@ -1864,6 +1873,22 @@ class PostgresPrinter(_Printer):
 
     def visit_table_type(self, type: ast.TableType):
         return type.table.to_printed_postgres()
+
+    def _visit_in_values(self, node: ast.Expr) -> str:
+        if isinstance(node, ast.Tuple):
+            return f"({', '.join(self.visit(value) for value in node.exprs)})"
+
+        return self.visit(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        left = self.visit(node.left)
+
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            right = self._visit_in_values(node.right)
+        else:
+            right = self.visit(node.right)
+
+        return self._get_compare_op(node.op, left, right)
 
     def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
         if op == ast.CompareOperationOp.Eq:
