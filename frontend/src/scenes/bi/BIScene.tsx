@@ -1463,6 +1463,30 @@ interface SchemaEditorViewProps {
     onSave: (tableName: string, draft: string) => void
 }
 
+interface SchemaScript {
+    id: string
+    displayName: string
+    sql: string
+}
+
+const EXAMPLE_SCRIPTS: SchemaScript[] = [
+    {
+        id: 'scripts/stg_event_facts.sql',
+        displayName: 'stg_event_facts.sql',
+        sql: `-- dbt model: stage event metrics for downstream marts\nWITH base AS (\n    SELECT\n        distinct_id,\n        event,\n        properties ->> 'product' AS product,\n        properties ->> 'plan' AS plan,\n        toDate(timestamp) AS event_date,\n        timestamp\n    FROM events\n    WHERE timestamp >= today() - 30\n),\n\nranked AS (\n    SELECT\n        *,\n        row_number() OVER (PARTITION BY distinct_id, event_date ORDER BY timestamp) AS daily_rank\n    FROM base\n)\n\nSELECT\n    distinct_id,\n    event_date,\n    countIf(event = '$pageview') AS pageviews,\n    countIf(event = 'signed_up') AS signups,\n    anyLast(plan) AS latest_plan,\n    anyLast(product) AS latest_product,\n    min(timestamp) AS first_seen,\n    max(timestamp) AS last_seen\nFROM ranked\nGROUP BY distinct_id, event_date`,
+    },
+    {
+        id: 'scripts/dim_accounts.sql',
+        displayName: 'dim_accounts.sql',
+        sql: `-- dbt model: dimension table for accounts with health signals\nWITH latest_plan AS (\n    SELECT\n        distinct_id,\n        argMax(properties ->> 'plan', timestamp) AS plan,\n        argMax(properties ->> 'stripe_customer_id', timestamp) AS stripe_customer_id\n    FROM events\n    WHERE event = 'billing_plan_changed'\n    GROUP BY distinct_id\n),\n\nactivity AS (\n    SELECT\n        distinct_id,\n        count() AS total_events,\n        countIf(event = '$feature_flag_called') AS feature_flags,\n        uniq(properties ->> 'feature_flag') AS active_flags,\n        max(timestamp) AS last_seen\n    FROM events\n    GROUP BY distinct_id\n)\n\nSELECT\n    a.distinct_id AS account_id,\n    coalesce(lp.plan, 'free') AS current_plan,\n    lp.stripe_customer_id,\n    activity.total_events,\n    activity.feature_flags,\n    activity.active_flags,\n    activity.last_seen\nFROM activity\nLEFT JOIN latest_plan lp ON activity.distinct_id = lp.distinct_id`,
+    },
+    {
+        id: 'scripts/fct_retention_curve.sql',
+        displayName: 'fct_retention_curve.sql',
+        sql: `-- dbt model: rolling retention based on weekly cohorts\nWITH sessions AS (\n    SELECT\n        distinct_id,\n        toStartOfWeek(timestamp) AS cohort_week,\n        toStartOfWeek(timestamp) AS activity_week\n    FROM events\n    WHERE event = '$pageview'\n),\n\nfirst_touch AS (\n    SELECT distinct_id, min(cohort_week) AS first_week FROM sessions GROUP BY distinct_id\n),\n\ncohorted AS (\n    SELECT\n        s.distinct_id,\n        f.first_week AS cohort_week,\n        s.activity_week,\n        dateDiff('week', f.first_week, s.activity_week) AS week_number\n    FROM sessions s\n    INNER JOIN first_touch f ON s.distinct_id = f.distinct_id\n)\n\nSELECT\n    cohort_week,\n    week_number,\n    uniqExact(distinct_id) AS active_users\nFROM cohorted\nWHERE week_number BETWEEN 0 AND 12\nGROUP BY cohort_week, week_number\nORDER BY cohort_week, week_number`,
+    },
+]
+
 function SchemaEditorView({
     sidebarModeToggle,
     databaseName,
@@ -1475,13 +1499,20 @@ function SchemaEditorView({
     onSave,
 }: SchemaEditorViewProps): JSX.Element {
     const [historyOpen, setHistoryOpen] = useState(false)
-    const [expandedSchemaItems, setExpandedSchemaItems] = useState<string[]>(['folder-schema'])
-    const activeTableName = selectedTable?.name || null
-    const orderedVersions = [...versions]
-    const lastSaved = orderedVersions[orderedVersions.length - 1] || null
+    const [expandedSchemaItems, setExpandedSchemaItems] = useState<string[]>(['folder-schema', 'folder-scripts'])
+    const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null)
+    const [scriptDrafts, setScriptDrafts] = useState<Record<string, string>>({})
+    const [scriptVersions, setScriptVersions] = useState<Record<string, BISchemaVersion[]>>({})
+    const activeTableName = selectedScriptId ? null : selectedTable?.name || null
     const generatedTemplate = selectedTable ? buildCreateTableStatement(selectedTable, databaseName) : ''
-    const editorValue = draft || generatedTemplate
-    const schemaFilePath = selectedTable ? formatSchemaFilePath(selectedTable.name, databaseName) : null
+    const activeScript = selectedScriptId
+        ? EXAMPLE_SCRIPTS.find((script) => script.id === selectedScriptId) || null
+        : null
+    const editorValue = activeScript ? scriptDrafts[activeScript.id] || activeScript.sql : draft || generatedTemplate
+    const orderedVersions = activeScript ? [...(scriptVersions[activeScript.id] || [])] : [...versions]
+    const lastSaved = orderedVersions[orderedVersions.length - 1] || null
+    const schemaFilePath = activeTableName ? formatSchemaFilePath(activeTableName, databaseName) : null
+    const activeFilePath = activeScript ? activeScript.id : schemaFilePath
     const activeDatabaseName = selectedTable
         ? getDatabaseNameFromTableName(selectedTable.name)
         : databaseName || 'All databases'
@@ -1523,6 +1554,15 @@ function SchemaEditorView({
                 children: (group.children || []).sort((a, b) => a.name.localeCompare(b.name)),
             }))
 
+        const scriptChildren = EXAMPLE_SCRIPTS.map((script) => ({
+            id: `schema-script-${script.id}`,
+            name: script.displayName,
+            displayName: script.displayName,
+            type: 'node',
+            record: { type: 'script', scriptId: script.id },
+            icon: <IconBrackets />,
+        }))
+
         return [
             {
                 id: 'folder-schema',
@@ -1538,8 +1578,8 @@ function SchemaEditorView({
                 name: 'scripts',
                 displayName: 'scripts',
                 type: 'node',
-                record: { type: 'folder' },
-                children: [],
+                record: { type: 'folder', databaseName: 'scripts' },
+                children: scriptChildren,
                 icon: <IconBrackets />,
             },
         ]
@@ -1563,12 +1603,32 @@ function SchemaEditorView({
         })
     }, [schemaTreeData])
 
+    const hasActiveFile = Boolean(activeTableName || activeScript)
+    const isScriptActive = Boolean(activeScript)
+
     const handleSave = (): void => {
-        if (!activeTableName) {
+        if (activeScript) {
+            setScriptVersions((current) => ({
+                ...current,
+                [activeScript.id]: [...(current[activeScript.id] || []), { sql: editorValue, savedAt: Date.now() }],
+            }))
             return
         }
 
-        onSave(activeTableName, editorValue)
+        if (activeTableName) {
+            onSave(activeTableName, editorValue)
+        }
+    }
+
+    const handleLoadVersion = (sql: string): void => {
+        if (activeScript) {
+            setScriptDrafts((current) => ({ ...current, [activeScript.id]: sql }))
+            return
+        }
+
+        if (activeTableName) {
+            onChangeDraft(activeTableName, sql)
+        }
     }
 
     return (
@@ -1593,11 +1653,17 @@ function SchemaEditorView({
                                 expandedItemIds={expandedSchemaItems}
                                 onSetExpandedItemIds={setExpandedSchemaItems}
                                 isItemActive={(item) =>
-                                    item.record?.type === 'table' && item.record.tableName === activeTableName
+                                    (item.record?.type === 'table' && item.record.tableName === activeTableName) ||
+                                    (item.record?.type === 'script' && item.record.scriptId === activeScript?.id)
                                 }
                                 onItemClick={(item) => {
                                     if (item.record?.type === 'table') {
+                                        setSelectedScriptId(null)
                                         onSelectTable(item.record.tableName)
+                                    }
+
+                                    if (item.record?.type === 'script') {
+                                        setSelectedScriptId(item.record.scriptId)
                                     }
                                 }}
                             />
@@ -1608,7 +1674,7 @@ function SchemaEditorView({
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2">
                         <div className="text-lg font-semibold ml-2">
-                            {schemaFilePath || 'Select a table to edit its schema'}
+                            {activeFilePath || 'Select a table or script to edit'}
                         </div>
                         <div className="flex items-center gap-2">
                             <Popover
@@ -1631,12 +1697,12 @@ function SchemaEditorView({
                                                 <div className="text-xs text-muted whitespace-pre-wrap line-clamp-2">
                                                     {version.sql}
                                                 </div>
-                                                {activeTableName && (
+                                                {hasActiveFile && (
                                                     <LemonButton
                                                         size="xsmall"
                                                         type="secondary"
                                                         onClick={() => {
-                                                            onChangeDraft(activeTableName, version.sql)
+                                                            handleLoadVersion(version.sql)
                                                             setHistoryOpen(false)
                                                         }}
                                                     >
@@ -1655,12 +1721,17 @@ function SchemaEditorView({
                                         event.stopPropagation()
                                         setHistoryOpen((current) => !current)
                                     }}
-                                    disabled={!activeTableName}
+                                    disabled={!hasActiveFile}
                                 >
                                     Version history
                                 </LemonButton>
                             </Popover>{' '}
-                            <LemonButton type="primary" onClick={handleSave} disabled={!activeTableName}>
+                            {isScriptActive && (
+                                <LemonButton type="secondary" icon={<IconPlay />} onClick={() => {}}>
+                                    Run
+                                </LemonButton>
+                            )}
+                            <LemonButton type="primary" onClick={handleSave} disabled={!hasActiveFile}>
                                 Save
                             </LemonButton>
                         </div>
@@ -1671,11 +1742,23 @@ function SchemaEditorView({
                             <div />
                         </div>
                         <div className="flex-1 min-h-0 border border-border rounded bg-bg-3000">
-                            {activeTableName ? (
+                            {hasActiveFile ? (
                                 <CodeEditor
                                     language="sql"
                                     value={editorValue}
-                                    onChange={(value) => onChangeDraft(activeTableName, value || '')}
+                                    onChange={(value) => {
+                                        if (activeScript) {
+                                            setScriptDrafts((current) => ({
+                                                ...current,
+                                                [activeScript.id]: value || '',
+                                            }))
+                                            return
+                                        }
+
+                                        if (activeTableName) {
+                                            onChangeDraft(activeTableName, value || '')
+                                        }
+                                    }}
                                     height="100%"
                                     options={{
                                         minimap: { enabled: false },
@@ -1684,7 +1767,7 @@ function SchemaEditorView({
                                     }}
                                 />
                             ) : (
-                                <div className="p-3 text-muted">Select a table to begin editing its schema.</div>
+                                <div className="p-3 text-muted">Select a table or script to begin editing.</div>
                             )}
                         </div>
                     </LemonCard>
