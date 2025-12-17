@@ -62,7 +62,7 @@ class TicketSerializer(serializers.ModelSerializer):
     def get_message_count(self, obj: Ticket) -> int:
         """Get count of messages in this ticket."""
         if hasattr(obj, "message_count"):
-            return obj.message_count
+            return obj.message_count or 0  # Subquery returns None when no messages
         return Comment.objects.filter(
             team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False
         ).count()
