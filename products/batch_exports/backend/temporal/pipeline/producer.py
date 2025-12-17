@@ -97,6 +97,9 @@ class Producer:
         We use the Temporal activity attempt number in the S3 key, in case several attempts are running at the same time
         (e.g. due to retries caused by heartbeat timeouts).
         Therefore, we need to return only the files that correspond to the most recent attempt.
+
+        Returns:
+            tuple[list[str], str]: The list of keys and the common prefix (folder).
         """
         response = await s3_client.list_objects_v2(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder)
         if not (contents := response.get("Contents", [])):
