@@ -456,7 +456,7 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
 }
 
 const WebAnalyticsSurveyModal = (): JSX.Element | null => {
-    const { surveyModalPath } = useValues(webAnalyticsLogic)
+    const { surveyModalPath, surveyModalPathCleaningFilters } = useValues(webAnalyticsLogic)
     const { closeSurveyModal } = useActions(webAnalyticsLogic)
 
     if (!surveyModalPath) {
@@ -465,12 +465,16 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 
     return (
         <QuickSurveyModal
-            context={{ type: QuickSurveyType.WEB_PATH, path: surveyModalPath }}
+            context={{
+                type: QuickSurveyType.WEB_PATH,
+                path: surveyModalPath,
+                pathCleaningFilters: surveyModalPathCleaningFilters,
+            }}
             isOpen={!!surveyModalPath}
             onCancel={closeSurveyModal}
             showFollowupToggle={true}
             modalTitle={`Survey users on ${surveyModalPath}`}
-            info={`Shown to users who spend more than 15 seconds on URLs containing ${surveyModalPath}, once per unique user`}
+            info={`Shown to users who spend more than 15 seconds on URLs matching ${surveyModalPath}, once per unique user`}
         />
     )
 }

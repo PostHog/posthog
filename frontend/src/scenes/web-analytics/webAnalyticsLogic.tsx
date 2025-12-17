@@ -66,6 +66,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    PathCleaningFilter,
     PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
@@ -161,7 +162,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setActiveHoursTab: (tab: string) => ({ tab }),
-        openSurveyModal: (path: string) => ({ path }),
+        openSurveyModal: (path: string, pathCleaningFilters?: PathCleaningFilter[]) => ({ path, pathCleaningFilters }),
         closeSurveyModal: true,
         setDomainFilter: (domain: string | null) => ({ domain }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
@@ -240,6 +241,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 openSurveyModal: (_, { path }) => path,
                 closeSurveyModal: () => null,
+            },
+        ],
+        surveyModalPathCleaningFilters: [
+            undefined as PathCleaningFilter[] | undefined,
+            {
+                openSurveyModal: (_, { pathCleaningFilters }) => pathCleaningFilters,
+                closeSurveyModal: () => undefined,
             },
         ],
         rawWebAnalyticsFilters: [

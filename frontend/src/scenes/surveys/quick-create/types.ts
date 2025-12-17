@@ -1,4 +1,4 @@
-import { Experiment, FeatureFlagType } from '~/types'
+import { Experiment, FeatureFlagType, PathCleaningFilter } from '~/types'
 
 import { FunnelContext } from '../utils/opportunityDetection'
 
@@ -8,7 +8,7 @@ export type QuickSurveyContext =
     | { type: QuickSurveyType.EXPERIMENT; experiment: Experiment }
     | { type: QuickSurveyType.ANNOUNCEMENT }
     | { type: QuickSurveyType.ERROR_TRACKING; exceptionType: string; exceptionMessage?: string | null }
-    | { type: QuickSurveyType.WEB_PATH; path: string }
+    | { type: QuickSurveyType.WEB_PATH; path: string; pathCleaningFilters?: PathCleaningFilter[] }
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext

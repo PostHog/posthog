@@ -124,7 +124,20 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                 },
             }
 
-        case QuickSurveyType.WEB_PATH:
+        case QuickSurveyType.WEB_PATH: {
+            // If path cleaning filters provided, reverse the alias→regex map to build a regex pattern
+            let urlPattern = context.path
+            let useRegex = false
+
+            if (context.pathCleaningFilters) {
+                for (const filter of context.pathCleaningFilters) {
+                    if (filter.alias && filter.regex && urlPattern.includes(filter.alias)) {
+                        urlPattern = urlPattern.replaceAll(filter.alias, filter.regex)
+                        useRegex = true
+                    }
+                }
+            }
+
             return {
                 key: `web-path-${context.path}-${randomId}`,
                 contextType: context.type,
@@ -141,8 +154,8 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     conditions: {
                         actions: null,
                         events: null,
-                        url: context.path,
-                        urlMatchType: SurveyMatchType.Contains,
+                        url: urlPattern,
+                        urlMatchType: useRegex ? SurveyMatchType.Regex : SurveyMatchType.Contains,
                     },
                     appearance: {
                         ...defaultSurveyAppearance,
@@ -150,5 +163,6 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     },
                 },
             }
+        }
     }
 }
