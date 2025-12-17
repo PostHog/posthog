@@ -18,13 +18,30 @@ import {
     RawClickHouseEvent,
     ValueMatcher,
 } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
+import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { createInvocation } from '../utils/invocation-utils'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
+
+type LightweightPluginConfig = {
+    id: number
+    team_id: number
+    plugin_id: number
+    enabled: boolean
+    config: Record<string, unknown>
+    created_at: string
+    updated_at?: string
+    plugin?: {
+        id: number
+        url: string
+    }
+}
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
@@ -36,6 +53,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected promiseScheduler = new PromiseScheduler()
 
     private pluginConfigsToSkipElementsParsing: ValueMatcher<number>
+    private pluginConfigsLoader: LazyLoader<LightweightPluginConfig[]>
 
     constructor(hub: Hub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
@@ -45,6 +63,69 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         })
 
         this.pluginConfigsToSkipElementsParsing = buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true)
+
+        this.pluginConfigsLoader = new LazyLoader({
+            name: 'lightweight_plugin_configs',
+            loader: async (teamIds: string[]) => {
+                const results: Record<string, LightweightPluginConfig[] | null> = {}
+
+                const { rows } = await this.hub.db.postgres.query(
+                    PostgresUse.COMMON_READ,
+                    `SELECT
+                        posthog_pluginconfig.id,
+                        posthog_pluginconfig.team_id,
+                        posthog_pluginconfig.plugin_id,
+                        posthog_pluginconfig.enabled,
+                        posthog_pluginconfig.config,
+                        posthog_pluginconfig.filters,
+                        posthog_pluginconfig.updated_at,
+                        posthog_pluginconfig.created_at,
+                        posthog_plugin.id as plugin__id,
+                        posthog_plugin.url as plugin__url
+                    FROM posthog_pluginconfig
+                    LEFT JOIN posthog_plugin ON posthog_plugin.id = posthog_pluginconfig.plugin_id
+                    WHERE posthog_pluginconfig.team_id = ANY($1)
+                        AND posthog_pluginconfig.enabled = 't'
+                        AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')`,
+                    [teamIds.map((id) => parseInt(id))],
+                    'loadLightweightPluginConfigs'
+                )
+
+                // Group by team_id
+                const configsByTeam: Record<number, LightweightPluginConfig[]> = {}
+                for (const row of rows) {
+                    const teamId = row.team_id
+                    if (!configsByTeam[teamId]) {
+                        configsByTeam[teamId] = []
+                    }
+                    configsByTeam[teamId].push({
+                        id: row.id,
+                        team_id: row.team_id,
+                        plugin_id: row.plugin_id,
+                        enabled: row.enabled === 't',
+                        config: row.config,
+                        created_at: row.created_at,
+                        updated_at: row.updated_at,
+                        plugin: row.plugin__id
+                            ? {
+                                  id: row.plugin__id,
+                                  url: row.plugin__url,
+                              }
+                            : undefined,
+                    })
+                }
+
+                // Ensure all requested team IDs are in the results
+                for (const teamId of teamIds) {
+                    results[teamId] = configsByTeam[parseInt(teamId)] ?? []
+                }
+
+                return results
+            },
+            refreshAgeMs: 600000, // 10 minutes
+            refreshBackgroundAgeMs: 300000, // 5 minutes
+            bufferMs: 10, // 10ms buffer for batching
+        })
     }
 
     @instrumented('cdpLegacyEventsConsumer.processEvent')
@@ -62,11 +143,10 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             person_properties: {},
             person_id: undefined,
         }
-
         // Runs onEvent for all plugins for this team in parallel
         const pluginMethodsToRun = await this.getPluginMethodsForTeam(event.teamId, 'onEvent')
 
-        await Promise.all(
+        const results = await Promise.all(
             pluginMethodsToRun.map(async ([pluginConfig, onEvent]) => {
                 if (!this.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
                     // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
@@ -90,29 +170,35 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                     .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', error ? 'error' : 'success')
                     .observe(new Date().getTime() - timer.getTime())
 
-                if (error) {
-                    void this.promiseScheduler.schedule(
-                        this.hub.appMetrics.queueError(
-                            {
-                                teamId: event.teamId,
-                                pluginConfigId: pluginConfig.id,
-                                category: 'onEvent',
-                                failures: 1,
-                            },
-                            { error, event }
-                        )
-                    )
-                }
-                void this.promiseScheduler.schedule(
-                    this.hub.appMetrics.queueMetric({
-                        teamId: event.teamId,
-                        pluginConfigId: pluginConfig.id,
-                        category: 'onEvent',
-                        successes: 1,
-                    })
-                )
+                return { pluginConfigId: pluginConfig.id, error }
             })
         )
+
+        await this.comparePluginConfigsToLightweightPluginConfigs(invocation, pluginMethodsToRun)
+
+        for (const { pluginConfigId, error } of results) {
+            if (error) {
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId,
+                            category: 'onEvent',
+                            failures: 1,
+                        },
+                        { error, event }
+                    )
+                )
+            }
+            void this.promiseScheduler.schedule(
+                this.hub.appMetrics.queueMetric({
+                    teamId: event.teamId,
+                    pluginConfigId,
+                    category: 'onEvent',
+                    successes: 1,
+                })
+            )
+        }
     }
 
     @instrumented('cdpLegacyEventsConsumer.processBatch')
@@ -168,6 +254,100 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
             return events
         })
+    }
+
+    private async comparePluginConfigsToLightweightPluginConfigs(
+        invocation: HogFunctionInvocationGlobals,
+        pluginMethodsToRun: [PluginConfig, PluginMethodsConcrete[keyof PluginMethodsConcrete]][]
+    ) {
+        // NOTE: This method loads the lightweight plugin configs, attempts to convert to a local hog legacy plugin hog function and then logs some comparison info
+
+        const lightweightPluginConfigs = await this.pluginConfigsLoader.get(invocation.project.id.toString())
+
+        if (!lightweightPluginConfigs || lightweightPluginConfigs.length === 0) {
+            return
+        }
+
+        // Convert the lightweight plugin configs to hog legacy plugin hog functions
+        const hogFunctionInvocations: CyclotronJobInvocationHogFunction[] = []
+
+        for (const pluginConfig of lightweightPluginConfigs) {
+            try {
+                const hogFunctionInvocation = this.convertPluginConfigToHogFunctionInvocation(pluginConfig, invocation)
+                if (hogFunctionInvocation) {
+                    hogFunctionInvocations.push(hogFunctionInvocation)
+                }
+            } catch (error: any) {
+                logger.warn('Failed to convert plugin config to hog function invocation', {
+                    pluginConfigId: pluginConfig.id,
+                    error: error?.message,
+                })
+            }
+        }
+
+        logger.info('Converted plugin configs to hog function invocations', {
+            teamId: invocation.project.id,
+            pluginMethodsCount: pluginMethodsToRun.length,
+            hogFunctionInvocationsCount: hogFunctionInvocations.length,
+        })
+    }
+
+    private convertPluginConfigToHogFunctionInvocation(
+        pluginConfig: LightweightPluginConfig,
+        invocation: HogFunctionInvocationGlobals
+    ): CyclotronJobInvocationHogFunction | null {
+        if (!pluginConfig.plugin?.url) {
+            return null
+        }
+
+        // Extract plugin ID from URL (following the migration.py pattern)
+        let pluginId = pluginConfig.plugin.url.replace('inline://', '').replace('https://github.com/PostHog/', '')
+
+        // Handle special cases for inline plugins
+        if (pluginId === 'semver-flattener') {
+            pluginId = 'semver-flattener-plugin'
+        } else if (pluginId === 'user-agent') {
+            pluginId = 'user-agent-plugin'
+        }
+
+        const templateId = `plugin-${pluginId}`
+
+        // Build inputs from plugin config
+        const inputs: Record<string, any> = {}
+
+        for (const [key, value] of Object.entries(pluginConfig.config)) {
+            inputs[key] = { value }
+        }
+
+        // Add legacy_plugin_config_id for plugins that use legacy storage
+        if (pluginId === 'first-time-event-tracker' || pluginId === 'customerio-plugin') {
+            inputs.legacy_plugin_config_id = { value: pluginConfig.id.toString() }
+        }
+
+        // Create a minimal HogFunctionType for the invocation
+        const hogFunction = {
+            id: `legacy-${pluginConfig.id}`,
+            type: 'destination' as const,
+            team_id: pluginConfig.team_id,
+            name: `Legacy Plugin ${pluginConfig.id}`,
+            enabled: pluginConfig.enabled,
+            deleted: false,
+            hog: '',
+            bytecode: [],
+            template_id: templateId,
+            inputs: {},
+            filters: null,
+            created_at: pluginConfig.created_at,
+            updated_at: pluginConfig.updated_at ?? pluginConfig.created_at,
+        }
+
+        // Create the invocation with inputs merged into globals
+        const globalsWithInputs = {
+            ...invocation,
+            inputs,
+        }
+
+        return createInvocation(globalsWithInputs, hogFunction)
     }
 
     private async getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
