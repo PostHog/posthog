@@ -10,7 +10,7 @@ test.describe('Early Access Management', () => {
 
     test('Early access feature new and list', async ({ page }) => {
         // load an empty early access feature page
-        await expect(page.locator('h1')).toContainText('Early access features')
+        await expect(page.locator('[role="heading"][aria-level="1"]')).toContainText('Early access features')
         await expect(page).toHaveTitle('Early access features • PostHog')
 
         // go to create a new feature
@@ -18,7 +18,7 @@ test.describe('Early Access Management', () => {
 
         // cancel new feature
         await page.locator('[data-attr="cancel-feature"]').click()
-        await expect(page.locator('h1')).toContainText('Early access features')
+        await expect(page.locator('[role="heading"][aria-level="1"]')).toContainText('Early access features')
 
         const name = randomString('test-feature')
 

@@ -416,7 +416,6 @@ export function DashboardHeader(): JSX.Element | null {
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
-                renameDebounceMs={1000}
                 actions={
                     <>
                         {dashboardMode === DashboardMode.Edit ? (

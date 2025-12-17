@@ -302,7 +302,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     canEdit
                     onNameChange={(name) => setSurveyValue('name', name)}
                     onDescriptionChange={(description) => setSurveyValue('description', description)}
-                    renameDebounceMs={0}
                     forceEdit
                     actions={
                         <>

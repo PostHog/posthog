@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
@@ -97,15 +97,15 @@ type SceneMainTitleProps = {
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
-     * @default 100
+     * @default 0
      */
     renameDebounceMs?: number
     /**
      * If true, saves only on blur (when leaving the field)
-     * If false, saves on every change (debounced) - original behavior.
+     * If false, saves on every change (debounced).
      *
-     * Note: It's probably a good idea to set renameDebounceMs to 0 if this is true
-     * @default false
+     * Note: It's probably a good idea to set renameDebounceMs > 1000 if this is false
+     * @default true
      */
     saveOnBlur?: boolean
     /**
@@ -139,8 +139,8 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
     noBorder = false,
     actions,
     forceBackTo,
@@ -149,6 +149,7 @@ export function SceneTitleSection({
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const [nameIsEditing, setNameIsEditing] = useState(false)
 
     const effectiveDescription = description
 
@@ -181,19 +182,30 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute top-[-55px]" aria-hidden />
+                <div
+                    data-sticky-sentinel
+                    className="scene-title-section-wrapper-sticky-sentinel h-px w-px pointer-events-none absolute top-[-55px]"
+                    aria-hidden
+                />
             )}
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'scene-title-section-wrapper bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     className
                 )}
             >
                 <div
-                    className="scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className={cn(
+                        // Name z-indexed behind description initially
+                        'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-2 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2 z-20',
+                        {
+                            // If scrolled or name is editing, bring to front
+                            'z-50': isScrolled || nameIsEditing,
+                        }
+                    )}
                     data-editable={canEdit}
                 >
                     <div
@@ -224,12 +236,15 @@ export function SceneTitleSection({
                                     forceEdit={forceEdit}
                                     renameDebounceMs={renameDebounceMs}
                                     saveOnBlur={saveOnBlur}
+                                    handleIsEditingChange={(isEditing) => {
+                                        setNameIsEditing(isEditing)
+                                    }}
                                 />
                             </>
                         )}
                     </div>
                     {actions && (
-                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first">
+                        <div className="flex gap-1.5 justify-end items-end @2xl/main-content:items-start @max-2xl:order-first">
                             {actions}
                             <SceneTitlePanelButton />
                         </div>
@@ -238,7 +253,13 @@ export function SceneTitleSection({
                 {effectiveDescription == null && !noBorder && <SceneDivider />}
             </div>
             {effectiveDescription != null && (effectiveDescription || canEdit) && (
-                <div className="[&_svg]:size-6">
+                // Description z-indexed ahead of name initially
+                <div
+                    className={cn('[&_svg]:size-6 z-30 -mt-4', {
+                        // If scrolled or name is editing, bring to back
+                        'z-auto': isScrolled || nameIsEditing,
+                    })}
+                >
                     <SceneDescription
                         description={effectiveDescription}
                         markdown={markdown}
@@ -264,6 +285,7 @@ type SceneNameProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    handleIsEditingChange?: (isEditing: boolean) => void
 }
 
 function SceneName({
@@ -272,21 +294,60 @@ function SceneName({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
+    handleIsEditingChange,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
+    const [isNameMultiline, setIsNameMultiline] = useState(false)
+    const lastHeightRef = useRef<number>(0)
+    const updateTimeoutRef = useRef<number | null>(null)
+
+    const readOnly = !canEdit || !onChange
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
+        'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4]'
 
+    // Handle the height change of the textarea to determine if the name is multiline
+    // We do this so we add a shadow to the name when it is multiline instead of it floating above the description with just a border
+    const handleHeightChange = useCallback((height: number): void => {
+        // Avoid processing the same height multiple times
+        if (lastHeightRef.current === height) {
+            return
+        }
+        lastHeightRef.current = height
+
+        // Clear any pending updates
+        if (updateTimeoutRef.current) {
+            clearTimeout(updateTimeoutRef.current)
+        }
+
+        // Defer the state update to avoid synchronous re-renders during layout
+        updateTimeoutRef.current = window.setTimeout(() => {
+            const shouldBeMultiline = height > 28
+            setIsNameMultiline((prev) => (prev !== shouldBeMultiline ? shouldBeMultiline : prev))
+            updateTimeoutRef.current = null
+        }, 0)
+    }, [])
+
+    // Cleanup timeout on unmount to avoid memory leaks
+    useEffect(() => {
+        return () => {
+            if (updateTimeoutRef.current) {
+                clearTimeout(updateTimeoutRef.current)
+            }
+        }
+    }, [])
+
+    // If the name is loading, set the name to the initial name
     useEffect(() => {
         if (!isLoading) {
             setName(initialName)
         }
     }, [initialName, isLoading])
 
+    // If the name is forced to be edited, set the editing state to true
     useEffect(() => {
         if (!isLoading && forceEdit) {
             setIsEditing(true)
@@ -294,6 +355,11 @@ function SceneName({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    // Notify parent component that the name is editing
+    useEffect(() => {
+        handleIsEditingChange?.(isEditing)
+    }, [isEditing])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
         if (onChange) {
@@ -309,73 +375,84 @@ function SceneName({
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
-    const Element =
-        onChange && canEdit ? (
-            <>
-                {isEditing ? (
-                    <TextareaPrimitive
-                        variant="default"
-                        name="name"
-                        value={name || ''}
-                        onChange={(e) => {
+    const Element = (
+        <>
+            {isEditing ? (
+                <TextareaPrimitive
+                    variant="default"
+                    name="name"
+                    value={name || ''}
+                    onChange={(e) => {
+                        if (canEdit) {
                             setName(e.target.value)
                             if (!saveOnBlur) {
                                 debouncedOnChange(e.target.value)
                             }
-                        }}
-                        data-attr="scene-title-textarea"
+                        }
+                    }}
+                    data-attr="scene-title-textarea"
+                    className={cn(
+                        buttonPrimitiveVariants({
+                            inert: true,
+                            className: `${textClasses} w-full hover:bg-fill-input py-0 pt-px [&_.LemonIcon]:size-4 min-h-[var(--button-height-base)]`,
+                            autoHeight: true,
+                        }),
+                        {
+                            // When the textarea is force edit (new item) and multi line to be inline (not absolute)
+                            // so the name doesn't overlap over description
+                            '@2xl/main-content:absolute @2xl/main-content:inset-0':
+                                (forceEdit && !isNameMultiline) || (isEditing && !forceEdit),
+                            shadow: isEditing && !forceEdit && isNameMultiline,
+                        }
+                    )}
+                    placeholder="Enter name"
+                    onBlur={() => {
+                        // Save changes when leaving the field (only if saveOnBlur is true)
+                        if (saveOnBlur && name !== initialName) {
+                            debouncedOnBlurSave(name || '')
+                        }
+                        // Exit edit mode if not forced
+                        if (!forceEdit) {
+                            setIsEditing(false)
+                        }
+                    }}
+                    autoFocus={!forceEdit}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault()
+                        }
+                    }}
+                    readOnly={readOnly}
+                    onHeightChange={handleHeightChange}
+                />
+            ) : (
+                <Tooltip
+                    title={readOnly ? undefined : canEdit && !forceEdit ? 'Click to edit name' : 'Click to view name'}
+                    placement="top-start"
+                    arrowOffset={10}
+                >
+                    <ButtonPrimitive
                         className={cn(
-                            buttonPrimitiveVariants({
-                                inert: true,
-                                className: `${textClasses} w-full hover:bg-fill-input py-0`,
-                                autoHeight: true,
-                            }),
-                            '[&_.LemonIcon]:size-4'
+                            buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
+                            'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50',
+                            {
+                                'select-text': readOnly,
+                            }
                         )}
-                        placeholder="Enter name"
-                        onBlur={() => {
-                            // Save changes when leaving the field (only if saveOnBlur is true)
-                            if (saveOnBlur && name !== initialName) {
-                                debouncedOnBlurSave(name || '')
-                            }
-                            // Exit edit mode if not forced
-                            if (!forceEdit) {
-                                setIsEditing(false)
-                            }
-                        }}
-                        autoFocus={!forceEdit}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault()
-                            }
-                        }}
-                    />
-                ) : (
-                    <Tooltip
-                        title={canEdit && !forceEdit ? 'Edit name' : undefined}
-                        placement="top-start"
-                        arrowOffset={10}
+                        onClick={() => !readOnly && setIsEditing(true)}
+                        fullWidth
+                        truncate
+                        inert={readOnly}
+                        role="heading"
+                        aria-level={1}
                     >
-                        <ButtonPrimitive
-                            className={cn(
-                                buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50'
-                            )}
-                            onClick={() => setIsEditing(true)}
-                            fullWidth
-                            truncate
-                        >
-                            <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
-                            {canEdit && !forceEdit && <IconPencil />}
-                        </ButtonPrimitive>
-                    </Tooltip>
-                )}
-            </>
-        ) : (
-            <h1 className={cn(buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses}` }))}>
-                <span className="min-w-fit">{name || <span className="text-tertiary">Unnamed</span>}</span>
-            </h1>
-        )
+                        <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                        {canEdit && !forceEdit && <IconPencil />}
+                    </ButtonPrimitive>
+                </Tooltip>
+            )}
+        </>
+    )
 
     if (isLoading) {
         return (
@@ -385,7 +462,18 @@ function SceneName({
         )
     }
 
-    return <div className={cn('scene-name flex-1', !isEditing && onChange && canEdit && 'truncate ')}>{Element}</div>
+    return (
+        <div
+            className={cn(
+                'scene-name flex-1 min-h-[var(--button-height-base)] -ml-[var(--button-padding-x-sm)] @2xl/main-content:ml-0',
+                {
+                    truncate: !isEditing,
+                }
+            )}
+        >
+            {Element}
+        </div>
+    )
 }
 
 type SceneDescriptionProps = {
@@ -397,6 +485,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    readOnly?: boolean
 }
 
 function SceneDescription({
@@ -406,8 +495,9 @@ function SceneDescription({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
-    saveOnBlur = false,
+    renameDebounceMs = 0,
+    saveOnBlur = true,
+    readOnly = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -445,7 +535,7 @@ function SceneDescription({
     const Element =
         onChange && canEdit ? (
             <>
-                {isEditing ? (
+                {isEditing && !readOnly ? (
                     <TextareaPrimitive
                         variant="default"
                         name="description"
@@ -487,7 +577,7 @@ function SceneDescription({
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
-                            onClick={() => setIsEditing(true)}
+                            onClick={() => !readOnly && setIsEditing(true)}
                             className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
                             fullWidth
@@ -537,7 +627,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description -mt-4 relative focus-within:z-50">
+        <div className="scene-description relative focus-within:z-50">
             <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )
