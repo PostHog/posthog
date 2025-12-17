@@ -66,8 +66,16 @@ pub async fn handle_event_payload(
     debug!("entering handle_event_payload");
 
     // Extract payload bytes and metadata using shared helper
-    let (data, compression, lib_version) =
-        extract_payload_bytes(query_params, headers, method, body)?;
+    let extract_start_time = std::time::Instant::now();
+    let result = extract_payload_bytes(query_params, headers, method, body);
+    let (data, compression, lib_version) = match result {
+        Ok((d, c, lv)) => (d, c, lv),
+        Err(e) => {
+            return Err(e);
+        }
+    };
+    metrics::histogram!("capture_debug_analytics_decompress_seconds")
+        .record(extract_start_time.elapsed().as_secs_f64());
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
@@ -89,10 +97,15 @@ pub async fn handle_event_payload(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let mut events = match request.events(path.as_str()) {
+    let events_start_time = std::time::Instant::now();
+    let result = request.events(path.as_str());
+    let mut events = match result {
         Ok(events) => events,
         Err(e) => return Err(e),
     };
+    metrics::histogram!("capture_debug_analytics_deserialize_seconds")
+        .record(events_start_time.elapsed().as_secs_f64());
+
     Span::current().record("batch_size", events.len());
 
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
