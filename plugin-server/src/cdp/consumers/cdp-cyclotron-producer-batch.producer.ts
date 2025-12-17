@@ -245,7 +245,6 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
-
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -262,14 +261,17 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
+        logger.info('💤', 'Stopping consumer...')
+        await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping cyclotron job queue...')
         await this.cyclotronJobQueue.stop()
+        logger.info('💤', 'Stopping consumer...')
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }
 
     public isHealthy(): HealthCheckResult {
-        return this.cyclotronJobQueue.isHealthy()
+        return this.kafkaConsumer.isHealthy()
     }
 }

@@ -500,13 +500,23 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({}) => {
+        triggerBatchWorkflow: async ({ variables, scheduledAt }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
             }
 
-            lemonToast.info('Batch workflow runs coming soon...')
+            try {
+                await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
+                    variables,
+                    scheduledAt,
+                })
+                lemonToast.success('Batch workflow job created')
+                router.actions.push(urls.workflow(values.workflow.id!, 'logs'))
+            } catch (e) {
+                lemonToast.error('Error creating batch workflow job: ' + (e as Error).message)
+                return
+            }
         },
     })),
     afterMount(({ actions }) => {

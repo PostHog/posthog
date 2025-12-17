@@ -5,6 +5,7 @@ from django.dispatch import receiver
 import structlog
 
 from posthog.models.utils import UUIDTModel
+from posthog.plugins.plugin_server_api import create_batch_hogflow_job
 
 logger = structlog.get_logger(__name__)
 
@@ -28,13 +29,13 @@ class HogFlowBatchJob(UUIDTModel):
         FAILED = "failed"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    hog_flow = models.ForeignKey("HogFlow", on_delete=models.CASCADE)
+    variables = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State.choices, default=State.QUEUED)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    filters = models.JSONField(default=dict)
 
     def __str__(self):
         return f"HogFlow batch run {self.id}"
@@ -43,5 +44,6 @@ class HogFlowBatchJob(UUIDTModel):
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
-        # Handle new batch job creation
-        pass
+        create_batch_hogflow_job(
+            team_id=instance.team.id, hog_flow_id=instance.hog_flow.id, payload={"batch_job_id": str(instance.id)}
+        )

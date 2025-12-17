@@ -23,6 +23,13 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "hogflow",
+                    models.ForeignKey(to="posthog.hogflow", on_delete=django.db.models.deletion.CASCADE),
+                ),
+                (
+                    "variables",
+                    models.JSONField(default=dict),
+                )(
                     "status",
                     models.CharField(
                         choices=[
@@ -38,7 +45,6 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("filters", models.JSONField(default=dict)),
                 (
                     "created_by",
                     models.ForeignKey(

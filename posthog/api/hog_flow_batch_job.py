@@ -15,17 +15,17 @@ logger = structlog.get_logger(__name__)
 
 class HogFlowBatchJobSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    filters = HogFunctionFiltersSerializer(required=True)
 
     class Meta:
         model = HogFlowBatchJob
         fields = [
             "id",
             "status",
+            "hog_flow",
+            "variables",
             "created_at",
             "created_by",
             "updated_at",
-            "filters",
         ]
         read_only_fields = [
             "id",
@@ -42,25 +42,3 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = team_id
 
         return super().create(validated_data=validated_data)
-
-
-class HogFlowBatchJobViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
-    queryset = HogFlowBatchJob.objects.all()
-    serializer_class = HogFlowBatchJobSerializer
-
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset
-
-    def perform_create(self, serializer):
-        serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="HogFlowBatchJob",
-            activity="created",
-            detail=Detail(name=f"Batch job {serializer.instance.id}", type="standard"),
-        )
