@@ -1385,6 +1385,72 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             for fk in dashboard_schema.schema_metadata.foreign_keys or []
         )
 
+    def test_direct_query_reverse_foreign_key_added_to_target_table(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            connection_id="connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix="",
+            is_direct_query=True,
+            job_inputs={"schema": "posthog"},
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="posthog_user",
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer"},
+                        {"name": "email", "data_type": "character varying"},
+                    ],
+                    "primary_key": ["id"],
+                }
+            },
+        )
+
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="posthog_featureflag",
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer"},
+                        {"name": "key", "data_type": "character varying"},
+                        {"name": "created_by_id", "data_type": "integer"},
+                    ],
+                    "primary_key": ["id"],
+                    "foreign_keys": [
+                        {"column": "created_by_id", "target_table": "posthog_user", "target_column": "id"}
+                    ],
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+        user_table = database.get_table("postgres.posthog_user")
+
+        reverse_join = user_table.fields.get("posthog_featureflags")
+
+        assert isinstance(reverse_join, LazyJoin)
+        assert reverse_join.from_field == ["id"]
+        assert reverse_join.to_field == ["created_by_id"]
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+
+        prepare_and_print_ast(
+            parse_select(
+                "SELECT count(id) AS count_of_id, posthog_featureflags.key AS featureflag_key "
+                "FROM postgres.posthog_user GROUP BY featureflag_key"
+            ),
+            context,
+            dialect="clickhouse",
+        )
+
     def test_foreign_key_lazy_join_uses_target_table_in_subquery(self):
         join_table = Table(name="postgres.posthog_team", fields={"id": IntegerDatabaseField(name="id")})
 

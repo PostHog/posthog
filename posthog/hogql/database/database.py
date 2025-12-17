@@ -1062,6 +1062,7 @@ class Database(BaseModel):
                     continue
 
         with timings.measure("data_warehouse_tables"):
+            warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
 
             class WarehousePropertiesVirtualTable(VirtualTable):
                 fields: dict[str, FieldOrTable]
@@ -1095,8 +1096,6 @@ class Database(BaseModel):
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
 
-                    _add_foreign_key_lazy_joins(s3_table, table, database)
-
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
                         s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
@@ -1129,6 +1128,10 @@ class Database(BaseModel):
                         joined_table_chain = ".".join(table_chain)
                         s3_table.name = joined_table_chain
                         warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+
+                    warehouse_tables_to_process.append((s3_table, table))
+
+        direct_query_tables_to_process: list[tuple[Table, DirectQuerySchemaInfo]] = []
 
         # Add direct query Postgres tables
         with timings.measure("direct_query_tables"):
@@ -1200,8 +1203,7 @@ class Database(BaseModel):
                     capture_exception(e)
                     continue
 
-            for pg_table, dq_schema in direct_query_tables:
-                _add_foreign_key_lazy_joins(pg_table, dq_schema, database)
+            direct_query_tables_to_process = list(direct_query_tables)
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
@@ -1324,6 +1326,13 @@ class Database(BaseModel):
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
+
+        with timings.measure("warehouse_foreign_keys"):
+            for s3_table, table in warehouse_tables_to_process:
+                _add_foreign_key_lazy_joins(s3_table, table, database)
+
+            for pg_table, dq_schema in direct_query_tables_to_process:
+                _add_foreign_key_lazy_joins(pg_table, dq_schema, database)
 
         with timings.measure("data_warehouse_joins"):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
