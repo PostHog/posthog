@@ -31,7 +31,7 @@ class TestDashboardContext(BaseTest):
         """Test that execute runs a single insight and formats the result"""
         mock_execute.return_value = "Insight results: 100 users"
 
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Test Insight",
@@ -66,7 +66,7 @@ class TestDashboardContext(BaseTest):
             "Third insight results",
         ]
 
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
@@ -94,8 +94,7 @@ class TestDashboardContext(BaseTest):
         self.assertEqual(mock_execute.call_count, 3)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
-    @patch("ee.hogai.context.dashboard.context.capture_exception")
-    async def test_execute_with_failed_insights(self, mock_capture, mock_execute):
+    async def test_execute_with_failed_insights(self, mock_execute):
         """Test that execute handles failed insights gracefully"""
         mock_execute.side_effect = [
             "Success result",
@@ -103,7 +102,7 @@ class TestDashboardContext(BaseTest):
             "Another success",
         ]
 
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
@@ -124,9 +123,8 @@ class TestDashboardContext(BaseTest):
         self.assertIn("Dashboard name: Partially Failed Dashboard", result)
         self.assertIn("Success result", result)
         self.assertIn("Another success", result)
-        # Failed insight should not be in results
-        self.assertNotIn("Query failed", result)
-        mock_capture.assert_called_once()
+        # Failed insight error message should be in results
+        self.assertIn("Error executing query", result)
 
     async def test_format_schema_with_no_insights(self):
         """Test that format_schema returns formatted dashboard without execution"""
@@ -138,7 +136,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="202",
         )
 
-        result = dashboard_ctx.format_schema()
+        result = await dashboard_ctx.format_schema()
 
         self.assertIn("Dashboard name: Schema Dashboard", result)
         self.assertIn("Dashboard ID: 202", result)
@@ -146,7 +144,7 @@ class TestDashboardContext(BaseTest):
 
     async def test_format_schema_with_insights(self):
         """Test that format_schema returns insight schemas without execution"""
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Schema Insight 1",
@@ -167,7 +165,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="303",
         )
 
-        result = dashboard_ctx.format_schema()
+        result = await dashboard_ctx.format_schema()
 
         self.assertIn("Dashboard name: Schema Dashboard", result)
         self.assertIn("Schema Insight 1", result)
@@ -179,12 +177,11 @@ class TestDashboardContext(BaseTest):
         self.assertNotIn("Results:", result)
 
     @patch("ee.hogai.context.insight.context.InsightContext.format_schema")
-    @patch("ee.hogai.context.dashboard.context.capture_exception")
-    async def test_format_schema_handles_exceptions(self, mock_capture, mock_format_schema):
-        """Test that format_schema handles exceptions in insight schema formatting"""
+    async def test_format_schema_handles_exceptions(self, mock_format_schema):
+        """Test that format_schema propagates exceptions in insight schema formatting"""
         mock_format_schema.side_effect = Exception("Schema error")
 
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Failing Insight",
@@ -199,12 +196,11 @@ class TestDashboardContext(BaseTest):
             dashboard_id="404",
         )
 
-        result = dashboard_ctx.format_schema()
+        # Exception should propagate
+        with self.assertRaises(Exception) as context:
+            await dashboard_ctx.format_schema()
 
-        # Dashboard should still be formatted, just without the failed insight
-        self.assertIn("Dashboard name: Error Dashboard", result)
-        self.assertNotIn("Failing Insight", result)
-        mock_capture.assert_called_once()
+        self.assertIn("Schema error", str(context.exception))
 
     async def test_dashboard_without_id(self):
         """Test that dashboard works without an ID"""
@@ -214,7 +210,7 @@ class TestDashboardContext(BaseTest):
             name="No ID Dashboard",
         )
 
-        result = dashboard_ctx.format_schema()
+        result = await dashboard_ctx.format_schema()
 
         self.assertIn("Dashboard name: No ID Dashboard", result)
         self.assertNotIn("Dashboard ID:", result)
@@ -227,7 +223,7 @@ class TestDashboardContext(BaseTest):
             dashboard_id="606",
         )
 
-        result = dashboard_ctx.format_schema()
+        result = await dashboard_ctx.format_schema()
 
         self.assertIn("Dashboard name: Dashboard", result)
         self.assertIn("Dashboard ID: 606", result)
@@ -237,7 +233,7 @@ class TestDashboardContext(BaseTest):
         """Test that custom max_concurrent_queries is respected"""
         mock_execute.return_value = "Concurrent result"
 
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
@@ -267,7 +263,7 @@ class TestDashboardContext(BaseTest):
         """Test that custom prompt template is used"""
         mock_execute.return_value = "Custom template result"
 
-        insights_data = [
+        insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Custom Template Insight",
