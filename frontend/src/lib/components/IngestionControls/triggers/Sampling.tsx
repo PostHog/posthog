@@ -7,7 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel } from '~/types'
 
-import { ingestionTriggersLogic } from '../ingestionTriggersLogic'
+import { ingestionControlsLogic } from '../ingestionControlsLogic'
 
 export function SamplingTrigger({
     initialSampleRate,
@@ -16,7 +16,7 @@ export function SamplingTrigger({
     initialSampleRate: number
     onChange: (value: number) => void
 }): JSX.Element {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
 
     const [value, setValue] = useState<number | undefined>(initialSampleRate)
 

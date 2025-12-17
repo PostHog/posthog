@@ -8,11 +8,11 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 
 import { AccessControlLevel } from '~/types'
 
-import { ingestionTriggersLogic } from '../../ingestionTriggersLogic'
+import { ingestionControlsLogic } from '../../ingestionControlsLogic'
 import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const FlagTriggerSelector = (): JSX.Element => {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
     const { flag, loading } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 

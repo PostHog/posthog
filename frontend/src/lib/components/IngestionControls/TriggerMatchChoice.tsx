@@ -8,11 +8,11 @@ import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/An
 import { AccessControlLevel } from '~/types'
 
 import { AccessControlAction } from '../AccessControlAction'
-import { ingestionTriggersLogic } from './ingestionTriggersLogic'
+import { ingestionControlsLogic } from './ingestionControlsLogic'
 
 export function MatchTypeSelect(): JSX.Element {
-    const { resourceType, matchType } = useValues(ingestionTriggersLogic)
-    const { onChangeMatchType } = useActions(ingestionTriggersLogic)
+    const { resourceType, matchType } = useValues(ingestionControlsLogic)
+    const { onChangeMatchType } = useActions(ingestionControlsLogic)
 
     return (
         <div className="flex flex-col gap-y-1">
@@ -63,7 +63,7 @@ export function MatchTypeSelect(): JSX.Element {
 }
 
 export function MatchTypeTag(): JSX.Element {
-    const { matchType } = useValues(ingestionTriggersLogic)
+    const { matchType } = useValues(ingestionControlsLogic)
 
     // Let's follow PostHog style of AND / OR from funnels
     return (

@@ -7,7 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, MultivariateFlagOptions } from '~/types'
 
-import { ingestionTriggersLogic } from '../../ingestionTriggersLogic'
+import { ingestionControlsLogic } from '../../ingestionControlsLogic'
 import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const ANY_VARIANT = 'any'
@@ -36,7 +36,7 @@ export function variantOptions(
 }
 
 export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }): JSX.Element | null => {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
     const { flag, loading, linkedFlag, flagHasVariants } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 

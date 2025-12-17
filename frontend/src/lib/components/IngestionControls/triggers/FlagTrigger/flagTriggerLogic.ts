@@ -19,7 +19,7 @@ export type FlagTriggerLogicProps = {
 export const flagTriggerLogic = kea<flagTriggerLogicType>([
     props({} as FlagTriggerLogicProps),
     key((props) => props.logicKey),
-    path((key) => ['lib', 'components', 'IngestionTriggers', 'triggers', 'FlagTrigger', 'flagTriggerLogic', key]),
+    path((key) => ['lib', 'components', 'IngestionControls', 'triggers', 'FlagTrigger', 'flagTriggerLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
         actions: [teamLogic, ['updateCurrentTeam']],

@@ -11,7 +11,7 @@ import { isStringWithLength } from 'scenes/settings/environment/replayTriggersLo
 
 import { AccessControlLevel } from '~/types'
 
-import { ingestionTriggersLogic } from '../ingestionTriggersLogic'
+import { ingestionControlsLogic } from '../ingestionControlsLogic'
 
 export function EventTriggerSelect({
     events,
@@ -20,7 +20,7 @@ export function EventTriggerSelect({
     events: string[] | null
     onChange: (eventTriggerConfig: string[]) => void
 }): JSX.Element {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
 
     const [open, setOpen] = useState<boolean>(false)
 
@@ -59,7 +59,7 @@ export function EventTriggerSelect({
 }
 
 export function EventTrigger({ trigger, onClose }: { trigger: string; onClose: () => void }): JSX.Element {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
 
     return (
         <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>

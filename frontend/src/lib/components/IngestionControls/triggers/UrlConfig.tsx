@@ -12,7 +12,7 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AccessControlAction } from '../../AccessControlAction'
-import { ingestionTriggersLogic } from '../ingestionTriggersLogic'
+import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
 
 export function UrlConfig({
@@ -45,7 +45,7 @@ export function UrlConfig({
     onEdit: (index: number) => void
     onRemove: (index: number) => void
 }): JSX.Element {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
 
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-4">

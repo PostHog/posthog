@@ -7,7 +7,7 @@ import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 
 import { AccessControlLevel } from '~/types'
 
-import { ingestionTriggersLogic } from '../ingestionTriggersLogic'
+import { ingestionControlsLogic } from '../ingestionControlsLogic'
 
 export function MinDurationTrigger({
     value,
@@ -16,7 +16,7 @@ export function MinDurationTrigger({
     value: number | null | undefined
     onChange: (value: number | null | undefined) => void
 }): JSX.Element {
-    const { resourceType } = useValues(ingestionTriggersLogic)
+    const { resourceType } = useValues(ingestionControlsLogic)
 
     return (
         <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
