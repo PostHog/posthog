@@ -9,6 +9,7 @@ import {
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { recordHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -54,13 +55,12 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         // Add billable_invocation metric now that we know the function has finished
-        result.metrics.push({
-            team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
-            instance_id: invocation.id,
-            metric_kind: 'billing',
-            metric_name: 'billable_invocation',
-            count: 1,
+        recordHogFlowBillableInvocation(result, {
+            teamId: invocation.teamId,
+            functionId: invocation.functionId,
+            invocationId: invocation.id,
+            metricKind: 'billing',
+            metricName: 'billable_invocation',
         })
 
         return {

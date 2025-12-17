@@ -262,4 +262,28 @@ describe('HogFunctionHandler', () => {
             count: 1,
         })
     })
+
+    it('should not emit a billable_invocation metric if function is not finished', async () => {
+        // Mock the executeWithAsyncFunctions to return a non-finished result
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+            finished: false,
+            invocation: invocation as any,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+        })
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        const billableMetrics = invocationResult.metrics.filter(
+            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'billing'
+        )
+
+        expect(billableMetrics).toHaveLength(0)
+    })
 })
