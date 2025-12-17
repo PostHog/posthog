@@ -17,9 +17,9 @@ jobs:
               id: holiday
               run: |
                   # Skip during Christmas/New Year holidays (Dec 20 - Jan 3)
-                  MONTH=$(date +%m)
-                  DAY=$(date +%d)
-                  if [[ "$MONTH" == "12" && "$DAY" -ge 20 ]] || [[ "$MONTH" == "01" && "$DAY" -le 3 ]]; then
+                  MONTH=$(TZ=UTC date +%m)
+                  DAY=$(TZ=UTC date +%-d)
+                  if [[ "$MONTH" == "12" && $DAY -ge 20 ]] || [[ "$MONTH" == "01" && $DAY -le 3 ]]; then
                     echo "skip=true" >> $GITHUB_OUTPUT
                     echo "Skipping stale check during holiday period"
                   else
