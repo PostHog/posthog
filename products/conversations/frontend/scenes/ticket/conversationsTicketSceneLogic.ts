@@ -1,12 +1,11 @@
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from '~/lib/api'
 import type { CommentType } from '~/types'
 
-import type { TicketPriority, TicketStatus } from '../../types'
+import type { Ticket, TicketPriority, TicketStatus } from '../../types'
 // NOTE: Run `pnpm typegen` to generate this type after making changes to the logic
 import type { conversationsTicketSceneLogicType } from './conversationsTicketSceneLogicType'
 
@@ -18,27 +17,138 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
     key((props) => props.id),
     actions({
         loadTicket: true,
+        setTicket: (ticket: Ticket | null) => ({ ticket }),
+        setTicketLoading: (loading: boolean) => ({ loading }),
+        updateTicket: true,
+
         loadMessages: true,
+        setMessages: (messages: CommentType[]) => ({ messages }),
+        setMessagesLoading: (loading: boolean) => ({ loading }),
+
         loadOlderMessages: true,
+        setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
+        setOlderMessagesLoading: (loading: boolean) => ({ loading }),
+        setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
+
+        sendMessage: (content: string) => ({ content }),
+        setMessageSending: (sending: boolean) => ({ sending }),
+
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
-        sendMessage: (content: string) => ({ content }),
-        updateTicket: true,
-        setPollingInterval: (interval: number) => ({ interval }),
+        setPollingInterval: (interval: NodeJS.Timeout | null) => ({ interval }),
     }),
-    loaders(({ props, values }) => ({
-        ticket: {
-            loadTicket: async () => {
-                if (props.id === 'new') {
-                    return null
-                }
-                return await api.conversationsTickets.get(props.id.toString())
+    reducers({
+        ticket: [
+            null as Ticket | null,
+            {
+                setTicket: (_, { ticket }) => ticket,
             },
-            updateTicket: async () => {
-                if (props.id === 'new') {
-                    return null
+        ],
+        ticketLoading: [
+            false,
+            {
+                loadTicket: () => true,
+                setTicket: () => false,
+                setTicketLoading: (_, { loading }) => loading,
+            },
+        ],
+        status: [
+            null as TicketStatus | null,
+            {
+                setStatus: (_, { status }) => status,
+                setTicket: (_, { ticket }) => ticket?.status || null,
+            },
+        ],
+        priority: [
+            null as TicketPriority | null,
+            {
+                setPriority: (_, { priority }) => priority,
+                setTicket: (_, { ticket }) => ticket?.priority || null,
+            },
+        ],
+        assignedTo: [
+            null as number | string | null,
+            {
+                setAssignedTo: (_, { assignedTo }) => assignedTo,
+                setTicket: (_, { ticket }) => ticket?.assigned_to || null,
+            },
+        ],
+        messages: [
+            [] as CommentType[],
+            {
+                setMessages: (_, { messages }) => messages,
+                setOlderMessages: (state, { olderMessages }) => [...olderMessages, ...state],
+            },
+        ],
+        messagesLoading: [
+            false,
+            {
+                loadMessages: () => true,
+                setMessages: () => false,
+                setMessagesLoading: (_, { loading }) => loading,
+            },
+        ],
+        olderMessagesLoading: [
+            false,
+            {
+                loadOlderMessages: () => true,
+                setOlderMessages: () => false,
+                setOlderMessagesLoading: (_, { loading }) => loading,
+            },
+        ],
+        hasMoreMessages: [
+            true,
+            {
+                setMessages: (_, { messages }) => messages.length >= 100,
+                setHasMoreMessages: (_, { hasMore }) => hasMore,
+            },
+        ],
+        messageSending: [
+            false,
+            {
+                sendMessage: () => true,
+                setMessageSending: (_, { sending }) => sending,
+            },
+        ],
+        pollingInterval: [
+            null as NodeJS.Timeout | null,
+            {
+                setPollingInterval: (_, { interval }) => interval,
+            },
+        ],
+    }),
+    listeners(({ actions, values, props }) => ({
+        loadTicket: async () => {
+            if (props.id === 'new') {
+                actions.setTicket(null)
+                return
+            }
+            try {
+                const ticket = await api.conversationsTickets.get(props.id.toString())
+                actions.setTicket(ticket)
+                actions.loadMessages()
+
+                // Clear any existing interval
+                if (values.pollingInterval) {
+                    clearInterval(values.pollingInterval)
                 }
+
+                // Start new polling interval
+                const interval = setInterval(() => {
+                    actions.loadMessages()
+                }, MESSAGE_POLL_INTERVAL)
+                actions.setPollingInterval(interval)
+            } catch {
+                lemonToast.error('Failed to load ticket')
+                actions.setTicketLoading(false)
+            }
+        },
+        updateTicket: async () => {
+            if (props.id === 'new') {
+                return
+            }
+            try {
                 const data: Partial<{
                     status: string
                     priority: string
@@ -51,7 +161,6 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 if (values.priority) {
                     data.priority = values.priority
                 }
-                // Always include assigned_to, convert 'All users' to null
                 data.assigned_to =
                     values.assignedTo === 'All users' || !values.assignedTo
                         ? null
@@ -59,113 +168,39 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                           ? parseInt(values.assignedTo, 10)
                           : values.assignedTo
 
-                return await api.conversationsTickets.update(props.id.toString(), data)
-            },
+                const ticket = await api.conversationsTickets.update(props.id.toString(), data)
+                actions.setTicket(ticket)
+                lemonToast.success('Ticket updated')
+            } catch {
+                lemonToast.error('Failed to update ticket')
+            }
         },
-        messages: [
-            [] as CommentType[],
-            {
-                loadMessages: async (_, breakpoint) => {
-                    if (props.id === 'new') {
-                        return []
-                    }
-
-                    await breakpoint(100)
-                    const response = await api.comments.list({
-                        scope: 'conversations_ticket',
-                        item_id: props.id.toString(),
-                    })
-                    breakpoint()
-                    // Reverse to show oldest first (bottom = newest)
-                    return (response.results || []).reverse()
-                },
-            },
-        ],
-        messageSending: [
-            false,
-            {
-                sendMessage: async ({ content }) => {
-                    if (props.id === 'new') {
-                        return false
-                    }
-
-                    await api.comments.create(
-                        {
-                            content,
-                            scope: 'conversations_ticket',
-                            item_id: props.id.toString(),
-                            item_context: {
-                                author_type: 'support',
-                                is_private: false,
-                            },
-                        },
-                        {}
-                    )
-                    return false
-                },
-            },
-        ],
-    })),
-    reducers({
-        status: [
-            null as TicketStatus | null,
-            {
-                setStatus: (_, { status }) => status,
-                loadTicketSuccess: (_, { ticket }) => ticket?.status || null,
-                updateTicketSuccess: (_, { ticket }) => ticket?.status || null,
-            },
-        ],
-        priority: [
-            null as TicketPriority | null,
-            {
-                setPriority: (_, { priority }) => priority,
-                loadTicketSuccess: (_, { ticket }) => ticket?.priority || null,
-                updateTicketSuccess: (_, { ticket }) => ticket?.priority || null,
-            },
-        ],
-        assignedTo: [
-            null as number | string | null,
-            {
-                setAssignedTo: (_, { assignedTo }) => assignedTo,
-                loadTicketSuccess: (_, { ticket }) => ticket?.assigned_to || null,
-                updateTicketSuccess: (_, { ticket }) => ticket?.assigned_to || null,
-            },
-        ],
-        pollingInterval: [
-            null as NodeJS.Timeout | null,
-            {
-                // Managed via listeners, not actions
-            },
-        ],
-        messages: {
-            loadOlderMessagesSuccess: (state, { olderMessages }) => [...olderMessages, ...state],
+        loadMessages: async () => {
+            if (props.id === 'new') {
+                actions.setMessages([])
+                return
+            }
+            try {
+                const response = await api.comments.list({
+                    scope: 'conversations_ticket',
+                    item_id: props.id.toString(),
+                })
+                // Reverse to show oldest first (bottom = newest)
+                actions.setMessages((response.results || []).reverse())
+            } catch {
+                lemonToast.error('Failed to load messages')
+                actions.setMessagesLoading(false)
+            }
         },
-        hasMoreMessages: [
-            true,
-            {
-                loadMessagesSuccess: (_, { messages }) => messages.length >= 100,
-                loadOlderMessagesSuccess: (_, { hasMore }) => hasMore,
-            },
-        ],
-        olderMessagesLoading: [
-            false,
-            {
-                loadOlderMessages: () => true,
-                loadOlderMessagesSuccess: () => false,
-                loadOlderMessagesFailure: () => false,
-            },
-        ],
-    }),
-    listeners(({ actions, values, props }) => ({
         loadOlderMessages: async () => {
             const currentMessages = values.messages
             if (props.id === 'new' || currentMessages.length === 0 || !values.hasMoreMessages) {
-                actions.loadOlderMessagesSuccess({ olderMessages: [], hasMore: false })
+                actions.setOlderMessagesLoading(false)
+                actions.setHasMoreMessages(false)
                 return
             }
 
             try {
-                // Get the oldest message to use as cursor
                 const oldestMessage = currentMessages[0]
                 const response = await api.comments.list({
                     scope: 'conversations_ticket',
@@ -173,48 +208,44 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 })
 
                 const allMessages = response.results || []
-                // Find messages older than our oldest message
                 const olderMessages = allMessages
                     .filter((msg) => new Date(msg.created_at) < new Date(oldestMessage.created_at))
                     .reverse()
 
-                actions.loadOlderMessagesSuccess({
-                    olderMessages,
-                    hasMore: olderMessages.length > 0,
-                })
-            } catch (error) {
-                actions.loadOlderMessagesFailure({ error })
+                actions.setOlderMessages(olderMessages)
+                actions.setHasMoreMessages(olderMessages.length > 0)
+            } catch {
+                lemonToast.error('Failed to load older messages')
+                actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessageSuccess: () => {
-            lemonToast.success('Message sent')
-            // Small delay to ensure DB write is complete before reloading
-            setTimeout(() => {
-                actions.loadMessages()
-            }, 300)
-        },
-        sendMessageFailure: () => {
-            lemonToast.error('Failed to send message')
-        },
-        updateTicketSuccess: () => {
-            lemonToast.success('Ticket updated')
-        },
-        updateTicketFailure: () => {
-            lemonToast.error('Failed to update ticket')
-        },
-        loadTicketSuccess: () => {
-            // Start polling for messages when ticket loads successfully
-            actions.loadMessages()
-
-            // Clear any existing interval
-            if (values.pollingInterval) {
-                clearInterval(values.pollingInterval)
+        sendMessage: async ({ content }) => {
+            if (props.id === 'new') {
+                actions.setMessageSending(false)
+                return
             }
-
-            // Start new polling interval
-            values.pollingInterval = setInterval(() => {
-                actions.loadMessages()
-            }, MESSAGE_POLL_INTERVAL)
+            try {
+                await api.comments.create(
+                    {
+                        content,
+                        scope: 'conversations_ticket',
+                        item_id: props.id.toString(),
+                        item_context: {
+                            author_type: 'support',
+                            is_private: false,
+                        },
+                    },
+                    {}
+                )
+                lemonToast.success('Message sent')
+                actions.setMessageSending(false)
+                setTimeout(() => {
+                    actions.loadMessages()
+                }, 300)
+            } catch {
+                lemonToast.error('Failed to send message')
+                actions.setMessageSending(false)
+            }
         },
     })),
     afterMount(({ actions, props }) => {
@@ -222,11 +253,10 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             actions.loadTicket()
         }
     }),
-    beforeUnmount(({ values }) => {
-        // Clear polling interval on unmount
+    beforeUnmount(({ values, actions }) => {
         if (values.pollingInterval) {
             clearInterval(values.pollingInterval)
-            values.pollingInterval = null
+            actions.setPollingInterval(null)
         }
     }),
 ])
