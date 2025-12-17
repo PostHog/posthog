@@ -396,6 +396,8 @@ export type AssistantTool =
     | 'create_insight'
     | 'create_form'
     | 'task'
+    | 'create_endpoint'
+    | 'update_endpoint'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
