@@ -1822,7 +1822,7 @@ function ColumnFiltersPopover({
         const whereClause = whereParts.length ? `\nWHERE ${whereParts.join(' AND ')}` : ''
         const havingClause = havingParts.length ? `\nHAVING ${havingParts.join(' AND ')}` : ''
 
-        const query = `SELECT ${baseColumnExpression} AS value, count(*) AS count\nFROM ${selectedTableObject.name}${whereClause}\nGROUP BY value${havingClause}\nORDER BY count DESC\nLIMIT 20`
+        const query = `SELECT ${baseColumnExpression} AS value, count(*) AS count\nFROM ${selectedTableObject.name}${whereClause}\nGROUP BY value${havingClause}\nORDER BY count DESC\nLIMIT 10`
 
         const dialect = getTableDialect(selectedTableObject)
         const sourceId = getTableSourceId(selectedTableObject)
@@ -1835,13 +1835,25 @@ function ColumnFiltersPopover({
         setPopularBreakdownError(null)
 
         try {
-            const response: HogQLQueryResponse<{ value: unknown; count: number }[]> = await performQuery(
+            const response: HogQLQueryResponse<{ value: unknown; count: number }[] | unknown[][]> = await performQuery(
                 setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: prefixedQuery }),
                 undefined,
                 'force_blocking'
             )
 
-            setPopularBreakdown(response.results ?? [])
+            const normalizedPopularBreakdown = (response.results ?? []).map((row: any) => {
+                if (Array.isArray(row)) {
+                    const [value, count] = row
+                    const parsedCount = Number(count)
+
+                    return { value, count: Number.isFinite(parsedCount) ? parsedCount : 0 }
+                }
+
+                const parsedCount = Number(row?.count)
+                return { value: row?.value ?? row?.[0], count: Number.isFinite(parsedCount) ? parsedCount : 0 }
+            })
+
+            setPopularBreakdown(normalizedPopularBreakdown)
         } catch (error: any) {
             setPopularBreakdownError(error?.message || 'Could not load breakdown values')
         } finally {
@@ -1937,91 +1949,127 @@ function ColumnFiltersPopover({
                 }
             }}
             overlay={
-                <div className="space-y-2 max-w-80" onClick={(event) => event.stopPropagation()}>
-                    <div className="space-y-1">
-                        <div className="text-muted text-xs">Filters for {columnAlias(column)}</div>
-                        {filters.length ? (
-                            <div className="space-y-1">
-                                {filters.map(({ filter, index }) => (
-                                    <div
-                                        key={`${columnKey(filter.column)}-${index}`}
-                                        className="flex items-center gap-2"
-                                    >
-                                        <div className="flex-1">{formatFilter(filter)}</div>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            status="danger"
-                                            onClick={() => onRemoveFilter(index)}
+                <div className="flex gap-2 max-h-[70vh] w-[48rem]" onClick={(event) => event.stopPropagation()}>
+                    <div className="space-y-2 flex-1 min-w-0">
+                        <div className="space-y-1">
+                            <div className="text-muted text-xs">Filters for {columnAlias(column)}</div>
+                            {filters.length ? (
+                                <div className="space-y-1">
+                                    {filters.map(({ filter, index }) => (
+                                        <div
+                                            key={`${columnKey(filter.column)}-${index}`}
+                                            className="flex items-center gap-2"
                                         >
-                                            Remove
-                                        </LemonButton>
-                                    </div>
+                                            <div className="flex-1">{formatFilter(filter)}</div>
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                status="danger"
+                                                onClick={() => onRemoveFilter(index)}
+                                            >
+                                                Remove
+                                            </LemonButton>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-muted text-xs">No filters for this column yet.</div>
+                            )}
+                        </div>
+                        <LemonInput
+                            placeholder="= 'value' or > 10"
+                            value={draft}
+                            onChange={setDraft}
+                            onPressEnter={handleAddFilter}
+                        />
+                        <LemonButton type="secondary" size="small" icon={<IconFilter />} onClick={handleAddFilter}>
+                            Add filter
+                        </LemonButton>
+                        <div className="space-y-1">
+                            <div className="text-muted text-xs">Aggregation</div>
+                            <div className="grid grid-cols-4 gap-1">
+                                <LemonButton
+                                    type={!selectedAggregation ? 'primary' : 'secondary'}
+                                    size="small"
+                                    active={!selectedAggregation}
+                                    status={!selectedAggregation ? 'primary' : 'default'}
+                                    onClick={() => {
+                                        onSetAggregation(null)
+                                        onOpenChange(false)
+                                    }}
+                                >
+                                    None
+                                </LemonButton>
+                                {availableAggregations.map((aggregation) => (
+                                    <LemonButton
+                                        key={aggregation}
+                                        type={selectedAggregation === aggregation ? 'primary' : 'secondary'}
+                                        size="small"
+                                        status={selectedAggregation === aggregation ? 'primary' : 'default'}
+                                        active={selectedAggregation === aggregation}
+                                        onClick={() => {
+                                            onSetAggregation(aggregation)
+                                            onOpenChange(false)
+                                        }}
+                                    >
+                                        {aggregation.toUpperCase()}
+                                    </LemonButton>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="text-muted text-xs">No filters for this column yet.</div>
-                        )}
+                        </div>
                     </div>
-                    <LemonInput
-                        placeholder="= 'value' or > 10"
-                        value={draft}
-                        onChange={setDraft}
-                        onPressEnter={handleAddFilter}
-                    />
-                    <LemonButton type="secondary" size="small" icon={<IconFilter />} onClick={handleAddFilter}>
-                        Add filter
-                    </LemonButton>
-                    <div className="space-y-1">
+                    <div className="w-64 shrink-0 border-l border-border pl-2 flex flex-col gap-2 min-h-[16rem]">
                         <div className="flex items-center justify-between gap-2 text-muted text-xs">
                             <span>Popular values</span>
                             {popularBreakdown ? <span className="text-xxs">Top {popularBreakdown.length}</span> : null}
                         </div>
-                        {popularBreakdownLoading ? (
-                            <div className="flex items-center gap-2 text-xs text-muted">
-                                <Spinner />
-                                <span>Loading popular values…</span>
-                            </div>
-                        ) : popularBreakdownError ? (
-                            <LemonBanner type="error">{popularBreakdownError}</LemonBanner>
-                        ) : popularBreakdown?.length ? (
-                            <div className="space-y-1 max-h-80 overflow-y-auto">
-                                {popularBreakdown.map(({ value, count }, index) => {
-                                    const isSelected = selectedBreakdownValues.some((item) => item === value)
-                                    const percentage = breakdownMaxCount
-                                        ? Math.max(0.1, (count / breakdownMaxCount) * 100)
-                                        : 0
+                        <div className="flex-1 min-h-0">
+                            {popularBreakdownLoading ? (
+                                <div className="flex items-center gap-2 text-xs text-muted">
+                                    <Spinner />
+                                    <span>Loading popular values…</span>
+                                </div>
+                            ) : popularBreakdownError ? (
+                                <LemonBanner type="error">{popularBreakdownError}</LemonBanner>
+                            ) : popularBreakdown?.length ? (
+                                <div className="space-y-1 h-full overflow-y-auto pr-1">
+                                    {popularBreakdown.map(({ value, count }, index) => {
+                                        const isSelected = selectedBreakdownValues.some((item) => item === value)
+                                        const percentage = breakdownMaxCount
+                                            ? Math.max(0.1, (count / breakdownMaxCount) * 100)
+                                            : 0
 
-                                    return (
-                                        <button
-                                            key={`${String(value)}-${index}`}
-                                            type="button"
-                                            className={clsx(
-                                                'w-full text-left rounded border px-2 py-1 text-xs flex items-center gap-2 relative overflow-hidden',
-                                                isSelected
-                                                    ? 'border-primary text-primary bg-primary-highlight'
-                                                    : 'border-border bg-bg-3000'
-                                            )}
-                                            onClick={() => toggleBreakdownValue(value)}
-                                        >
-                                            <span
-                                                className="absolute inset-y-0 left-0 bg-primary/10"
-                                                style={{ width: `${percentage}%` }}
-                                                aria-hidden
-                                            />
-                                            <span className="relative flex-1 min-w-0">
-                                                <ClampedText text={String(value ?? 'NULL')} lines={1} />
-                                            </span>
-                                            <span className="relative text-xs text-muted">
-                                                {humanFriendlyNumber(count)}
-                                            </span>
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                        ) : (
-                            <div className="text-muted text-xs">No popular values yet.</div>
-                        )}
+                                        return (
+                                            <button
+                                                key={`${String(value)}-${index}`}
+                                                type="button"
+                                                className={clsx(
+                                                    'w-full text-left rounded border px-2 py-1 text-xs flex items-center gap-2 relative overflow-hidden',
+                                                    isSelected
+                                                        ? 'border-primary text-primary bg-primary-highlight'
+                                                        : 'border-border bg-bg-3000'
+                                                )}
+                                                onClick={() => toggleBreakdownValue(value)}
+                                            >
+                                                <span
+                                                    className="absolute inset-y-0 left-0 bg-primary/10"
+                                                    style={{ width: `${percentage}%` }}
+                                                    aria-hidden
+                                                />
+                                                <span className="relative flex-1 min-w-0">
+                                                    <ClampedText text={String(value ?? 'NULL')} lines={1} />
+                                                </span>
+                                                <span className="relative text-xs text-muted">
+                                                    {humanFriendlyNumber(count)}
+                                                </span>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="text-muted text-xs">No popular values yet.</div>
+                            )}
+                        </div>
                         {selectedBreakdownValues.length > 0 ? (
                             <LemonButton
                                 fullWidth
@@ -2033,38 +2081,6 @@ function ColumnFiltersPopover({
                                 Add selected values
                             </LemonButton>
                         ) : null}
-                    </div>
-                    <div className="space-y-1">
-                        <div className="text-muted text-xs">Aggregation</div>
-                        <div className="grid grid-cols-4 gap-1">
-                            <LemonButton
-                                type={!selectedAggregation ? 'primary' : 'secondary'}
-                                size="small"
-                                active={!selectedAggregation}
-                                status={!selectedAggregation ? 'primary' : 'default'}
-                                onClick={() => {
-                                    onSetAggregation(null)
-                                    onOpenChange(false)
-                                }}
-                            >
-                                None
-                            </LemonButton>
-                            {availableAggregations.map((aggregation) => (
-                                <LemonButton
-                                    key={aggregation}
-                                    type={selectedAggregation === aggregation ? 'primary' : 'secondary'}
-                                    size="small"
-                                    status={selectedAggregation === aggregation ? 'primary' : 'default'}
-                                    active={selectedAggregation === aggregation}
-                                    onClick={() => {
-                                        onSetAggregation(aggregation)
-                                        onOpenChange(false)
-                                    }}
-                                >
-                                    {aggregation.toUpperCase()}
-                                </LemonButton>
-                            ))}
-                        </div>
                     </div>
                 </div>
             }
