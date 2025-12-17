@@ -18,7 +18,6 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadTickets: true,
         setAutoUpdate: (enabled: boolean) => ({ enabled }),
-        setPollingInterval: (interval: ReturnType<typeof setInterval> | null) => ({ interval }),
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
     }),
@@ -85,17 +84,11 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
                 setAutoUpdate: (_, { enabled }) => enabled,
             },
         ],
-        pollingInterval: [
-            null as ReturnType<typeof setInterval> | null,
-            {
-                setPollingInterval: (_, { interval }) => interval,
-            },
-        ],
     }),
     selectors({
         filteredTickets: [(s) => [s.tickets], (tickets: Ticket[]) => tickets],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             const params: Record<string, any> = {}
@@ -138,35 +131,32 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
         },
         setAutoUpdate: ({ enabled }) => {
             // Clear any existing interval
-            if (values.pollingInterval) {
-                clearInterval(values.pollingInterval)
-                actions.setPollingInterval(null)
+            if (cache.pollingInterval) {
+                clearInterval(cache.pollingInterval)
+                cache.pollingInterval = null
             }
 
             // Start polling if enabled
             if (enabled) {
-                const interval = setInterval(() => {
+                cache.pollingInterval = setInterval(() => {
                     actions.loadTickets()
                 }, TICKETS_POLL_INTERVAL)
-                actions.setPollingInterval(interval)
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadTickets()
 
         // Start new polling interval only if auto-update is enabled
         if (values.autoUpdateEnabled) {
-            const interval = setInterval(() => {
+            cache.pollingInterval = setInterval(() => {
                 actions.loadTickets()
             }, TICKETS_POLL_INTERVAL)
-            actions.setPollingInterval(interval)
         }
     }),
-    beforeUnmount(({ values, actions }) => {
-        if (values.pollingInterval) {
-            clearInterval(values.pollingInterval)
-            actions.setPollingInterval(null)
+    beforeUnmount(({ cache }) => {
+        if (cache.pollingInterval) {
+            clearInterval(cache.pollingInterval)
         }
     }),
 ])

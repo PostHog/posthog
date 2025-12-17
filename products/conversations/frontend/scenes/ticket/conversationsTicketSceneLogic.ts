@@ -35,7 +35,6 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
-        setPollingInterval: (interval: ReturnType<typeof setInterval> | null) => ({ interval }),
     }),
     reducers({
         ticket: [
@@ -110,14 +109,8 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
-        pollingInterval: [
-            null as ReturnType<typeof setInterval> | null,
-            {
-                setPollingInterval: (_, { interval }) => interval,
-            },
-        ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         loadTicket: async () => {
             if (props.id === 'new') {
                 actions.setTicket(null)
@@ -129,15 +122,14 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
                 actions.loadMessages()
 
                 // Clear any existing interval
-                if (values.pollingInterval) {
-                    clearInterval(values.pollingInterval)
+                if (cache.pollingInterval) {
+                    clearInterval(cache.pollingInterval)
                 }
 
                 // Start new polling interval
-                const interval = setInterval(() => {
+                cache.pollingInterval = setInterval(() => {
                     actions.loadMessages()
                 }, MESSAGE_POLL_INTERVAL)
-                actions.setPollingInterval(interval)
             } catch {
                 lemonToast.error('Failed to load ticket')
                 actions.setTicketLoading(false)
@@ -252,10 +244,9 @@ export const conversationsTicketSceneLogic = kea<conversationsTicketSceneLogicTy
             actions.loadTicket()
         }
     }),
-    beforeUnmount(({ values, actions }) => {
-        if (values.pollingInterval) {
-            clearInterval(values.pollingInterval)
-            actions.setPollingInterval(null)
+    beforeUnmount(({ cache }) => {
+        if (cache.pollingInterval) {
+            clearInterval(cache.pollingInterval)
         }
     }),
 ])
