@@ -171,9 +171,12 @@ export const getLogicKey = ({
 }
 
 export function sortProperties(entries: [string, any][], pinnedProperties: string[]): [string, any][] {
+    const pinnedSet = new Set(pinnedProperties)
+    const pinnedIndexMap = new Map(pinnedProperties.map((key, index) => [key, index]))
+
     return entries.sort(([aKey], [bKey]) => {
-        const aIsPinned = pinnedProperties.includes(aKey)
-        const bIsPinned = pinnedProperties.includes(bKey)
+        const aIsPinned = pinnedSet.has(aKey)
+        const bIsPinned = pinnedSet.has(bKey)
 
         if (aIsPinned && !bIsPinned) {
             return -1
@@ -185,7 +188,7 @@ export function sortProperties(entries: [string, any][], pinnedProperties: strin
         // If both are pinned or both aren't, maintain their relative order
         // based on the pinnedProperties array order for pinned items
         if (aIsPinned && bIsPinned) {
-            return pinnedProperties.indexOf(aKey) - pinnedProperties.indexOf(bKey)
+            return pinnedIndexMap.get(aKey)! - pinnedIndexMap.get(bKey)!
         }
 
         return aKey.localeCompare(bKey)
