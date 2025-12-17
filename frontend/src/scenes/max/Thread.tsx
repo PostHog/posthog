@@ -102,9 +102,14 @@ import {
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
+// Helper function to check if a message is an error or failure
+function isErrorMessage(message: ThreadMessage): boolean {
+    return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -124,7 +129,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading ? (
+            {conversationLoading && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -137,6 +142,36 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             ) : threadGrouped.length > 0 ? (
                 <>
                     {threadGrouped.map((message, index) => {
+                        // Hide failed AI messages when retrying
+                        if (threadLoading && isErrorMessage(message)) {
+                            return null
+                        }
+
+                        // Hide old failed attempts - only show the most recent error
+                        if (isErrorMessage(message)) {
+                            const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                            if (hasNewerError) {
+                                return null
+                            }
+                        }
+
+                        // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
+                        // This specific pattern only occurs when "Try again" is clicked after a failure
+                        if (message.type === 'human' && 'content' in message && index >= 2) {
+                            const prevMessage = threadGrouped[index - 1]
+                            const prevPrevMessage = threadGrouped[index - 2]
+
+                            const isRetryPattern =
+                                isErrorMessage(prevMessage) &&
+                                prevPrevMessage.type === 'human' &&
+                                'content' in prevPrevMessage &&
+                                prevPrevMessage.content === message.content
+
+                            if (isRetryPattern) {
+                                return null
+                            }
+                        }
+
                         const nextMessage = threadGrouped[index + 1]
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
