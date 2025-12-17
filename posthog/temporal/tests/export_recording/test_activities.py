@@ -109,11 +109,11 @@ async def test_export_replay_clickhouse_rows_success():
     with (
         patch("posthog.temporal.export_recording.activities.get_client") as mock_get_client,
         patch("posthog.temporal.export_recording.activities.SessionReplayEvents.get_metadata_query") as mock_query,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_get_client.return_value.__aenter__.return_value = mock_client
         mock_query.return_value = "SELECT * FROM session_replay_events"
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_replay_clickhouse_rows(export_context)
 
@@ -150,10 +150,10 @@ async def test_export_event_clickhouse_rows_success():
 
     with (
         patch("posthog.temporal.export_recording.activities.get_client") as mock_get_client,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_event_clickhouse_rows(export_context)
 
@@ -185,11 +185,11 @@ async def test_export_recording_data_prefix_success():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = [mock_block]
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_recording_data_prefix(export_context)
 
@@ -217,14 +217,14 @@ async def test_export_recording_data_prefix_no_blocks():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = []
 
         await export_recording_data_prefix(export_context)
 
-        mock_redis_from_url.assert_not_called()
+        mock_get_async_client.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -253,12 +253,12 @@ async def test_export_recording_data_success():
         patch(
             "posthog.temporal.export_recording.activities.session_recording_v2_object_storage.async_client"
         ) as mock_storage_client,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = [mock_block]
         mock_storage_client.return_value.__aenter__.return_value = mock_storage
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_recording_data(export_context)
 
@@ -295,11 +295,11 @@ async def test_export_recording_data_no_blocks():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = []
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_recording_data(export_context)
 
@@ -330,11 +330,11 @@ async def test_export_recording_data_malformed_url():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = [mock_block]
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_recording_data(export_context)
 
@@ -371,12 +371,12 @@ async def test_export_recording_data_block_fetch_error():
         patch(
             "posthog.temporal.export_recording.activities.session_recording_v2_object_storage.async_client"
         ) as mock_storage_client,
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
         mock_list_blocks.return_value = [mock_block]
         mock_storage_client.return_value.__aenter__.return_value = mock_storage
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         await export_recording_data(export_context)
 
@@ -417,7 +417,7 @@ async def test_store_export_data_success(tmp_path):
     mock_storage = AsyncMock()
 
     with (
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
         patch("posthog.temporal.export_recording.activities.Path") as mock_path_cls,
         patch("posthog.temporal.export_recording.activities.shutil.make_archive") as mock_make_archive,
         patch("posthog.temporal.export_recording.activities.shutil.rmtree"),
@@ -427,7 +427,7 @@ async def test_store_export_data_success(tmp_path):
         patch("posthog.temporal.export_recording.activities.ExportedRecording.objects") as mock_record_qs,
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
     ):
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         mock_export_dir = MagicMock()
         mock_clickhouse_dir = MagicMock()
@@ -480,14 +480,14 @@ async def test_store_export_data_s3_upload_failure():
     mock_storage.upload_file.side_effect = session_recording_v2_object_storage.FileUploadError("Upload failed")
 
     with (
-        patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url,
+        patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
         patch("posthog.temporal.export_recording.activities.Path") as mock_path_cls,
         patch("posthog.temporal.export_recording.activities.shutil.make_archive"),
         patch(
             "posthog.temporal.export_recording.activities.session_recording_v2_object_storage.async_client"
         ) as mock_storage_client,
     ):
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+        mock_get_async_client.return_value = mock_redis
 
         mock_export_dir = MagicMock()
         mock_clickhouse_dir = MagicMock()
@@ -527,8 +527,8 @@ async def test_cleanup_export_data_success():
     mock_redis.get = AsyncMock(return_value=json.dumps(block_manifest))
     mock_redis.delete = AsyncMock(return_value=5)
 
-    with patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url:
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+    with patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client:
+        mock_get_async_client.return_value = mock_redis
 
         await cleanup_export_data(export_context)
 
@@ -556,8 +556,8 @@ async def test_cleanup_export_data_no_manifest():
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.delete = AsyncMock(return_value=4)
 
-    with patch("posthog.temporal.export_recording.activities.redis.from_url") as mock_redis_from_url:
-        mock_redis_from_url.return_value.__aenter__.return_value = mock_redis
+    with patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client:
+        mock_get_async_client.return_value = mock_redis
 
         await cleanup_export_data(export_context)
 
