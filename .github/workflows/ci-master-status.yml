@@ -6,7 +6,12 @@ on:
         types: [completed]
 
 env:
-    SLACK_CHANNEL: 'CXXXXXXXX' # TODO: Set production channel ID
+    # #flakey-tests channel until we're confident, then move to a more visible channel
+    SLACK_CHANNEL: 'C09ADEV3AJD'
+
+permissions:
+    contents: read
+    actions: read
 
 jobs:
     check-master-status:
@@ -68,7 +73,7 @@ jobs:
             - name: Post new incident to Slack
               if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'false'
               id: slack_new
-              uses: slackapi/slack-github-action@v2.1.0
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -137,7 +142,7 @@ jobs:
 
             - name: Update Slack message with new count
               if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
-              uses: slackapi/slack-github-action@v2.1.0
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -171,7 +176,7 @@ jobs:
 
             - name: Thread reply with failure details
               if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
-              uses: slackapi/slack-github-action@v2.1.0
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -230,7 +235,7 @@ jobs:
 
             - name: Update Slack message to resolved
               if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
-              uses: slackapi/slack-github-action@v2.1.0
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -257,7 +262,7 @@ jobs:
 
             - name: Thread reply with resolution
               if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
-              uses: slackapi/slack-github-action@v2.1.0
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
