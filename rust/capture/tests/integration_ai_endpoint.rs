@@ -1013,8 +1013,7 @@ async fn test_invalid_uuid_format_returns_400() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "UUID '{}' should be rejected",
-            invalid_uuid
+            "UUID '{invalid_uuid}' should be rejected"
         );
     }
 }
@@ -1061,8 +1060,7 @@ async fn test_malicious_uuid_with_path_traversal_returns_400() {
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
-            "Malicious UUID '{}' should be rejected",
-            malicious_uuid
+            "Malicious UUID '{malicious_uuid}' should be rejected"
         );
     }
 }
@@ -1776,10 +1774,7 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
     // Token is hashed (first 16 chars of SHA-256) to prevent path traversal attacks
     let token_hash = "896566b02a7f7462"; // SHA-256 of "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
-    let expected_prefix = format!(
-        "s3://{}/{}{}/",
-        TEST_BLOB_BUCKET, TEST_BLOB_PREFIX, token_hash
-    );
+    let expected_prefix = format!("s3://{TEST_BLOB_BUCKET}/{TEST_BLOB_PREFIX}{token_hash}/");
     assert!(
         input_url.starts_with(&expected_prefix),
         "Input URL should start with {expected_prefix}, got {input_url}"

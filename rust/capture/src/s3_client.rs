@@ -115,7 +115,8 @@ impl S3Client {
             }
             Err(e) => {
                 let reason = extract_error_reason(&e);
-                counter!(S3_UPLOAD_TOTAL, "outcome" => "error", "reason" => reason.clone()).increment(1);
+                counter!(S3_UPLOAD_TOTAL, "outcome" => "error", "reason" => reason.clone())
+                    .increment(1);
                 error!(
                     bucket = self.bucket,
                     key = key,

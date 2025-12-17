@@ -176,9 +176,9 @@ pub async fn ai_handler(
     let body_size = decompressed_body.len();
 
     // Create multipart parser once - reused for all parsing steps
-    let body_stream = stream::once(std::future::ready(
-        Ok::<Bytes, std::io::Error>(decompressed_body),
-    ));
+    let body_stream = stream::once(std::future::ready(Ok::<Bytes, std::io::Error>(
+        decompressed_body,
+    )));
     let mut multipart = Multipart::new(body_stream, &boundary);
 
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
@@ -241,11 +241,13 @@ pub async fn ai_handler(
                 Some(_) => "other",
                 None => "unknown",
             };
-            counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "true", "content_type" => content_type).increment(1);
+            counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "true", "content_type" => content_type)
+                .increment(1);
         }
         histogram!(AI_BLOB_TOTAL_BYTES_PER_EVENT).record(total_blob_bytes as f64);
     } else {
-        counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "false", "content_type" => "none").increment(1);
+        counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "false", "content_type" => "none")
+            .increment(1);
     }
 
     // Upload blobs to S3 and insert URLs into event properties
