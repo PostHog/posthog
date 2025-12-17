@@ -300,8 +300,8 @@ class TestLLMGatewayViewSet(APIBaseTest):
 class TestLLMGatewayRateLimits(APIBaseTest):
     @parameterized.expand(
         [
-            ("claude-3-5-haiku-20241022", "500/minute", "20000/hour"),
-            ("claude-3-haiku-20240307", "500/minute", "20000/hour"),
+            ("claude-3-5-haiku-20241022", "1000/minute", "20000/hour"),
+            ("claude-3-haiku-20240307", "1000/minute", "20000/hour"),
             ("gpt-4o-mini", "100/minute", "1000/hour"),
             ("claude-3-5-sonnet-20241022", "100/minute", "1000/hour"),
             ("gpt-4o", "100/minute", "1000/hour"),
