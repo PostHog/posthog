@@ -6,7 +6,7 @@ import type { ingestionControlsLogicType } from './ingestionControlsLogicType'
 
 export type IngestionControlsLogicProps = {
     logicKey: string
-    resourceType: AccessControlResourceType
+    resourceType: AccessControlResourceType | null
     matchType: 'any' | 'all'
     onChangeMatchType: (matchType: 'any' | 'all') => void
 }
