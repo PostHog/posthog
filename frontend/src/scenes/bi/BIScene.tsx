@@ -926,7 +926,7 @@ export function BIScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
-            <div className="flex gap-4 h-full min-h-0">
+            <div className="flex gap-1 h-full min-h-0">
                 <ResizableElement
                     defaultWidth={sidebarWidth}
                     minWidth={MIN_SIDEBAR_WIDTH}
@@ -1299,7 +1299,7 @@ function SchemaEditorView({
 
     return (
         <div className="flex flex-col gap-3 h-full">
-            <div className="flex gap-4 h-full min-h-0">
+            <div className="flex gap-1 h-full min-h-0">
                 <ResizableElement
                     defaultWidth={260}
                     minWidth={MIN_SIDEBAR_WIDTH}
