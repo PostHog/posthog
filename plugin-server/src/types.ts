@@ -520,8 +520,6 @@ export interface Hub extends PluginsServerConfig {
     celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService
-    // ValueMatchers used for various opt-in/out features
-    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
     encryptedFields: EncryptedFields

@@ -1,13 +1,26 @@
 import { Message } from 'node-rdkafka'
 
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { buildIntegerMatcher } from '~/config/config'
+import { chainToElements } from '~/utils/db/elements-chain'
+import { pluginActionMsSummary } from '~/worker/metrics'
 
 import { parseKafkaHeaders } from '../../kafka/consumer'
-import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
+import {
+    Hub,
+    ISOTimestamp,
+    PluginConfig,
+    PluginMethodsConcrete,
+    PostIngestionEvent,
+    ProjectId,
+    RawClickHouseEvent,
+    ValueMatcher,
+} from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { runOnEvent } from '../../worker/plugins/run'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpEventsConsumer } from './cdp-events.consumer'
@@ -22,12 +35,16 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
 
+    private pluginConfigsToSkipElementsParsing: ValueMatcher<number>
+
     constructor(hub: Hub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
         logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
             pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
         })
+
+        this.pluginConfigsToSkipElementsParsing = buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true)
     }
 
     @instrumented('cdpLegacyEventsConsumer.processEvent')
@@ -46,7 +63,56 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             person_id: undefined,
         }
 
-        return await runOnEvent(this.hub, event)
+        // Runs onEvent for all plugins for this team in parallel
+        const pluginMethodsToRun = await this.getPluginMethodsForTeam(event.teamId, 'onEvent')
+
+        await Promise.all(
+            pluginMethodsToRun.map(async ([pluginConfig, onEvent]) => {
+                if (!this.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
+                    // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
+                    mutatePostIngestionEventWithElementsList(event)
+                }
+
+                const onEventPayload = convertToOnEventPayload(event)
+
+                let error: any = null
+
+                // Runs onEvent for a single plugin without any retries
+                const timer = new Date()
+                try {
+                    // TODO: This is where we should proxy to the legacy plugin call
+                    await onEvent(onEventPayload)
+                } catch (e) {
+                    error = e
+                }
+
+                pluginActionMsSummary
+                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', error ? 'error' : 'success')
+                    .observe(new Date().getTime() - timer.getTime())
+
+                if (error) {
+                    void this.promiseScheduler.schedule(
+                        this.hub.appMetrics.queueError(
+                            {
+                                teamId: event.teamId,
+                                pluginConfigId: pluginConfig.id,
+                                category: 'onEvent',
+                                failures: 1,
+                            },
+                            { error, event }
+                        )
+                    )
+                }
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId: pluginConfig.id,
+                        category: 'onEvent',
+                        successes: 1,
+                    })
+                )
+            })
+        )
     }
 
     @instrumented('cdpLegacyEventsConsumer.processBatch')
@@ -54,14 +120,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (invocationGlobals.length) {
-            const results = await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
-
-            // Schedule the background work
-            for (const subtasks of results) {
-                for (const { backgroundTask } of subtasks) {
-                    void this.promiseScheduler.schedule(backgroundTask)
-                }
-            }
+            await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
         }
 
         return {
@@ -111,6 +170,30 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         })
     }
 
+    private async getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
+        teamId: number,
+        method: M
+    ): Promise<[PluginConfig, PluginMethodsConcrete[M]][]> {
+        const pluginConfigs = this.hub.pluginConfigsPerTeam.get(teamId) || []
+        if (pluginConfigs.length === 0) {
+            return []
+        }
+
+        const methodsObtained = await Promise.all(
+            pluginConfigs.map(async (pluginConfig) => [
+                pluginConfig,
+                await pluginConfig?.instance?.getPluginMethod(method),
+            ])
+        )
+
+        const methodsObtainedFiltered = methodsObtained.filter(([_, method]) => !!method) as [
+            PluginConfig,
+            PluginMethodsConcrete[M],
+        ][]
+
+        return methodsObtainedFiltered
+    }
+
     private async emitToReplicaTopic(kafkaMessages: Message[]) {
         const redirectTopic = this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC
         if (!redirectTopic) {
@@ -127,5 +210,37 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 })
             })
         )
+    }
+}
+
+function mutatePostIngestionEventWithElementsList(event: PostIngestionEvent): void {
+    if (event.elementsList) {
+        // Don't set if already done before
+        return
+    }
+
+    event.elementsList = event.properties['$elements_chain']
+        ? chainToElements(event.properties['$elements_chain'], event.teamId)
+        : []
+
+    event.elementsList = event.elementsList.map((element) => ({
+        ...element,
+        attr_class: element.attributes?.attr__class ?? element.attr_class,
+        $el_text: element.text,
+    }))
+}
+
+function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
+    return {
+        distinct_id: event.distinctId,
+        ip: null, // deprecated : within properties[$ip] now
+        team_id: event.teamId,
+        event: event.event,
+        properties: event.properties,
+        timestamp: event.timestamp,
+        $set: event.properties.$set,
+        $set_once: event.properties.$set_once,
+        uuid: event.eventUuid,
+        elements: event.elementsList ?? [],
     }
 }
