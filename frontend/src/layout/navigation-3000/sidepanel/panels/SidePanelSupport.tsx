@@ -95,7 +95,7 @@ const StatusPageAlert = (): JSX.Element | null => {
 //    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
 
 //Support Christmas messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "🎄 🎅 Support during the holidays 🎁 ⛄"
 const SUPPORT_MESSAGE_OVERRIDE_BODY = 
     "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
 
