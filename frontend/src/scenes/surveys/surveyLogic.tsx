@@ -85,7 +85,7 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyVersionWarning, getSurveyVersionWarnings } from './surveyVersionRequirements'
+import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -2039,10 +2039,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return responsesByQuestion
             },
         ],
-        surveyVersionWarnings: [
+        surveyWarnings: [
             (s) => [s.survey, s.teamSdkVersions],
-            (survey, teamSdkVersions): SurveyVersionWarning[] => {
-                return getSurveyVersionWarnings(survey as Survey, teamSdkVersions)
+            (survey, teamSdkVersions): SurveyFeatureWarning[] => {
+                return getSurveyWarnings(survey as Survey, teamSdkVersions)
             },
         ],
     }),
