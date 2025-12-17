@@ -11,7 +11,7 @@ env:
 
 permissions:
     contents: read
-    actions: read
+    actions: write
 
 jobs:
     check-master-status:
@@ -233,6 +233,14 @@ jobs:
                   mins=$(( (now - then) / 60 ))
                   echo "mins=$mins" >> $GITHUB_OUTPUT
 
+                  # Pluralization
+                  commit_count="${{ steps.incident.outputs.commitCount }}"
+                  if [ "$commit_count" = "1" ]; then
+                    echo "commit_word=commit" >> $GITHUB_OUTPUT
+                  else
+                    echo "commit_word=commits" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Update Slack message to resolved
               if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
@@ -243,12 +251,12 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       ts: "${{ steps.incident.outputs.ts }}"
-                      text: ":large_green_circle: Master is green (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.incident.outputs.commitCount }} commits affected)"
+                      text: ":large_green_circle: Master is green (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.incident.outputs.commitCount }} ${{ steps.duration.outputs.commit_word }} affected)"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":large_green_circle: *Master is green* (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.incident.outputs.commitCount }} commits affected)"
+                            text: ":large_green_circle: *Master is green* (was red for ~${{ steps.duration.outputs.mins }} min, ${{ steps.incident.outputs.commitCount }} ${{ steps.duration.outputs.commit_word }} affected)"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
