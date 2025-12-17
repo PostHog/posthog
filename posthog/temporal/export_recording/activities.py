@@ -1,5 +1,7 @@
 import re
+import json
 import uuid
+import base64
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +9,7 @@ from urllib import parse
 from uuid import uuid4
 
 import pytz
+import redis.asyncio as redis
 from temporalio import activity
 
 from posthog.models.exported_recording import ExportedRecording
@@ -17,9 +20,18 @@ from posthog.storage import session_recording_v2_object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.export_recording.types import ExportContext, ExportRecordingInput
+from posthog.temporal.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
 
 LOGGER = get_write_only_logger()
+
+
+def _redis_url(config: RedisConfig) -> str:
+    return f"redis://{config.redis_host}:{config.redis_port}"
+
+
+def _redis_key(export_id: uuid.UUID, key_type: str, suffix: str = "") -> str:
+    base_key = f"export-recording:{export_id}:{key_type}"
+    return f"{base_key}:{suffix}" if suffix else base_key
 
 
 @activity.defn
@@ -43,6 +55,7 @@ async def build_recording_export_context(input: ExportRecordingInput) -> ExportC
         exported_recording_id=input.exported_recording_id,
         session_id=export_record.session_id,
         team_id=export_record.team.id,
+        redis_config=input.redis_config,
     )
 
 
@@ -68,13 +81,11 @@ async def export_replay_clickhouse_rows(input: ExportContext) -> None:
 
     logger.info(f"Received {len(raw_response)} bytes from ClickHouse")
 
-    output_path = Path("/tmp") / str(input.export_id) / "clickhouse" / "session-replay-events.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    redis_key = _redis_key(input.export_id, "replay-events")
+    async with redis.from_url(_redis_url(input.redis_config)) as r:
+        await r.setex(redis_key, input.redis_config.redis_ttl, raw_response)
 
-    with output_path.open("wb") as f:
-        f.write(raw_response)
-
-    logger.info(f"Wrote replay ClickHouse metadata to {output_path}")
+    logger.info(f"Wrote replay ClickHouse metadata to Redis key {redis_key}")
 
 
 @activity.defn
@@ -108,13 +119,11 @@ async def export_event_clickhouse_rows(input: ExportContext) -> None:
 
     logger.info(f"Received {len(raw_response)} bytes from ClickHouse")
 
-    output_path = Path("/tmp") / str(input.export_id) / "clickhouse" / "events.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    redis_key = _redis_key(input.export_id, "events")
+    async with redis.from_url(_redis_url(input.redis_config)) as r:
+        await r.setex(redis_key, input.redis_config.redis_ttl, raw_response)
 
-    with output_path.open("wb") as f:
-        f.write(raw_response)
-
-    logger.info(f"Wrote event ClickHouse data to {output_path}")
+    logger.info(f"Wrote event ClickHouse data to Redis key {redis_key}")
 
 
 @activity.defn
@@ -138,13 +147,11 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
 
     logger.info(f"Found S3 prefix: {prefix}")
 
-    output_path = Path("/tmp") / str(input.export_id) / "s3_prefix.txt"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    redis_key = _redis_key(input.export_id, "s3-prefix")
+    async with redis.from_url(_redis_url(input.redis_config)) as r:
+        await r.setex(redis_key, input.redis_config.redis_ttl, prefix)
 
-    with output_path.open("w") as f:
-        f.write(prefix)
-
-    logger.info(f"Wrote S3 prefix to {output_path}")
+    logger.info(f"Wrote S3 prefix to Redis key {redis_key}")
 
 
 @activity.defn
@@ -158,41 +165,48 @@ async def export_recording_data(input: ExportContext) -> None:
 
     logger.info(f"Found {len(recording_blocks)} blocks to export")
 
-    output_files: list[Path] = []
+    block_manifest: list[dict] = []
 
-    for block in recording_blocks:
-        _, _, s3_path, _, query, _ = parse.urlparse(block.url)
+    async with redis.from_url(_redis_url(input.redis_config)) as r:
+        for block in recording_blocks:
+            _, _, s3_path, _, query, _ = parse.urlparse(block.url)
 
-        filename = s3_path.split("/")[-1]
+            filename = s3_path.split("/")[-1]
 
-        match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
+            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
 
-        if not match:
-            logger.warning(f"Got malformed byte range in block URL: {query}, skipping...")
-            continue
+            if not match:
+                logger.warning(f"Got malformed byte range in block URL: {query}, skipping...")
+                continue
 
-        block_offset = int(match.group(1))
+            block_offset = int(match.group(1))
 
-        try:
-            async with session_recording_v2_object_storage.async_client() as storage:
-                block_data = await storage.fetch_block_bytes(block.url)
-            logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
-        except session_recording_v2_object_storage.BlockFetchError:
-            logger.warning(f"Failed to fetch block at {block.url}, skipping...")
-            continue
+            try:
+                async with session_recording_v2_object_storage.async_client() as storage:
+                    block_data = await storage.fetch_block_bytes(block.url)
+                logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
+            except session_recording_v2_object_storage.BlockFetchError:
+                logger.warning(f"Failed to fetch block at {block.url}, skipping...")
+                continue
 
-        output_path = Path("/tmp") / str(input.export_id) / "data" / filename
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+            redis_key = _redis_key(input.export_id, "block", filename)
+            encoded_data = base64.b64encode(block_data).decode("utf-8")
+            await r.setex(redis_key, input.redis_config.redis_ttl, encoded_data)
 
-        with output_path.open("wb") as f:
-            f.write(b"\x00" * block_offset)
-            f.write(block_data)
-            f.write(b"\x00" * 1024)
+            block_manifest.append(
+                {
+                    "filename": filename,
+                    "offset": block_offset,
+                    "redis_key": redis_key,
+                }
+            )
 
-        logger.info(f"Wrote block data to {output_path}")
-        output_files.append(output_path)
+            logger.info(f"Wrote block data to Redis key {redis_key}")
 
-    logger.info(f"Exported recording data to {len(output_files)} files")
+        manifest_key = _redis_key(input.export_id, "block-manifest")
+        await r.setex(manifest_key, input.redis_config.redis_ttl, json.dumps(block_manifest))
+
+    logger.info(f"Exported {len(block_manifest)} recording blocks to Redis")
 
 
 @activity.defn
@@ -201,9 +215,56 @@ async def store_export_data(input: ExportContext) -> None:
     logger.info(f"Storing export data for session {input.session_id}")
 
     export_dir = Path("/tmp") / str(input.export_id)
+    export_dir.mkdir(parents=True, exist_ok=True)
 
-    if not export_dir.exists():
-        raise RuntimeError(f"Export directory {export_dir} does not exist")
+    async with redis.from_url(_redis_url(input.redis_config)) as r:
+        replay_events_data = await r.get(_redis_key(input.export_id, "replay-events"))
+        events_data = await r.get(_redis_key(input.export_id, "events"))
+        s3_prefix = await r.get(_redis_key(input.export_id, "s3-prefix"))
+        block_manifest_raw = await r.get(_redis_key(input.export_id, "block-manifest"))
+
+        clickhouse_dir = export_dir / "clickhouse"
+        clickhouse_dir.mkdir(parents=True, exist_ok=True)
+
+        if replay_events_data:
+            replay_events_path = clickhouse_dir / "session-replay-events.json"
+            with replay_events_path.open("wb") as f:
+                f.write(replay_events_data if isinstance(replay_events_data, bytes) else replay_events_data.encode())
+            logger.info(f"Wrote replay events to {replay_events_path}")
+
+        if events_data:
+            events_path = clickhouse_dir / "events.json"
+            with events_path.open("wb") as f:
+                f.write(events_data if isinstance(events_data, bytes) else events_data.encode())
+            logger.info(f"Wrote events to {events_path}")
+
+        if s3_prefix:
+            s3_prefix_path = export_dir / "s3_prefix.txt"
+            with s3_prefix_path.open("w") as f:
+                f.write(s3_prefix if isinstance(s3_prefix, str) else s3_prefix.decode())
+            logger.info(f"Wrote S3 prefix to {s3_prefix_path}")
+
+        if block_manifest_raw:
+            data_dir = export_dir / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+
+            block_manifest = json.loads(block_manifest_raw)
+            for block_info in block_manifest:
+                block_data_encoded = await r.get(block_info["redis_key"])
+                if not block_data_encoded:
+                    logger.warning(f"Missing block data for {block_info['filename']}, skipping...")
+                    continue
+
+                block_data = base64.b64decode(block_data_encoded)
+                block_offset = block_info["offset"]
+
+                output_path = data_dir / block_info["filename"]
+                with output_path.open("wb") as f:
+                    f.write(b"\x00" * block_offset)
+                    f.write(block_data)
+                    f.write(b"\x00" * 1024)
+
+                logger.info(f"Wrote block data to {output_path}")
 
     zip_path = Path("/tmp") / f"{input.export_id}.zip"
     shutil.make_archive(str(zip_path.with_suffix("")), "zip", export_dir)
@@ -218,6 +279,7 @@ async def store_export_data(input: ExportContext) -> None:
     logger.info(f"Uploaded zip archive to S3 at {s3_key}")
 
     zip_path.unlink()
+    shutil.rmtree(export_dir)
 
     export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
     export_record.export_location = s3_key
@@ -232,15 +294,20 @@ async def cleanup_export_data(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Cleaning up export data for session {input.session_id}")
 
-    export_dir = Path("/tmp") / str(input.export_id)
-    zip_path = Path("/tmp") / f"{input.export_id}.zip"
+    keys_to_delete = [
+        _redis_key(input.export_id, "replay-events"),
+        _redis_key(input.export_id, "events"),
+        _redis_key(input.export_id, "s3-prefix"),
+        _redis_key(input.export_id, "block-manifest"),
+    ]
 
-    if export_dir.exists():
-        shutil.rmtree(export_dir)
-        logger.info(f"Deleted export directory {export_dir}")
-    else:
-        logger.warning(f"Export directory {export_dir} does not exist, skipping cleanup")
+    async with redis.from_url(_redis_url(input.redis_config)) as r:
+        block_manifest_raw = await r.get(_redis_key(input.export_id, "block-manifest"))
+        if block_manifest_raw:
+            block_manifest = json.loads(block_manifest_raw)
+            for block_info in block_manifest:
+                keys_to_delete.append(block_info["redis_key"])
 
-    if zip_path.exists():
-        zip_path.unlink()
-        logger.info(f"Deleted zip file {zip_path}")
+        if keys_to_delete:
+            deleted_count = await r.delete(*keys_to_delete)
+            logger.info(f"Deleted {deleted_count} Redis keys for export {input.export_id}")
