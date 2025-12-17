@@ -445,13 +445,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
+    @validated_request(
+        responses={
+            200: OpenApiResponse(description="Log content in JSONL format"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run logs",
+        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
+    )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
-        """Proxy endpoint to fetch logs from S3, avoiding CORS issues."""
         task_run = cast(TaskRun, self.get_object())
-        log_content = object_storage.read(task_run.log_url, missing_ok=True)
-        if log_content is None:
-            return HttpResponse(status=404)
+        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
         response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
         return response
