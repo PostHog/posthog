@@ -53,6 +53,16 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        // Add billable_invocation metric now that we know the function has finished
+        result.metrics.push({
+            team_id: invocation.teamId,
+            app_source_id: invocation.functionId,
+            instance_id: invocation.id,
+            metric_kind: 'billing',
+            metric_name: 'billable_invocation',
+            count: 1,
+        })
+
         return {
             nextAction: findContinueAction(invocation),
             result: functionResult.execResult,
