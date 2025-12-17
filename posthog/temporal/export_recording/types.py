@@ -4,8 +4,7 @@ from pydantic import BaseModel
 
 
 class RedisConfig(BaseModel):
-    redis_host: str = "localhost"
-    redis_port: int = 6379
+    redis_url: str | None = None  # Defaults to settings.SESSION_RECORDING_REDIS_URL
     redis_ttl: int = 3600 * 6  # 6 hours
 
 

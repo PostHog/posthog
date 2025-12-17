@@ -21,12 +21,19 @@ from posthog.temporal.export_recording.activities import (
 from posthog.temporal.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
 
 TEST_RECORDING_ID = UUID("01938a67-1234-7000-8000-000000000001")
-TEST_REDIS_CONFIG = RedisConfig(redis_host="test-redis", redis_port=6379, redis_ttl=3600)
+TEST_REDIS_CONFIG = RedisConfig(redis_url="redis://test-redis:6379", redis_ttl=3600)
 
 
-def test_redis_url():
-    config = RedisConfig(redis_host="my-redis", redis_port=6380)
+def test_redis_url_with_custom_url():
+    config = RedisConfig(redis_url="redis://my-redis:6380")
     assert _redis_url(config) == "redis://my-redis:6380"
+
+
+def test_redis_url_with_default_uses_settings():
+    config = RedisConfig()
+    with patch("posthog.temporal.export_recording.activities.settings") as mock_settings:
+        mock_settings.SESSION_RECORDING_REDIS_URL = "redis://settings-redis:6379"
+        assert _redis_url(config) == "redis://settings-redis:6379"
 
 
 def test_redis_key_without_suffix():

@@ -1,4 +1,3 @@
-import os
 import json
 import asyncio
 from datetime import timedelta
@@ -15,7 +14,7 @@ from posthog.temporal.export_recording.activities import (
     export_replay_clickhouse_rows,
     store_export_data,
 )
-from posthog.temporal.export_recording.types import ExportRecordingInput, RedisConfig
+from posthog.temporal.export_recording.types import ExportRecordingInput
 
 
 @workflow.defn(name="export-recording")
@@ -26,12 +25,6 @@ class ExportRecordingWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: ExportRecordingInput) -> None:
-        if input.redis_config.redis_host == RedisConfig().redis_host:
-            input.redis_config.redis_host = os.getenv("EXPORT_RECORDING_REDIS_HOST", "localhost")
-
-        if input.redis_config.redis_port == RedisConfig().redis_port:
-            input.redis_config.redis_port = int(os.getenv("EXPORT_RECORDING_REDIS_PORT", "6379"))
-
         export_context = await workflow.execute_activity(
             build_recording_export_context,
             input,

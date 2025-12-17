@@ -5,15 +5,13 @@ from posthog.temporal.export_recording.types import ExportContext, ExportRecordi
 
 def test_redis_config_defaults():
     config = RedisConfig()
-    assert config.redis_host == "localhost"
-    assert config.redis_port == 6379
+    assert config.redis_url is None
     assert config.redis_ttl == 3600 * 6
 
 
 def test_redis_config_custom_values():
-    config = RedisConfig(redis_host="redis.example.com", redis_port=6380, redis_ttl=7200)
-    assert config.redis_host == "redis.example.com"
-    assert config.redis_port == 6380
+    config = RedisConfig(redis_url="redis://custom-redis:6380", redis_ttl=7200)
+    assert config.redis_url == "redis://custom-redis:6380"
     assert config.redis_ttl == 7200
 
 
@@ -21,17 +19,15 @@ def test_export_recording_input_creation():
     recording_id = UUID("01938a67-1234-7000-8000-000000000001")
     input = ExportRecordingInput(exported_recording_id=recording_id)
     assert input.exported_recording_id == recording_id
-    assert input.redis_config.redis_host == "localhost"
-    assert input.redis_config.redis_port == 6379
+    assert input.redis_config.redis_url is None
 
 
 def test_export_recording_input_with_custom_redis_config():
     recording_id = UUID("01938a67-1234-7000-8000-000000000001")
-    redis_config = RedisConfig(redis_host="custom-host", redis_port=6380)
+    redis_config = RedisConfig(redis_url="redis://custom-host:6380")
     input = ExportRecordingInput(exported_recording_id=recording_id, redis_config=redis_config)
     assert input.exported_recording_id == recording_id
-    assert input.redis_config.redis_host == "custom-host"
-    assert input.redis_config.redis_port == 6380
+    assert input.redis_config.redis_url == "redis://custom-host:6380"
 
 
 def test_export_context_creation():

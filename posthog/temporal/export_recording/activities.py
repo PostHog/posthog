@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib import parse
 from uuid import uuid4
 
+from django.conf import settings
+
 import pytz
 import redis.asyncio as redis
 from temporalio import activity
@@ -26,7 +28,7 @@ LOGGER = get_write_only_logger()
 
 
 def _redis_url(config: RedisConfig) -> str:
-    return f"redis://{config.redis_host}:{config.redis_port}"
+    return config.redis_url or settings.SESSION_RECORDING_REDIS_URL
 
 
 def _redis_key(export_id: uuid.UUID, key_type: str, suffix: str = "") -> str:
