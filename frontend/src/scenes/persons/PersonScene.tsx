@@ -256,8 +256,8 @@ export function PersonScene(): JSX.Element | null {
                 tabs={[
                     feedEnabled
                         ? {
-                              key: PersonsTabType.FEED,
-                              label: <span data-attr="persons-feed-tab">Feed</span>,
+                              key: PersonsTabType.PROFILE,
+                              label: <span data-attr="persons-profile-tab">Profile</span>,
                               content: <PersonFeedCanvas person={person} />,
                           }
                         : false,
