@@ -453,7 +453,7 @@ class TestReadDataTool(BaseTest):
 
         result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
 
-        assert "# Views" in result
+        assert "# Data warehouse views" in result
         assert "- my_custom_view" in result
         assert "- revenue_summary" in result
 
