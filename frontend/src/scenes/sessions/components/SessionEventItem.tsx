@@ -139,6 +139,8 @@ export function SessionEventItem({
         const eventTime = new Date(event.timestamp).getTime()
         const offsetMs = Math.max(0, eventTime - sessionStart)
         seekToTime(offsetMs)
+
+        document.getElementById('session-recording-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
     const handleToggle = (): void => {
