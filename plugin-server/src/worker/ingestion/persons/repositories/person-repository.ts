@@ -44,6 +44,14 @@ export interface PersonRepository {
         useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
 
+    countPersonsByProperties(teamPersons: { teamId: TeamId; properties: Record<string, any>[] }): Promise<number>
+
+    fetchPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: Record<string, any>[]
+        options?: { limit?: number; offset?: number }
+    }): Promise<InternalPersonWithDistinctId[]>
+
     createPerson(
         createdAt: DateTime,
         properties: Properties,
