@@ -1038,7 +1038,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             ) as bigquery_consumer_table:
                 file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
 
-                if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
+                if str(inputs.team_id) not in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
                     # This just repeats what's in `run_consumers` to preserve backwards compatibility
                     # while testing.
                     # TODO: Remove this or the else block after we have tested out whether multiple
