@@ -49,7 +49,7 @@ export function CollapsibleFrameHeader({
 
     useEffect(() => {
         const el = functionRef.current
-        // If sourceRef is scrollable scroll to the end and add scrollable attribute
+        // If functionRef is scrollable scroll to the end and add scrollable attribute
         if (el && el.scrollWidth > el.clientWidth) {
             let delta = el.scrollWidth - el.clientWidth
             el.scrollBy({ left: delta + 10 })
