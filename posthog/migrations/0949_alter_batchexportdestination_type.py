@@ -4,11 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Required for CREATE INDEX CONCURRENTLY
+
     dependencies = [
         ("posthog", "0948_hogfunction_batch_export_and_more"),
     ]
 
     operations = [
+        # This is a no-op in the database (just Django state for choices)
         migrations.AlterField(
             model_name="batchexportdestination",
             name="type",
@@ -27,5 +30,14 @@ class Migration(migrations.Migration):
                 help_text="A choice of supported BatchExportDestination types.",
                 max_length=64,
             ),
+        ),
+        # Concurrent index for the FK added in 0948
+        migrations.RunSQL(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_hogfunction_batch_export_id_d64c3403" ON "posthog_hogfunction" ("batch_export_id");
+            """,
+            reverse_sql="""
+                DROP INDEX IF EXISTS "posthog_hogfunction_batch_export_id_d64c3403";
+            """,
         ),
     ]

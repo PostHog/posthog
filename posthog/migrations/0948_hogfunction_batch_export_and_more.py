@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    atomic = False  # Added to support concurrent index creation
     dependencies = [("posthog", "0947_insightviewed_null_unique_index")]
 
     operations = [
@@ -28,15 +27,6 @@ class Migration(migrations.Migration):
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_hogfunction" DROP COLUMN IF EXISTS "batch_export_id";
-                    """,
-                ),
-                # We add CONCURRENTLY to the create command
-                migrations.RunSQL(
-                    """
-                    CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_hogfunction_batch_export_id_d64c3403" ON "posthog_hogfunction" ("batch_export_id");
-                    """,
-                    reverse_sql="""
-                        DROP INDEX IF EXISTS "posthog_hogfunction_batch_export_id_d64c3403";
                     """,
                 ),
             ],
