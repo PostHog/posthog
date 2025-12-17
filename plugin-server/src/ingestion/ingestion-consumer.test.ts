@@ -130,8 +130,11 @@ describe('IngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
+    const createIngestionConsumer = async (
+        hub: Hub,
+        overrides?: ConstructorParameters<typeof IngestionConsumer>[1]
+    ) => {
+        const ingester = new IngestionConsumer(hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -313,11 +316,14 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                // Create a new consumer that consumes from the overflow topic
+                const overflowIngester = await createIngestionConsumer(hub, {
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                })
+                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-                await ingester.handleKafkaBatch(overflowMessages)
+                await overflowIngester.handleKafkaBatch(overflowMessages)
 
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
@@ -325,6 +331,8 @@ describe('IngestionConsumer', () => {
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                 ).toHaveLength(1)
+
+                await overflowIngester.stop()
             })
 
             describe('force overflow', () => {
@@ -1168,13 +1176,14 @@ describe('IngestionConsumer', () => {
         it(
             'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
             async () => {
-                // Set hogwatcher enabled (100% sample rate)
+                // Create a new ingester with the sample rate we want to test
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+                const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
+                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is present
@@ -1184,7 +1193,7 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                await localIngester.handleKafkaBatch(messages)
 
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
                 expect(fetchAndCacheSpy).toHaveBeenCalled()
@@ -1202,6 +1211,8 @@ describe('IngestionConsumer', () => {
                 const functionResult = results.find((r) => r.invocation.functionId === transformationFunction.id)
                 expect(functionResult).toBeDefined()
                 expect(functionResult?.finished).toBe(true)
+
+                await localIngester.stop()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -1209,12 +1220,13 @@ describe('IngestionConsumer', () => {
         it(
             'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
             async () => {
-                // Set hogwatcher disabled (0% sample rate)
+                // Create a new ingester with the sample rate we want to test
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+                const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({
@@ -1223,11 +1235,13 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                await localIngester.handleKafkaBatch(messages)
 
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
                 expect(fetchAndCacheSpy).not.toHaveBeenCalled()
                 expect(clearStatesSpy).not.toHaveBeenCalled()
+
+                await localIngester.stop()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )

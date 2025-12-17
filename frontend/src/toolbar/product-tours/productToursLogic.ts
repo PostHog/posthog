@@ -13,10 +13,10 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement } from '~/toolbar/utils'
-import { ProductTour, ProductTourStep, StepOrderVersion } from '~/types'
+import { ProductTour, ProductTourStep, ProductTourSurveyQuestion, StepOrderVersion } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
-import { captureScreenshot, getElementMetadata } from './utils'
+import { captureScreenshot, getElementMetadata, getSmartUrlDefaults } from './utils'
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
 
@@ -40,6 +40,10 @@ export interface TourStep {
     content: JSONContent | null
     /** Local-only: reference to DOM element, not persisted */
     element?: HTMLElement
+    /** Inline survey question config - if present, this is a survey step */
+    survey?: ProductTourSurveyQuestion
+    /** ID of the auto-created survey for this step (set by backend, must be preserved on updates) */
+    linkedSurveyId?: string
 }
 
 export interface TourForm {
@@ -63,6 +67,8 @@ function tourToForm(tour: ProductTour): TourForm {
             id: step.id || uuid(), // Preserve existing ID, generate new one only if missing
             selector: step.selector,
             content: step.content,
+            survey: step.survey,
+            linkedSurveyId: step.linkedSurveyId,
         })),
     }
 }
@@ -112,13 +118,19 @@ export const productToursLogic = kea<productToursLogicType>([
         setInspectingElementIndex: (index: number | null) => ({ index }),
         editStep: (index: number) => ({ index }),
         selectElement: (element: HTMLElement) => ({ element }),
-        confirmStep: (content: JSONContent | null, selector?: string) => ({ content, selector }),
+        confirmStep: (content: JSONContent | null, selector?: string, survey?: ProductTourSurveyQuestion) => ({
+            content,
+            selector,
+            survey,
+        }),
         cancelStep: true,
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         addStep: true,
         addModalStep: true,
+        addSurveyStep: true,
         setEditingModalStep: (isModal: boolean) => ({ isModal }),
+        setEditingSurveyStep: (isSurvey: boolean) => ({ isSurvey }),
         removeStep: (index: number) => ({ index }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         updateRects: true,
@@ -203,7 +215,9 @@ export const productToursLogic = kea<productToursLogicType>([
                 cancelStep: () => null,
                 inspectForElementWithIndex: () => null,
                 addModalStep: () => null,
+                addSurveyStep: () => null,
                 setEditingModalStep: (state, { isModal }) => (isModal ? null : state),
+                setEditingSurveyStep: (state, { isSurvey }) => (isSurvey ? null : state),
                 hideButtonProductTours: () => null,
                 // Note: confirmStep clears this AFTER the listener runs via actions.cancelStep()
             },
@@ -219,6 +233,21 @@ export const productToursLogic = kea<productToursLogicType>([
                 inspectForElementWithIndex: () => false,
                 selectTour: () => false,
                 hideButtonProductTours: () => false,
+                addSurveyStep: () => false, // Survey steps use their own flag
+            },
+        ],
+        editingSurveyStep: [
+            false,
+            {
+                addSurveyStep: () => true,
+                setEditingSurveyStep: (_, { isSurvey }) => isSurvey,
+                selectElement: () => false,
+                cancelStep: () => false,
+                confirmStep: () => false,
+                inspectForElementWithIndex: () => false,
+                selectTour: () => false,
+                hideButtonProductTours: () => false,
+                addModalStep: () => false, // Modal steps use their own flag
             },
         ],
         rectUpdateCounter: [
@@ -297,6 +326,8 @@ export const productToursLogic = kea<productToursLogicType>([
             },
             submit: async (formValues) => {
                 const { id, name, steps } = formValues
+                const isUpdate = !!id
+
                 // Strip element references from steps before saving (element is a local-only DOM ref)
                 const stepsForApi = steps.map(({ element: _, ...step }) => step)
 
@@ -307,6 +338,9 @@ export const productToursLogic = kea<productToursLogicType>([
                 // Update history if step order changed (or create initial version for new tours)
                 const stepOrderHistory = getUpdatedStepOrderHistory(stepsForApi, existingHistory)
 
+                // For new tours, set smart URL defaults based on current page
+                const urlDefaults = !isUpdate ? getSmartUrlDefaults() : null
+
                 const payload = {
                     name,
                     content: {
@@ -314,10 +348,17 @@ export const productToursLogic = kea<productToursLogicType>([
                         ...existingTour?.content,
                         steps: stepsForApi,
                         step_order_history: stepOrderHistory,
+                        // Set smart URL defaults for new tours (don't override existing conditions)
+                        ...(!isUpdate && !existingTour?.content?.conditions
+                            ? {
+                                  conditions: {
+                                      url: urlDefaults?.url,
+                                      urlMatchType: urlDefaults?.urlMatchType,
+                                  },
+                              }
+                            : {}),
                     },
                 }
-
-                const isUpdate = !!id
                 const url = isUpdate
                     ? `/api/projects/@current/product_tours/${id}/`
                     : '/api/projects/@current/product_tours/'
@@ -391,8 +432,9 @@ export const productToursLogic = kea<productToursLogicType>([
             },
         ],
         isEditingStep: [
-            (s) => [s.selectedElement, s.editingModalStep],
-            (selectedElement, editingModalStep) => selectedElement !== null || editingModalStep,
+            (s) => [s.selectedElement, s.editingModalStep, s.editingSurveyStep],
+            (selectedElement, editingModalStep, editingSurveyStep) =>
+                selectedElement !== null || editingModalStep || editingSurveyStep,
         ],
         editingStep: [
             (s) => [s.inspectingElement, s.tourForm],
@@ -420,10 +462,10 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        confirmStep: ({ content, selector: selectorOverride }) => {
+        confirmStep: ({ content, selector: selectorOverride, survey }) => {
             // Check inspectingElement since editingModalStep reducer runs before listener
             if (values.tourForm && values.inspectingElement !== null) {
-                // For modal steps (no element), selector is empty by default
+                // For modal/survey steps (no element), selector is empty by default
                 const selector = values.selectedElement
                     ? (selectorOverride ??
                       elementToActionStep(values.selectedElement, values.dataAttributes).selector ??
@@ -442,6 +484,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     selector,
                     content,
                     element: values.selectedElement ?? undefined,
+                    ...(survey ? { survey } : {}),
                 }
 
                 if (index !== null && index < steps.length) {
@@ -459,6 +502,12 @@ export const productToursLogic = kea<productToursLogicType>([
         editStep: ({ index }) => {
             const step = values.tourForm?.steps?.[index]
             if (!step) {
+                return
+            }
+
+            // Survey steps are always modal-style
+            if (step.survey) {
+                actions.setEditingSurveyStep(true)
                 return
             }
 
@@ -498,6 +547,11 @@ export const productToursLogic = kea<productToursLogicType>([
             const nextIndex = values.tourForm?.steps?.length ?? 0
             actions.setInspectingElementIndex(nextIndex)
         },
+        addSurveyStep: () => {
+            const nextIndex = values.tourForm?.steps?.length ?? 0
+            actions.setInspectingElementIndex(nextIndex)
+            // editingSurveyStep reducer handles setting the flag
+        },
         removeStep: ({ index }) => {
             if (values.tourForm) {
                 const steps = [...(values.tourForm.steps || [])]
@@ -535,8 +589,10 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         generateWithAI: async () => {
             const steps = values.tourForm?.steps ?? []
+            // Filter out survey steps - AI should only generate content for element/modal steps
+            const nonSurveySteps = steps.filter((step) => !step.survey)
 
-            if (steps.length === 0) {
+            if (nonSurveySteps.length === 0) {
                 lemonToast.error('Add at least one element before generating')
                 actions.generateWithAIFailure('No elements selected')
                 return
@@ -554,9 +610,9 @@ export const productToursLogic = kea<productToursLogicType>([
                     }
                 }
 
-                // Step 2: Build element metadata
+                // Step 2: Build element metadata (only for non-survey steps)
                 actions.setAIGenerationStep('analyzing')
-                const elements = steps.map((step) => {
+                const elements = nonSurveySteps.map((step) => {
                     let metadata = { selector: step.selector, tag: 'unknown', text: '', attributes: {} }
                     if (step.element && document.body.contains(step.element)) {
                         metadata = {
@@ -610,14 +666,21 @@ export const productToursLogic = kea<productToursLogicType>([
                 actions.setTourFormValue('name', name)
             }
 
-            // Merge AI-generated content into existing steps
+            // Merge AI-generated content into existing steps, skipping survey steps
             const currentSteps = [...(values.tourForm?.steps ?? [])]
-            generatedSteps.forEach((aiStep: { selector: string; content: JSONContent }, i: number) => {
-                if (i < currentSteps.length) {
+            let aiStepIndex = 0
+            currentSteps.forEach((step, i) => {
+                // Skip survey steps - AI doesn't generate content for them
+                if (step.survey) {
+                    return
+                }
+                if (aiStepIndex < generatedSteps.length) {
+                    const aiStep = generatedSteps[aiStepIndex] as { selector: string; content: JSONContent }
                     currentSteps[i] = {
                         ...currentSteps[i],
                         content: aiStep.content,
                     }
+                    aiStepIndex++
                 }
             })
 
