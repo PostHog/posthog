@@ -28,6 +28,10 @@ import type { biLogicType } from './biLogicType'
 export type BIAggregation = 'count' | 'min' | 'max' | 'sum'
 export type BITimeAggregation = 'hour' | 'day' | 'week' | 'month'
 export type BISortDirection = 'asc' | 'desc'
+export interface BISchemaVersion {
+    sql: string
+    savedAt: number
+}
 
 export interface BISort {
     column: BIQueryColumn
@@ -44,6 +48,11 @@ export interface BIQueryColumn {
 export interface BIQueryFilter {
     column: BIQueryColumn
     expression: string
+}
+
+export interface BISchemaEditorState {
+    databaseName: string | null
+    tableName: string | null
 }
 
 export interface FieldTreeNode {
@@ -94,6 +103,11 @@ export const biLogic = kea<biLogicType>([
         refreshQuery: true,
         resetSelection: true,
         setExpandedFields: (paths: string[]) => ({ paths }),
+        openSchemaEditor: (databaseName: string) => ({ databaseName }),
+        closeSchemaEditor: true,
+        selectSchemaTableForEditing: (tableName: string) => ({ tableName }),
+        setSchemaDraft: (tableName: string, draft: string) => ({ tableName, draft }),
+        saveSchemaDraft: (tableName: string, sql: string) => ({ tableName, sql }),
     }),
     reducers({
         selectedTable: [
@@ -182,6 +196,31 @@ export const biLogic = kea<biLogicType>([
                 resetSelection: () => [],
             },
         ],
+        schemaEditor: [
+            { databaseName: null, tableName: null } as BISchemaEditorState,
+            {
+                openSchemaEditor: (_, { databaseName }) => ({ databaseName, tableName: null }),
+                closeSchemaEditor: () => ({ databaseName: null, tableName: null }),
+                selectSchemaTableForEditing: (state, { tableName }) => ({ ...state, tableName }),
+                selectTable: () => ({ databaseName: null, tableName: null }),
+                resetSelection: () => ({ databaseName: null, tableName: null }),
+            },
+        ],
+        schemaDrafts: [
+            {} as Record<string, string>,
+            {
+                setSchemaDraft: (state, { tableName, draft }) => ({ ...state, [tableName]: draft }),
+            },
+        ],
+        schemaVersions: [
+            {} as Record<string, BISchemaVersion[]>,
+            {
+                saveSchemaDraft: (state, { tableName, sql }) => ({
+                    ...state,
+                    [tableName]: [...(state[tableName] || []), { sql, savedAt: Date.now() }],
+                }),
+            },
+        ],
     }),
     selectors({
         allTables: [
@@ -243,6 +282,48 @@ export const biLogic = kea<biLogicType>([
             (s) => [s.selectedTableObject, s.tableSearchTerm, s.columnSearchTerm],
             (selectedTableObject, tableSearchTerm, columnSearchTerm) =>
                 selectedTableObject ? columnSearchTerm : tableSearchTerm,
+        ],
+        schemaEditorTables: [
+            (s) => [s.allTables, s.schemaEditor],
+            (tables, schemaEditor): DatabaseSchemaTable[] => {
+                if (!schemaEditor.databaseName) {
+                    return []
+                }
+
+                return tables
+                    .filter((table) => getDatabaseNameFromTableName(table.name) === schemaEditor.databaseName)
+                    .sort((a, b) => a.name.localeCompare(b.name))
+            },
+        ],
+        schemaEditorTable: [
+            (s) => [s.schemaEditorTables, s.schemaEditor],
+            (tables, schemaEditor): DatabaseSchemaTable | null => {
+                if (!schemaEditor.databaseName) {
+                    return null
+                }
+
+                return tables.find((table) => table.name === schemaEditor.tableName) || tables[0] || null
+            },
+        ],
+        schemaEditorDraft: [
+            (s) => [s.schemaEditorTable, s.schemaDrafts, s.schemaEditor],
+            (table, drafts, schemaEditor): string => {
+                if (!table) {
+                    return ''
+                }
+
+                return drafts[table.name] || buildCreateTableStatement(table, schemaEditor.databaseName)
+            },
+        ],
+        schemaEditorVersionHistory: [
+            (s) => [s.schemaEditorTable, s.schemaVersions],
+            (table, versions): BISchemaVersion[] => {
+                if (!table) {
+                    return []
+                }
+
+                return versions[table.name] || []
+            },
         ],
         breadcrumbs: [
             (s) => [s.selectedTableObject],
@@ -462,6 +543,22 @@ export const biLogic = kea<biLogicType>([
         },
         loadSourcesSuccess: () => {
             actions.loadDatabase()
+        },
+        openSchemaEditor: ({ databaseName }) => {
+            const tablesInDatabase = values.allTables
+                .filter((table) => getDatabaseNameFromTableName(table.name) === databaseName)
+                .sort((a, b) => a.name.localeCompare(b.name))
+
+            if (tablesInDatabase.length > 0) {
+                actions.selectSchemaTableForEditing(tablesInDatabase[0].name)
+            }
+        },
+        selectSchemaTableForEditing: ({ tableName }) => {
+            const table = values.allTables.find((candidate) => candidate.name === tableName)
+
+            if (table && !values.schemaDrafts[tableName]) {
+                actions.setSchemaDraft(tableName, buildCreateTableStatement(table, values.schemaEditor.databaseName))
+            }
         },
     })),
     afterMount(({ actions }) => {
@@ -1158,4 +1255,27 @@ export function getTableSourceId(table: DatabaseSchemaTable): string | null {
 
 export function isDirectQueryTable(table: DatabaseSchemaTable): boolean {
     return (table as any)?.source?.is_direct_query === true
+}
+
+export function getDatabaseNameFromTableName(tableName: string): string {
+    const [groupName, ...rest] = tableName.split('.')
+
+    if (rest.length > 0) {
+        return groupName
+    }
+
+    return 'posthog'
+}
+
+export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseName: string | null): string {
+    const fields = Object.values(table.fields || {})
+
+    const fieldLines = fields.map((field) => {
+        const typeLabel = typeof field.type === 'string' ? field.type : 'string'
+        return `    "${field.name}" ${typeLabel}`
+    })
+
+    const fieldsBlock = fieldLines.length > 0 ? fieldLines.join(',\n') : '    -- add columns'
+
+    return `CREATE TABLE "${databaseName}"."${table.name}" {\n${fieldsBlock}\n}`
 }

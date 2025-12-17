@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -9,6 +9,7 @@ import {
     IconBrackets,
     IconCalculator,
     IconCalendar,
+    IconClock,
     IconExpand45,
     IconFilter,
     IconLetter,
@@ -36,11 +37,12 @@ import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAuto
 import { useChart } from 'lib/hooks/useChart'
 import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { humanFriendlyNumber } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { SceneExport } from '../sceneTypes'
 import { Scene } from '../sceneTypes'
@@ -49,13 +51,16 @@ import {
     BIAggregation,
     BIQueryColumn,
     BIQueryFilter,
+    BISchemaVersion,
     BISortDirection,
     BITimeAggregation,
     FieldTreeNode,
     biLogic,
+    buildCreateTableStatement,
     columnAlias,
     columnKey,
     defaultColumnForTable,
+    getDatabaseNameFromTableName,
     getTableDialect,
     getTableSourceId,
     isDirectQueryTable,
@@ -331,6 +336,11 @@ export function BIScene(): JSX.Element {
         databaseLoading,
         sort,
         expandedFields,
+        schemaEditor,
+        schemaEditorTables,
+        schemaEditorTable,
+        schemaEditorDraft,
+        schemaEditorVersionHistory,
     } = useValues(biLogic)
     const {
         addColumn,
@@ -349,6 +359,11 @@ export function BIScene(): JSX.Element {
         refreshQuery,
         resetSelection,
         setExpandedFields,
+        openSchemaEditor,
+        closeSchemaEditor,
+        selectSchemaTableForEditing,
+        setSchemaDraft,
+        saveSchemaDraft,
     } = useActions(biLogic)
 
     const queryDialect: 'clickhouse' | 'postgres' = selectedTableObject
@@ -371,14 +386,42 @@ export function BIScene(): JSX.Element {
     )
     const [chartHeight, setChartHeight] = useState(DEFAULT_CHART_HEIGHT)
     const [queryPreviewHeight, setQueryPreviewHeight] = useState(180)
+    const databaseSideAction = useCallback(
+        (item: TreeDataItem) => {
+            if (item.record?.type !== 'folder') {
+                return null
+            }
+
+            const databaseName = item.record?.databaseName || item.name
+
+            return (
+                <div className="flex flex-col gap-1 p-1">
+                    <LemonButton type="tetriary" size="small" fullWidth disabled>
+                        Edit connection
+                    </LemonButton>
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        fullWidth
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            openSchemaEditor(databaseName)
+                        }}
+                    >
+                        Modify schema
+                    </LemonButton>
+                </div>
+            )
+        },
+        [openSchemaEditor]
+    )
 
     const tableTreeData = useMemo<TreeDataItem[]>(() => {
         const groupedTables: Record<string, TreeDataItem> = {}
 
         filteredTables.forEach((table) => {
-            const [groupName, ...rest] = table.name.split('.')
-            const folderName = rest.length > 0 ? groupName : 'posthog'
-            const tableName = rest.length > 0 ? rest.join('.') : table.name
+            const folderName = getDatabaseNameFromTableName(table.name)
+            const tableName = table.name.includes('.') ? table.name.split('.').slice(1).join('.') : table.name
 
             if (!groupedTables[folderName]) {
                 groupedTables[folderName] = {
@@ -386,7 +429,7 @@ export function BIScene(): JSX.Element {
                     name: folderName,
                     displayName: <SearchHighlightMultiple string={folderName} substring={searchTerm} />,
                     type: 'node',
-                    record: { type: 'folder' },
+                    record: { type: 'folder', databaseName: folderName },
                     children: [],
                     icon: <IconStack />,
                 }
@@ -865,6 +908,22 @@ export function BIScene(): JSX.Element {
         />
     )
 
+    if (schemaEditor.databaseName) {
+        return (
+            <SchemaEditorView
+                databaseName={schemaEditor.databaseName}
+                tables={schemaEditorTables}
+                selectedTable={schemaEditorTable}
+                draft={schemaEditorDraft}
+                versions={schemaEditorVersionHistory}
+                onClose={closeSchemaEditor}
+                onSelectTable={selectSchemaTableForEditing}
+                onChangeDraft={(tableName, draft) => setSchemaDraft(tableName, draft)}
+                onSave={(tableName, draft) => saveSchemaDraft(tableName, draft)}
+            />
+        )
+    }
+
     return (
         <div className="flex flex-col gap-4 h-full" onClick={closePopovers}>
             <div className="flex gap-4 h-full min-h-0">
@@ -963,6 +1022,7 @@ export function BIScene(): JSX.Element {
                                     data={tableTreeData}
                                     expandedItemIds={expandedTableGroups}
                                     onSetExpandedItemIds={setExpandedTableGroups}
+                                    itemSideAction={databaseSideAction}
                                     onItemClick={(item) => {
                                         if (item.record?.type === 'table') {
                                             selectTable(item.record.tableName)
@@ -1192,6 +1252,185 @@ export function BIScene(): JSX.Element {
                                 )}
                             </div>
                         )}
+                    </LemonCard>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+interface SchemaEditorViewProps {
+    databaseName: string
+    tables: DatabaseSchemaTable[]
+    selectedTable: DatabaseSchemaTable | null
+    draft: string
+    versions: BISchemaVersion[]
+    onClose: () => void
+    onSelectTable: (tableName: string) => void
+    onChangeDraft: (tableName: string, draft: string) => void
+    onSave: (tableName: string, draft: string) => void
+}
+
+function SchemaEditorView({
+    databaseName,
+    tables,
+    selectedTable,
+    draft,
+    versions,
+    onClose,
+    onSelectTable,
+    onChangeDraft,
+    onSave,
+}: SchemaEditorViewProps): JSX.Element {
+    const [historyOpen, setHistoryOpen] = useState(false)
+    const activeTableName = selectedTable?.name || null
+    const orderedVersions = [...versions]
+    const lastSaved = orderedVersions[orderedVersions.length - 1] || null
+    const generatedTemplate = selectedTable ? buildCreateTableStatement(selectedTable, databaseName) : ''
+    const editorValue = draft || generatedTemplate
+
+    const handleSave = (): void => {
+        if (!activeTableName) {
+            return
+        }
+
+        onSave(activeTableName, editorValue)
+    }
+
+    return (
+        <div className="flex flex-col gap-3 h-full">
+            <div className="flex gap-4 h-full min-h-0">
+                <ResizableElement
+                    defaultWidth={260}
+                    minWidth={MIN_SIDEBAR_WIDTH}
+                    maxWidth={400}
+                    className="shrink-0 h-full min-h-0"
+                >
+                    <div className="h-full min-h-0 flex flex-col pr-2 gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <LemonButton type="tertiary" icon={<IconArrowLeft />} onClick={onClose} />
+                                <div>
+                                    <div className="text-muted text-xs">Modify database schema</div>
+                                    <div className="font-semibold">{databaseName}</div>
+                                </div>
+                            </div>
+                            {lastSaved && (
+                                <div className="text-muted text-xs">
+                                    Last saved {new Date(lastSaved.savedAt).toLocaleString()}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                            {tables.length === 0 ? (
+                                <div className="text-muted text-sm">No tables available for this database.</div>
+                            ) : (
+                                tables.map((table) => (
+                                    <LemonButton
+                                        key={table.name}
+                                        fullWidth
+                                        className="justify-start"
+                                        type={table.name === activeTableName ? 'primary' : 'tetriary'}
+                                        onClick={() => onSelectTable(table.name)}
+                                    >
+                                        <div className="flex flex-col items-start">
+                                            <span className="font-semibold">{table.name}</span>
+                                            {table.schema_metadata?.engine && (
+                                                <span className="text-muted text-xs">
+                                                    {table.schema_metadata.engine}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </LemonButton>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </ResizableElement>
+
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <LemonButton type="primary" onClick={handleSave} disabled={!activeTableName}>
+                            Save
+                        </LemonButton>
+                        <Popover
+                            visible={historyOpen}
+                            onVisibilityChange={setHistoryOpen}
+                            overlay={
+                                <div className="p-2 space-y-2" onClick={(event) => event.stopPropagation()}>
+                                    {orderedVersions.length === 0 && (
+                                        <div className="text-muted text-sm">No saved versions yet.</div>
+                                    )}
+                                    {[...orderedVersions].reverse().map((version, index) => (
+                                        <div
+                                            key={`${version.savedAt}-${index}`}
+                                            className="border border-border rounded p-2 space-y-1"
+                                        >
+                                            <div className="flex items-center justify-between text-xs text-muted">
+                                                <span>Version {orderedVersions.length - index}</span>
+                                                <span>{new Date(version.savedAt).toLocaleString()}</span>
+                                            </div>
+                                            <div className="text-xs text-muted whitespace-pre-wrap line-clamp-2">
+                                                {version.sql}
+                                            </div>
+                                            {activeTableName && (
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        onChangeDraft(activeTableName, version.sql)
+                                                        setHistoryOpen(false)
+                                                    }}
+                                                >
+                                                    Load version
+                                                </LemonButton>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            }
+                        >
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconClock />}
+                                onClick={(event) => {
+                                    event.stopPropagation()
+                                    setHistoryOpen((current) => !current)
+                                }}
+                                disabled={!activeTableName}
+                            >
+                                Version history
+                            </LemonButton>
+                        </Popover>
+                    </div>
+
+                    <LemonCard className="flex-1 min-h-0 flex flex-col p-4" hoverEffect={false}>
+                        <div className="flex items-center justify-between mb-2">
+                            <div>
+                                <div className="text-muted text-xs">Editing schema</div>
+                                <div className="text-lg font-semibold">
+                                    {selectedTable?.name || 'Select a table to edit its schema'}
+                                </div>
+                            </div>
+                            <div className="text-xs text-muted">SQL definition</div>
+                        </div>
+                        <div className="flex-1 min-h-0 border border-border rounded bg-bg-3000">
+                            {activeTableName ? (
+                                <CodeEditor
+                                    language="sql"
+                                    value={editorValue}
+                                    onChange={(value) => onChangeDraft(activeTableName, value || '')}
+                                    height="100%"
+                                    options={{
+                                        minimap: { enabled: false },
+                                        wordWrap: 'on',
+                                        automaticLayout: true,
+                                    }}
+                                />
+                            ) : (
+                                <div className="p-3 text-muted">Select a table to begin editing its schema.</div>
+                            )}
+                        </div>
                     </LemonCard>
                 </div>
             </div>
