@@ -322,6 +322,46 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task
         mock_task.delay.assert_called_once_with(self.team.id)
 
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_tag_rename(self, mock_task):
+        """Test that signal fires when a tag used by a flag is renamed."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Reset mock to ignore the create signals
+        mock_task.reset_mock()
+
+        # Rename the tag
+        tag.name = "landing-page"
+        tag.save()
+
+        # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_tag_rename_when_not_used_by_flags(self, mock_task):
+        """Test that signal does not fire when a tag not used by any flag is renamed."""
+        # Create a tag that is not used by any flag
+        tag = Tag.objects.create(team=self.team, name="unused-tag")
+
+        # Reset mock to ignore the create signal
+        mock_task.reset_mock()
+
+        # Rename the tag
+        tag.name = "still-unused-tag"
+        tag.save()
+
+        # Signal should NOT trigger the Celery task since no flags use this tag
+        mock_task.delay.assert_not_called()
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsCeleryTasks(BaseTest):

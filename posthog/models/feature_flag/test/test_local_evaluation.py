@@ -229,3 +229,38 @@ class TestLocalEvaluationSignals(BaseTest):
         eval_tag.delete()
 
         mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_tag_rename(self, mock_task):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        mock_task.reset_mock()
+
+        # Rename the tag
+        tag.name = "landing-page"
+        tag.save()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_tag_rename_when_not_used_by_flags(self, mock_task):
+        # Create a tag that is not used by any flag
+        tag = Tag.objects.create(team=self.team, name="unused-tag")
+
+        mock_task.reset_mock()
+
+        # Rename the tag
+        tag.name = "still-unused-tag"
+        tag.save()
+
+        # Signal should NOT trigger the Celery task since no flags use this tag
+        mock_task.delay.assert_not_called()

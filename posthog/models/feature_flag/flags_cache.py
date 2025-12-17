@@ -8,6 +8,8 @@ and group type mappings), this cache provides just the raw flag data.
 The cache is automatically invalidated when:
 - FeatureFlag models are created, updated, or deleted
 - Team models are created or deleted (to ensure flag caches are cleaned up)
+- FeatureFlagEvaluationTag models are created or deleted
+- Tag models are updated (since tag names are cached in evaluation_tags)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
@@ -43,6 +45,7 @@ from posthog.models.feature_flag.feature_flag import (
     get_feature_flags,
     serialize_feature_flags,
 )
+from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
@@ -525,3 +528,27 @@ def evaluation_tag_changed_flags_cache(sender, instance: "FeatureFlagEvaluationT
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
+
+
+@receiver(post_save, sender=Tag)
+def tag_changed_flags_cache(sender, instance: "Tag", **kwargs):
+    """
+    Invalidate flags cache when a tag is renamed.
+
+    Tag names are cached in evaluation_tags, so if a tag used by any flag
+    is renamed, we need to refresh those teams' caches.
+    Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    from posthog.tasks.feature_flags import update_team_service_flags_cache
+
+    # Find all teams that have flags using this tag as an evaluation tag
+    team_ids = (
+        FeatureFlagEvaluationTag.objects.filter(tag=instance).values_list("feature_flag__team_id", flat=True).distinct()
+    )
+
+    for team_id in team_ids:
+        # Capture team_id in closure to avoid late binding issues
+        transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))

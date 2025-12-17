@@ -14,6 +14,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache
@@ -503,3 +504,23 @@ def evaluation_tag_changed(sender, instance: "FeatureFlagEvaluationTag", **kwarg
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
+
+
+@receiver(post_save, sender=Tag)
+def tag_changed(sender, instance: "Tag", **kwargs):
+    """
+    Invalidate flags cache when a tag is renamed.
+
+    Tag names are cached in evaluation_tags, so if a tag used by any flag
+    is renamed, we need to refresh those teams' caches.
+    """
+    from posthog.tasks.feature_flags import update_team_flags_cache
+
+    # Find all teams that have flags using this tag as an evaluation tag
+    team_ids = (
+        FeatureFlagEvaluationTag.objects.filter(tag=instance).values_list("feature_flag__team_id", flat=True).distinct()
+    )
+
+    for team_id in team_ids:
+        # Capture team_id in closure to avoid late binding issues
+        transaction.on_commit(lambda tid=team_id: update_team_flags_cache.delay(tid))
