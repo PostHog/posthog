@@ -107,11 +107,12 @@ class Producer:
         # If no match found, assume fallback to using all files (for backwards compatibility).
         matches = [KEY_ATTEMPT_NUMBER_REGEX.search(key) for key in keys]
         attempt_numbers = [int(match.group(1)) if match else None for match in matches]
+        # TODO: can remove fallback behaviour after a couple of weeks once legacy data has expired from S3.
         if all(attempt_number is None for attempt_number in attempt_numbers):
             self.logger.warning("No attempt numbers found in S3 keys, assuming fallback to using all files")
             return keys, folder
         max_attempt_number = max(attempt_number for attempt_number in attempt_numbers if attempt_number is not None)
-        common_prefix = f"{folder}/attempt_{max_attempt_number}/"
+        common_prefix = f"{folder}/attempt_{max_attempt_number}"
         return [
             key for key, attempt_number in zip(keys, attempt_numbers) if attempt_number == max_attempt_number
         ], common_prefix
