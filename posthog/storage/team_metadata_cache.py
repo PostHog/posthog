@@ -84,14 +84,10 @@ TEAM_METADATA_FIELDS = [
     "api_token",
     "secret_api_token",
     "secret_api_token_backup",
-    "app_urls",
     "slack_incoming_webhook",
     "created_at",
-    "updated_at",
     "anonymize_ips",
     "completed_snippet_onboarding",
-    "has_completed_onboarding_for",
-    "onboarding_tasks",
     "person_processing_opt_out",
     "extra_settings",
     "session_recording_opt_in",
@@ -133,7 +129,7 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     Returns:
         Serialized value suitable for JSON encoding
     """
-    if field in ["created_at", "updated_at"]:
+    if field == "created_at":
         return value.isoformat() if value else None
     elif field == "uuid":
         return str(value) if value else None
