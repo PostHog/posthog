@@ -3,7 +3,6 @@ import time
 import hashlib
 from contextlib import suppress
 from functools import lru_cache
-from typing import Optional
 
 from django.conf import settings
 from django.urls import resolve
@@ -52,7 +51,7 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
-def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+def team_is_allowed_to_bypass_throttle(team_id: int | None) -> bool:
     """
     Check if a given team_id belongs to a throttle bypass allow list.
     """
@@ -279,7 +278,7 @@ class DecideRateThrottle(BaseThrottle):
         )
 
     @staticmethod
-    def safely_get_token_from_request(request: Request) -> Optional[str]:
+    def safely_get_token_from_request(request: Request) -> str | None:
         """
         Gets the token from a request without throwing.
 
@@ -441,16 +440,53 @@ class AISustainedRateThrottle(UserRateThrottle):
         return request_allowed
 
 
+LLM_GATEWAY_MODEL_RATE_LIMITS: dict[str, dict[str, str]] = {
+    "haiku": {"burst": "500/minute", "sustained": "20000/hour"},
+}
+
+LLM_GATEWAY_DEFAULT_BURST_RATE = "100/minute"
+LLM_GATEWAY_DEFAULT_SUSTAINED_RATE = "1000/hour"
+
+
+def _get_model_from_request(request) -> str | None:
+    try:
+        return request.data.get("model")
+    except Exception:
+        return None
+
+
+def _get_rate_for_model(model: str | None, rate_type: str, default: str) -> str:
+    if not model:
+        return default
+
+    model_lower = model.lower()
+    for model_substring, limits in LLM_GATEWAY_MODEL_RATE_LIMITS.items():
+        if model_substring in model_lower:
+            return limits.get(rate_type, default)
+
+    return default
+
+
 class LLMGatewayBurstRateThrottle(UserRateThrottle):
     scope = "llm_gateway_burst"
-    rate = "1000/minute"
+    rate = LLM_GATEWAY_DEFAULT_BURST_RATE
+
+    def allow_request(self, request, view):
+        model = _get_model_from_request(request)
+        self.rate = _get_rate_for_model(model, "burst", LLM_GATEWAY_DEFAULT_BURST_RATE)
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super().allow_request(request, view)
 
 
 class LLMGatewaySustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit LLM providers
-    # Intended to block slower but sustained bursts of requests, per user
     scope = "llm_gateway_sustained"
-    rate = "20000/hour"
+    rate = LLM_GATEWAY_DEFAULT_SUSTAINED_RATE
+
+    def allow_request(self, request, view):
+        model = _get_model_from_request(request)
+        self.rate = _get_rate_for_model(model, "sustained", LLM_GATEWAY_DEFAULT_SUSTAINED_RATE)
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super().allow_request(request, view)
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):

@@ -14,17 +14,16 @@ class TestLLMGatewayViewSet(APIBaseTest):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.id}/llm_gateway"
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
-    def test_anthropic_messages_non_streaming(self, _mock_anthropic, mock_asyncio_run, _mock_feature_flag):
+    def test_anthropic_messages_non_streaming(self, _mock_anthropic, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "msg_01XYZ",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello! How can I help you?"}],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-3-5-haiku-20241022",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 25},
         }
@@ -33,7 +32,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-3-5-haiku-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -48,17 +47,16 @@ class TestLLMGatewayViewSet(APIBaseTest):
 
         mock_asyncio_run.assert_called_once()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
-    def test_anthropic_messages_with_all_params(self, _mock_anthropic, mock_asyncio_run, _mock_feature_flag):
+    def test_anthropic_messages_with_all_params(self, _mock_anthropic, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "msg_01XYZ",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Response"}],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-3-5-haiku-20241022",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -67,7 +65,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-3-5-haiku-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 2048,
                 "temperature": 0.7,
@@ -83,8 +81,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_asyncio_run.assert_called_once()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_anthropic_messages_missing_model(self, _mock_feature_flag):
+    def test_anthropic_messages_missing_model(self):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
@@ -97,12 +94,11 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_anthropic_messages_missing_messages(self, _mock_feature_flag):
+    def test_anthropic_messages_missing_messages(self):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-3-5-haiku-20241022",
                 "max_tokens": 1024,
             },
             format="json",
@@ -111,15 +107,14 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.litellm.completion")
-    def test_chat_completions_non_streaming(self, mock_completion, _mock_feature_flag):
+    def test_chat_completions_non_streaming(self, mock_completion):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "chatcmpl-123",
             "object": "chat.completion",
             "created": 1677652288,
-            "model": "gpt-4",
+            "model": "gpt-4o-mini",
             "choices": [
                 {
                     "index": 0,
@@ -134,7 +129,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/chat/completions/",
             data={
-                "model": "gpt-4",
+                "model": "gpt-4o-mini",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             format="json",
@@ -146,15 +141,14 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(data["object"], "chat.completion")
         mock_completion.assert_called_once()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.litellm.completion")
-    def test_chat_completions_with_all_params(self, mock_completion, _mock_feature_flag):
+    def test_chat_completions_with_all_params(self, mock_completion):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "chatcmpl-123",
             "object": "chat.completion",
             "created": 1677652288,
-            "model": "gpt-4",
+            "model": "gpt-4o-mini",
             "choices": [
                 {
                     "index": 0,
@@ -169,7 +163,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/chat/completions/",
             data={
-                "model": "gpt-4",
+                "model": "gpt-4o-mini",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "temperature": 0.7,
                 "max_tokens": 1000,
@@ -183,8 +177,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_completion.assert_called_once()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_chat_completions_missing_model(self, _mock_feature_flag):
+    def test_chat_completions_missing_model(self):
         response = self.client.post(
             f"{self.base_url}/v1/chat/completions/",
             data={
@@ -196,12 +189,11 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_chat_completions_missing_messages(self, _mock_feature_flag):
+    def test_chat_completions_missing_messages(self):
         response = self.client.post(
             f"{self.base_url}/v1/chat/completions/",
             data={
-                "model": "gpt-4",
+                "model": "gpt-4o-mini",
             },
             format="json",
         )
@@ -214,7 +206,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-3-5-haiku-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -222,20 +214,17 @@ class TestLLMGatewayViewSet(APIBaseTest):
         )
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.posthoganalytics.capture")
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
-    def test_anthropic_messages_captures_analytics_event(
-        self, _mock_anthropic, mock_asyncio_run, mock_capture, _mock_feature_flag
-    ):
+    def test_anthropic_messages_captures_analytics_event(self, _mock_anthropic, mock_asyncio_run, mock_capture):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "msg_01XYZ",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello! How can I help you?"}],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-3-5-haiku-20241022",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 25},
         }
@@ -244,7 +233,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-3-5-haiku-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -260,7 +249,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(call_kwargs["distinct_id"], str(self.user.distinct_id))
 
         properties = call_kwargs["properties"]
-        self.assertEqual(properties["$ai_model"], "claude-sonnet-4-20250514")
+        self.assertEqual(properties["$ai_model"], "claude-3-5-haiku-20241022")
         self.assertEqual(properties["$ai_input"], [{"role": "user", "content": "Hello"}])
         self.assertEqual(properties["$ai_input_tokens"], 10)
         self.assertEqual(properties["$ai_output_tokens"], 25)
@@ -279,19 +268,16 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(groups["organization"], str(self.organization.id))
         self.assertEqual(groups["project"], str(self.team.id))
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.posthoganalytics.capture")
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
-    def test_anthropic_messages_captures_error_event(
-        self, _mock_anthropic, mock_asyncio_run, mock_capture, _mock_feature_flag
-    ):
+    def test_anthropic_messages_captures_error_event(self, _mock_anthropic, mock_asyncio_run, mock_capture):
         mock_asyncio_run.side_effect = Exception("API Error")
 
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-3-5-haiku-20241022",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -311,28 +297,35 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(properties["$ai_http_status"], 500)
 
 
+class TestLLMGatewayRateLimits(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("claude-3-5-haiku-20241022", "500/minute", "20000/hour"),
+            ("claude-3-haiku-20240307", "500/minute", "20000/hour"),
+            ("gpt-4o-mini", "100/minute", "1000/hour"),
+            ("claude-3-5-sonnet-20241022", "100/minute", "1000/hour"),
+            ("gpt-4o", "100/minute", "1000/hour"),
+            (None, "100/minute", "1000/hour"),
+        ]
+    )
+    def test_rate_limits_based_on_model(self, model, expected_burst, expected_sustained):
+        from posthog.rate_limit import (
+            LLM_GATEWAY_DEFAULT_BURST_RATE,
+            LLM_GATEWAY_DEFAULT_SUSTAINED_RATE,
+            _get_rate_for_model,
+        )
+
+        burst_rate = _get_rate_for_model(model, "burst", LLM_GATEWAY_DEFAULT_BURST_RATE)
+        sustained_rate = _get_rate_for_model(model, "sustained", LLM_GATEWAY_DEFAULT_SUSTAINED_RATE)
+
+        self.assertEqual(burst_rate, expected_burst)
+        self.assertEqual(sustained_rate, expected_sustained)
+
+
 class TestLLMGatewayPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.id}/llm_gateway"
-
-    @parameterized.expand(
-        [
-            (
-                "v1/messages/",
-                {
-                    "model": "claude-sonnet-4-20250514",
-                    "messages": [{"role": "user", "content": "Hi"}],
-                    "max_tokens": 10,
-                },
-            ),
-            ("v1/chat/completions/", {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}),
-        ]
-    )
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_feature_flag_required(self, endpoint, payload, _mock_feature_flag):
-        response = self.client.post(f"{self.base_url}/{endpoint}", payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(
         [
@@ -346,7 +339,6 @@ class TestLLMGatewayPermissions(APIBaseTest):
             ("*", "v1/chat/completions/", True),
         ]
     )
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.completion")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
@@ -358,7 +350,6 @@ class TestLLMGatewayPermissions(APIBaseTest):
         _mock_anthropic,
         _mock_completion,
         _mock_asyncio,
-        _mock_feature_flag,
     ):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {"id": "test", "choices": []}
@@ -376,9 +367,13 @@ class TestLLMGatewayPermissions(APIBaseTest):
         self.client.logout()
 
         payload = (
-            {"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 10}
+            {
+                "model": "claude-3-5-haiku-20241022",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10,
+            }
             if "messages" in endpoint
-            else {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
+            else {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hi"}]}
         )
 
         response = self.client.post(
