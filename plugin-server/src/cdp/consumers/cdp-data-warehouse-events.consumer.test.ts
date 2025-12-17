@@ -45,10 +45,15 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub) // This team has data_pipelines feature by default (legacy addon)
+
+        // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub, team2Id))! // This team does NOT have data_pipelines
+
+        // Set up default quota limiting mock - not limited by default
+        jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
         processor = new CdpDatawarehouseEventsConsumer(hub)
 
@@ -305,6 +310,194 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                         },
                     },
                 ]
+            )
+        })
+    })
+
+    describe('quota limiting for teams without legacy addon', () => {
+        let fnFetchNoFilters: HogFunctionType
+        let fnDataWarehouseFunction: HogFunctionType
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(async () => {
+            // Create functions for team2 (no data_pipelines feature)
+            fnFetchNoFilters = await insertHogFunction({
+                team_id: team2.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+            })
+
+            fnDataWarehouseFunction = await insertHogFunction({
+                team_id: team2.id,
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+            })
+
+            // Globals for team2 (without data_pipelines)
+            const event = createDataWarehouseEvent(team2.id, { test_prop: 'test_value' })
+            const messages = [createKafkaMessage(event)]
+            globals = (await processor._parseKafkaBatch(messages))[0]
+        })
+
+        it('should filter out functions when team is quota limited', async () => {
+            // Mock quota limiting to return true for team2 (which doesn't have data_pipelines)
+            jest.mocked(hub.quotaLimiting.isTeamQuotaLimited).mockClear()
+            jest.mocked(hub.quotaLimiting.isTeamQuotaLimited).mockResolvedValue(true)
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(team2.id, 'cdp_trigger_events')
+
+            // Now check invocations length - should be 0 because team2 is quota limited and has no legacy addon
+            expect(invocations).toHaveLength(0)
+
+            // Check that quota_limited metrics were produced
+            const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(metrics).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            team_id: team2.id,
+                        }),
+                    }),
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnDataWarehouseFunction.id,
+                            count: 1,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            team_id: team2.id,
+                        }),
+                    }),
+                ])
+            )
+        })
+
+        it('should not filter out functions when team is not quota limited', async () => {
+            // Mock quota limiting to return false for team2
+            jest.mocked(hub.quotaLimiting.isTeamQuotaLimited).mockClear()
+            jest.mocked(hub.quotaLimiting.isTeamQuotaLimited).mockResolvedValue(false)
+
+            const { invocations } = await processor.processBatch([globals])
+
+            expect(invocations).toHaveLength(2)
+            expect(hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(team2.id, 'cdp_trigger_events')
+
+            // Check that triggered metrics were produced instead
+            const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(metrics).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
+                            team_id: team2.id,
+                        }),
+                    }),
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnDataWarehouseFunction.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
+                            team_id: team2.id,
+                        }),
+                    }),
+                ])
+            )
+        })
+    })
+
+    describe('quota limiting for teams with legacy data_pipelines addon', () => {
+        let fnTeamLegacy1: HogFunctionType
+        let fnTeamLegacy2: HogFunctionType
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(async () => {
+            // Create functions for team (which has data_pipelines by default)
+            fnTeamLegacy1 = await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+            })
+
+            fnTeamLegacy2 = await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+            })
+
+            // Globals for team (with data_pipelines - legacy addon)
+            const event = createDataWarehouseEvent(team.id, { test_prop: 'test_value' })
+            const messages = [createKafkaMessage(event)]
+            globals = (await processor._parseKafkaBatch(messages))[0]
+        })
+
+        it('should not filter out functions when team has legacy data_pipelines addon', async () => {
+            // Mock quota limiting to return true BUT team has legacy addon
+            jest.mocked(hub.quotaLimiting.isTeamQuotaLimited).mockClear()
+            jest.mocked(hub.quotaLimiting.isTeamQuotaLimited).mockResolvedValue(true)
+
+            const { invocations } = await processor.processBatch([globals])
+
+            // Team has data_pipelines so should NOT be filtered despite quota limit
+            expect(invocations).toHaveLength(2)
+            expect(hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(team.id, 'cdp_trigger_events')
+
+            // Check that triggered metrics were produced (not quota_limited)
+            const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(metrics).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnTeamLegacy1.id,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
+                            team_id: team.id,
+                        }),
+                    }),
+                    expect.objectContaining({
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: expect.objectContaining({
+                            app_source: 'hog_function',
+                            app_source_id: fnTeamLegacy2.id,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
+                            team_id: team.id,
+                        }),
+                    }),
+                ])
+            )
+
+            // Ensure no quota_limited metrics
+            expect(metrics).not.toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        value: expect.objectContaining({
+                            metric_name: 'quota_limited',
+                        }),
+                    }),
+                ])
             )
         })
     })
