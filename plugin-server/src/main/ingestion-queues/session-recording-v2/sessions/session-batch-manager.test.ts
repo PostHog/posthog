@@ -70,7 +70,6 @@ describe('SessionBatchManager', () => {
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
-            metadataSwitchoverDate: new Date('2025-01-02'),
             sessionTracker: mockSessionTracker,
         })
     })
@@ -89,7 +88,6 @@ describe('SessionBatchManager', () => {
             mockFileStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-02'),
             mockSessionTracker,
             Number.MAX_SAFE_INTEGER
         )
@@ -169,7 +167,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
                 sessionTracker: mockSessionTracker,
             })
 
@@ -178,7 +175,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 mockSessionTracker,
                 500
             )
@@ -193,7 +189,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
                 sessionTracker: mockSessionTracker,
             })
 
@@ -204,7 +199,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 mockSessionTracker,
                 250
             )
@@ -219,7 +213,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
                 sessionTracker: mockSessionTracker,
             })
 
@@ -228,7 +221,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 mockSessionTracker,
                 0
             )
@@ -243,7 +235,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
                 sessionTracker: mockSessionTracker,
             })
 
@@ -252,7 +243,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 mockSessionTracker,
                 Number.MAX_SAFE_INTEGER
             )

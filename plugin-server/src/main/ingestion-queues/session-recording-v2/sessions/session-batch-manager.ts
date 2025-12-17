@@ -1,5 +1,3 @@
-import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
-
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -23,8 +21,6 @@ export interface SessionBatchManagerConfig {
     metadataStore: SessionMetadataStore
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
-    /** Optional switchover date for v2 metadata logic */
-    metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     /** Session tracker for new session detection */
     sessionTracker: SessionTracker
 }
@@ -73,7 +69,6 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
-    private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     private readonly sessionTracker: SessionTracker
 
     constructor(config: SessionBatchManagerConfig) {
@@ -84,7 +79,6 @@ export class SessionBatchManager {
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
-        this.metadataSwitchoverDate = config.metadataSwitchoverDate
         this.sessionTracker = config.sessionTracker
 
         this.currentBatch = new SessionBatchRecorder(
@@ -92,7 +86,6 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.metadataSwitchoverDate,
             this.sessionTracker,
             this.maxEventsPerSessionPerBatch
         )
@@ -117,7 +110,6 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
-            this.metadataSwitchoverDate,
             this.sessionTracker,
             this.maxEventsPerSessionPerBatch
         )

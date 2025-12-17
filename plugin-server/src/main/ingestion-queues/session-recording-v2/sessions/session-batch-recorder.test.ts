@@ -204,7 +204,6 @@ describe('SessionBatchRecorder', () => {
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-02 00:00:00Z'),
             mockSessionTracker,
             Number.MAX_SAFE_INTEGER
         )
@@ -562,8 +561,7 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
                 message
@@ -598,8 +596,7 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
             expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
@@ -634,15 +631,13 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
                 messages[0]
@@ -734,22 +729,19 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session3',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
 
             // Get mock recorders
@@ -792,15 +784,13 @@ describe('SessionBatchRecorder', () => {
                 'session1',
                 1,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
             expect(SessionConsoleLogRecorder).toHaveBeenCalledWith(
                 'session2',
                 2,
                 expect.any(String),
-                mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z')
+                mockConsoleLogStore
             )
 
             // Get mock recorders
@@ -1434,7 +1424,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-01T10:00:00.000Z'),
                 mockSessionTracker,
                 Number.MAX_SAFE_INTEGER
             )
@@ -1634,7 +1623,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 3
             )
@@ -1661,7 +1649,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 2
             )
@@ -1691,7 +1678,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )
@@ -1714,7 +1700,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )
@@ -1740,7 +1725,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 2
             )
@@ -1776,7 +1760,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 2
             )
@@ -1812,7 +1795,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )
@@ -1842,7 +1824,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )
@@ -1874,7 +1855,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 2
             )
@@ -1903,7 +1883,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )
@@ -1931,7 +1910,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )
@@ -1960,7 +1938,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02 00:00:00Z'),
                 mockSessionTracker,
                 1
             )

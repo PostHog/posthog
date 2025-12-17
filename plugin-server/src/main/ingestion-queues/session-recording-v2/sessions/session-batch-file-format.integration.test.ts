@@ -104,7 +104,6 @@ describe('session recording integration', () => {
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-01T10:00:00.000Z'),
             mockSessionTracker
         )
     })

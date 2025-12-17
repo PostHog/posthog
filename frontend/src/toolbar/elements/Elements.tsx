@@ -42,6 +42,7 @@ export function Elements(): JSX.Element {
         tourForm,
         inspectingElement,
         editingModalStep,
+        editingSurveyStep,
     } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
@@ -117,6 +118,9 @@ export function Elements(): JSX.Element {
 
                 {/* Product tours: modal step editor (no element) */}
                 {productToursInspecting && editingModalStep && <StepEditor />}
+
+                {/* Product tours: survey step editor (always modal-style) */}
+                {productToursInspecting && editingSurveyStep && <StepEditor />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
                     return (

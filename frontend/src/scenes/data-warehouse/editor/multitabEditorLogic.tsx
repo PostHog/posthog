@@ -417,7 +417,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
                 shareUrl.searchParams.set('open_view', currentTab.view.id)
 
-                if (values.queryInput != currentTab.view.query.query) {
+                if (values.queryInput != currentTab.view.query?.query) {
                     shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                 }
 
@@ -591,7 +591,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (draft) {
                 actions.setQueryInput(draft.query.query)
             } else if (view) {
-                actions.setQueryInput(view.query.query)
+                actions.setQueryInput(view.query?.query ?? '')
             } else if (insight) {
                 const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
                 if (queryObject && 'query' in queryObject) {
@@ -619,7 +619,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
-                if (queryInput === values.activeTab.view?.query.query) {
+                if (queryInput === values.activeTab.view?.query?.query) {
                     actions.deleteInProgressViewEdit(values.activeTab.view.id)
                 } else if (
                     !values.inProgressViewEdits[values.activeTab.view.id] &&
@@ -821,10 +821,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             if (values.activeTab?.view) {
-                const view = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
-                if (view && values.activeTab) {
-                    actions.updateTab({ ...values.activeTab, view })
-                    actions.setQueryInput(view.query.query || '')
+                const updatedView = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
+                if (updatedView && values.activeTab) {
+                    // Preserve the query from the active tab since list response doesn't include it
+                    const viewWithQuery = { ...updatedView, query: values.activeTab.view.query }
+                    actions.updateTab({ ...values.activeTab, view: viewWithQuery })
                 }
             }
         },
@@ -852,11 +853,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (
                 latestView?.latest_history_id != null &&
                 view.edited_history_id !== latestView.latest_history_id &&
-                view.query?.query !== latestView?.query.query
+                view.query?.query !== latestView?.query?.query
             ) {
                 actions._setSuggestionPayload({
                     suggestedValue: values.queryInput!,
-                    originalValue: latestView?.query.query,
+                    originalValue: latestView?.query?.query,
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
                     diffShowRunButton: false,
@@ -1159,13 +1160,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
                     }
 
-                    const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
+                    let view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
                     if (!view) {
                         lemonToast.error('View not found')
                         return
                     }
 
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query.query
+                    // Fetch the full view with query if not already loaded
+                    if (!view.query) {
+                        try {
+                            view = await api.dataWarehouseSavedQueries.get(viewId)
+                        } catch {
+                            lemonToast.error('Failed to load view details')
+                            return
+                        }
+                    }
+
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : (view.query?.query ?? '')
 
                     actions.editView(queryToOpen, view)
                     tabAdded = true
