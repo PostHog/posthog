@@ -85,7 +85,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
 ] as const
 
 export function getRecommendedBanner(useCase: UseCaseDefinition, role: UserRole | null | undefined): string | null {
-    if (!role || !useCase.recommendedForRoles) {
+    if (!role) {
         return null
     }
 
