@@ -378,7 +378,7 @@ def _resolve_actions(action_refs: Union[type, str, list]) -> list:
             if action_class:
                 actions.append(action_class)
             else:
-                logger.exception("Failed to resolve action reference: %s", ref)
+                raise ValueError(f"Failed to resolve action reference: {ref}")
         else:
             actions.append(ref)
 
