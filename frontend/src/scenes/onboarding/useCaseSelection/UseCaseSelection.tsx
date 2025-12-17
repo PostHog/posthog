@@ -8,8 +8,6 @@ import { getProductIcon } from 'scenes/products/Products'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
-import { UserRole } from '~/types'
-
 import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 
 export const scene: SceneExport = {
@@ -22,7 +20,7 @@ export function UseCaseSelection(): JSX.Element {
 
     const isEnabledGreatForRoleLabels = useFeatureFlag('ONBOARDING_GREAT_FOR_ROLE', 'test')
 
-    const userRole = user?.role_at_organization || UserRole.Founder
+    const userRole = user?.role_at_organization
     const useCases = isEnabledGreatForRoleLabels ? getSortedUseCases(userRole) : USE_CASE_OPTIONS
 
     return (
