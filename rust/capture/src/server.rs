@@ -196,6 +196,39 @@ where
                 secret_access_key: config.ai_s3_secret_access_key.clone(),
             };
             let s3_client = S3Client::new(s3_config).await;
+
+            // Register health check for AI blob storage
+            let health_handle = liveness
+                .register("ai_s3".to_string(), Duration::from_secs(60))
+                .await;
+
+            // Verify bucket exists on startup
+            if s3_client.check_health().await {
+                health_handle.report_healthy().await;
+                tracing::info!(bucket = bucket, "AI S3 bucket verified");
+            } else {
+                health_handle
+                    .report_status(ComponentStatus::Unhealthy)
+                    .await;
+                tracing::error!(bucket = bucket, "AI S3 bucket not accessible");
+            }
+
+            // Spawn background health check task
+            let s3_client_clone = s3_client.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    if s3_client_clone.check_health().await {
+                        health_handle.report_healthy().await;
+                    } else {
+                        health_handle
+                            .report_status(ComponentStatus::Unhealthy)
+                            .await;
+                    }
+                }
+            });
+
             Some(Arc::new(AiBlobStorage::new(
                 s3_client,
                 config.ai_s3_prefix.clone(),
