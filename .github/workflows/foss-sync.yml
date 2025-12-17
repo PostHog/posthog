@@ -28,14 +28,14 @@ jobs:
             - name: Sync repositories 1 to 1 - master branch
               uses: PostHog/git-sync@v3
               with:
-                  source_repo: 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/posthog/posthog.git'
+                  source_repo: 'https://x-access-token:${{ github.token }}@github.com/posthog/posthog.git'
                   source_branch: 'master'
                   destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'master'
             - name: Sync repositories 1 to 1 – tags
               uses: PostHog/git-sync@v3
               with:
-                  source_repo: 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/posthog/posthog.git'
+                  source_repo: 'https://x-access-token:${{ github.token }}@github.com/posthog/posthog.git'
                   source_branch: 'refs/tags/*'
                   destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'refs/tags/*'
