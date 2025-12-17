@@ -316,9 +316,6 @@ representation, and uses an LLM to create a concise summary with line references
 - "Interesting Notes" section for failures, successes, or unusual patterns
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
-**Feature Flag:**
-- Requires `llm-analytics-summarization` feature flag enabled at team level
-
 **Use Cases:**
 - Quick understanding of complex traces
 - Identifying key events and patterns
