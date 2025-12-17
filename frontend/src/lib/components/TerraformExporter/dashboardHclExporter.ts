@@ -46,7 +46,11 @@ const DASHBOARD_FIELD_MAPPINGS: FieldMapping<Partial<DashboardBasicType>>[] = [
     },
 ]
 
-function validateDashboard(dashboard: Partial<DashboardBasicType>): string[] {
+function validateDashboard(
+    dashboard: Partial<DashboardBasicType>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars Needed to align with interface
+    _options: DashboardHclExportOptions
+): string[] {
     const warnings: string[] = []
 
     if (!dashboard.name) {
@@ -56,7 +60,7 @@ function validateDashboard(dashboard: Partial<DashboardBasicType>): string[] {
     return warnings
 }
 
-const DASHBOARD_EXPORTER: ResourceExporter<Partial<DashboardBasicType>> = {
+const DASHBOARD_EXPORTER: ResourceExporter<Partial<DashboardBasicType>, DashboardHclExportOptions> = {
     resourceType: 'posthog_dashboard',
     resourceLabel: 'dashboard',
     fieldMappings: DASHBOARD_FIELD_MAPPINGS,

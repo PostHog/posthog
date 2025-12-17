@@ -20,8 +20,8 @@ export interface ResourceExporter<T, O extends HclExportOptions = HclExportOptio
     resourceLabel: string
     /** Field mappings from source model to Terraform schema */
     fieldMappings: FieldMapping<T, O>[]
-    /** Validation function returning warnings */
-    validate: (resource: T) => string[]
+    /** Validation function returning warnings. Receives options for context-aware validation. */
+    validate: (resource: T, options: O) => string[]
     /** Get the resource name for Terraform (used in resource block name) */
     getResourceName: (resource: T) => string
     /** Get the resource ID (for import blocks) */
@@ -49,7 +49,7 @@ export function generateHCL<T, O extends HclExportOptions = HclExportOptions>(
     const resourceId = exporter.getId(resource)
     const { includeImport = resourceId !== undefined } = options
 
-    const warnings = exporter.validate(resource)
+    const warnings = exporter.validate(resource, options)
     const resourceName = sanitizeResourceName(exporter.getResourceName(resource), exporter.resourceLabel)
 
     const lines: string[] = []

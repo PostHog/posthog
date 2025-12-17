@@ -127,7 +127,7 @@ const ALERT_EXPORTER: ResourceExporter<Partial<AlertType>, AlertHclExportOptions
     resourceType: 'posthog_alert',
     resourceLabel: 'alert',
     fieldMappings: ALERT_FIELD_MAPPINGS,
-    validate: (alert) => validateAlert(alert),
+    validate: validateAlert,
     getResourceName: (a) => a.name || `alert_${a.id || 'new'}`,
     getId: (a) => a.id,
 }
@@ -136,12 +136,7 @@ export function generateAlertHCL(alert: Partial<AlertType>, options: AlertHclExp
     const allWarnings: string[] = []
     const hclSections: string[] = []
 
-    // Generate base HCL
-    const exporterWithOptions: ResourceExporter<Partial<AlertType>, AlertHclExportOptions> = {
-        ...ALERT_EXPORTER,
-        validate: (a) => validateAlert(a, options),
-    }
-    const result = generateHCL(alert, exporterWithOptions, options)
+    const result = generateHCL(alert, ALERT_EXPORTER, options)
     allWarnings.push(...result.warnings)
     hclSections.push(result.hcl)
 

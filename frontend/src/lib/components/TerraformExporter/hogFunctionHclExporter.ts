@@ -94,7 +94,11 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>, HogFun
     },
 ]
 
-function validateHogFunction(hogFunction: Partial<HogFunctionType>): string[] {
+function validateHogFunction(
+    hogFunction: Partial<HogFunctionType>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars Needed to align with interface
+    _options: HogFunctionHclExportOptions
+): string[] {
     const warnings: string[] = []
 
     if (!hogFunction.name) {

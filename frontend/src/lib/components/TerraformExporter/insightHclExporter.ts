@@ -103,7 +103,7 @@ const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>, InsightHclExport
     resourceType: 'posthog_insight',
     resourceLabel: 'insight',
     fieldMappings: INSIGHT_FIELD_MAPPINGS,
-    validate: (insight) => validateInsight(insight),
+    validate: validateInsight,
     getResourceName: (i) => i.name || i.derived_name || `insight_${i.id || 'new'}`,
     getId: (i) => i.id,
     getShortId: (i) => i.short_id,
@@ -122,13 +122,7 @@ export function generateInsightHCL(
         ? Array.from(options.hogFunctionsByAlertId.values()).flat().length
         : 0
 
-    // Create a modified exporter that uses the options for validation
-    const exporterWithOptions: ResourceExporter<Partial<InsightModel>, InsightHclExportOptions> = {
-        ...INSIGHT_EXPORTER,
-        validate: (i) => validateInsight(i, options),
-    }
-
-    const result = generateHCL(insight, exporterWithOptions, options)
+    const result = generateHCL(insight, INSIGHT_EXPORTER, options)
     allWarnings.push(...result.warnings)
     hclSections.push(result.hcl)
 
