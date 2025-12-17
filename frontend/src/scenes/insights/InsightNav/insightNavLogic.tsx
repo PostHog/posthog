@@ -42,6 +42,7 @@ import {
     getShowValuesOnSeries,
     isDataTableNode,
     isDataVisualizationNode,
+    isEndpointsUsageQuery,
     isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
@@ -229,10 +230,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                if (activeView === InsightType.JSON) {
+                if (activeView === InsightType.JSON && !isEndpointsUsageQuery(query)) {
                     // only display this tab when it is selected by the provided insight query
                     // don't display it otherwise... humans shouldn't be able to click to select this tab
                     // it only opens when you click the <OpenEditorButton/>
+                    // EndpointsUsage queries should not appear in the insight editor at all
                     const humanFriendlyQueryKind: string | null =
                         typeof query?.kind === 'string'
                             ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
