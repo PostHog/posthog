@@ -2002,6 +2002,14 @@ class LogSeverityLevel(StrEnum):
     FATAL = "fatal"
 
 
+class LogValueResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str
+
+
 class OrderBy3(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
@@ -2411,6 +2419,8 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
     LOGS_QUERY = "LogsQuery"
+    LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
+    LOG_VALUES_QUERY = "LogValuesQuery"
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
@@ -2789,7 +2799,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10219,6 +10229,51 @@ class LifecycleQueryResponse(BaseModel):
     )
 
 
+class LogAttributesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class LogValuesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LogValueResult]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class LogsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11797,6 +11852,29 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
+class QueryResponseAlternative73(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11813,29 +11891,7 @@ class QueryResponseAlternative74(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[TeamTaxonomyItem]
-    timings: list[QueryTiming] | None = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class QueryResponseAlternative75(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[EventTaxonomyItem]
+    results: list[LogValueResult]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -11857,13 +11913,57 @@ class QueryResponseAlternative76(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: ActorsPropertyTaxonomyResponse | list[ActorsPropertyTaxonomyResponse]
+    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
 class QueryResponseAlternative77(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EventTaxonomyItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative78(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: ActorsPropertyTaxonomyResponse | list[ActorsPropertyTaxonomyResponse]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11889,7 +11989,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11911,7 +12011,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12851,6 +12951,8 @@ class AnyResponseType(
         | SessionsQueryResponse
         | ErrorTrackingQueryResponse
         | LogsQueryResponse
+        | LogAttributesQueryResponse
+        | LogValuesQueryResponse
     ]
 ):
     root: (
@@ -12864,6 +12966,8 @@ class AnyResponseType(
         | SessionsQueryResponse
         | ErrorTrackingQueryResponse
         | LogsQueryResponse
+        | LogAttributesQueryResponse
+        | LogValuesQueryResponse
     )
 
 
@@ -14872,6 +14976,45 @@ class LifecycleQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class LogAttributesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attributeType: str
+    dateRange: DateRange | None = None
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["LogAttributesQuery"] = "LogAttributesQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: LogAttributesQueryResponse | None = None
+    search: str | None = None
+    serviceNames: list[str] | None = None
+    severityLevels: list[LogSeverityLevel] | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class LogValuesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attributeKey: str
+    attributeType: str
+    dateRange: DateRange | None = None
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["LogValuesQuery"] = "LogValuesQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: LogValuesQueryResponse | None = None
+    search: str | None = None
+    serviceNames: list[str] | None = None
+    severityLevels: list[LogSeverityLevel] | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class LogsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15594,8 +15737,10 @@ class QueryResponseAlternative(
         | QueryResponseAlternative75
         | QueryResponseAlternative76
         | QueryResponseAlternative77
+        | QueryResponseAlternative78
         | QueryResponseAlternative79
-        | QueryResponseAlternative80
+        | QueryResponseAlternative81
+        | QueryResponseAlternative82
     ]
 ):
     root: (
@@ -15670,8 +15815,10 @@ class QueryResponseAlternative(
         | QueryResponseAlternative75
         | QueryResponseAlternative76
         | QueryResponseAlternative77
+        | QueryResponseAlternative78
         | QueryResponseAlternative79
-        | QueryResponseAlternative80
+        | QueryResponseAlternative81
+        | QueryResponseAlternative82
     )
 
 
@@ -16314,6 +16461,8 @@ class HogQLAutocomplete(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingIssueCorrelationQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | CalendarHeatmapQuery
@@ -16381,6 +16530,8 @@ class HogQLMetadata(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingIssueCorrelationQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | CalendarHeatmapQuery
@@ -16491,6 +16642,8 @@ class MaxInsightContext(BaseModel):
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -16588,6 +16741,8 @@ class QueryRequest(BaseModel):
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -16682,6 +16837,8 @@ class QuerySchemaRoot(
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -16750,6 +16907,8 @@ class QuerySchemaRoot(
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -16823,6 +16982,8 @@ class QueryUpgradeRequest(BaseModel):
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -16896,6 +17057,8 @@ class QueryUpgradeResponse(BaseModel):
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -17091,6 +17254,8 @@ class VisualizationArtifactContent(BaseModel):
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
         | LogsQuery
+        | LogAttributesQuery
+        | LogValuesQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery

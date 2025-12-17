@@ -555,6 +555,12 @@
                     "$ref": "#/definitions/LogsQuery"
                 },
                 {
+                    "$ref": "#/definitions/LogAttributesQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogValuesQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -725,6 +731,12 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/LogAttributesQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/LogValuesQueryResponse"
                 }
             ]
         },
@@ -17794,6 +17806,104 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "LogAttributesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "attributeType": {
+                    "type": "string"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "LogAttributesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/LogAttributesQueryResponse"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["attributeType", "kind"],
+            "type": "object"
+        },
+        "LogAttributesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["count", "results"],
+            "type": "object"
+        },
         "LogEntryPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -17913,6 +18023,117 @@
         "LogSeverityLevel": {
             "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
             "type": "string"
+        },
+        "LogValueResult": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
+        "LogValuesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "attributeKey": {
+                    "type": "string"
+                },
+                "attributeType": {
+                    "type": "string"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "LogValuesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/LogValuesQueryResponse"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["attributeKey", "attributeType", "kind"],
+            "type": "object"
+        },
+        "LogValuesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogValueResult"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "LogsQuery": {
             "additionalProperties": false,
@@ -20079,6 +20300,8 @@
                 "ErrorTrackingBreakdownsQuery",
                 "ErrorTrackingIssueCorrelationQuery",
                 "LogsQuery",
+                "LogAttributesQuery",
+                "LogValuesQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -25067,6 +25290,89 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "count": {
+                            "type": "number"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["count", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LogValueResult"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -25562,6 +25868,12 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogAttributesQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogValuesQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"

@@ -1,10 +1,10 @@
--- temporary sql to initialise log tables for local development
--- will be removed once we have migrations set up
+use database posthog_test;
+
 CREATE OR REPLACE FUNCTION extractIPv4Substrings AS
 (
   body -> extractAll(body, '(\d\.((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){2,2}([0-9]))')
 );
-CREATE OR REPLACE TABLE logs31
+CREATE OR REPLACE TABLE logs
 (
     -- time bucket is set to day which means it's effectively not in the order by key (same as partition)
     -- but gives us flexibility to add the bucket to the order key if needed
@@ -67,9 +67,7 @@ SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1;
 
-create or replace TABLE logs AS logs31 ENGINE = Distributed('posthog', 'default', 'logs31');
-
-create or replace table default.log_attributes
+create or replace table log_attributes
 
 (
     `team_id` Int32,
@@ -122,7 +120,7 @@ FROM
         attribute.1 AS attribute_key,
         attribute.2 AS attribute_value,
         sumSimpleState(1) AS attribute_count
-    FROM logs31
+    FROM logs
     GROUP BY
         team_id,
         time_bucket,
@@ -163,7 +161,7 @@ FROM
         attribute.1 AS attribute_key,
         attribute.2 AS attribute_value,
         sumSimpleState(1) AS attribute_count
-    FROM logs31
+    FROM logs
     GROUP BY
         team_id,
         time_bucket,
@@ -171,61 +169,6 @@ FROM
         resource_fingerprint,
         attribute
 );
-
-CREATE OR REPLACE TABLE kafka_logs_avro
-(
-    `uuid` String,
-    `trace_id` String,
-    `span_id` String,
-    `trace_flags` Int32,
-    `timestamp` DateTime64(6),
-    `observed_timestamp` DateTime64(6),
-    `body` String,
-    `severity_text` String,
-    `severity_number` Int32,
-    `service_name` String,
-    `resource_attributes` Map(LowCardinality(String), String),
-    `instrumentation_scope` String,
-    `event_name` String,
-    `attributes` Map(LowCardinality(String), String)
-)
-ENGINE = Kafka('kafka:9092', 'clickhouse_logs', 'clickhouse-logs-avro', 'Avro')
-SETTINGS
-    kafka_skip_broken_messages = 100,
-    kafka_security_protocol = 'PLAINTEXT',
-    kafka_thread_per_consumer = 1,
-    kafka_num_consumers = 1,
-    kafka_poll_timeout_ms=15000,
-    kafka_poll_max_batch_size=10,
-    kafka_max_block_size=10;
-
-drop table if exists kafka_logs_avro_mv;
-
-CREATE MATERIALIZED VIEW kafka_logs_avro_mv TO logs31
-(
-    `uuid` String,
-    `trace_id` String,
-    `span_id` String,
-    `trace_flags` Int32,
-    `timestamp` DateTime64(6),
-    `observed_timestamp` DateTime64(6),
-    `body` String,
-    `severity_text` String,
-    `severity_number` Int32,
-    `service_name` String,
-    `resource_attributes` Map(LowCardinality(String), String),
-    `instrumentation_scope` String,
-    `event_name` String,
-    `attributes` Map(LowCardinality(String), String)
-)
-AS SELECT
-* except (attributes, resource_attributes),
-mapSort(mapApply((k,v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) as attributes_map_str,
-mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))), attributes))) as attributes_map_float,
-mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__datetime'), parseDateTimeBestEffortOrNull(JSONExtract(v, 'String'), 6)), attributes))) as attributes_map_datetime,
-mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
-FROM kafka_logs_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
 create or replace table logs_kafka_metrics
 (
@@ -240,18 +183,12 @@ create or replace table logs_kafka_metrics
 ENGINE = MergeTree
 ORDER BY (_topic, _partition);
 
-drop view if exists kafka_logs_avro_kafka_metrics_mv;
-CREATE MATERIALIZED VIEW kafka_logs_avro_kafka_metrics_mv TO logs_kafka_metrics
-AS
-    SELECT
-        _partition,
-        _topic,
-        maxSimpleState(_offset) as max_offset,
-        maxSimpleState(observed_timestamp) as max_observed_timestamp,
-        maxSimpleState(timestamp) as max_timestamp,
-        maxSimpleState(now()) as max_created_at,
-        maxSimpleState(now() - observed_timestamp) as max_lag
-    FROM kafka_logs_avro
-    group by _partition, _topic;
-
-select 'clickhouse logs tables initialised successfully!';
+insert into logs_kafka_metrics values (
+    0,
+    'clickhouse_logs',
+    0,
+    parseDateTime64('2025-12-16 09:49:51.335000'),
+    parseDateTime64('2025-12-16 09:49:51.335000'),
+    parseDateTime64('2025-12-16 09:49:51.335000'),
+    0
+);
