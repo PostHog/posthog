@@ -3,7 +3,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { SDK, SDKKey } from '~/types'
 
+import { MCPInstallBanner } from './sdk-install-instructions/components/MCPInstallBanner'
 import { SDKFeatureAnnouncementBanner } from './sdk-install-instructions/components/SDKFeatureAnnouncementBanner'
+
+// SDKs that have wizard support
+const SDKS_WITH_WIZARD = [SDKKey.REACT, SDKKey.NEXT_JS, SDKKey.SVELTE, SDKKey.REACT_NATIVE, SDKKey.ASTRO]
 
 export const SDKSnippet = ({
     sdk,
@@ -14,6 +18,8 @@ export const SDKSnippet = ({
     sdkInstructions: () => JSX.Element
     productKey: ProductKey
 }): JSX.Element => {
+    const hasWizardSupport = SDKS_WITH_WIZARD.includes(sdk.key as SDKKey)
+
     return (
         <div>
             <div className="mb-8">
@@ -22,6 +28,7 @@ export const SDKSnippet = ({
                     Read the docs
                 </Link>
             </div>
+            {!hasWizardSupport && <MCPInstallBanner variant="sdk" />}
             <div className="deprecated-space-y-4">{sdkInstructions()}</div>
             <div className="deprecated-space-y-4">
                 {/* Only show survey announcements in non surveys product context */}
