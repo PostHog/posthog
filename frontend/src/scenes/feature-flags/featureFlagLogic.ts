@@ -45,6 +45,7 @@ import {
     Breadcrumb,
     CohortType,
     EarlyAccessFeatureType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagStatusResponse,
@@ -114,6 +115,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
