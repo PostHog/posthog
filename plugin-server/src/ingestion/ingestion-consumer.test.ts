@@ -130,8 +130,11 @@ describe('IngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
+    const createIngestionConsumer = async (
+        hub: Hub,
+        overrides?: ConstructorParameters<typeof IngestionConsumer>[1]
+    ) => {
+        const ingester = new IngestionConsumer(hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -313,11 +316,14 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                // Create a new consumer that consumes from the overflow topic
+                const overflowIngester = await createIngestionConsumer(hub, {
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                })
+                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-                await ingester.handleKafkaBatch(overflowMessages)
+                await overflowIngester.handleKafkaBatch(overflowMessages)
 
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
@@ -325,6 +331,8 @@ describe('IngestionConsumer', () => {
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                 ).toHaveLength(1)
+
+                await overflowIngester.stop()
             })
 
             describe('force overflow', () => {
