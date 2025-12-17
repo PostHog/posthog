@@ -1287,6 +1287,105 @@ class TestCombinationRisks:
         ddl_warnings = [r for r in migration_risk.combination_risks if "DDL" in r and "isolation" in r]
         assert len(ddl_warnings) == 0, f"Should not warn about DDL isolation for CONCURRENTLY: {ddl_warnings}"
 
+    def test_separate_database_and_state_with_alter_table_no_false_positive(self):
+        """
+        Test that SeparateDatabaseAndState with a single DDL RunSQL does NOT trigger
+        the "DDL mixed with other operations" warning.
+
+        This was a false positive: the nested RunSQL inside SeparateDatabaseAndState
+        was counted as a separate operation, triggering the warning even though
+        there's only one top-level operation.
+
+        Pattern from 0948_hogfunction_batch_export migration:
+        - SeparateDatabaseAndState with state_operations (AddField, AlterField)
+        - database_operations containing RunSQL with ALTER TABLE
+        """
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0948_hogfunction_batch_export"
+        mock_migration.atomic = True
+
+        # Create the SeparateDatabaseAndState operation like 0948
+        state_op1 = create_mock_operation(
+            migrations.AddField,
+            model_name="hogfunction",
+            name="batch_export",
+            field=models.ForeignKey("batchexport", null=True, blank=True, on_delete=models.SET_NULL),
+        )
+        state_op2 = create_mock_operation(
+            migrations.AlterField,
+            model_name="batchexportdestination",
+            name="type",
+            field=models.CharField(max_length=64),
+        )
+
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_hogfunction" ADD COLUMN "batch_export_id" uuid NULL;',
+        )
+
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[state_op1, state_op2],
+            database_operations=[db_op],
+        )
+
+        mock_migration.operations = [separate_op]
+
+        migration_risk = self.analyzer.analyze_migration(
+            mock_migration, "posthog/migrations/0948_hogfunction_batch_export.py"
+        )
+
+        # Should NOT have DDL isolation warning - there's only one top-level operation
+        ddl_warnings = [r for r in migration_risk.combination_risks if "mixed with other operations" in r]
+        assert len(ddl_warnings) == 0, (
+            f"SeparateDatabaseAndState with single DDL should not trigger DDL isolation warning. "
+            f"Got warnings: {ddl_warnings}"
+        )
+
+    def test_separate_database_and_state_plus_other_op_triggers_ddl_warning(self):
+        """
+        Test that SeparateDatabaseAndState with DDL PLUS another top-level operation
+        DOES correctly trigger the "DDL mixed with other operations" warning.
+
+        This is the correct behavior - if there are truly multiple top-level operations
+        and one contains DDL, we should warn.
+        """
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_mixed_ops"
+        mock_migration.atomic = True
+
+        # SeparateDatabaseAndState with DDL
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "test" ADD COLUMN "foo" integer;',
+        )
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[],
+            database_operations=[db_op],
+        )
+
+        # Another top-level operation (not inside SeparateDatabaseAndState)
+        add_field_op = create_mock_operation(
+            migrations.AddField,
+            model_name="othermodel",
+            name="bar",
+            field=models.CharField(max_length=100, null=True),
+        )
+
+        mock_migration.operations = [separate_op, add_field_op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_mixed_ops.py")
+
+        # SHOULD have DDL isolation warning - there are two top-level operations
+        ddl_warnings = [r for r in migration_risk.combination_risks if "mixed with other operations" in r]
+        assert len(ddl_warnings) == 1, (
+            f"Should warn about DDL mixed with other top-level operations. "
+            f"Got warnings: {migration_risk.combination_risks}"
+        )
+
     def test_create_model_with_add_index_safe(self):
         """AddIndex on newly created table should be filtered out (case-insensitive matching like Django)"""
         mock_migration = MagicMock()
