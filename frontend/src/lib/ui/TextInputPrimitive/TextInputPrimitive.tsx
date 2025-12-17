@@ -6,7 +6,7 @@ import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 export const textInputVariants = cva({
-    base: 'text-input-primitive w-full rounded border text-sm outline-none relative input-like',
+    base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
     variants: {
         variant: {
             default: 'text-input-primitive--default',
