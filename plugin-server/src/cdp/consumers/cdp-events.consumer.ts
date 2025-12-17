@@ -149,19 +149,17 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 if (isQuotaLimited && !isTeamOnLegacyAddon) {
                     counterQuotaLimited.labels({ team_id: item.teamId }).inc()
 
-                    // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
-
-                    // this.hogFunctionMonitoringService.queueAppMetric(
-                    //     {
-                    //         team_id: item.teamId,
-                    //         app_source_id: item.functionId,
-                    //         metric_kind: 'failure',
-                    //         metric_name: 'quota_limited',
-                    //         count: 1,
-                    //     },
-                    //     'hog_function'
-                    // )
-                    // return
+                    this.hogFunctionMonitoringService.queueAppMetric(
+                        {
+                            team_id: item.teamId,
+                            app_source_id: item.functionId,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                            count: 1,
+                        },
+                        'hog_function'
+                    )
+                    return
                 }
 
                 const state = states[item.hogFunction.id].state
