@@ -11,6 +11,7 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
+import requests
 from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
@@ -426,7 +427,7 @@ class BigQueryClient:
                     # best-effort attempt to cancel the query
                     try:
                         await asyncio.to_thread(query_job.cancel)
-                    except GoogleAPICallError as err:
+                    except (GoogleAPICallError, requests.exceptions.RequestException) as err:
                         self.external_logger.warning("Failed to cancel query when cleaning up: %s", err)
                     raise StartQueryTimeoutError(query_id, start_query_timeout)
                 await asyncio.sleep(poll_interval)
