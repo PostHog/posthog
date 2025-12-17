@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from functools import cached_property
+from secrets import token_urlsafe
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
@@ -759,9 +760,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
             if is_enabling and not instance.conversations_public_token:
                 # Auto-generate token when enabling for the first time
-                import secrets
-
-                validated_data["conversations_public_token"] = secrets.token_urlsafe(32)
+                validated_data["conversations_public_token"] = token_urlsafe(32)
             elif is_disabling:
                 # Clear token when disabling
                 validated_data["conversations_public_token"] = None
