@@ -83,6 +83,7 @@ export enum Scene {
     Login = 'Login',
     Login2FA = 'Login2FA',
     EmailMFAVerify = 'EmailMFAVerify',
+    MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
@@ -167,6 +168,7 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
+    OrganizationDeactivated = 'OrganizationDeactivated',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null

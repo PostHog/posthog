@@ -31,6 +31,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
@@ -113,7 +114,9 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
+    "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
@@ -246,7 +249,15 @@ IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
 # Disallow impersonating other staff
-CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
+CAN_LOGIN_AS = (
+    lambda request, target_user:
+    # user performing action must be a staff member
+    request.user.is_staff
+    # cannot impersonate other staff
+    and not target_user.is_staff
+    # target user must not have opted out of impersonation (None treated as allowed)
+    and target_user.allow_impersonation is not False
+)
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 

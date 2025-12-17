@@ -120,6 +120,7 @@ export interface MultiQuestionForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
 }
 
@@ -380,7 +381,7 @@ export type AssistantTool =
     | 'list_tasks'
     | 'list_task_runs'
     | 'list_repositories'
-    // Below are modes-only
+    | 'web_search'
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
@@ -400,6 +401,7 @@ export enum SlashCommandName {
     SlashRemember = '/remember',
     SlashUsage = '/usage',
     SlashFeedback = '/feedback',
+    SlashTicket = '/ticket',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */

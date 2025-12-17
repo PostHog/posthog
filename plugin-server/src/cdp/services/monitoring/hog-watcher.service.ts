@@ -176,7 +176,7 @@ export class HogWatcherService {
 
         const res = await this.redis.usePipeline({ name: 'getStates' }, (pipeline) => {
             for (const id of idsSet) {
-                pipeline.checkRateLimit(...this.rateLimitArgs(id, 0))
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, 0))
                 pipeline.get(`${REDIS_KEY_STATE}/${id}`)
             }
         })
@@ -184,12 +184,14 @@ export class HogWatcherService {
         return Array.from(idsSet).reduce(
             (acc, id, index) => {
                 const resIndex = index * 2
-                const tokens = res ? res[resIndex][1] : undefined
+                // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
+                const tokenResult = res ? res[resIndex][1] : undefined
+                const tokens = tokenResult?.[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE
                 const state = res ? res[resIndex + 1][1] : undefined
 
                 acc[id] = {
                     state: state ? Number(state) : HogWatcherState.healthy,
-                    tokens: tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE,
+                    tokens: tokens,
                 }
 
                 return acc
@@ -373,7 +375,7 @@ export class HogWatcherService {
             for (const functionCost of Object.values(functionCosts)) {
                 pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
                 pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
-                pipeline.checkRateLimit(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
             }
         })
 
@@ -388,7 +390,8 @@ export class HogWatcherService {
             const [stateResult, lockResult, tokenResult] = getRedisPipelineResults(res, index, 3)
 
             const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
-            const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
+            // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
+            const tokens = Number(tokenResult[1]?.[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
             const newState = this.calculateNewState(tokens)
 
             if (currentState !== newState) {

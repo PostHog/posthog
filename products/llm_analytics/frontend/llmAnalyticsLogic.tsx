@@ -585,9 +585,12 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'datasets'
                 } else if (sceneKey === 'llmAnalyticsEvaluations') {
                     return 'evaluations'
+                } else if (sceneKey === 'llmAnalyticsPrompts') {
+                    return 'prompts'
                 } else if (sceneKey === 'llmAnalyticsSettings') {
                     return 'settings'
                 }
+
                 return 'dashboard'
             },
         ],
@@ -860,7 +863,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                             type: PropertyFilterType.Event,
                             key: '$ai_is_error',
                             operator: PropertyOperator.Exact,
-                            value: true,
+                            value: 'true',
                         }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -882,7 +885,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                                             type: PropertyFilterType.Event,
                                             key: '$ai_is_error',
                                             operator: PropertyOperator.Exact,
-                                            value: true,
+                                            value: 'true',
                                         },
                                     ] as AnyPropertyFilter[],
                                 })

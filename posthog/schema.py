@@ -316,6 +316,7 @@ class AssistantTool(StrEnum):
     LIST_TASKS = "list_tasks"
     LIST_TASK_RUNS = "list_task_runs"
     LIST_REPOSITORIES = "list_repositories"
+    WEB_SEARCH = "web_search"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
@@ -2623,6 +2624,7 @@ class ProductIntentContext(StrEnum):
     SURVEY_BULK_DUPLICATED = "survey_bulk_duplicated"
     SURVEY_EDITED = "survey_edited"
     SURVEY_ANALYZED = "survey_analyzed"
+    QUICK_SURVEY_STARTED = "quick_survey_started"
     REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
     REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
@@ -2785,16 +2787,6 @@ class QueryResponseAlternative7(BaseModel):
     coloredBytecode: list | None = None
     results: Any
     stdout: str | None = None
-
-
-class QueryResponseAlternative21(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
 
 
 class QueryResponseAlternative73(BaseModel):
@@ -3028,6 +3020,14 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: CurrencyCode | None = None
 
 
+class SampleRatioMismatch(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected: dict[str, float]
+    p_value: float
+
+
 class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3129,6 +3129,7 @@ class SlashCommandName(StrEnum):
     FIELD_REMEMBER = "/remember"
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
+    FIELD_TICKET = "/ticket"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -4064,7 +4065,12 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: AssistantForm | None = None
-    thinking: list[dict[str, Any]] | None = None
+    thinking: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks."
+        ),
+    )
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):
@@ -4562,6 +4568,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
 
@@ -4823,6 +4830,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
     useMaterializedViews: bool | None = None
+    usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
         default=None,
         description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
@@ -5158,6 +5166,17 @@ class QueryResponseAlternative10(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
 
 
 class QueryResponseAlternative29(BaseModel):
@@ -7125,6 +7144,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     timezone: str
     total_exposures: dict[str, float]
@@ -9294,6 +9314,9 @@ class EndpointRunRequest(BaseModel):
             " variable value. Variable must be set on the endpoint's query between curly braces (i.e."
             ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
         ),
+    )
+    version: int | None = Field(
+        default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
     )
 
 

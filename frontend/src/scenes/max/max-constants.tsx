@@ -5,6 +5,7 @@ import {
     IconCheckbox,
     IconCreditCard,
     IconDocument,
+    IconGlobe,
     IconMemory,
     IconSearch,
     IconShuffle,
@@ -662,6 +663,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing sessions...'
         },
     },
+    web_search: {
+        name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
+        description: 'Search the web for up-to-date information',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                // The args won't be fully streamed initially, so we need to check if `query` is present
+                return toolCall.args.query ? `Searched the web for **${toolCall.args.query}**` : 'Searched the web'
+            }
+            return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
+        },
+        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
@@ -712,8 +726,13 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools(): ToolDefinition[] {
-    return DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+    const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+    if (webSearchEnabled) {
+        // Add web search after `search`
+        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
+    }
+    return defaultTools
 }
 
 export type SpecialMode = keyof typeof SPECIAL_MODES
@@ -725,7 +744,6 @@ export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
 
 export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
-    'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',

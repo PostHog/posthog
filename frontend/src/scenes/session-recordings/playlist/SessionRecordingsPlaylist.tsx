@@ -1,8 +1,12 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
@@ -24,22 +28,52 @@ export function SessionRecordingsPlaylist({
         autoPlay: props.autoPlay ?? true,
     }
 
+    const playlistRef = useRef<HTMLDivElement>(null)
     const { isCinemaMode } = useValues(playerSettingsLogic)
+    const { isWindowLessThan } = useWindowSize()
+    const isVerticalLayout = isWindowLessThan('xl')
+
+    const logicKey = `playlist-resizer-${isVerticalLayout ? 'vertical' : 'horizontal'}`
+    const resizerLogicProps: ResizerLogicProps = {
+        logicKey,
+        containerRef: playlistRef,
+        persistent: true,
+        placement: isVerticalLayout ? 'top' : 'right',
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div
                 className={clsx('w-full h-full', {
-                    'flex flex-col xl:flex-row gap-2 overflow-y-auto xl:overflow-hidden': !isCinemaMode,
+                    'flex flex-col gap-2 xl:flex-row': !isCinemaMode,
                 })}
             >
                 <div
-                    className={clsx('flex flex-col overflow-hidden shrink-0 xl:shrink', {
-                        'xl:w-1/4 xl:min-w-80 order-last xl:order-first': !isCinemaMode,
+                    ref={playlistRef}
+                    className={clsx('relative flex flex-col shrink-0', {
+                        'order-last xl:order-first': !isCinemaMode,
                         'w-0': isCinemaMode,
                     })}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={
+                        isCinemaMode
+                            ? {}
+                            : isVerticalLayout
+                              ? { height: desiredSize ?? undefined, minHeight: 200 }
+                              : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }
+                    }
                 >
                     <Playlist {...props} />
+                    {!isCinemaMode && (
+                        <Resizer
+                            {...resizerLogicProps}
+                            visible={false}
+                            offset={-4} // push into the center of the gap
+                            handleClassName={cn('rounded', isVerticalLayout ? 'mx-1' : 'my-1')}
+                        />
+                    )}
                 </div>
 
                 <PlayerWrapper {...props} />
@@ -79,10 +113,9 @@ function PlayerWrapper({
 
     return (
         <div
-            className={clsx('Playlist__main overflow-hidden shrink-0 xl:shrink', {
+            className={clsx('Playlist__main overflow-hidden shrink-0 xl:shrink h-full flex-1 rounded border', {
                 'w-full': isCinemaMode,
-                'xl:flex-1 xl:h-full min-h-96 xl:rounded xl:border-y xl:border-r border-l xl:border-l-0 rounded-bl':
-                    !isCinemaMode,
+                'min-h-96': !isCinemaMode,
             })}
         >
             {isFiltersExpanded ? (
