@@ -41,23 +41,4 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        migrations.AlterField(
-            model_name="batchexportdestination",
-            name="type",
-            field=models.CharField(
-                choices=[
-                    ("S3", "S3"),
-                    ("Snowflake", "Snowflake"),
-                    ("Postgres", "Postgres"),
-                    ("Redshift", "Redshift"),
-                    ("BigQuery", "Bigquery"),
-                    ("Databricks", "Databricks"),
-                    ("Workflows", "Workflows"),
-                    ("HTTP", "Http"),
-                    ("NoOp", "Noop"),
-                ],
-                help_text="A choice of supported BatchExportDestination types.",
-                max_length=64,
-            ),
-        ),
     ]
