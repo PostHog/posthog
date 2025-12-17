@@ -53,7 +53,7 @@ test.describe('CRUD Survey', () => {
     // NOTE: Currently skipping this because we changed to the new layout
     // and this doesn't support the new layout yet.
     test.skip('creates, launches, edits and deletes new survey', async ({ page }) => {
-        await expect(page.locator('h1')).toContainText('Surveys')
+        await expect(page.locator('[role="heading"][aria-level="1"]')).toContainText('Surveys')
         await expect(page).toHaveTitle('Surveys • PostHog')
 
         await page.locator('[data-attr="new-survey"]').click()
@@ -148,7 +148,7 @@ test.describe('CRUD Survey', () => {
     })
 
     test('can set responses limit', async ({ page }) => {
-        await expect(page.locator('h1')).toContainText('Surveys')
+        await expect(page.locator('[role="heading"][aria-level="1"]')).toContainText('Surveys')
         await page.locator('[data-attr=new-survey]').click()
         await page.locator('[data-attr=new-blank-survey]').click()
 
@@ -176,7 +176,7 @@ test.describe('CRUD Survey', () => {
     })
 
     test('can set cancellation events', async ({ page }) => {
-        await expect(page.locator('h1')).toContainText('Surveys')
+        await expect(page.locator('[role="heading"][aria-level="1"]')).toContainText('Surveys')
         await page.locator('[data-attr=new-survey]').click()
         await page.locator('[data-attr=new-blank-survey]').click()
 
