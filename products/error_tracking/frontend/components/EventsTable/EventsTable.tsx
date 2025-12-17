@@ -6,7 +6,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -123,7 +123,7 @@ const Actions = (record: ErrorEventType): JSX.Element => {
         sessionId: getSessionId(record.properties),
         recordingStatus: getRecordingStatus(record.properties),
         timestamp: record.timestamp,
-        inModal: true,
+        openPlayerIn: RecordingPlayerType.Modal,
         hasRecording: record.properties.has_recording as boolean | undefined,
     })
 
