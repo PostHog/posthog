@@ -44,8 +44,8 @@ CREATE TABLE "postgres"."posthog_dashboard" {
     "created_by_id" integer hidden,
     "name"          string,
     "team_id"       integer hidden,
-    "created_by"    connect        "created_by_id" to "postgres.posthog_user"."id",
-    "team"          connect        "team_id" to "postgres.posthog_team"."id"
+    "created_by"    left join "created_by_id" to "postgres.posthog_user"."id",
+    "team"          left join "team_id"       to "postgres.posthog_team"."id"
 }`)
     })
 })

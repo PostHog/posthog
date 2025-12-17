@@ -1345,6 +1345,8 @@ interface CreateTableLine {
     nameLabel: string
     typeLabel: string
     suffix: string
+    suffixColumnLabel?: string
+    suffixTargetLabel?: string
     category: CreateTableLineCategory
 }
 
@@ -1386,8 +1388,10 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
             return {
                 name: relationName,
                 nameLabel: `"${relationName}"`,
-                typeLabel: 'connect',
-                suffix: `"${foreignKey.column}" to "${targetTableName}"."${targetColumn}"`,
+                typeLabel: 'left join',
+                suffix: '',
+                suffixColumnLabel: `"${foreignKey.column}"`,
+                suffixTargetLabel: `"${targetTableName}"."${targetColumn}"`,
                 category: 'connection',
             }
         })
@@ -1405,11 +1409,24 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
     const maxNameLength = lines.reduce((max, { nameLabel }) => Math.max(max, nameLabel.length), 0)
     const maxTypeLength = lines.reduce((max, { typeLabel }) => Math.max(max, typeLabel.length), 0)
 
-    const fieldLines = lines.map(({ nameLabel, typeLabel, suffix }) => {
-        const namePadding = ' '.repeat(Math.max(maxNameLength - nameLabel.length + 1, 1))
-        const typePadding = suffix ? ' '.repeat(Math.max(maxTypeLength - typeLabel.length + 1, 1)) : ''
+    const maxSuffixColumnLength = lines.reduce(
+        (max, { suffixColumnLabel }) => Math.max(max, suffixColumnLabel?.length || 0),
+        0
+    )
 
-        return `    ${nameLabel}${namePadding}${typeLabel}${suffix ? `${typePadding}${suffix}` : ''}`
+    const fieldLines = lines.map(({ nameLabel, typeLabel, suffix, suffixColumnLabel, suffixTargetLabel, category }) => {
+        const suffixLabel =
+            category === 'connection' && suffixColumnLabel && suffixTargetLabel
+                ? `${suffixColumnLabel}${' '.repeat(Math.max(maxSuffixColumnLength - suffixColumnLabel.length + 1, 1))}to ${suffixTargetLabel}`
+                : suffix
+        const namePadding = ' '.repeat(Math.max(maxNameLength - nameLabel.length + 1, 1))
+        const typePadding = suffixLabel
+            ? category === 'connection'
+                ? ' '
+                : ' '.repeat(Math.max(maxTypeLength - typeLabel.length + 1, 1))
+            : ''
+
+        return `    ${nameLabel}${namePadding}${typeLabel}${suffixLabel ? `${typePadding}${suffixLabel}` : ''}`
     })
 
     const fieldsBlock = fieldLines.length > 0 ? fieldLines.join(',\n') : '    -- add columns'
