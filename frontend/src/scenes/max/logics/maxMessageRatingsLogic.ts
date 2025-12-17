@@ -154,10 +154,9 @@ export const maxMessageRatingsLogic = kea<maxMessageRatingsLogicType>([
                 return
             }
 
-            // `values.ratingsByTraceId` here can be stale (reducers run separately) so we
-            // persist the "next" map explicitly to ensure the just-clicked rating survives reloads.
+            const current = safeReadRatingsFromStorage()
             safeWriteRatingsToStorage({
-                ...values.ratingsByTraceId,
+                ...current,
                 [traceId]: rating,
             })
         },
@@ -167,10 +166,9 @@ export const maxMessageRatingsLogic = kea<maxMessageRatingsLogicType>([
                 return
             }
 
-            // Persist the next map explicitly.
-            const next = { ...values.ratingsByTraceId }
-            delete next[traceId]
-            safeWriteRatingsToStorage(next)
+            const current = safeReadRatingsFromStorage()
+            delete current[traceId]
+            safeWriteRatingsToStorage(current)
         },
 
         clearAllRatings: () => {

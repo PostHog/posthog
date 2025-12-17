@@ -104,7 +104,7 @@ class MessageSerializer(MessageMinimalSerializer):
                     {
                         "content": data["content"],
                         "ui_context": data.get("ui_context"),
-                        "trace_id": str(data["trace_id"]),
+                        "trace_id": str(data["trace_id"]) if data.get("trace_id") else None,
                     }
                 )
             except pydantic.ValidationError:
