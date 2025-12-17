@@ -1728,49 +1728,32 @@ function BIColumnValue({ value }: { value: unknown }): JSX.Element | string {
     return renderText(stringValue)
 }
 
-function ColumnFiltersPopover({
-    column,
-    field,
-    selectedAggregation,
-    filters,
-    isOpen,
-    onOpenChange,
-    onAddFilter,
-    onRemoveFilter,
-    onSetAggregation,
-}: {
+type PopularValuesProps = {
     column: BIQueryColumn
-    field?: DatabaseSchemaField
-    selectedAggregation?: BIAggregation | null
-    filters: { filter: BIQueryFilter; index: number }[]
     isOpen: boolean
-    onOpenChange: (visible: boolean) => void
     onAddFilter: (expression: string) => void
-    onRemoveFilter: (index: number) => void
-    onSetAggregation: (aggregation?: BIAggregation | null) => void
-}): JSX.Element {
-    const [draft, setDraft] = useState('')
-    const [popularBreakdown, setPopularBreakdown] = useState<{ value: unknown; count: number }[] | null>(null)
+    onClose: () => void
+    className?: string
+}
+
+type PopularBreakdownValue = { value: unknown; count: number }
+
+type PopularValuesState = {
+    popularBreakdown: PopularBreakdownValue[] | null
+    popularBreakdownError: string | null
+    popularBreakdownLoading: boolean
+    breakdownMaxCount: number
+    selectedBreakdownValues: unknown[]
+    toggleBreakdownValue: (value: unknown) => void
+    handleAddBreakdownFilters: () => void
+}
+
+function usePopularValues({ column, isOpen, onAddFilter, onClose }: PopularValuesProps): PopularValuesState {
+    const { selectedTableObject, database, filters: allFilters } = useValues(biLogic)
+    const [popularBreakdown, setPopularBreakdown] = useState<PopularBreakdownValue[] | null>(null)
     const [popularBreakdownLoading, setPopularBreakdownLoading] = useState(false)
     const [popularBreakdownError, setPopularBreakdownError] = useState<string | null>(null)
     const [selectedBreakdownValues, setSelectedBreakdownValues] = useState<unknown[]>([])
-    const { selectedTableObject, database, filters: allFilters } = useValues(biLogic)
-    const availableAggregations: BIAggregation[] = isNumericField(field)
-        ? ['count', 'min', 'max', 'sum']
-        : ['count', 'min', 'max']
-
-    useEffect(() => {
-        if (!isOpen) {
-            setDraft('')
-            setSelectedBreakdownValues([])
-        }
-    }, [isOpen])
-
-    const handleAddFilter = (): void => {
-        onAddFilter(draft)
-        setDraft('')
-        onOpenChange(false)
-    }
 
     const resolvedField = useMemo(() => {
         if (!selectedTableObject) {
@@ -1779,6 +1762,12 @@ function ColumnFiltersPopover({
 
         return resolveFieldAndExpression(column.field, selectedTableObject, database)
     }, [column.field, database, selectedTableObject])
+
+    useEffect(() => {
+        if (!isOpen) {
+            setSelectedBreakdownValues([])
+        }
+    }, [isOpen])
 
     const fetchPopularBreakdown = useCallback(async () => {
         if (!selectedTableObject || !resolvedField) {
@@ -1822,7 +1811,7 @@ function ColumnFiltersPopover({
         const whereClause = whereParts.length ? `\nWHERE ${whereParts.join(' AND ')}` : ''
         const havingClause = havingParts.length ? `\nHAVING ${havingParts.join(' AND ')}` : ''
 
-        const query = `SELECT ${baseColumnExpression} AS value, count(*) AS count\nFROM ${selectedTableObject.name}${whereClause}\nGROUP BY value${havingClause}\nORDER BY count DESC\nLIMIT 10`
+        const query = `SELECT ${baseColumnExpression} AS value, count(*) AS count\nFROM ${selectedTableObject.name}${whereClause}\nGROUP BY value${havingClause}\nORDER BY count DESC\nLIMIT 20`
 
         const dialect = getTableDialect(selectedTableObject)
         const sourceId = getTableSourceId(selectedTableObject)
@@ -1835,7 +1824,7 @@ function ColumnFiltersPopover({
         setPopularBreakdownError(null)
 
         try {
-            const response: HogQLQueryResponse<{ value: unknown; count: number }[] | unknown[][]> = await performQuery(
+            const response: HogQLQueryResponse<PopularBreakdownValue[] | unknown[][]> = await performQuery(
                 setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: prefixedQuery }),
                 undefined,
                 'force_blocking'
@@ -1882,28 +1871,32 @@ function ColumnFiltersPopover({
         })
     }
 
-    const buildFilterExpressionForValue = (value: unknown): string => {
+    const buildFilterLiteralForValue = (value: unknown): string | null => {
+        if (!resolvedField || !selectedTableObject) {
+            return null
+        }
+
         if (value === null) {
             return `isNull(${columnExpression(
                 column,
-                resolvedField?.field as DatabaseSchemaField,
-                selectedTableObject as DatabaseSchemaTable,
-                resolvedField?.expression,
-                resolvedField?.table
+                resolvedField.field,
+                selectedTableObject,
+                resolvedField.expression,
+                resolvedField.table
             )})`
         }
 
         if (typeof value === 'number' || typeof value === 'boolean') {
-            return `IN (${value})`
+            return `${value}`
         }
 
         const stringValue = typeof value === 'string' ? value : JSON.stringify(value)
         const escapedValue = (stringValue || '').replace(/'/g, "\\'")
-        return `IN ('${escapedValue}')`
+        return `'${escapedValue}'`
     }
 
     const handleAddBreakdownFilters = (): void => {
-        if (!selectedBreakdownValues.length || !resolvedField || !selectedTableObject) {
+        if (!selectedBreakdownValues.length) {
             return
         }
 
@@ -1913,11 +1906,16 @@ function ColumnFiltersPopover({
         const parts: string[] = []
 
         if (nonNullValues.length) {
-            const literals = nonNullValues.map((value) => buildFilterExpressionForValue(value).replace('IN ', ''))
-            parts.push(`IN (${literals.join(', ')})`)
+            const literals = nonNullValues
+                .map((value) => buildFilterLiteralForValue(value))
+                .filter((value): value is string => Boolean(value))
+
+            if (literals.length) {
+                parts.push(`IN (${literals.join(', ')})`)
+            }
         }
 
-        if (hasNull) {
+        if (hasNull && resolvedField && selectedTableObject) {
             parts.push(
                 `isNull(${columnExpression(
                     column,
@@ -1936,6 +1934,130 @@ function ColumnFiltersPopover({
         const expression = parts.join(' OR ')
         onAddFilter(expression)
         setSelectedBreakdownValues([])
+        onClose()
+    }
+
+    return {
+        popularBreakdown,
+        popularBreakdownError,
+        popularBreakdownLoading,
+        breakdownMaxCount,
+        selectedBreakdownValues,
+        toggleBreakdownValue,
+        handleAddBreakdownFilters,
+    }
+}
+
+function PopularValuesSection({ className, ...props }: PopularValuesProps): JSX.Element {
+    const {
+        popularBreakdown,
+        popularBreakdownError,
+        popularBreakdownLoading,
+        breakdownMaxCount,
+        selectedBreakdownValues,
+        toggleBreakdownValue,
+        handleAddBreakdownFilters,
+    } = usePopularValues(props)
+
+    return (
+        <div className={clsx('shrink-0 border-l border-border pl-2 flex flex-col gap-2 min-h-[16rem]', className)}>
+            <div className="flex items-center justify-between gap-2 text-muted text-xs">
+                <span>Popular values</span>
+                {popularBreakdown ? <span className="text-xxs">Top {popularBreakdown.length}</span> : null}
+            </div>
+            <div className="flex-1 min-h-0">
+                {popularBreakdownLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted">
+                        <Spinner />
+                        <span>Loading popular values…</span>
+                    </div>
+                ) : popularBreakdownError ? (
+                    <LemonBanner type="error">{popularBreakdownError}</LemonBanner>
+                ) : popularBreakdown?.length ? (
+                    <div className="space-y-1 h-full overflow-y-auto pr-1 max-h-64">
+                        {popularBreakdown.map(({ value, count }, index) => {
+                            const isSelected = selectedBreakdownValues.some((item) => item === value)
+                            const percentage = breakdownMaxCount ? Math.max(0.1, (count / breakdownMaxCount) * 100) : 0
+
+                            return (
+                                <button
+                                    key={`${String(value)}-${index}`}
+                                    type="button"
+                                    className={clsx(
+                                        'w-full text-left rounded border px-2 py-1 text-xs flex items-center gap-2 relative overflow-hidden',
+                                        isSelected
+                                            ? 'border-primary text-primary bg-primary-highlight'
+                                            : 'border-border bg-bg-3000'
+                                    )}
+                                    onClick={() => toggleBreakdownValue(value)}
+                                >
+                                    <span
+                                        className="absolute inset-y-0 left-0 bg-primary/10"
+                                        style={{ width: `${percentage}%` }}
+                                        aria-hidden
+                                    />
+                                    <span className="relative flex-1 min-w-0">
+                                        <ClampedText text={String(value ?? 'NULL')} lines={1} />
+                                    </span>
+                                    <span className="relative text-xs text-muted">{humanFriendlyNumber(count)}</span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-muted text-xs">No popular values yet.</div>
+                )}
+            </div>
+            {selectedBreakdownValues.length > 0 ? (
+                <LemonButton
+                    fullWidth
+                    size="small"
+                    type="primary"
+                    onClick={handleAddBreakdownFilters}
+                    icon={<IconFilter />}
+                >
+                    Add selected values
+                </LemonButton>
+            ) : null}
+        </div>
+    )
+}
+
+function ColumnFiltersPopover({
+    column,
+    field,
+    selectedAggregation,
+    filters,
+    isOpen,
+    onOpenChange,
+    onAddFilter,
+    onRemoveFilter,
+    onSetAggregation,
+}: {
+    column: BIQueryColumn
+    field?: DatabaseSchemaField
+    selectedAggregation?: BIAggregation | null
+    filters: { filter: BIQueryFilter; index: number }[]
+    isOpen: boolean
+    onOpenChange: (visible: boolean) => void
+    onAddFilter: (expression: string) => void
+    onRemoveFilter: (index: number) => void
+    onSetAggregation: (aggregation?: BIAggregation | null) => void
+}): JSX.Element {
+    const [draft, setDraft] = useState('')
+    const availableAggregations: BIAggregation[] = isNumericField(field)
+        ? ['count', 'min', 'max', 'sum']
+        : ['count', 'min', 'max']
+
+    useEffect(() => {
+        if (!isOpen) {
+            setDraft('')
+        }
+    }, [isOpen])
+
+    const handleAddFilter = (): void => {
+        onAddFilter(draft)
+        setDraft('')
         onOpenChange(false)
     }
 
@@ -2018,70 +2140,13 @@ function ColumnFiltersPopover({
                             </div>
                         </div>
                     </div>
-                    <div className="w-64 shrink-0 border-l border-border pl-2 flex flex-col gap-2 min-h-[16rem]">
-                        <div className="flex items-center justify-between gap-2 text-muted text-xs">
-                            <span>Popular values</span>
-                            {popularBreakdown ? <span className="text-xxs">Top {popularBreakdown.length}</span> : null}
-                        </div>
-                        <div className="flex-1 min-h-0">
-                            {popularBreakdownLoading ? (
-                                <div className="flex items-center gap-2 text-xs text-muted">
-                                    <Spinner />
-                                    <span>Loading popular values…</span>
-                                </div>
-                            ) : popularBreakdownError ? (
-                                <LemonBanner type="error">{popularBreakdownError}</LemonBanner>
-                            ) : popularBreakdown?.length ? (
-                                <div className="space-y-1 h-full overflow-y-auto pr-1">
-                                    {popularBreakdown.map(({ value, count }, index) => {
-                                        const isSelected = selectedBreakdownValues.some((item) => item === value)
-                                        const percentage = breakdownMaxCount
-                                            ? Math.max(0.1, (count / breakdownMaxCount) * 100)
-                                            : 0
-
-                                        return (
-                                            <button
-                                                key={`${String(value)}-${index}`}
-                                                type="button"
-                                                className={clsx(
-                                                    'w-full text-left rounded border px-2 py-1 text-xs flex items-center gap-2 relative overflow-hidden',
-                                                    isSelected
-                                                        ? 'border-primary text-primary bg-primary-highlight'
-                                                        : 'border-border bg-bg-3000'
-                                                )}
-                                                onClick={() => toggleBreakdownValue(value)}
-                                            >
-                                                <span
-                                                    className="absolute inset-y-0 left-0 bg-primary/10"
-                                                    style={{ width: `${percentage}%` }}
-                                                    aria-hidden
-                                                />
-                                                <span className="relative flex-1 min-w-0">
-                                                    <ClampedText text={String(value ?? 'NULL')} lines={1} />
-                                                </span>
-                                                <span className="relative text-xs text-muted">
-                                                    {humanFriendlyNumber(count)}
-                                                </span>
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="text-muted text-xs">No popular values yet.</div>
-                            )}
-                        </div>
-                        {selectedBreakdownValues.length > 0 ? (
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                type="primary"
-                                onClick={handleAddBreakdownFilters}
-                                icon={<IconFilter />}
-                            >
-                                Add selected values
-                            </LemonButton>
-                        ) : null}
-                    </div>
+                    <PopularValuesSection
+                        className="w-64"
+                        column={column}
+                        isOpen={isOpen}
+                        onAddFilter={onAddFilter}
+                        onClose={() => onOpenChange(false)}
+                    />
                 </div>
             }
         >
@@ -2145,111 +2210,124 @@ function ColumnHeader({
                 visible={isPopoverOpen}
                 onVisibilityChange={onPopoverVisibilityChange}
                 overlay={
-                    <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
-                        <LemonButton
-                            status="danger"
-                            size="small"
-                            type="secondary"
-                            onClick={() => {
-                                onRemove()
-                                onPopoverVisibilityChange(false)
-                            }}
-                        >
-                            Remove column
-                        </LemonButton>
-                        <LemonInput
-                            placeholder="= 'value' or > 10"
-                            value={draft}
-                            onChange={setDraft}
-                            onPressEnter={() => {
-                                onAddFilter(draft)
-                                setDraft('')
-                                onPopoverVisibilityChange(false)
-                            }}
-                        />
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => {
-                                onAddFilter(draft)
-                                setDraft('')
-                                onPopoverVisibilityChange(false)
-                            }}
-                            icon={<IconFilter />}
-                        >
-                            Add filter
-                        </LemonButton>
-                        <div className="space-y-1">
-                            <div className="text-muted">Aggregation</div>
-                            <div className="grid grid-cols-4 gap-1">
-                                <LemonButton
-                                    type={!column.aggregation ? 'primary' : 'secondary'}
-                                    size="small"
-                                    active={!column.aggregation}
-                                    status={!column.aggregation ? 'primary' : 'default'}
-                                    onClick={() => {
-                                        onSetAggregation(null)
-                                        onPopoverVisibilityChange(false)
-                                    }}
-                                >
-                                    None
-                                </LemonButton>
-                                {availableAggregations.map((aggregation) => (
+                    <div className="flex gap-2 max-h-[70vh] w-[48rem]" onClick={(event) => event.stopPropagation()}>
+                        <div className="space-y-2 flex-1 min-w-0">
+                            <LemonButton
+                                status="danger"
+                                size="small"
+                                type="secondary"
+                                onClick={() => {
+                                    onRemove()
+                                    onPopoverVisibilityChange(false)
+                                }}
+                            >
+                                Remove column
+                            </LemonButton>
+                            <LemonInput
+                                placeholder="= 'value' or > 10"
+                                value={draft}
+                                onChange={setDraft}
+                                onPressEnter={() => {
+                                    onAddFilter(draft)
+                                    setDraft('')
+                                    onPopoverVisibilityChange(false)
+                                }}
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    onAddFilter(draft)
+                                    setDraft('')
+                                    onPopoverVisibilityChange(false)
+                                }}
+                                icon={<IconFilter />}
+                            >
+                                Add filter
+                            </LemonButton>
+                            <div className="space-y-1">
+                                <div className="text-muted">Aggregation</div>
+                                <div className="grid grid-cols-4 gap-1">
                                     <LemonButton
-                                        key={aggregation}
-                                        type={column.aggregation === aggregation ? 'primary' : 'secondary'}
+                                        type={!column.aggregation ? 'primary' : 'secondary'}
                                         size="small"
-                                        status={column.aggregation === aggregation ? 'primary' : 'default'}
-                                        active={column.aggregation === aggregation}
+                                        active={!column.aggregation}
+                                        status={!column.aggregation ? 'primary' : 'default'}
                                         onClick={() => {
-                                            onSetAggregation(aggregation)
+                                            onSetAggregation(null)
                                             onPopoverVisibilityChange(false)
                                         }}
                                     >
-                                        {aggregation.toUpperCase()}
+                                        None
                                     </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                        {isTemporal && (
-                            <div className="space-y-1">
-                                <div className="text-muted">Date aggregation</div>
-                                <div className="grid grid-cols-4 gap-1">
-                                    {[null, 'hour', 'day', 'week', 'month'].map((interval) => (
+                                    {availableAggregations.map((aggregation) => (
                                         <LemonButton
-                                            key={interval || 'none'}
-                                            type="secondary"
+                                            key={aggregation}
+                                            type={column.aggregation === aggregation ? 'primary' : 'secondary'}
                                             size="small"
-                                            status={column.timeInterval === interval ? 'primary' : 'default'}
-                                            active={column.timeInterval === interval}
+                                            status={column.aggregation === aggregation ? 'primary' : 'default'}
+                                            active={column.aggregation === aggregation}
                                             onClick={() => {
-                                                onSetTimeInterval(interval as BITimeAggregation | null)
+                                                onSetAggregation(aggregation)
                                                 onPopoverVisibilityChange(false)
                                             }}
                                         >
-                                            {(interval || 'none').toString().replace(/^./, (c) => c.toUpperCase())}
+                                            {aggregation.toUpperCase()}
                                         </LemonButton>
                                     ))}
                                 </div>
                             </div>
-                        )}
-                        <div className="grid grid-cols-2 gap-1">
-                            {(['asc', 'desc'] as BISortDirection[]).map((direction) => (
-                                <LemonButton
-                                    key={direction}
-                                    type="secondary"
-                                    size="small"
-                                    status={sortDirection === direction ? 'primary' : 'default'}
-                                    active={sortDirection === direction}
-                                    onClick={() => {
-                                        onSort(sortDirection === direction ? null : direction)
-                                        onPopoverVisibilityChange(false)
-                                    }}
-                                >
-                                    Sort {direction}
-                                </LemonButton>
-                            ))}
+                            {isTemporal && (
+                                <div className="space-y-1">
+                                    <div className="text-muted">Date aggregation</div>
+                                    <div className="grid grid-cols-4 gap-1">
+                                        {[null, 'hour', 'day', 'week', 'month'].map((interval) => (
+                                            <LemonButton
+                                                key={interval || 'none'}
+                                                type="secondary"
+                                                size="small"
+                                                status={column.timeInterval === interval ? 'primary' : 'default'}
+                                                active={column.timeInterval === interval}
+                                                onClick={() => {
+                                                    onSetTimeInterval(interval as BITimeAggregation | null)
+                                                    onPopoverVisibilityChange(false)
+                                                }}
+                                            >
+                                                {(interval || 'none').toString().replace(/^./, (c) => c.toUpperCase())}
+                                            </LemonButton>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            <div className="grid grid-cols-2 gap-1">
+                                {(['asc', 'desc'] as BISortDirection[]).map((direction) => (
+                                    <LemonButton
+                                        key={direction}
+                                        type="secondary"
+                                        size="small"
+                                        status={sortDirection === direction ? 'primary' : 'default'}
+                                        active={sortDirection === direction}
+                                        onClick={() => {
+                                            onSort(sortDirection === direction ? null : direction)
+                                            onPopoverVisibilityChange(false)
+                                        }}
+                                    >
+                                        Sort {direction}
+                                    </LemonButton>
+                                ))}
+                            </div>
                         </div>
+                        <PopularValuesSection
+                            className="w-64"
+                            column={column}
+                            isOpen={isPopoverOpen}
+                            onAddFilter={(expression) => {
+                                onAddFilter(expression)
+                                setDraft('')
+                                onPopoverVisibilityChange(false)
+                            }}
+                            onClose={() => onPopoverVisibilityChange(false)}
+                        />
                     </div>
                 }
             >
