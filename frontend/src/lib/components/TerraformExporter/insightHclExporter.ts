@@ -1,6 +1,7 @@
 import {
     addManagedByTag,
     formatHclValue,
+    formatIdsWithReplacements,
     formatJsonForHcl,
     sanitizeResourceName,
 } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
@@ -12,8 +13,8 @@ import { generateAlertHCL } from './alertHclExporter'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
 
 export interface InsightHclExportOptions extends HclExportOptions {
-    /** When provided, uses TF references instead of hardcoded dashboard_ids (also suppresses dashboard warnings) */
-    dashboardTfReferences?: string[]
+    /** Map of dashboard IDs to their TF references */
+    dashboardIdReplacements?: Map<number, string>
     /** Child alerts to include in export */
     alerts?: AlertType[]
     /** Hog functions grouped by alert ID */
@@ -32,7 +33,7 @@ export interface InsightExportResult extends HclExportResult {
 /**
  * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/insight
  */
-const INSIGHT_FIELD_MAPPINGS: FieldMapping<Partial<InsightModel>>[] = [
+const INSIGHT_FIELD_MAPPINGS: FieldMapping<Partial<InsightModel>, InsightHclExportOptions>[] = [
     {
         source: 'name',
         target: 'name',
@@ -69,6 +70,7 @@ const INSIGHT_FIELD_MAPPINGS: FieldMapping<Partial<InsightModel>>[] = [
         source: 'dashboards',
         target: 'dashboard_ids',
         shouldInclude: (v) => Array.isArray(v) && v.length > 0,
+        transform: (v, _, options) => formatIdsWithReplacements(v as number[], options.dashboardIdReplacements),
     },
 ]
 
@@ -85,16 +87,19 @@ function validateInsight(insight: Partial<InsightModel>, options?: InsightHclExp
         )
     }
 
-    if (!options?.dashboardTfReferences?.length && insight.dashboards && insight.dashboards.length > 0) {
-        warnings.push(
-            '`dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
-        )
+    if (insight.dashboards && insight.dashboards.length > 0) {
+        const hasUnresolvedIds = insight.dashboards.some((id) => !options?.dashboardIdReplacements?.has(id))
+        if (hasUnresolvedIds) {
+            warnings.push(
+                'Some `dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
+            )
+        }
     }
 
     return warnings
 }
 
-const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>> = {
+const INSIGHT_EXPORTER: ResourceExporter<Partial<InsightModel>, InsightHclExportOptions> = {
     resourceType: 'posthog_insight',
     resourceLabel: 'insight',
     fieldMappings: INSIGHT_FIELD_MAPPINGS,
@@ -118,28 +123,14 @@ export function generateInsightHCL(
         : 0
 
     // Create a modified exporter that uses the options for validation
-    const exporterWithOptions: ResourceExporter<Partial<InsightModel>> = {
+    const exporterWithOptions: ResourceExporter<Partial<InsightModel>, InsightHclExportOptions> = {
         ...INSIGHT_EXPORTER,
         validate: (i) => validateInsight(i, options),
     }
 
     const result = generateHCL(insight, exporterWithOptions, options)
-    let insightHcl = result.hcl
     allWarnings.push(...result.warnings)
-
-    // If we have dashboard TF references, add dashboard_ids with the references
-    if (options.dashboardTfReferences?.length) {
-        const dashboardIdsLine = `  dashboard_ids = [${options.dashboardTfReferences.join(', ')}]`
-
-        // Insert before closing brace
-        const closingBraceIndex = insightHcl.lastIndexOf('}')
-        if (closingBraceIndex !== -1) {
-            insightHcl =
-                insightHcl.slice(0, closingBraceIndex) + dashboardIdsLine + '\n' + insightHcl.slice(closingBraceIndex)
-        }
-    }
-
-    hclSections.push(insightHcl)
+    hclSections.push(result.hcl)
 
     // Generate child alerts if provided
     if (options.alerts && options.alerts.length > 0) {

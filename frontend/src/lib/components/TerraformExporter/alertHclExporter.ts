@@ -16,7 +16,7 @@ export interface AlertHclExportOptions extends HclExportOptions {
 /**
  * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/alert
  */
-const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>>[] = [
+const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>, AlertHclExportOptions>[] = [
     {
         source: 'name',
         target: 'name',
@@ -35,38 +35,38 @@ const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>>[] = [
     {
         source: 'condition',
         target: 'condition_type',
-        shouldInclude: (v) => !!(v as AlertType['condition'])?.type,
-        transform: (v) => formatHclValue((v as AlertType['condition'])?.type),
+        shouldInclude: (_, alert) => !!alert.condition?.type,
+        transform: (_, alert) => formatHclValue(alert.condition?.type),
     },
     {
         source: 'threshold',
         target: 'threshold_type',
-        shouldInclude: (v) => !!(v as AlertType['threshold'])?.configuration?.type,
-        transform: (v) => formatHclValue((v as AlertType['threshold'])?.configuration?.type),
+        shouldInclude: (_, alert) => !!alert.threshold?.configuration?.type,
+        transform: (_, alert) => formatHclValue(alert.threshold?.configuration?.type),
     },
     {
         source: 'threshold',
         target: 'threshold_lower',
-        shouldInclude: (v) => (v as AlertType['threshold'])?.configuration?.bounds?.lower !== undefined,
-        transform: (v) => formatHclValue((v as AlertType['threshold'])?.configuration?.bounds?.lower),
+        shouldInclude: (_, alert) => alert.threshold?.configuration?.bounds?.lower !== undefined,
+        transform: (_, alert) => formatHclValue(alert.threshold?.configuration?.bounds?.lower),
     },
     {
         source: 'threshold',
         target: 'threshold_upper',
-        shouldInclude: (v) => (v as AlertType['threshold'])?.configuration?.bounds?.upper !== undefined,
-        transform: (v) => formatHclValue((v as AlertType['threshold'])?.configuration?.bounds?.upper),
+        shouldInclude: (_, alert) => alert.threshold?.configuration?.bounds?.upper !== undefined,
+        transform: (_, alert) => formatHclValue(alert.threshold?.configuration?.bounds?.upper),
     },
     {
         source: 'config',
         target: 'series_index',
-        shouldInclude: (v) => (v as AlertType['config'])?.series_index !== undefined,
-        transform: (v) => formatHclValue((v as AlertType['config'])?.series_index),
+        shouldInclude: (_, alert) => alert.config?.series_index !== undefined,
+        transform: (_, alert) => formatHclValue(alert.config?.series_index),
     },
     {
         source: 'config',
         target: 'check_ongoing_interval',
-        shouldInclude: (v) => (v as AlertType['config'])?.check_ongoing_interval !== undefined,
-        transform: (v) => formatHclValue((v as AlertType['config'])?.check_ongoing_interval),
+        shouldInclude: (_, alert) => alert.config?.check_ongoing_interval !== undefined,
+        transform: (_, alert) => formatHclValue(alert.config?.check_ongoing_interval),
     },
     {
         source: 'skip_weekend',
@@ -76,8 +76,14 @@ const ALERT_FIELD_MAPPINGS: FieldMapping<Partial<AlertType>>[] = [
     {
         source: 'insight',
         target: 'insight_id',
-        shouldInclude: (v) => (v as AlertType['insight'])?.id !== undefined,
-        transform: (v) => formatHclValue((v as AlertType['insight'])?.id),
+        shouldInclude: (_, alert) => alert.insight?.id !== undefined,
+        transform: (_, alert, options) => {
+            const insightId = alert.insight?.id
+            if (options.insightTfReference && insightId !== undefined) {
+                return options.insightTfReference
+            }
+            return formatHclValue(insightId)
+        },
     },
     {
         source: 'subscribed_users',
@@ -117,7 +123,7 @@ function validateAlert(alert: Partial<AlertType>, options?: AlertHclExportOption
     return warnings
 }
 
-const ALERT_EXPORTER: ResourceExporter<Partial<AlertType>> = {
+const ALERT_EXPORTER: ResourceExporter<Partial<AlertType>, AlertHclExportOptions> = {
     resourceType: 'posthog_alert',
     resourceLabel: 'alert',
     fieldMappings: ALERT_FIELD_MAPPINGS,
@@ -131,38 +137,28 @@ export function generateAlertHCL(alert: Partial<AlertType>, options: AlertHclExp
     const hclSections: string[] = []
 
     // Generate base HCL
-    const result = generateHCL(
-        alert,
-        {
-            ...ALERT_EXPORTER,
-            validate: (a) => validateAlert(a, options),
-        },
-        options
-    )
-
-    let alertHcl = result.hcl
-    allWarnings.push(...result.warnings)
-
-    // Replace hardcoded insight_id with TF reference when provided
-    if (options.insightTfReference && alert.insight?.id !== undefined) {
-        alertHcl = alertHcl.replace(
-            `insight_id = ${formatHclValue(alert.insight.id)}`,
-            `insight_id = ${options.insightTfReference}`
-        )
+    const exporterWithOptions: ResourceExporter<Partial<AlertType>, AlertHclExportOptions> = {
+        ...ALERT_EXPORTER,
+        validate: (a) => validateAlert(a, options),
     }
-
-    hclSections.push(alertHcl)
+    const result = generateHCL(alert, exporterWithOptions, options)
+    allWarnings.push(...result.warnings)
+    hclSections.push(result.hcl)
 
     // Generate child hog functions if provided
     if (options.hogFunctions && options.hogFunctions.length > 0) {
-        const alertTfName = sanitizeResourceName(ALERT_EXPORTER.getResourceName(alert), ALERT_EXPORTER.resourceLabel)
-        const alertTfReference = `${ALERT_EXPORTER.resourceType}.${alertTfName}.id`
+        const alertIdReplacements = new Map<string, string>()
+        if (alert.id) {
+            const alertTfName = sanitizeResourceName(
+                ALERT_EXPORTER.getResourceName(alert),
+                ALERT_EXPORTER.resourceLabel
+            )
+            const alertTfReference = `${ALERT_EXPORTER.resourceType}.${alertTfName}.id`
+            alertIdReplacements.set(alert.id, alertTfReference)
+        }
 
         for (const hogFunction of options.hogFunctions) {
-            const hogFunctionResult = generateHogFunctionHCL(hogFunction, {
-                alertTfReference,
-                alertId: alert.id,
-            })
+            const hogFunctionResult = generateHogFunctionHCL(hogFunction, { alertIdReplacements })
             hclSections.push('')
             hclSections.push(hogFunctionResult.hcl)
             allWarnings.push(

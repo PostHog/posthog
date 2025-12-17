@@ -124,18 +124,21 @@ describe('hogFunctionHclExporter test', () => {
                 type: 'internal_destination',
                 filters: {
                     events: [{ id: '$insight_alert_firing', type: 'events' }],
-                    properties: [{ key: 'alert_id', value: 'alert-456', operator: 'exact' }],
+                    properties: [
+                        { key: 'alert_id', value: 'alert-456', operator: 'exact' },
+                        { key: 'alert_id2', value: 'alert-678', operator: 'exact' },
+                    ],
                 },
             })
 
             const result = generateHogFunctionHCL(hogFunction, {
-                alertTfReference: 'posthog_alert.my_alert.id',
-                alertId: 'alert-456',
+                alertIdReplacements: new Map([['alert-456', 'posthog_alert.my_alert.id']]),
             })
             const hcl = result.hcl
 
             expect(hcl).toContain('posthog_alert.my_alert.id')
             expect(hcl).not.toContain('"alert-456"')
+            expect(hcl).toContain('"alert-678"')
         })
 
         it('includes provider version comment', () => {
@@ -307,7 +310,7 @@ describe('hogFunctionHclExporter test', () => {
             const result = generateHogFunctionHCL(hogFunction)
 
             expect(result.warnings).toContain(
-                'Secret inputs (api_key) cannot be exported. You will need to configure these manually after import.'
+                'Secret inputs (api_key) in the export, please be careful when handling this file!'
             )
         })
 
@@ -325,7 +328,7 @@ describe('hogFunctionHclExporter test', () => {
             const result = generateHogFunctionHCL(hogFunction)
 
             expect(result.warnings).toContain(
-                'Secret inputs (api_key, webhook_secret) cannot be exported. You will need to configure these manually after import.'
+                'Secret inputs (api_key, webhook_secret) in the export, please be careful when handling this file!'
             )
         })
     })

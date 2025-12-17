@@ -99,19 +99,17 @@ export function generateDashboardHCL(
             DASHBOARD_EXPORTER.getResourceName(dashboard),
             DASHBOARD_EXPORTER.resourceLabel
         )
-        const dashboardTfReference = `${DASHBOARD_EXPORTER}.${dashboardTfName}.id`
+        const dashboardIdReplacements = new Map<number, string>()
+        if (dashboard.id) {
+            const dashboardTfReference = `${DASHBOARD_EXPORTER.resourceType}.${dashboardTfName}.id`
+            dashboardIdReplacements.set(dashboard.id, dashboardTfReference)
+        }
 
         for (const insight of options.insights) {
             const alerts = insight.id ? options.alertsByInsightId?.get(insight.id) || [] : []
 
-            // Clear the insight's dashboards to avoid hardcoded IDs warning
-            const insightWithoutDashboards: Partial<InsightModel> = {
-                ...insight,
-                dashboards: undefined,
-            }
-
-            const insightResult = generateInsightHCL(insightWithoutDashboards, {
-                dashboardTfReferences: [dashboardTfReference],
+            const insightResult = generateInsightHCL(insight, {
+                dashboardIdReplacements,
                 alerts,
                 hogFunctionsByAlertId: options.hogFunctionsByAlertId,
             })

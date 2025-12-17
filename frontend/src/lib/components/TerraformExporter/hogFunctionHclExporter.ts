@@ -5,16 +5,14 @@ import { HogFunctionType } from '~/types'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'
 
 export interface HogFunctionHclExportOptions extends HclExportOptions {
-    /** When provided, replaces hardcoded alert_id in filters with TF reference */
-    alertTfReference?: string
-    /** The alert ID to replace the TF reference */
-    alertId?: string
+    /** Map of alert IDs to their TF references */
+    alertIdReplacements?: Map<string, string>
 }
 
 /**
  * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/hog_function
  */
-const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>>[] = [
+const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>, HogFunctionHclExportOptions>[] = [
     {
         source: 'name',
         target: 'name',
@@ -61,7 +59,15 @@ const HOG_FUNCTION_FIELD_MAPPINGS: FieldMapping<Partial<HogFunctionType>>[] = [
         source: 'filters',
         target: 'filters_json',
         shouldInclude: (v) => !!v && typeof v === 'object' && Object.keys(v as object).length > 0,
-        transform: (v) => `jsonencode(${formatJsonForHcl(v)})`,
+        transform: (v, _, options) => {
+            let result = `jsonencode(${formatJsonForHcl(v)})`
+            if (options.alertIdReplacements?.size) {
+                for (const [alertId, tfRef] of options.alertIdReplacements) {
+                    result = result.replace(new RegExp(`"${alertId}"`, 'g'), tfRef)
+                }
+            }
+            return result
+        },
     },
     {
         source: 'mappings',
@@ -107,7 +113,7 @@ function validateHogFunction(hogFunction: Partial<HogFunctionType>): string[] {
     return warnings
 }
 
-const HOG_FUNCTION_EXPORTER: ResourceExporter<Partial<HogFunctionType>> = {
+const HOG_FUNCTION_EXPORTER: ResourceExporter<Partial<HogFunctionType>, HogFunctionHclExportOptions> = {
     resourceType: 'posthog_hog_function',
     resourceLabel: 'hog_function',
     fieldMappings: HOG_FUNCTION_FIELD_MAPPINGS,
@@ -120,12 +126,5 @@ export function generateHogFunctionHCL(
     hogFunction: Partial<HogFunctionType>,
     options: HogFunctionHclExportOptions = {}
 ): HclExportResult {
-    const result = generateHCL(hogFunction, HOG_FUNCTION_EXPORTER, options)
-
-    // If we have an alert reference, post-process the HCL to replace the hardcoded alert_id
-    if (options.alertTfReference && options.alertId) {
-        result.hcl = result.hcl.replace(new RegExp(`"${options.alertId}"`, 'g'), options.alertTfReference)
-    }
-
-    return result
+    return generateHCL(hogFunction, HOG_FUNCTION_EXPORTER, options)
 }
