@@ -1342,7 +1342,8 @@ type CreateTableLineCategory = 'primary' | 'normal' | 'connection'
 
 interface CreateTableLine {
     name: string
-    base: string
+    nameLabel: string
+    typeLabel: string
     suffix: string
     category: CreateTableLineCategory
 }
@@ -1359,11 +1360,14 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
         const typeLabel = typeof field.type === 'string' ? field.type : 'string'
         const expression = buildFieldExpression(field, table, { includeForeignKeyExpressions: false })
         const modifiers = foreignKeyColumnsToHide.has(field.name) ? ['hidden'] : []
+        const fieldTypeLabel = `${typeLabel}${modifiers.length ? ` ${modifiers.join(' ')}` : ''}`
+        const hasMeaningfulExpression = expression && expression !== field.name && expression !== `"${field.name}"`
 
         return {
             name: field.name,
-            base: `    "${field.name}" ${typeLabel}${modifiers.length ? ` ${modifiers.join(' ')}` : ''}`,
-            suffix: expression ? `expr ${expression}` : '',
+            nameLabel: `"${field.name}"`,
+            typeLabel: fieldTypeLabel,
+            suffix: hasMeaningfulExpression ? `expr ${expression}` : '',
             category: primaryKeyFields.has(field.name) ? 'primary' : 'normal',
         }
     })
@@ -1381,8 +1385,9 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
 
             return {
                 name: relationName,
-                base: `    "${relationName}" connect "${foreignKey.column}" to "${targetTableName}"."${targetColumn}"`,
-                suffix: '',
+                nameLabel: `"${relationName}"`,
+                typeLabel: 'connect',
+                suffix: `"${foreignKey.column}" to "${targetTableName}"."${targetColumn}"`,
                 category: 'connection',
             }
         })
@@ -1397,19 +1402,19 @@ export function buildCreateTableStatement(table: DatabaseSchemaTable, databaseNa
         return a.name.localeCompare(b.name)
     })
 
-    const maxBaseLength = lines.reduce((max, { base, suffix }) => {
-        return suffix ? Math.max(max, base.length) : max
-    }, 0)
+    const maxNameLength = lines.reduce((max, { nameLabel }) => Math.max(max, nameLabel.length), 0)
+    const maxTypeLength = lines.reduce((max, { typeLabel }) => Math.max(max, typeLabel.length), 0)
 
-    const fieldLines = lines.map(({ base, suffix }) => {
-        const padding = suffix ? ' '.repeat(Math.max(maxBaseLength - base.length + 1, 1)) : ''
+    const fieldLines = lines.map(({ nameLabel, typeLabel, suffix }) => {
+        const namePadding = ' '.repeat(Math.max(maxNameLength - nameLabel.length + 1, 1))
+        const typePadding = suffix ? ' '.repeat(Math.max(maxTypeLength - typeLabel.length + 1, 1)) : ''
 
-        return `${base}${padding}${suffix}`
+        return `    ${nameLabel}${namePadding}${typeLabel}${suffix ? `${typePadding}${suffix}` : ''}`
     })
 
     const fieldsBlock = fieldLines.length > 0 ? fieldLines.join(',\n') : '    -- add columns'
     const sourceId = getTableSourceId(table)
-    const connectionLine = table.type === 'posthog' ? 'posthog' : `USE CONNECTION ${sourceId || effectiveDatabaseName}`
+    const connectionLine = `USE CONNECTION ${sourceId || effectiveDatabaseName}`
 
     return `${connectionLine}\nCREATE TABLE "${effectiveDatabaseName}"."${tableLabel}" {\n${fieldsBlock}\n}`
 }
