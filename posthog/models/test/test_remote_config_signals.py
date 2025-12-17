@@ -71,16 +71,16 @@ class TestUserSavedSignalHandler(TestCase):
         # Verify transaction.on_commit was not called
         mock_on_commit.assert_not_called()
 
-    @patch("posthog.storage.team_access_cache_signal_handlers.update_user_authentication_cache")
+    @patch("posthog.tasks.team_access_cache_tasks.warm_user_teams_cache_sync")
     @patch("django.db.transaction.on_commit")
-    def test_user_saved_uses_transaction_on_commit(self, mock_on_commit, mock_update_cache):
-        """Test that user_saved uses transaction.on_commit to defer cache updates."""
+    def test_user_deactivated_uses_sync_cache_update(self, mock_on_commit, mock_sync_func):
+        """Test that user deactivation uses SYNC cache update for immediate revocation (security-critical)."""
 
-        # Create mock user with is_active change (deactivation)
+        # Create mock user with is_active change (deactivation: True -> False)
         mock_user = MagicMock()
         mock_user.id = 42
         mock_user.is_active = False
-        mock_user._original_is_active = True  # Changed from True to False
+        mock_user._original_is_active = True  # Changed from True to False (deactivation)
 
         # Call user_saved
         user_saved(sender=User, instance=mock_user, created=False)
@@ -92,8 +92,32 @@ class TestUserSavedSignalHandler(TestCase):
         on_commit_lambda = mock_on_commit.call_args[0][0]
         on_commit_lambda()
 
-        # Verify that the update function would be called after transaction commits
-        mock_update_cache.assert_called_once_with(mock_user)
+        # Verify that the SYNC function was called (not the Celery task)
+        mock_sync_func.assert_called_once_with(42)
+
+    @patch("posthog.tasks.team_access_cache_tasks.warm_user_teams_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_user_activated_uses_async_cache_update(self, mock_on_commit, mock_task):
+        """Test that user activation uses ASYNC cache update via Celery (no security concern)."""
+
+        # Create mock user with is_active change (activation: False -> True)
+        mock_user = MagicMock()
+        mock_user.id = 42
+        mock_user.is_active = True
+        mock_user._original_is_active = False  # Changed from False to True (activation)
+
+        # Call user_saved
+        user_saved(sender=User, instance=mock_user, created=False)
+
+        # Verify transaction.on_commit was called
+        mock_on_commit.assert_called_once()
+
+        # Get the lambda function that was passed to on_commit and call it
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        # Verify that the Celery task was enqueued (async is fine for activation)
+        mock_task.delay.assert_called_once_with(42)
 
     @patch("django.db.transaction.on_commit")
     def test_user_saved_updates_snapshot_to_prevent_double_fires(self, mock_on_commit):
@@ -124,17 +148,10 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
     def test_organization_membership_deleted_calls_update_when_user_removed(self, mock_on_commit):
         """Test that organization_membership_deleted schedules cache update when a user is removed from org."""
 
-        # Create mock user and organization
-        mock_user = MagicMock()
-        mock_user.id = 42
-
-        mock_org = MagicMock()
-        mock_org.id = "test-org-uuid"
-
         # Create mock OrganizationMembership
         mock_membership = MagicMock()
-        mock_membership.user = mock_user
-        mock_membership.organization = mock_org
+        mock_membership.organization_id = "test-org-uuid"
+        mock_membership.user_id = 42
 
         # Call organization_membership_deleted
         organization_membership_deleted(sender=OrganizationMembership, instance=mock_membership)
@@ -142,22 +159,13 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
         # Verify transaction.on_commit was called (update was scheduled)
         mock_on_commit.assert_called_once()
 
-    @patch("posthog.storage.team_access_cache_signal_handlers.update_organization_membership_deleted_cache")
+    @patch("posthog.tasks.team_access_cache_tasks.warm_organization_teams_cache_task")
     @patch("django.db.transaction.on_commit")
-    def test_organization_membership_deleted_uses_transaction_on_commit(self, mock_on_commit, mock_update_cache):
-        """Test that organization_membership_deleted uses transaction.on_commit to defer cache updates."""
-
-        # Create mock user and organization
-        mock_user = MagicMock()
-        mock_user.id = 42
-
-        mock_org = MagicMock()
-        mock_org.id = "test-org-uuid"
+    def test_organization_membership_deleted_uses_transaction_on_commit(self, mock_on_commit, mock_task):
+        """Test that organization_membership_deleted uses transaction.on_commit to enqueue Celery task."""
 
         # Create mock OrganizationMembership
         mock_membership = MagicMock()
-        mock_membership.user = mock_user
-        mock_membership.organization = mock_org
         mock_membership.organization_id = "test-org-uuid"
         mock_membership.user_id = 42
 
@@ -171,39 +179,17 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
         on_commit_lambda = mock_on_commit.call_args[0][0]
         on_commit_lambda()
 
-        # Verify that the update function would be called after transaction commits
-        # The lambda passes the membership instance
-        mock_update_cache.assert_called_once_with(mock_membership)
+        # Verify that the Celery task would be enqueued after transaction commits
+        mock_task.delay.assert_called_once_with("test-org-uuid", 42, "removed from organization")
 
-    @patch("posthog.models.remote_config.logger")
     @patch("django.db.transaction.on_commit")
-    def test_organization_membership_deleted_logs_when_scheduled(self, mock_on_commit, mock_logger):
-        """Test that organization_membership_deleted properly schedules cache updates."""
-
-        # Create mock user and organization
-        mock_user = MagicMock()
-        mock_user.id = 42
-
-        mock_org = MagicMock()
-        mock_org.id = "test-org-uuid"
-
-        # Create mock OrganizationMembership
-        mock_membership = MagicMock()
-        mock_membership.user = mock_user
-        mock_membership.organization = mock_org
-
-        # Call organization_membership_deleted
-        organization_membership_deleted(sender=OrganizationMembership, instance=mock_membership)
-
-        # Verify transaction.on_commit was called (update was scheduled)
-        mock_on_commit.assert_called_once()
-
-    def test_organization_membership_deleted_handles_none_user(self):
+    def test_organization_membership_deleted_handles_none_user(self, mock_on_commit):
         """Test that organization_membership_deleted handles membership with None user gracefully."""
 
-        # Create mock OrganizationMembership with None user
+        # Create mock OrganizationMembership with None user_id
         mock_membership = MagicMock()
-        mock_membership.user = None
+        mock_membership.organization_id = "test-org-uuid"
+        mock_membership.user_id = None
 
         # Should not raise an exception
         try:
@@ -211,25 +197,5 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
         except Exception as e:
             self.fail(f"organization_membership_deleted raised an exception with None user: {e}")
 
-    @patch("django.db.transaction.on_commit")
-    def test_organization_membership_deleted_with_different_kwargs(self, mock_on_commit):
-        """Test that organization_membership_deleted properly forwards kwargs to the cache update."""
-
-        # Create mock user and organization
-        mock_user = MagicMock()
-        mock_user.id = 42
-
-        mock_org = MagicMock()
-        mock_org.id = "test-org-uuid"
-
-        # Create mock OrganizationMembership
-        mock_membership = MagicMock()
-        mock_membership.user = mock_user
-        mock_membership.organization = mock_org
-
-        # Call organization_membership_deleted with additional kwargs
-        test_kwargs = {"raw": False, "using": "default"}
-        organization_membership_deleted(sender=OrganizationMembership, instance=mock_membership, **test_kwargs)
-
-        # Verify transaction.on_commit was called
+        # Should still schedule the task
         mock_on_commit.assert_called_once()

@@ -215,8 +215,8 @@ class User(AbstractUser, UUIDTClassicModel):
         instance._original_is_active = instance.is_active
         return instance
 
-    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
-        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+    def refresh_from_db(self, using=None, fields=None):
+        super().refresh_from_db(using=using, fields=fields)
         if fields is None or "is_active" in fields:
             self._original_is_active = self.is_active
 
