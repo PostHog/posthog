@@ -803,7 +803,7 @@ class _Printer(Visitor[str]):
             else:
                 assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
-            property_source = self.__get_materialized_property_source_for_property_type(property_type)
+            property_source = self.__get_materialized_property_source(property_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -848,7 +848,7 @@ class _Printer(Visitor[str]):
             if left_type is None or len(left_type.chain) > 1:
                 return None
 
-            property_source = self.__get_materialized_property_source_for_property_type(left_type)
+            property_source = self.__get_materialized_property_source(left_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -921,7 +921,7 @@ class _Printer(Visitor[str]):
             return None
 
         # Check if this property uses an individually materialized column (not a property group)
-        property_source = self.__get_materialized_property_source_for_property_type(property_type)
+        property_source = self.__get_materialized_property_source(property_type)
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
@@ -1208,7 +1208,7 @@ class _Printer(Visitor[str]):
                 # TODO: can probably optimize chained operations, but will need more thought
                 field_type = resolve_field_type(field)
                 if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
-                    property_source = self.__get_materialized_property_source_for_property_type(field_type)
+                    property_source = self.__get_materialized_property_source(field_type)
                     if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                         return None
 
@@ -1230,9 +1230,8 @@ class _Printer(Visitor[str]):
                 # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
                 # property is part of *any* property group, we can use that column instead to evaluate this expression
                 # more efficiently -- even if the materialized column would be a better choice in other situations.
-                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
-                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                        return property_source.has_expr
+                if property_source := self.__get_property_group_source_for_field(field_type, str(property_name)):
+                    return property_source.has_expr
 
         return None  # nothing to optimize
 
@@ -1723,8 +1722,8 @@ class _Printer(Visitor[str]):
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
-                if property_group_column := next(
-                    property_groups.get_property_group_columns(table_name, field_name, property_name), None
+                if property_group_column := property_groups.get_property_group_column(
+                    table_name, field_name, property_name
                 ):
                     return PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
@@ -1746,6 +1745,45 @@ class _Printer(Visitor[str]):
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
+
+        return None
+
+    def __get_property_group_source_for_field(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> PrintableMaterializedPropertyGroupItem | None:
+        """
+        Find a property group source for the given field and property name.
+        Used for JSONHas optimizations where we specifically need property group sources
+        (not mat_* columns) because property groups can efficiently check for key existence.
+        """
+        if self.dialect != "clickhouse":
+            return None
+
+        if self.context.modifiers.propertyGroupsMode not in (
+            PropertyGroupsMode.ENABLED,
+            PropertyGroupsMode.OPTIMIZED,
+        ):
+            return None
+
+        field = field_type.resolve_database_field(self.context)
+        table = field_type.table_type
+        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+            table = table.table_type
+
+        if not isinstance(table, ast.TableType):
+            return None
+
+        table_name = table.table.to_printed_clickhouse(self.context)
+        if field is None:
+            return None
+        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+        if property_group_column := property_groups.get_property_group_column(table_name, field_name, property_name):
+            return PrintableMaterializedPropertyGroupItem(
+                self.visit(field_type.table_type),
+                self._print_identifier(property_group_column),
+                self.context.add_value(property_name),
+            )
 
         return None
 

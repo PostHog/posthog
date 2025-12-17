@@ -63,18 +63,18 @@ class PropertyGroupManager:
     ) -> None:
         self.__groups = groups
 
-    def get_property_group_columns(
+    def get_property_group_column(
         self, table: TableName, source_column: PropertySourceColumnName, property_key: str
-    ) -> Iterable[str]:
+    ) -> str | None:
         """
-        Returns an iterable of column names for the map columns responsible for the provided property key and source
-        column. The iterable may contain zero items if no maps contain the property key, or multiple items if more than
-        one map if the keyspaces of the defined groups for that source column are overlapping.
+        Returns the column name for the map column responsible for the provided property key and source column,
+        or None if no property group contains this key.
         """
         if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(source_column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
-                    yield group_definition.get_column_name(source_column, group_name)
+                    return group_definition.get_column_name(source_column, group_name)
+        return None
 
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
         """
