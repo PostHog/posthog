@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-12 20:02:04 UTC
+// Generated at: 2025-12-17 10:03:54 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -72,6 +72,8 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'mistral'
     | 'modelrun'
+    | 'modelrun-fp4'
+    | 'modelrun-fp8'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-int4'
@@ -128,5 +130,6 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xai-fast'
+    | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

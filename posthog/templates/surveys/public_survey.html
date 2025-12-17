@@ -626,10 +626,12 @@
     </div>
 
     <!-- PostHog JavaScript -->
+    {{ survey_data|json_script:"survey-data" }}
+    {{ project_config|json_script:"project-config" }}
     <script nonce="{{ request.csp_nonce }}">
         // Project config from Django and helper functions
-        const survey = {{ survey_data | safe }};
-        const projectConfig = {{ project_config_json | safe }};
+        const survey = JSON.parse(document.getElementById("survey-data").textContent);
+        const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
 
         const BLACK_TEXT_COLOR = '#020617'
 

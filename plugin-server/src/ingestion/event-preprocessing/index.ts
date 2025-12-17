@@ -4,6 +4,7 @@ export { createApplyPersonProcessingRestrictionsStep } from './apply-person-proc
 export { createDropExceptionEventsStep } from './drop-exception-events'
 export { createParseHeadersStep } from './parse-headers'
 export { createParseKafkaMessageStep } from './parse-kafka-message'
+export { createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
 export { createResolveTeamStep } from './resolve-team'
 export { createValidateEventMetadataStep } from './validate-event-metadata'
 export { createValidateEventPropertiesStep } from './validate-event-properties'

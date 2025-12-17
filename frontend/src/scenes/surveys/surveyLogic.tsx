@@ -85,7 +85,7 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyVersionWarning, getSurveyVersionWarnings } from './surveyVersionRequirements'
+import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -815,7 +815,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, {
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters,
@@ -863,7 +863,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, {
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters, // Property filters applied in WHERE
@@ -907,7 +907,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     ORDER BY events.timestamp DESC
                     LIMIT ${limit}` as HogQLQueryString
 
-                const responseJSON = await api.queryHogQL(query, {
+                const responseJSON = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters,
@@ -1040,6 +1040,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
                 if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+                } else if (
+                    values.surveyErrors.questions != null &&
+                    !values.surveyErrors.questions.every((q) => q.question === false)
+                ) {
+                    actions.setSelectedSection(SurveyEditSection.Steps)
+                    const page = values.surveyErrors.questions.findIndex((q) => q.question !== false)
+                    if (page >= 0) {
+                        actions.setSelectedPageIndex(page)
+                    }
                 } else if (hasFormErrors(values.survey.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
@@ -2039,10 +2048,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return responsesByQuestion
             },
         ],
-        surveyVersionWarnings: [
+        surveyWarnings: [
             (s) => [s.survey, s.teamSdkVersions],
-            (survey, teamSdkVersions): SurveyVersionWarning[] => {
-                return getSurveyVersionWarnings(survey as Survey, teamSdkVersions)
+            (survey, teamSdkVersions): SurveyFeatureWarning[] => {
+                return getSurveyWarnings(survey as Survey, teamSdkVersions)
             },
         ],
     }),

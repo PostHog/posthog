@@ -78,9 +78,12 @@ governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
 http-body-util = "0.1.0"
 httpmock = "0.7.0"
+hyper = { version = "1.6", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
+metrics-util = "0.16.0"
 once_cell = "1.18.0"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"

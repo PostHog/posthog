@@ -106,15 +106,15 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
             errorCounter++
             captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                logger.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
+                logger.error('😡', 'Redis error encountered! url:', url, ' Enough of this, I quit!', error)
                 killGracefully()
             } else {
-                logger.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+                logger.error('🔴', 'Redis error encountered! url:', url, ' Trying to reconnect...', error)
             }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                logger.info('✅', 'Connected to Redis!')
+                logger.info('✅', 'Connected to Redis!', url)
             }
         })
     await redis.info()

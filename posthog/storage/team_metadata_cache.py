@@ -92,7 +92,6 @@ TEAM_METADATA_FIELDS = [
     "completed_snippet_onboarding",
     "has_completed_onboarding_for",
     "onboarding_tasks",
-    "ingested_event",
     "person_processing_opt_out",
     "extra_settings",
     "session_recording_opt_in",
@@ -248,6 +247,63 @@ def get_team_metadata(team: Team | str | int) -> dict[str, Any] | None:
         Dictionary with team metadata or None if not found
     """
     return team_metadata_hypercache.get_from_cache(team)
+
+
+def verify_team_metadata(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
+    """
+    Verify a team's metadata cache against the database.
+
+    Args:
+        team: Team to verify (must be a Team object with organization/project loaded)
+        batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        verbose: If True, include detailed diffs with field-level differences
+
+    Returns:
+        Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
+        When verbose=True, includes 'diffs' list with detailed diff information.
+    """
+    cached_data = get_team_metadata(team)
+
+    # Handle cache miss
+    if not cached_data:
+        return {
+            "status": "miss",
+            "issue": "CACHE_MISS",
+            "details": "No cached data found",
+        }
+
+    # Get database comparison data - use batch_data if available to avoid redundant serialization
+    if batch_data and team.id in batch_data:
+        db_data = batch_data[team.id]
+    else:
+        db_data = _serialize_team_to_metadata(team)
+
+    # Compare all fields
+    diffs = []
+    all_keys = set(db_data.keys()) | set(cached_data.keys())
+    for key in all_keys:
+        db_val = db_data.get(key)
+        cached_val = cached_data.get(key)
+        if db_val != cached_val:
+            diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
+
+    if not diffs:
+        return {"status": "match", "issue": "", "details": ""}
+
+    # Always include field names for logging; full values only when verbose
+    diff_fields = sorted([d["field"] for d in diffs])
+
+    result: dict = {
+        "status": "mismatch",
+        "issue": "DATA_MISMATCH",
+        "details": f"{len(diffs)} field(s) differ",
+        "diff_fields": diff_fields,
+    }
+
+    if verbose:
+        result["diffs"] = diffs
+
+    return result
 
 
 def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -> bool:

@@ -685,15 +685,15 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
-        // Load AI data for the current event
-        const eventData =
-            event && isLLMEvent(event)
-                ? {
-                      uuid: event.id,
-                      input: event.properties.$ai_input,
-                      output: event.properties.$ai_output_choices,
-                  }
-                : undefined
+        // Only pre-load for generation events ($ai_input/$ai_output_choices).
+        // TODO: Figure out why spans can't load properties async
+        const eventData = isGenerationEvent
+            ? {
+                  uuid: event.id,
+                  input: event.properties.$ai_input,
+                  output: event.properties.$ai_output_choices,
+              }
+            : undefined
         const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
 
         const handleTryInPlayground = (): void => {

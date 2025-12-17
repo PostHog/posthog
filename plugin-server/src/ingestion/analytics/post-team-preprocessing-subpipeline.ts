@@ -1,4 +1,4 @@
-import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import {
     createApplyPersonProcessingRestrictionsStep,
@@ -12,6 +12,7 @@ import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pip
 export interface PostTeamPreprocessingSubpipelineInput {
     headers: EventHeaders
     eventWithTeam: IncomingEventWithTeam
+    team: Team
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {

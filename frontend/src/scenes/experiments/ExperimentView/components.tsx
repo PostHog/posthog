@@ -27,6 +27,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
@@ -43,6 +44,8 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -483,7 +486,17 @@ export function PageHeaderCustom(): JSX.Element {
                         </ButtonPrimitive>
 
                         {experiment.feature_flag && (
-                            <ButtonPrimitive menuItem onClick={() => setSurveyModalOpen(true)}>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    setSurveyModalOpen(true)
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.EXPERIMENTS,
+                                        to: ProductKey.SURVEYS,
+                                        intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                    })
+                                }}
+                            >
                                 <IconPlusSmall /> Create survey
                             </ButtonPrimitive>
                         )}

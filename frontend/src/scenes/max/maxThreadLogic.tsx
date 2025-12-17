@@ -52,7 +52,7 @@ import { Conversation, ConversationDetail, ConversationStatus, ConversationType 
 
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import { ToolRegistration } from './max-constants'
-import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -175,6 +175,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
+        finalizeStreamingMessages: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
@@ -183,6 +184,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
         setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        appendMessageToConversation: (message: string) => ({ message }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (
             update: AssistantUpdateEvent | SubagentUpdateEvent,
@@ -220,6 +222,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ...state.slice(index + 1),
                 ],
                 setThread: (_, { thread }) => thread,
+                // Remove streaming messages on failure so server state becomes source of truth
+                finalizeStreamingMessages: (state) => state.filter((msg) => msg.status !== 'loading'),
             },
         ],
 
@@ -516,10 +520,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (releaseException) {
-                        if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                            actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                        } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                            actions.addMessage(relevantErrorMessage)
+                        // Remove streaming messages and reload from server (source of truth)
+                        actions.finalizeStreamingMessages()
+                        actions.addMessage(relevantErrorMessage)
+                        if (values.conversation?.id) {
+                            actions.loadConversation(values.conversation.id)
                         }
                     }
                 }
@@ -696,6 +701,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 console.error('Failed to navigate to notebook:', error)
             }
         },
+        appendMessageToConversation: async ({ message }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+
+            await api.conversations.appendMessage(conversationId, message)
+
+            actions.addMessage({
+                type: AssistantMessageType.Assistant,
+                content: message,
+                id: uuid(),
+                status: 'completed',
+            })
+        },
     })),
 
     selectors({
@@ -798,11 +818,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                     // Don't add thinking message if:
                     // 1. There are tool calls in progress, OR
-                    // 2. The last message is a streaming ASSISTANT message (no id) - it will show its own thinking/content
+                    // 2. The last message is a streaming ASSISTANT message (no ID or it starts with 'temp-') - it will show its own thinking/content
                     // Note: Human messages should always trigger thinking loader, only assistant messages can be "streaming"
                     // Note: NotebookUpdateMessages do stream, but they are not added to the thread until they have an id
                     const lastMessageIsStreamingAssistant =
-                        finalMessageSoFar && isAssistantMessage(finalMessageSoFar) && !finalMessageSoFar.id
+                        finalMessageSoFar &&
+                        isAssistantMessage(finalMessageSoFar) &&
+                        (!finalMessageSoFar.id || finalMessageSoFar.id.startsWith('temp-'))
                     const shouldAddThinkingMessage =
                         toolCallsInProgress.length === 0 && !lastMessageIsStreamingAssistant
 
@@ -870,11 +892,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 isImpersonatingExistingConversation,
         ],
 
-        submissionDisabledReason: [
+        contextDisabledReason: [
             (s) => [
                 s.formPending,
                 s.multiQuestionFormPending,
-                s.question,
                 s.threadLoading,
                 s.activeStreamingThreads,
                 s.isImpersonatingExistingConversation,
@@ -882,7 +903,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (
                 formPending,
                 multiQuestionFormPending,
-                question,
                 threadLoading,
                 activeStreamingThreads,
                 isImpersonatingExistingConversation
@@ -905,10 +925,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return 'Please answer the questions above'
                 }
 
-                if (!question) {
-                    return 'I need some input first'
-                }
-
                 // Prevent submission if too many active streaming threads (limit: 10)
                 if (activeStreamingThreads >= 10) {
                     return 'You have too many chats running. Please wait for one to finish.'
@@ -918,14 +934,44 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        submissionDisabledReason: [
+            (s) => [s.contextDisabledReason, s.question],
+            (contextDisabledReason, question): string | undefined => {
+                // Context-related reasons take precedence (form pending, streaming, etc.)
+                if (contextDisabledReason) {
+                    return contextDisabledReason
+                }
+
+                if (!question) {
+                    return 'I need some input first'
+                }
+
+                return undefined
+            },
+        ],
+
         filteredCommands: [
-            (s) => [s.question, s.featureFlags],
-            (question: string, featureFlags: Record<string, boolean | string>): SlashCommand[] =>
-                MAX_SLASH_COMMANDS.filter(
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext],
+            (
+                question: string,
+                featureFlags: Record<string, boolean | string>,
+                threadLoading: boolean,
+                billingContext: MaxBillingContext | null
+            ): SlashCommand[] => {
+                const hasPaidPlan =
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
+                    billingContext?.trial?.is_active ||
+                    process.env.NODE_ENV === 'development'
+
+                return MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
-                        (!command.flag || featureFlags[command.flag])
-                ),
+                        (!command.flag || featureFlags[command.flag]) &&
+                        (!command.requiresIdle || !threadLoading) &&
+                        (!command.requiresPaidPlan || hasPaidPlan)
+                )
+            },
         ],
 
         showDeepResearchModeToggle: [
@@ -1038,12 +1084,13 @@ function enhanceThreadToolCalls(
     }
 
     // Enhance assistant messages with tool call status
-    return group.map((message, index) => {
+    return group.map((message, messageIndex) => {
+        message = { ...message }
+        // A message is in the final group if it comes after or is the last human message
+        const isFinalGroup = messageIndex >= lastHumanMessageIndex
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
-            // A message is in the final group if it comes after or is the last human message
-            const isFinalGroup = index >= lastHumanMessageIndex
             const isLastPlanningMessage = message.id === lastPlanningMessageId
-            const enhancedToolCalls = message.tool_calls.map((toolCall) => {
+            message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const isCompleted = !!toolCallCompletions.get(toolCall.id)
                 const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
                 return {
@@ -1057,18 +1104,13 @@ function enhanceThreadToolCalls(
                     updates: toolCallUpdateMap.get(toolCall.id) ?? [],
                 }
             })
-
-            return {
-                ...message,
-                tool_calls: enhancedToolCalls,
-            }
         }
         return message
     })
 }
 
 /** Assistant streaming event handler. */
-async function onEventImplementation(
+export async function onEventImplementation(
     event: string,
     data: string,
     {
@@ -1152,24 +1194,27 @@ async function onEventImplementation(
                 ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
                 : -1
 
+            const isLoading = !parsedResponse.id || parsedResponse.id.startsWith('temp-')
             if (existingMessageIndex >= 0) {
-                // Replace existing message with same ID
+                // When streaming a message with an already-present ID, we simply replace it
+                // (primarily when streaming in-progress messages with a temp- ID)
                 actions.replaceMessage(existingMessageIndex, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: isLoading ? 'loading' : 'completed',
                 })
-            } else if (
-                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                values.threadRaw.length === 0
-            ) {
+            } else if (isLoading) {
+                // When a new temp message is streamed for the first time, we append it
                 actions.addMessage({
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'loading',
                 })
-            } else if (parsedResponse) {
-                actions.replaceMessage(values.threadRaw.length - 1, {
+            } else {
+                // When we get the completed messages at the end of a generation,
+                // we replace from the last completed message to arrive at the final state
+                const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
+                actions.replaceMessage(lastCompletedMessageIndex + 1, {
                     ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
+                    status: 'completed',
                 })
             }
         }

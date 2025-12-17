@@ -75,7 +75,7 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
-    cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
@@ -196,12 +196,6 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
 
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -225,8 +219,6 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
-    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
-    INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
 export type LogsIngestionConsumerConfig = {
@@ -467,9 +459,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
-    // New: switchover flag for v2 session recording metadata
-    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
-
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -488,13 +477,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
-
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
@@ -567,7 +549,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
-    cdpBehaviouralEvents?: boolean
+    cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -1485,8 +1467,3 @@ export interface HookPayload {
         }
     }
 }
-
-/**
- * Metadata switchover can be absent, enforced (boolean true), or after a provided date
- */
-export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

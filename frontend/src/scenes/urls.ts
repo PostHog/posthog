@@ -188,6 +188,7 @@ export const urls = {
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
+    organizationDeactivated: (): string => '/organization-deactivated',
 }
 
 export interface UrlMatcher {

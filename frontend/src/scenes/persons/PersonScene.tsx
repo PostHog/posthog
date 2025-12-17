@@ -19,7 +19,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isMobile } from 'lib/utils'
+import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { openInAdminPanel } from 'lib/utils/person-actions'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -133,9 +133,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
             })
 
             window.open(toolbarUrl, '_blank')
-            lemonToast.success(
-                `Launching toolbar with ${response.flag_count} feature flag override${response.flag_count === 1 ? '' : 's'}`
-            )
+            lemonToast.success(`Launching toolbar with ${pluralize(response.flag_count, 'feature flag override')}`)
         } catch (error) {
             lemonToast.error('Failed to launch toolbar. Please try again.')
             console.error('Error launching toolbar:', error)
@@ -440,7 +438,7 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
             disabledReason={disabledReason}
             size={size}
         >
-            Open in Admin Panel
+            Open in admin panel
         </LemonButton>
     )
 }
