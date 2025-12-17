@@ -16,7 +16,7 @@ jobs:
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
         permissions:
-          contents: read
+            contents: read
         steps:
             - name: Get app token
               id: app-token
