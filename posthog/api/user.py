@@ -436,6 +436,7 @@ class UserViewSet(
         "set_current_organization",
         "allow_sidebar_suggestions",
         "shortcut_position",
+        "has_seen_product_intro_for",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]

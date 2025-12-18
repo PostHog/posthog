@@ -18,7 +18,7 @@ import type {
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
-    PaginatedDataWarehouseSavedQueryListApi,
+    PaginatedDataWarehouseSavedQueryMinimalListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedQueryTabStateListApi,
     PatchedDataWarehouseSavedQueryApi,
@@ -551,7 +551,7 @@ export const environmentsExternalDataSourcesWizardRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryListApi
+    data: PaginatedDataWarehouseSavedQueryMinimalListApi
     status: 200
 }
 
@@ -1916,7 +1916,7 @@ export const queryTabStateUserRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryListApi
+    data: PaginatedDataWarehouseSavedQueryMinimalListApi
     status: 200
 }
 

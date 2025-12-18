@@ -14,13 +14,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 
 import { ScenePanel, ScenePanelDivider, ScenePanelInfoSection, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -94,7 +95,17 @@ const CreateSurveyButton = (): JSX.Element | null => {
     }
     return (
         <>
-            <ButtonPrimitive fullWidth onClick={() => setShowSurveyModal(true)}>
+            <ButtonPrimitive
+                fullWidth
+                onClick={() => {
+                    setShowSurveyModal(true)
+                    void addProductIntentForCrossSell({
+                        from: ProductKey.ERROR_TRACKING,
+                        to: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                    })
+                }}
+            >
                 <IconMessage />
                 Create survey
             </ButtonPrimitive>
@@ -107,6 +118,7 @@ const CreateSurveyButton = (): JSX.Element | null => {
                 info="This survey will trigger when users encounter matching exceptions. Adjust the filters below to target specific errors."
                 isOpen={showSurveyModal}
                 onCancel={() => setShowSurveyModal(false)}
+                showFollowupToggle={true}
             />
         </>
     )

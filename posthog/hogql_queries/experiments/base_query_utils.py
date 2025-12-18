@@ -24,7 +24,10 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Experiment
 from posthog.models.action.action import Action
@@ -84,7 +87,7 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             # Extract the inner expression from the HogQL expression
             math_hogql = source.math_hogql
             if math_hogql:
-                _, inner_expr = extract_aggregation_and_inner_expr(math_hogql)
+                _, inner_expr, _ = extract_aggregation_and_inner_expr(math_hogql)
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
@@ -299,9 +302,11 @@ def get_source_aggregation_expr(
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({table_alias}.value), 0))")
+                    # Build the aggregation with params if it's a parametric function
+                    inner_value_expr = parse_expr(f"coalesce(toFloat({table_alias}.value), 0)")
+                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
             # Default to sum if no aggregation function is found
             return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 

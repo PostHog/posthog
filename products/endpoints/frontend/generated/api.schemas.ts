@@ -1929,6 +1929,8 @@ export interface HogQLQueryModifiersApi {
     timings?: boolean | null
     /** @nullable */
     useMaterializedViews?: boolean | null
+    /** @nullable */
+    usePreaggregatedIntermediateResults?: boolean | null
     /**
      * Try to automatically convert HogQL queries to use preaggregated tables at the AST level *
      * @nullable

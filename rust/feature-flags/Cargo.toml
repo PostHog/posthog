@@ -72,3 +72,5 @@ assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
+tokio = { workspace = true, features = ["test-util"] }
+metrics-util = { workspace = true }

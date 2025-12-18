@@ -103,11 +103,10 @@ export const SourceTypeEnumApi = {
  * `Failed` - Failed
  * `Running` - Running
  */
-export type DataWarehouseSavedQueryStatusEnumApi =
-    (typeof DataWarehouseSavedQueryStatusEnumApi)[keyof typeof DataWarehouseSavedQueryStatusEnumApi]
+export type StatusD5cEnumApi = (typeof StatusD5cEnumApi)[keyof typeof StatusD5cEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehouseSavedQueryStatusEnumApi = {
+export const StatusD5cEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -251,13 +250,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
 }
 
-export interface PaginatedDataWarehouseSavedQueryListApi {
+export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DataWarehouseSavedQueryApi[]
+    results: DataWarehouseSavedQueryMinimalApi[]
 }
 
 /**
@@ -267,7 +266,7 @@ export interface PaginatedDataWarehouseSavedQueryListApi {
 export type DataWarehouseSavedQueryApiQuery = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehouseSavedQueryApiStatus = { ...DataWarehouseSavedQueryStatusEnumApi, ...NullEnumApi } as const
+export const DataWarehouseSavedQueryApiStatus = { ...StatusD5cEnumApi, ...NullEnumApi } as const
 /**
  * The status of when this SavedQuery last ran.
 
@@ -296,6 +295,11 @@ export type DataWarehouseSavedQueryApiOrigin =
     | (typeof DataWarehouseSavedQueryApiOrigin)[keyof typeof DataWarehouseSavedQueryApiOrigin]
     | null
 
+/**
+ * Shared methods for DataWarehouseSavedQuery serializers.
+
+This mixin is intended to be used with serializers.ModelSerializer subclasses.
+ */
 export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
@@ -352,10 +356,7 @@ export interface DataWarehouseSavedQueryApi {
 export type PatchedDataWarehouseSavedQueryApiQuery = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedDataWarehouseSavedQueryApiStatus = {
-    ...DataWarehouseSavedQueryStatusEnumApi,
-    ...NullEnumApi,
-} as const
+export const PatchedDataWarehouseSavedQueryApiStatus = { ...StatusD5cEnumApi, ...NullEnumApi } as const
 /**
  * The status of when this SavedQuery last ran.
 
@@ -384,6 +385,11 @@ export type PatchedDataWarehouseSavedQueryApiOrigin =
     | (typeof PatchedDataWarehouseSavedQueryApiOrigin)[keyof typeof PatchedDataWarehouseSavedQueryApiOrigin]
     | null
 
+/**
+ * Shared methods for DataWarehouseSavedQuery serializers.
+
+This mixin is intended to be used with serializers.ModelSerializer subclasses.
+ */
 export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
@@ -542,6 +548,77 @@ export interface PatchedQueryTabStateApi {
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const DataWarehouseSavedQueryMinimalApiStatus = { ...StatusD5cEnumApi, ...NullEnumApi } as const
+/**
+ * The status of when this SavedQuery last ran.
+
+* `Cancelled` - Cancelled
+* `Modified` - Modified
+* `Completed` - Completed
+* `Failed` - Failed
+* `Running` - Running
+ * @nullable
+ */
+export type DataWarehouseSavedQueryMinimalApiStatus =
+    | (typeof DataWarehouseSavedQueryMinimalApiStatus)[keyof typeof DataWarehouseSavedQueryMinimalApiStatus]
+    | null
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const DataWarehouseSavedQueryMinimalApiOrigin = { ...OriginEnumApi, ...NullEnumApi } as const
+/**
+ * Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset
+ * @nullable
+ */
+export type DataWarehouseSavedQueryMinimalApiOrigin =
+    | (typeof DataWarehouseSavedQueryMinimalApiOrigin)[keyof typeof DataWarehouseSavedQueryMinimalApiOrigin]
+    | null
+
+/**
+ * Lightweight serializer for list views - excludes large query field to reduce memory usage.
+ */
+export interface DataWarehouseSavedQueryMinimalApi {
+    readonly id: string
+    /** @nullable */
+    readonly deleted: boolean | null
+    readonly name: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly sync_frequency: string
+    readonly columns: string
+    /**
+   * The status of when this SavedQuery last ran.
+
+* `Cancelled` - Cancelled
+* `Modified` - Modified
+* `Completed` - Completed
+* `Failed` - Failed
+* `Running` - Running
+   * @nullable
+   */
+    readonly status: DataWarehouseSavedQueryMinimalApiStatus
+    /** @nullable */
+    readonly last_run_at: string | null
+    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly is_materialized: boolean | null
+    /**
+   * Where this SavedQuery is created.
+
+* `data_warehouse` - Data Warehouse
+* `endpoint` - Endpoint
+* `managed_viewset` - Managed Viewset
+   * @nullable
+   */
+    readonly origin: DataWarehouseSavedQueryMinimalApiOrigin
 }
 
 /**

@@ -5,6 +5,7 @@ import {
     IconCheckbox,
     IconCreditCard,
     IconDocument,
+    IconGlobe,
     IconMemory,
     IconSearch,
     IconShuffle,
@@ -15,11 +16,16 @@ import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
+
+export interface DisplayFormatterContext {
+    registeredToolMap: Record<string, ToolRegistration>
+}
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -40,7 +46,7 @@ export interface ToolDefinition<N extends string = string> {
     icon: JSX.Element
     displayFormatter?: (
         toolCall: EnhancedToolCall,
-        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+        { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
@@ -214,6 +220,30 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Read data',
         description: 'Read data, such as your data warehouse schema and billed usage statistics',
         icon: iconForType('data_warehouse'),
+        displayFormatter: function readDataDisplayFormatter(
+            toolCall: EnhancedToolCall,
+            context: DisplayFormatterContext
+        ) {
+            if (
+                this.subtools &&
+                isObject(toolCall.args?.query) &&
+                toolCall.args.query &&
+                'kind' in toolCall.args.query &&
+                typeof toolCall.args.query.kind === 'string' &&
+                toolCall.args.query.kind in this.subtools
+            ) {
+                const { displayFormatter } = this.subtools[toolCall.args.query.kind]
+                if (displayFormatter) {
+                    return displayFormatter(toolCall, context)
+                }
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Read data'
+            }
+
+            return 'Reading data...'
+        },
         subtools: {
             billing_info: {
                 name: 'Check your billing data',
@@ -226,15 +256,33 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Reading billing data...'
                 },
             },
-            datawarehouse_schema: {
-                name: 'Read your data warehouse schema',
-                description: 'Read your data warehouse schema',
+            data_warehouse_schema: {
+                name: 'Read data warehouse schema',
+                description: 'Read data warehouse schema available in this project',
                 icon: iconForType('data_warehouse'),
                 displayFormatter: (toolCall) => {
                     if (toolCall.status === 'completed') {
                         return 'Read data warehouse schema'
                     }
                     return 'Reading data warehouse schema...'
+                },
+            },
+            data_warehouse_table: {
+                name: 'Read data warehouse table schema',
+                description: 'Read data warehouse table schema for a specific table',
+                icon: iconForType('data_warehouse'),
+                displayFormatter: (toolCall) => {
+                    const tableName =
+                        isObject(toolCall.args?.query) && 'table_name' in toolCall.args.query
+                            ? toolCall.args.query.table_name
+                            : null
+
+                    if (toolCall.status === 'completed') {
+                        return tableName ? `Read schema for \`${tableName}\`` : 'Read data warehouse table schema'
+                    }
+                    return tableName
+                        ? `Reading schema for \`${tableName}\`...`
+                        : 'Reading data warehouse table schema...'
                 },
             },
             artifacts: {
@@ -246,6 +294,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                         return 'Read conversation artifacts'
                     }
                     return 'Reading conversation artifacts...'
+                },
+            },
+            insight: {
+                name: 'Retrieve an insight',
+                description: 'Retrieve an insight data',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    function isExecuting(): boolean {
+                        return !!(
+                            isObject(toolCall.args?.query) &&
+                            toolCall.args?.query &&
+                            'execute' in toolCall.args?.query &&
+                            toolCall.args?.query.execute
+                        )
+                    }
+
+                    if (toolCall.status === 'completed') {
+                        return isExecuting() ? 'Analyzed an insight' : 'Retrieved an insight'
+                    }
+                    return isExecuting() ? 'Analyzing an insight...' : 'Retrieving an insight...'
                 },
             },
         },
@@ -662,6 +730,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing sessions...'
         },
     },
+    web_search: {
+        name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
+        description: 'Search the web for up-to-date information',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                // The args won't be fully streamed initially, so we need to check if `query` is present
+                return toolCall.args.query ? `Searched the web for **${toolCall.args.query}**` : 'Searched the web'
+            }
+            return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
+        },
+        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
@@ -712,8 +793,13 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools(): ToolDefinition[] {
-    return DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+    const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+    if (webSearchEnabled) {
+        // Add web search after `search`
+        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
+    }
+    return defaultTools
 }
 
 export type SpecialMode = keyof typeof SPECIAL_MODES
@@ -725,7 +811,6 @@ export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
 
 export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
-    'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',

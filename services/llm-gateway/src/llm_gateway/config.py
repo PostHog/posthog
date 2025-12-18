@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+    gemini_api_key: str | None = None
 
     # Used to send gateway errors to error tracking
     posthog_api_key: str | None = None

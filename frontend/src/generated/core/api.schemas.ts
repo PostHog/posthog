@@ -1553,6 +1553,20 @@ export const ModelNameEnumApi = {
 } as const
 
 /**
+ * * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
+ */
+export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RecurrenceIntervalEnumApi = {
+    daily: 'daily',
+    weekly: 'weekly',
+    monthly: 'monthly',
+} as const
+
+/**
  * * `disabled` - disabled
  * `toolbar` - toolbar
  */
@@ -3475,6 +3489,19 @@ export interface PaginatedScheduledChangeListApi {
     results: ScheduledChangeApi[]
 }
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ScheduledChangeApiRecurrenceInterval = {
+    ...RecurrenceIntervalEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
+/**
+ * @nullable
+ */
+export type ScheduledChangeApiRecurrenceInterval =
+    | (typeof ScheduledChangeApiRecurrenceInterval)[keyof typeof ScheduledChangeApiRecurrenceInterval]
+    | null
+
 export interface ScheduledChangeApi {
     readonly id: number
     readonly team_id: number
@@ -3493,7 +3520,27 @@ export interface ScheduledChangeApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
+    is_recurring?: boolean
+    /** @nullable */
+    recurrence_interval?: ScheduledChangeApiRecurrenceInterval
+    /** @nullable */
+    readonly last_executed_at: string | null
+    /** @nullable */
+    end_date?: string | null
 }
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PatchedScheduledChangeApiRecurrenceInterval = {
+    ...RecurrenceIntervalEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
+/**
+ * @nullable
+ */
+export type PatchedScheduledChangeApiRecurrenceInterval =
+    | (typeof PatchedScheduledChangeApiRecurrenceInterval)[keyof typeof PatchedScheduledChangeApiRecurrenceInterval]
+    | null
 
 export interface PatchedScheduledChangeApi {
     readonly id?: number
@@ -3513,6 +3560,13 @@ export interface PatchedScheduledChangeApi {
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
+    is_recurring?: boolean
+    /** @nullable */
+    recurrence_interval?: PatchedScheduledChangeApiRecurrenceInterval
+    /** @nullable */
+    readonly last_executed_at?: string | null
+    /** @nullable */
+    end_date?: string | null
 }
 
 export interface PaginatedUserListApi {
@@ -3905,6 +3959,16 @@ export interface OrganizationApi {
      * @nullable
      */
     default_role_id?: string | null
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    readonly is_active: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @nullable
+     */
+    readonly is_not_active_reason: string | null
 }
 
 /**
@@ -3930,6 +3994,17 @@ export interface OrganizationBasicApi {
     /** @nullable */
     readonly membership_level: OrganizationBasicApiMembershipLevel
     members_can_use_personal_api_keys?: boolean
+    /**
+     * Set this to 'No' to temporarily disable an organization.
+     * @nullable
+     */
+    is_active?: boolean | null
+    /**
+     * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+     * @maxLength 200
+     * @nullable
+     */
+    is_not_active_reason?: string | null
 }
 
 export interface ScenePersonalisationBasicApi {

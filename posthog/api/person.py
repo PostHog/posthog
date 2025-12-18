@@ -74,6 +74,7 @@ from posthog.utils import convert_property_value, format_query_params_absolute_u
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
+# and make sure that they are materialized on prod!
 PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "email",
     "Email",

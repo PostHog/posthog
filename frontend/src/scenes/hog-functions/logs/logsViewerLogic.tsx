@@ -25,8 +25,8 @@ import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
-export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
+export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 
@@ -116,7 +116,7 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         ORDER BY timestamp ${hogql.raw(request.order)}
         LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
 
-    const response = await api.queryHogQL(query, {
+    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
             date_from: request.dateFrom ?? '-7d',
@@ -138,7 +138,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
     const query = hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
-        WHERE 1=1 
+        WHERE 1=1
         ${hogql.raw(buildBoundaryFilters(request))}
         AND instance_id in (
             SELECT DISTINCT instance_id
@@ -151,7 +151,7 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
         )
         ORDER BY timestamp DESC`
 
-    const response = await api.queryHogQL(query, {
+    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
         refresh: 'force_blocking',
         filtersOverride: {
             date_from: request.dateFrom ?? '-7d',
