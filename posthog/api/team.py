@@ -606,8 +606,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not settings.DEBUG:
             try:
                 raise_if_user_provided_url_unsafe(value)
-            except ValueError as e:
-                raise exceptions.ValidationError(f"Invalid webhook URL: {e}")
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+                )
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

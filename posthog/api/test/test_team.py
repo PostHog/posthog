@@ -409,7 +409,8 @@ def team_api_test_factory():
                 self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
             else:
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertIn("Invalid webhook URL", response.json().get("attr", "") or str(response.json()))
+                response_data = response.json()
+                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
 
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
