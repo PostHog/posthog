@@ -111,6 +111,48 @@ export class LazyLoader<T> {
         return this.cache
     }
 
+    /**
+     * Clean up orphaned entries in tracking objects that don't have corresponding cache entries
+     * This prevents memory leaks from accumulating over time
+     */
+    public cleanupOrphans(): void {
+        const cacheKeys = new Set(Object.keys(this.cache))
+
+        // Clean up orphaned lastUsed entries
+        for (const key in this.lastUsed) {
+            if (!cacheKeys.has(key)) {
+                delete this.lastUsed[key]
+            }
+        }
+
+        // Clean up orphaned cacheUntil entries
+        for (const key in this.cacheUntil) {
+            if (!cacheKeys.has(key)) {
+                delete this.cacheUntil[key]
+            }
+        }
+
+        // Clean up orphaned backgroundRefreshAfter entries
+        for (const key in this.backgroundRefreshAfter) {
+            if (!cacheKeys.has(key)) {
+                delete this.backgroundRefreshAfter[key]
+            }
+        }
+
+        // Clean up stale pending loads
+        for (const key in this.pendingLoads) {
+            // Check if the promise has been pending for too long
+            const promise = this.pendingLoads[key]
+            if (promise && !cacheKeys.has(key)) {
+                delete this.pendingLoads[key]
+            }
+        }
+
+        // Update cache size to be accurate
+        this.cacheSize = cacheKeys.size
+        this.updateCacheSizeMetric()
+    }
+
     public async get(key: string): Promise<T | null> {
         const loaded = await this.loadViaCache([key])
         return loaded[key] ?? null
@@ -131,31 +173,40 @@ export class LazyLoader<T> {
         this.lastUsed = {}
         this.cacheUntil = {}
         this.backgroundRefreshAfter = {}
+        this.pendingLoads = {} // Clear pending loads to prevent memory leak
         this.cacheSize = 0
-        // this.pendingLoads = {} // NOTE: We don't clear this
         this.updateCacheSizeMetric()
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
+        const keysToAdd: string[] = []
+        const now = Date.now()
+
         for (const [key, value] of Object.entries(map)) {
             // Track if this is a new key being added
             const isNewKey = !(key in this.cache)
             this.cache[key] = value ?? null
+
             if (isNewKey) {
-                this.cacheSize++
+                keysToAdd.push(key)
             }
+
             // Always update the lastUsed time
-            this.lastUsed[key] = Date.now()
+            this.lastUsed[key] = now
             const valueOrNull = value ?? null
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
-            this.cacheUntil[key] =
-                Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
+            this.cacheUntil[key] = now + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
 
             if (this.refreshBackgroundAgeMs) {
                 this.backgroundRefreshAfter[key] =
-                    Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+                    now + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
             }
         }
+
+        // Update cache size based on actual cache keys
+        this.cacheSize = Object.keys(this.cache).length
+
+        // Evict before updating metrics
         this.evictLRU()
         this.updateCacheSizeMetric()
     }
@@ -273,7 +324,14 @@ export class LazyLoader<T> {
             // and then picks out its value
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise
-                .then((map) => map[key] ?? null)
+                .then((map) => {
+                    // Clean up if the key was evicted while loading
+                    if (!(key in this.cache)) {
+                        delete this.pendingLoads[key]
+                        return null
+                    }
+                    return map[key] ?? null
+                })
                 .finally(() => {
                     delete this.pendingLoads[key]
                 })
@@ -293,6 +351,17 @@ export class LazyLoader<T> {
     }
 
     private evictLRU(): void {
+        // Ensure cacheSize is accurate
+        const actualCacheSize = Object.keys(this.cache).length
+        if (actualCacheSize !== this.cacheSize) {
+            logger.warn('[LazyLoader] Cache size mismatch', {
+                name: this.options.name,
+                reported: this.cacheSize,
+                actual: actualCacheSize,
+            })
+            this.cacheSize = actualCacheSize
+        }
+
         if (this.cacheSize <= this.maxSize) {
             return
         }
@@ -300,19 +369,28 @@ export class LazyLoader<T> {
         // Calculate how many to evict
         const toEvict = this.cacheSize - this.maxSize
 
-        // Sort entries by lastUsed time (oldest first) and take the N oldest
-        const entries = Object.entries(this.lastUsed).filter(([key]) => key in this.cache)
-        entries.sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
-        const keysToEvict = entries.slice(0, toEvict).map(([key]) => key)
+        // Get all cache keys and their lastUsed times
+        const entries: [string, number][] = []
+        for (const key in this.cache) {
+            entries.push([key, this.lastUsed[key] ?? 0])
+        }
+
+        // Sort by lastUsed time (oldest first)
+        entries.sort((a, b) => a[1] - b[1])
 
         // Evict the least recently used entries
+        const keysToEvict = entries.slice(0, toEvict).map(([key]) => key)
+
         for (const key of keysToEvict) {
             delete this.cache[key]
             delete this.lastUsed[key]
             delete this.cacheUntil[key]
             delete this.backgroundRefreshAfter[key]
-            this.cacheSize--
+            // Also clean up pendingLoads if present
+            delete this.pendingLoads[key]
         }
+
+        this.cacheSize = Object.keys(this.cache).length
     }
 
     private updateCacheSizeMetric(): void {

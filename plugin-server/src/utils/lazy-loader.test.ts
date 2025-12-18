@@ -391,4 +391,102 @@ describe('LazyLoader', () => {
             // Just verify we have exactly 2 entries
         })
     })
+
+    describe('Memory leak prevention', () => {
+        it('should not leak memory in tracking objects when cache entries are evicted', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 2,
+                bufferMs: 0,
+            })
+
+            // Add 5 items which should trigger eviction
+            loader.mockResolvedValueOnce({
+                key1: 'value1',
+                key2: 'value2',
+                key3: 'value3',
+                key4: 'value4',
+                key5: 'value5',
+            })
+
+            await customLoader.getMany(['key1', 'key2', 'key3', 'key4', 'key5'])
+
+            // Access internal properties for testing
+            const lazyLoaderInternal = customLoader as any
+
+            // Verify cache has correct size
+            expect(Object.keys(lazyLoaderInternal.cache).length).toBe(2)
+
+            // Verify tracking objects don't have more entries than cache
+            expect(Object.keys(lazyLoaderInternal.lastUsed).length).toBeLessThanOrEqual(2)
+            expect(Object.keys(lazyLoaderInternal.cacheUntil).length).toBeLessThanOrEqual(2)
+
+            // Clean up orphans
+            customLoader.cleanupOrphans()
+
+            // Verify all tracking objects are in sync
+            expect(Object.keys(lazyLoaderInternal.lastUsed).length).toBe(2)
+            expect(Object.keys(lazyLoaderInternal.cacheUntil).length).toBe(2)
+            expect(lazyLoaderInternal.cacheSize).toBe(2)
+        })
+
+        it('should clean up pending loads on clear', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                bufferMs: 100, // Add delay to keep promises pending
+            })
+
+            // Start loading but don't await
+            const promise1 = customLoader.get('key1')
+            const promise2 = customLoader.get('key2')
+
+            // Access internal properties
+            const lazyLoaderInternal = customLoader as any
+
+            // Verify pending loads exist
+            expect(Object.keys(lazyLoaderInternal.pendingLoads).length).toBeGreaterThan(0)
+
+            // Clear should remove pending loads
+            customLoader.clear()
+
+            expect(Object.keys(lazyLoaderInternal.pendingLoads).length).toBe(0)
+            expect(Object.keys(lazyLoaderInternal.cache).length).toBe(0)
+            expect(Object.keys(lazyLoaderInternal.lastUsed).length).toBe(0)
+
+            // Clean up promises
+            loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2' })
+            await Promise.all([promise1, promise2])
+        })
+
+        it('should maintain accurate cache size after updates', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 10,
+                bufferMs: 0,
+            })
+
+            // Add initial items
+            loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2' })
+            await customLoader.getMany(['key1', 'key2'])
+
+            const lazyLoaderInternal = customLoader as any
+            expect(lazyLoaderInternal.cacheSize).toBe(2)
+
+            // Update existing items (should not increase size)
+            loader.mockResolvedValueOnce({ key1: 'newvalue1', key2: 'newvalue2' })
+            customLoader.markForRefresh(['key1', 'key2'])
+            await customLoader.getMany(['key1', 'key2'])
+
+            expect(lazyLoaderInternal.cacheSize).toBe(2)
+
+            // Add new items
+            loader.mockResolvedValueOnce({ key3: 'value3', key4: 'value4' })
+            await customLoader.getMany(['key3', 'key4'])
+
+            expect(lazyLoaderInternal.cacheSize).toBe(4)
+        })
+    })
 })
