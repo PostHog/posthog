@@ -26,7 +26,7 @@ export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
-    passkey_credentials?: PublicKeyCredentialDescriptorJSON[]
+    webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
 
 export function handleLoginRedirect(): void {
@@ -174,13 +174,13 @@ export const loginLogic = kea<loginLogicType>([
             const { precheckResponse } = values
             // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
             if (
-                precheckResponse.passkey_credentials &&
-                precheckResponse.passkey_credentials.length > 0 &&
+                precheckResponse.webauthn_credentials &&
+                precheckResponse.webauthn_credentials.length > 0 &&
                 !precheckResponse.sso_enforcement
             ) {
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('./passkeyLogic')
-                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.passkey_credentials)
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
             }
         },
     })),

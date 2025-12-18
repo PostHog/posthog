@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 from django.contrib.auth import login
@@ -13,7 +14,7 @@ from webauthn import (
     verify_authentication_response,
     verify_registration_response,
 )
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.decode_credential_public_key import decode_credential_public_key
 from webauthn.helpers.structs import (
@@ -118,39 +119,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         logger.info("webauthn_registration_begin", user_id=user.pk, rp_id=get_webauthn_rp_id())
 
-        # Extract authenticator selection values
-        authenticator_selection = options.authenticator_selection
-        resident_key = authenticator_selection.resident_key.value if authenticator_selection else "required"
-        user_verification = authenticator_selection.user_verification.value if authenticator_selection else "preferred"
-        attestation = options.attestation.value if options.attestation else "none"
-
-        # Convert options to JSON-serializable format
-        return Response(
-            {
-                "rp": {"id": options.rp.id, "name": options.rp.name},
-                "user": {
-                    "id": bytes_to_base64url(options.user.id),
-                    "name": options.user.name,
-                    "displayName": options.user.display_name,
-                },
-                "challenge": bytes_to_base64url(options.challenge),
-                "pubKeyCredParams": [{"type": p.type, "alg": p.alg} for p in options.pub_key_cred_params],
-                "timeout": options.timeout,
-                "excludeCredentials": [
-                    {
-                        "id": bytes_to_base64url(c.id),
-                        "type": c.type,
-                        "transports": [t.value for t in (c.transports or [])],
-                    }
-                    for c in (options.exclude_credentials or [])
-                ],
-                "authenticatorSelection": {
-                    "residentKey": resident_key,
-                    "userVerification": user_verification,
-                },
-                "attestation": attestation,
-            }
-        )
+        return Response(json.loads(options_to_json(options)))
 
     @action(detail=False, methods=["POST"], url_path="complete")
     def complete(self, request: Request) -> Response:
@@ -269,24 +238,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         logger.info("webauthn_verification_begin", user_id=user.pk, credential_id=credential.pk)
 
-        user_verification = options.user_verification.value if options.user_verification else "preferred"
-
-        return Response(
-            {
-                "challenge": bytes_to_base64url(options.challenge),
-                "timeout": options.timeout,
-                "rpId": options.rp_id,
-                "allowCredentials": [
-                    {
-                        "id": bytes_to_base64url(c.id),
-                        "type": c.type,
-                        "transports": [t.value for t in (c.transports or [])],
-                    }
-                    for c in (options.allow_credentials or [])
-                ],
-                "userVerification": user_verification,
-            }
-        )
+        return Response(json.loads(options_to_json(options)))
 
     @action(detail=False, methods=["POST"], url_path="verify_complete")
     def verify_complete(self, request: Request) -> Response:
@@ -381,17 +333,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         logger.info("webauthn_login_begin", rp_id=get_webauthn_rp_id())
 
-        user_verification = options.user_verification.value if options.user_verification else "preferred"
-
-        return Response(
-            {
-                "challenge": bytes_to_base64url(options.challenge),
-                "timeout": options.timeout,
-                "rpId": options.rp_id,
-                "allowCredentials": [],
-                "userVerification": user_verification,
-            }
-        )
+        return Response(json.loads(options_to_json(options)))
 
     @action(detail=False, methods=["POST"], url_path="complete")
     def complete(self, request: Request) -> Response:
@@ -620,24 +562,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         logger.info("webauthn_credential_verify_begin", user_id=user.pk, credential_id=credential.pk)
 
-        user_verification = options.user_verification.value if options.user_verification else "preferred"
-
-        return Response(
-            {
-                "challenge": bytes_to_base64url(options.challenge),
-                "timeout": options.timeout,
-                "rpId": options.rp_id,
-                "allowCredentials": [
-                    {
-                        "id": bytes_to_base64url(c.id),
-                        "type": c.type,
-                        "transports": [t.value for t in (c.transports or [])],
-                    }
-                    for c in (options.allow_credentials or [])
-                ],
-                "userVerification": user_verification,
-            }
-        )
+        return Response(json.loads(options_to_json(options)))
 
     @action(detail=True, methods=["POST"], url_path="verify_complete")
     def verify_complete(self, request: Request, pk: Any = None) -> Response:

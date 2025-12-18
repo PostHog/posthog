@@ -55,8 +55,9 @@ class TestWebAuthnRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
+    @patch("posthog.api.webauthn.decode_credential_public_key")
     @patch("posthog.api.webauthn.verify_registration_response")
-    def test_registration_complete_stores_unverified_credential(self, mock_verify):
+    def test_registration_complete_stores_unverified_credential(self, mock_verify, mock_decode):
         begin_response = self.client.post("/api/webauthn/register/begin/")
         self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
 
@@ -65,6 +66,7 @@ class TestWebAuthnRegistration(APIBaseTest):
             credential_public_key=b"public-key-bytes",
             sign_count=0,
         )
+        mock_decode.return_value = MagicMock(alg=-7)
 
         complete_response = self.client.post(
             "/api/webauthn/register/complete/",
@@ -150,7 +152,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("userHandle", response.json()["error"])
 
-    @patch("posthog.api.webauthn.verify_authentication_response")
+    @patch("posthog.auth.verify_authentication_response")
     def test_login_complete_success(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
@@ -185,7 +187,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(me_response.json()["email"], self.user.email)
 
-    @patch("posthog.api.webauthn.verify_authentication_response")
+    @patch("posthog.auth.verify_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):
         from webauthn.helpers import bytes_to_base64url
 
@@ -214,7 +216,7 @@ class TestWebAuthnLogin(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not found", response.json()["error"].lower())
+        self.assertIn("authentication failed", response.json()["error"].lower())
 
 
 class TestWebAuthnCredentialManagement(APIBaseTest):
@@ -238,7 +240,7 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         response = self.client.get("/api/webauthn/credentials/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_list_credentials_returns_only_verified(self):
+    def test_list_credentials_returns_all(self):
         WebauthnCredential.objects.create(
             user=self.user,
             credential_id=b"unverified-credential",
@@ -254,8 +256,7 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         credentials = response.json()
-        self.assertEqual(len(credentials), 1)
-        self.assertEqual(credentials[0]["label"], "My Passkey")
+        self.assertEqual(len(credentials), 2)
 
     def test_list_credentials_only_returns_own(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password123")

@@ -61,7 +61,9 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False, "passkey_credentials": []})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
         # Note no Enterprise license can be found
@@ -75,9 +77,11 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False, "passkey_credentials": []})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
-    def test_login_precheck_returns_passkey_credentials_for_user_with_verified_passkey(self):
+    def test_login_precheck_returns_webauthn_credentials_for_user_with_verified_passkey(self):
         from posthog.models.webauthn_credential import WebauthnCredential
 
         user = User.objects.create_and_join(self.organization, "passkey_user@posthog.com", self.CONFIG_PASSWORD)
@@ -98,11 +102,11 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         self.assertEqual(response_data["sso_enforcement"], None)
         self.assertEqual(response_data["saml_available"], False)
-        self.assertEqual(len(response_data["passkey_credentials"]), 1)
-        self.assertEqual(response_data["passkey_credentials"][0]["type"], "public-key")
-        self.assertEqual(response_data["passkey_credentials"][0]["transports"], ["internal", "hybrid"])
+        self.assertEqual(len(response_data["webauthn_credentials"]), 1)
+        self.assertEqual(response_data["webauthn_credentials"][0]["type"], "public-key")
+        self.assertEqual(response_data["webauthn_credentials"][0]["transports"], ["internal", "hybrid"])
 
-    def test_login_precheck_does_not_return_unverified_passkey_credentials(self):
+    def test_login_precheck_does_not_return_unverified_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
 
         user = User.objects.create_and_join(self.organization, "unverified_passkey@posthog.com", self.CONFIG_PASSWORD)
@@ -121,16 +125,16 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertEqual(response_data["passkey_credentials"], [])
+        self.assertEqual(response_data["webauthn_credentials"], [])
 
-    def test_login_precheck_returns_empty_passkey_credentials_for_unknown_user(self):
+    def test_login_precheck_returns_empty_webauthn_credentials_for_unknown_user(self):
         response = self.client.post("/api/login/precheck", {"email": "nonexistent@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertEqual(response_data["passkey_credentials"], [])
+        self.assertEqual(response_data["webauthn_credentials"], [])
 
-    def test_login_precheck_returns_multiple_passkey_credentials(self):
+    def test_login_precheck_returns_multiple_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
 
         user = User.objects.create_and_join(self.organization, "multi_passkey@posthog.com", self.CONFIG_PASSWORD)
@@ -159,7 +163,7 @@ class TestLoginPrecheckAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertEqual(len(response_data["passkey_credentials"]), 2)
+        self.assertEqual(len(response_data["webauthn_credentials"]), 2)
 
 
 class TestLoginAPI(APIBaseTest):
