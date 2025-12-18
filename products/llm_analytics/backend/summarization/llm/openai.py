@@ -1,7 +1,10 @@
 """OpenAI provider for LLM summarization."""
 
+from typing import Any, cast
+
 import structlog
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from rest_framework import exceptions
 
 from ..constants import SUMMARIZATION_TIMEOUT
@@ -24,23 +27,26 @@ async def summarize_with_openai(
 
     client = AsyncOpenAI(timeout=SUMMARIZATION_TIMEOUT)
 
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
     try:
         response = await client.chat.completions.create(
-            model=model,
+            model=str(model),
             messages=messages,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "summarization_response",
-                    "strict": True,
-                    "schema": SummarizationResponse.model_json_schema(),
+            response_format=cast(
+                Any,
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "summarization_response",
+                        "strict": True,
+                        "schema": SummarizationResponse.model_json_schema(),
+                    },
                 },
-            },
+            ),
         )
 
         content = response.choices[0].message.content

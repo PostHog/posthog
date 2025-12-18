@@ -6,6 +6,8 @@ Supports:
 - Gemini: Uses google.genai directly
 """
 
+from typing import cast
+
 from ..constants import DEFAULT_MODE, DEFAULT_MODEL_GEMINI, DEFAULT_MODEL_OPENAI, DEFAULT_PROVIDER
 from ..models import GeminiModel, OpenAIModel, SummarizationMode, SummarizationProvider
 from .gemini import summarize_with_gemini
@@ -34,8 +36,8 @@ async def summarize(
         Structured summarization response with flow diagram, bullets, and notes
     """
     if provider == SummarizationProvider.GEMINI:
-        model_to_use = model or DEFAULT_MODEL_GEMINI
-        return await summarize_with_gemini(text_repr, team_id, mode, model_to_use)
+        gemini_model = cast(GeminiModel, model) if model else DEFAULT_MODEL_GEMINI
+        return await summarize_with_gemini(text_repr, team_id, mode, gemini_model)
     else:
-        model_to_use = model or DEFAULT_MODEL_OPENAI
-        return await summarize_with_openai(text_repr, team_id, mode, model_to_use)
+        openai_model = cast(OpenAIModel, model) if model else DEFAULT_MODEL_OPENAI
+        return await summarize_with_openai(text_repr, team_id, mode, openai_model)

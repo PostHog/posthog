@@ -21,17 +21,17 @@ class TestSummaryBullet:
 
     def test_missing_text_raises(self):
         with pytest.raises(ValidationError) as exc_info:
-            SummaryBullet(line_refs="L5")
+            SummaryBullet(line_refs="L5")  # type: ignore[call-arg]
         assert "text" in str(exc_info.value)
 
     def test_missing_line_refs_raises(self):
         with pytest.raises(ValidationError) as exc_info:
-            SummaryBullet(text="Some text")
+            SummaryBullet(text="Some text")  # type: ignore[call-arg]
         assert "line_refs" in str(exc_info.value)
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError) as exc_info:
-            SummaryBullet(text="Some text", line_refs="L5", extra_field="not allowed")
+            SummaryBullet(text="Some text", line_refs="L5", extra_field="not allowed")  # type: ignore[call-arg]
         assert "extra_field" in str(exc_info.value).lower() or "extra" in str(exc_info.value).lower()
 
 
@@ -48,12 +48,12 @@ class TestInterestingNote:
 
     def test_missing_text_raises(self):
         with pytest.raises(ValidationError) as exc_info:
-            InterestingNote(line_refs="L5")
+            InterestingNote(line_refs="L5")  # type: ignore[call-arg]
         assert "text" in str(exc_info.value)
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError) as exc_info:
-            InterestingNote(text="Note", line_refs="L5", severity="high")
+            InterestingNote(text="Note", line_refs="L5", severity="high")  # type: ignore[call-arg]
         assert "severity" in str(exc_info.value).lower() or "extra" in str(exc_info.value).lower()
 
 

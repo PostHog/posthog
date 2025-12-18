@@ -16,6 +16,12 @@ from posthog.temporal.llm_analytics.trace_summarization.models import Summarizat
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+from products.llm_analytics.backend.summarization.models import (
+    GeminiModel,
+    OpenAIModel,
+    SummarizationMode,
+    SummarizationProvider,
+)
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_trace_text_repr,
@@ -171,12 +177,22 @@ async def generate_and_save_summary_activity(
 
     # Generate summary using LLM
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
+    # Convert string inputs to enum types
+    mode_enum = SummarizationMode(mode)
+    provider_enum = SummarizationProvider(provider) if provider else SummarizationProvider.OPENAI
+    model_enum: OpenAIModel | GeminiModel | None = None
+    if model:
+        if provider_enum == SummarizationProvider.GEMINI:
+            model_enum = GeminiModel(model)
+        else:
+            model_enum = OpenAIModel(model)
+
     summary_result = await summarize(
         text_repr=text_repr,
         team_id=team_id,
-        mode=mode,
-        provider=provider,
-        model=model,
+        mode=mode_enum,
+        provider=provider_enum,
+        model=model_enum,
     )
 
     # Save event to ClickHouse immediately
