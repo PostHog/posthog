@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, cast
@@ -126,6 +127,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "conversations_enabled",
+            "conversations_settings",
         ]
         read_only_fields = fields
 
@@ -191,6 +194,8 @@ TEAM_CONFIG_FIELDS = (
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",
+    "conversations_enabled",
+    "conversations_settings",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -600,6 +605,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_conversations_settings(self, value: dict | None) -> dict | None:
+        if value is None:
+            return value
+        # Filter out None values from widget_domains if present
+        if "widget_domains" in value and value["widget_domains"] is not None:
+            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        return value
+
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
         if value is None or value == "":
             return None
@@ -752,6 +765,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
             }
+
+        # Handle conversations_settings merging
+        if "conversations_settings" in validated_data:
+            existing_settings = instance.conversations_settings or {}
+            new_settings = validated_data["conversations_settings"] or {}
+            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+
+        # Auto-generate/clear conversations token based on conversations_enabled
+        if "conversations_enabled" in validated_data:
+            current_settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
+            has_token = current_settings.get("widget_public_token")
+            is_enabling = validated_data["conversations_enabled"] and not instance.conversations_enabled
+            is_disabling = not validated_data["conversations_enabled"] and instance.conversations_enabled
+
+            if is_enabling and not has_token:
+                # Auto-generate token when enabling for the first time
+                settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
+                settings["widget_public_token"] = secrets.token_urlsafe(32)
+                validated_data["conversations_settings"] = settings
+            elif is_disabling:
+                # Clear token when disabling
+                settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
+                settings["widget_public_token"] = None
+                validated_data["conversations_settings"] = settings
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
@@ -1086,6 +1123,19 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.generate_conversations_public_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)

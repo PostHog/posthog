@@ -70,6 +70,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'sharing_configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectPlural: 'surveys' },
+    { key: 'ticket', objectPlural: 'tickets' },
     {
         key: 'user',
         objectPlural: 'users',
