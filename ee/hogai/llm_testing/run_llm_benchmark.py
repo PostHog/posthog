@@ -19,12 +19,12 @@ import anthropic
 from google import genai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
-# Configuration
+# Configuration, ordering to avoid hitting a single API too often
 MODELS = [
     "gemini-3-pro-preview",
-    "gemini-3-flash-preview",
-    "gpt-5.2",
     "claude-sonnet-4-5-20250929",
+    "gpt-5.2",
+    "gemini-3-flash-preview",
     "claude-opus-4-5-20251101",
 ]
 
@@ -250,7 +250,7 @@ def load_prompts() -> list[tuple[str, str, str]]:
 
     dedup = list(prompts_dict.values())
     # TODO: Remove after testing
-    dedup = dedup[:2]
+    dedup = dedup[:3]
     return dedup
 
 
