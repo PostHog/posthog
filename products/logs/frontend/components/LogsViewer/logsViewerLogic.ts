@@ -8,9 +8,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
-
-import type { logsViewerLogicType, logsViewerSettingsLogicType } from './logsViewerLogicType'
+import { LogsOrderBy, ParsedLogMessage } from '../../types'
+import type { logsViewerLogicType } from './logsViewerLogicType'
+import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
 
 export interface VisibleLogsTimeRange {
     date_from: string
@@ -28,47 +28,6 @@ export interface LogsViewerLogicProps {
     orderBy: LogsOrderBy
     onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
-
-// Shared logic for user preferences which should be used across all tabs+windows
-const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
-    path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerSettingsLogic']),
-
-    actions({
-        // Timezone (IANA string, e.g. "UTC", "America/New_York")
-        setTimezone: (timezone: string) => ({ timezone }),
-
-        // Display options
-        setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
-    }),
-
-    reducers(({}) => ({
-        // Timezone selection (IANA string, persisted)
-        timezone: [
-            'UTC',
-            { persist: true },
-            {
-                setTimezone: (_, { timezone }) => timezone,
-            },
-        ],
-
-        wrapBody: [
-            true,
-            { persist: true },
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
-            },
-        ],
-
-        prettifyJson: [
-            true,
-            { persist: true },
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
-            },
-        ],
-    })),
-])
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
     path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
