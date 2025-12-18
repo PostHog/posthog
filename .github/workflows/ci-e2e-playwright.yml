@@ -136,7 +136,6 @@ jobs:
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -188,7 +187,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version: 3.12.12
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
               id: setup-uv
@@ -503,10 +501,18 @@ jobs:
         needs: [playwright, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
+            # Use GitHub app token so Actions run after commiting updated snapshots
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
             - uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
-                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  token: ${{ steps.app-token.outputs.token || github.token }}
 
             - name: Download screenshot patches
               id: download-patches
@@ -550,7 +556,7 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  github-token: ${{ steps.app-token.outputs.token || github.token }}
 
     # Job to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-screenshots to prevent auto-merge before commits complete

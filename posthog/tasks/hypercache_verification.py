@@ -86,7 +86,7 @@ def _run_cache_verification(cache_type: CacheType) -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=4 * 60 * 60 - 300,  # 3h 55min warning
+    soft_time_limit=3 * 60 * 60 + 30 * 60,  # 3h 30min soft limit
     time_limit=4 * 60 * 60,  # 4 hour hard limit (distributed lock prevents overlap)
 )
 def verify_and_fix_flags_cache_task() -> None:
@@ -105,7 +105,7 @@ def verify_and_fix_flags_cache_task() -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=4 * 60 * 60 - 300,  # 3h 55min warning
+    soft_time_limit=3 * 60 * 60 + 30 * 60,  # 3h 30min soft limit
     time_limit=4 * 60 * 60,  # 4 hour hard limit (distributed lock prevents overlap)
 )
 def verify_and_fix_team_metadata_cache_task() -> None:
