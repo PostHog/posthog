@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models import QuerySet
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -18,6 +18,7 @@ from posthog.models.feature_flag.feature_flag import AbstractBaseUser
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import HttpRequest
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
@@ -476,3 +477,16 @@ def survey_changed(sender, instance: "Survey", **kwargs):
 
     # Defer task execution until after the transaction commits
     transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))
+
+
+@receiver(pre_delete, sender=Survey)
+def delete_survey_scheduled_jobs(sender, instance: "Survey", **kwargs):
+    sender.objects.filter(pk=instance.pk).update(
+        scheduled_start_datetime=None,
+        scheduled_end_datetime=None,
+    )
+    ScheduledChange.objects.filter(
+        model_name="Survey",
+        record_id=str(instance.id),
+        executed_at__isnull=True,
+    ).delete()

@@ -5163,6 +5163,68 @@ class TestSurveyStartResumeClearsScheduling(APIBaseTest):
             == 0
         )
 
+    def test_scheduled_start_clears_scheduled_times_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Ended survey with schedules",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=None,
+            end_date=datetime.now(UTC) - timedelta(days=1),
+            scheduled_start_datetime=scheduled_start,
+            scheduled_end_datetime=scheduled_end,
+        )
+
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_start,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_start_datetime": scheduled_start.isoformat()},
+        )
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_end,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_end_datetime": scheduled_end.isoformat()},
+        )
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        with (
+            patch("posthog.event_usage.report_user_action"),
+            patch("posthog.api.survey.report_user_action"),
+        ):
+            survey.scheduled_changes_dispatcher(
+                {"scheduled_start_datetime": scheduled_start.isoformat()},
+                user=self.user,
+                scheduled_change_id=123,
+            )
+
+        survey.refresh_from_db()
+        assert survey.start_date is not None
+        assert survey.end_date is None
+        assert survey.scheduled_start_datetime is None
+        assert survey.scheduled_end_datetime is None
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
     def test_resuming_immediately_clears_scheduled_start_and_deletes_jobs(self):
         survey = Survey.objects.create(
             team=self.team,
@@ -5239,6 +5301,47 @@ class TestSurveyStartResumeClearsScheduling(APIBaseTest):
                 payload__has_key="scheduled_start_datetime",
             ).count()
             == 1
+        )
+
+
+class TestSurveyDeleteCleansUpScheduledJobs(APIBaseTest):
+    def test_deleting_survey_deletes_pending_scheduled_changes(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Scheduled survey to delete",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "scheduled_start_datetime": scheduled_start.isoformat(),
+                "scheduled_end_datetime": scheduled_end.isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey_id),
+                executed_at__isnull=True,
+            ).count()
+            == 2
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey_id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey_id),
+                executed_at__isnull=True,
+            ).count()
+            == 0
         )
 
 

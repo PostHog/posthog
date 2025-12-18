@@ -416,18 +416,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         end_date_in_request = "end_date" in validated_data
         start_date_in_request = "start_date" in validated_data
 
-        # Ending a survey always clears any future schedules.
+        # Ending a survey clears future schedules.
         if end_date_in_request and validated_data.get("end_date") is not None:
+            _clear_scheduled_times()
+            return
+
+        # Starting a survey clears future schedules.
+        if start_date_in_request and validated_data.get("start_date") is not None:
             _clear_scheduled_times()
             return
 
         # Scheduled changes should not be treated as user-initiated scheduling edits.
         if trigger_source == "scheduled_change":
-            return
-
-        # Starting a survey immediately clears any future schedules.
-        if start_date_in_request and validated_data.get("start_date") is not None:
-            _clear_scheduled_times()
             return
 
         # If we're resuming now (explicit end_date=None), clear an immediate/omitted scheduled start.
