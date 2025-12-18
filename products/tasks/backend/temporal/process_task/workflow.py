@@ -29,6 +29,7 @@ from .activities.get_task_processing_context import (
 )
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
+from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
 
 @dataclass
@@ -75,6 +76,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         try:
             self._context = await self._get_task_processing_context(input)
+            await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
                 "process_task_workflow_started",
@@ -109,6 +111,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
+            await self._update_task_run_status("completed")
             await self._post_slack_update()
 
             return ProcessTaskOutput(
@@ -119,12 +122,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         except asyncio.CancelledError:
+            await self._update_task_run_status("cancelled")
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
                 sandbox_id = None
             raise
 
         except Exception as e:
+            error_message = str(e)[:500]
             if self._context:
                 await self._track_workflow_event(
                     "process_task_workflow_failed",
@@ -132,10 +137,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "run_id": run_id,
                         "task_id": self.context.task_id,
                         "error_type": type(e).__name__,
-                        "error_message": str(e)[:500],
+                        "error_message": error_message,
                         "sandbox_id": sandbox_id,
                     },
                 )
+                await self._update_task_run_status("failed", error_message=error_message)
                 await self._post_slack_update()
 
             return ProcessTaskOutput(
@@ -194,6 +200,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             track_input,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    async def _update_task_run_status(self, status: str, error_message: Optional[str] = None) -> None:
+        await workflow.execute_activity(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(
+                run_id=self.context.run_id,
+                status=status,
+                error_message=error_message,
+            ),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _trigger_snapshot_workflow(self) -> None:
