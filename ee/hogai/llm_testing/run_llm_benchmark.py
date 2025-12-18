@@ -28,7 +28,7 @@ MODELS = [
     "claude-opus-4-5-20251101",
 ]
 
-TIMEOUT_SECONDS = 300  # 5 minutes
+TIMEOUT_SECONDS = 25  # 5 minutes
 SEMAPHORE_LIMIT = 20
 TEMPERATURE = 0
 
@@ -179,6 +179,7 @@ async def make_request(experiment_id: str, model: str, system_prompt: str, promp
         async with STATE_LOCK:
             STATE[experiment_id][model]["timeout_count"] += 1
             save_state(STATE)
+        print(f"Timeout for {experiment_id} with {model}")
         raise LLMBenchmarkRetryException(f"Timeout for {experiment_id} with {model}")
 
     except LLMBenchmarkRetryException:
@@ -188,6 +189,7 @@ async def make_request(experiment_id: str, model: str, system_prompt: str, promp
         async with STATE_LOCK:
             STATE[experiment_id][model]["error_count"] += 1
             save_state(STATE)
+        print(f"Error for {experiment_id} with {model}: {e}")
         raise LLMBenchmarkRetryException(f"Error for {experiment_id} with {model}: {e}")
 
     elapsed_s = time.perf_counter() - start_time
@@ -288,7 +290,7 @@ def calculate_stats(values: list[float]) -> dict[str, float]:
     }
 
 
-def print_stats(state: dict[str, dict[str, Any]]) -> None:
+def print_stats(state: dict[str, dict[str, Any]], expected_count: int) -> None:
     """Print statistics per model."""
     print("\n" + "=" * 80)
     print("BENCHMARK RESULTS")
@@ -349,6 +351,7 @@ def print_stats(state: dict[str, dict[str, Any]]) -> None:
         print(f"    min: {output_stats['min']:.0f}")
         print(f"    max: {output_stats['max']:.0f}")
         print(f"  Totals:")
+        print(f"    expected: {expected_count}")
         print(f"    successful: {total_success}")
         print(f"    errors: {total_errors} ({error_rate:.2f}%)")
         print(f"    timeouts: {total_timeouts} ({timeout_rate:.2f}%)")
@@ -371,7 +374,7 @@ async def main() -> None:
         print(f"\nTesting {model}...")
         await run_benchmark_for_model(model, prompts)
 
-    print_stats(STATE)
+    print_stats(STATE, len(prompts))
 
 
 if __name__ == "__main__":
