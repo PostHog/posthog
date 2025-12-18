@@ -296,7 +296,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.exception("webauthn_verification_error", user_id=user.pk, error=str(e))
             return Response(
-                {"error": f"Verification failed: {str(e)}"},
+                {"error": f"Verification failed: could not complete verification"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
