@@ -60,6 +60,7 @@ jobs:
     deploy:
         runs-on: ubuntu-24.04
         needs: build
+        permissions: {}
         steps:
             - name: get deployer token
               id: deployer
@@ -78,7 +79,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ needs.build.outputs.sha }}"
+                            "sha": "${{ github.sha }}@${{ needs.build.outputs.sha }}"
                           }
                         },
                         "release": "llm-gateway",
