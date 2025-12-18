@@ -118,6 +118,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     <Query query={query} readOnly embedded />
                 </div>
             )}
+            <div className="h-px bg-border-primary -mx-3" />
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                 <div className="flex items-center gap-1.5">
                     <LemonButton
@@ -127,9 +128,9 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                         className="-m-1 shrink"
                         tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
                     >
-                        <h5 className="m-0 leading-none">
+                        <span className="m-0 leading-none">
                             <TopHeading query={query} />
-                        </h5>
+                        </span>
                     </LemonButton>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -163,10 +164,10 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                 <>
                     <SeriesSummary query={query.source} heading={null} />
                     {!isHogQLQuery(query.source) && (
-                        <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                        <>
                             <PropertiesSummary properties={query.source.properties} />
                             <InsightBreakdownSummary query={query.source} />
-                        </div>
+                        </>
                     )}
                 </>
             )}

@@ -55,10 +55,13 @@ export function TopHeading({
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
 
+    const IconComponent = QUERY_TYPES_METADATA[query?.kind ?? NodeKind.TrendsQuery].icon
+
     const resolvedDateTooltip = formatResolvedDateRange(resolvedDateRange)
 
     return (
         <div className="flex items-center gap-1">
+            <IconComponent className="size-[14px]" />
             <span title={insightType?.description}>{insightType?.name}</span>
             {dateText ? (
                 <>
