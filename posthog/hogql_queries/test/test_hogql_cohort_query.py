@@ -1068,3 +1068,50 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should have INTERSECT DISTINCT for the AND group (email + name)
         self.assertIn("INTERSECT DISTINCT", query_str)
+
+    def test_properties_without_condition_hash_are_not_merged(self) -> None:
+        """
+        Test that properties without conditionHash are not merged and don't cause empty IN clauses.
+
+        This tests the edge case where multiple properties have the same key and operator
+        but none of them have conditionHash set. The validation should prevent creating
+        a merged property with empty hashes.
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",
+                            "negation": False,
+                            "operator": "icontains",
+                            # Note: No conditionHash
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@yahoo.com",
+                            "negation": False,
+                            "operator": "icontains",
+                            # Note: No conditionHash
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Properties Without Hash", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        # Should raise ValueError because realtime cohorts require conditionHash
+        with self.assertRaises(ValueError) as context:
+            hogql_query.query_str("clickhouse")
+
+        self.assertIn("conditionhash", str(context.exception).lower())

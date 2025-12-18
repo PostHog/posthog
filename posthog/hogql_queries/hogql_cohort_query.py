@@ -620,13 +620,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         Without deduplication, HAVING matching_count = 2 would fail because IN would only
         match 1 distinct condition.
         """
-        seen: set[str] = set()
-        unique_hashes: list[str] = []
-        for h in hashes:
-            if h not in seen:
-                seen.add(h)
-                unique_hashes.append(h)
-        return unique_hashes
+        # dict.fromkeys() preserves insertion order in Python 3.7+ and is more efficient
+        return list(dict.fromkeys(hashes))
 
     def _create_merged_property(self, template: Property, unique_hashes: list[str], is_or_group: bool) -> Property:
         """Create a merged property from a template with multiple condition hashes."""
@@ -719,9 +714,14 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 # Collect and deduplicate hashes
                 hashes = [p.conditionHash for p in props if p.conditionHash]
                 unique_hashes = self._deduplicate_hashes(hashes)
-                # Create merged property
-                merged_prop = self._create_merged_property(props[0], unique_hashes, is_or_group)
-                merged_values.append(merged_prop)
+                # Only create merged property if we have condition hashes to merge
+                if unique_hashes:
+                    # Create merged property
+                    merged_prop = self._create_merged_property(props[0], unique_hashes, is_or_group)
+                    merged_values.append(merged_prop)
+                else:
+                    # No condition hashes available, keep properties as-is
+                    merged_values.extend(props)
             else:
                 merged_values.extend(props)
 
@@ -796,8 +796,10 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 # Single hash after dedup: wrap back in group to preserve structure
                 template = first_property_by_key[key]
                 single_prop = template.copy() if hasattr(template, "copy") else Property(**template.to_dict())
-                if hasattr(single_prop, "_merged_condition_hashes"):
-                    delattr(single_prop, "_merged_condition_hashes")
+                # Safely remove merged attributes if they exist
+                for attr in ["_merged_condition_hashes", "_is_or_group"]:
+                    if hasattr(single_prop, attr):
+                        delattr(single_prop, attr)
                 merged_values.append(PropertyGroup(type=PropertyOperatorType.OR, values=[single_prop]))
 
         merged_values.extend(other_values)
