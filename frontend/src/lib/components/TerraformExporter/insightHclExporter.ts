@@ -116,7 +116,6 @@ export function generateInsightHCL(
     const allWarnings: string[] = []
     const hclSections: string[] = []
 
-    // Count resources for summary
     const alertCount = options.alerts?.length || 0
     const hogFunctionCount = options.hogFunctionsByAlertId
         ? Array.from(options.hogFunctionsByAlertId.values()).flat().length
@@ -126,7 +125,6 @@ export function generateInsightHCL(
     allWarnings.push(...result.warnings)
     hclSections.push(result.hcl)
 
-    // Generate child alerts if provided
     if (options.alerts && options.alerts.length > 0) {
         const insightTfName = sanitizeResourceName(
             INSIGHT_EXPORTER.getResourceName(insight),

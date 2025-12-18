@@ -34,7 +34,7 @@ async function fetchAlertsForInsights(insights: InsightModel[]): Promise<Map<num
             return { insightId: insight.id, alerts: response.results }
         } catch (e) {
             posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                extra: { context: 'TerraformExport', operation: 'fetchAlerts', insightId: insight.id },
+                extra: { context: 'TerraformExporter', operation: 'fetchAlertsForInsights', insightId: insight.id },
             })
             return { insightId: insight.id, alerts: [] }
         }
@@ -63,7 +63,7 @@ async function fetchHogFunctionsForAlerts(alerts: AlertType[]): Promise<Map<stri
             return { alertId: alert.id, hogFunctions: response.results }
         } catch (e) {
             posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                extra: { context: 'TerraformExport', operation: 'fetchHogFunctions', alertId: alert.id },
+                extra: { context: 'TerraformExporter', operation: 'fetchHogFunctionsForAlerts', alertId: alert.id },
             })
             return { alertId: alert.id, hogFunctions: [] }
         }
@@ -195,7 +195,7 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
                 }
             } catch (e) {
                 posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                    extra: { context: 'TerraformExport', resourceType: resource.type },
+                    extra: { context: 'TerraformExporter', resourceType: resource.type },
                 })
                 if (!isStale()) {
                     setState({

@@ -116,7 +116,7 @@ function validateAlert(alert: Partial<AlertType>, options?: AlertHclExportOption
 
     if (alert.subscribed_users && alert.subscribed_users.length > 0) {
         warnings.push(
-            `\`subscribed_users\` contains internal user IDs. These IDs are specific to this PostHog instance and will need to be updated if deploying to a different environment.`
+            '`subscribed_users` contains internal user IDs. These IDs are specific to this PostHog instance and will need to be updated if deploying to a different environment.'
         )
     }
 

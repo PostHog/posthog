@@ -19,6 +19,15 @@ export interface DashboardHclExportOptions extends HclExportOptions {
     hogFunctionsByAlertId?: Map<string, HogFunctionType[]>
 }
 
+export interface DashboardExportResult extends HclExportResult {
+    resourceCounts: {
+        dashboards: number
+        insights: number
+        alerts: number
+        hogFunctions: number
+    }
+}
+
 /**
  * @see https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/dashboard
  */
@@ -69,15 +78,6 @@ const DASHBOARD_EXPORTER: ResourceExporter<Partial<DashboardBasicType>, Dashboar
     getId: (d) => d.id,
 }
 
-export interface DashboardExportResult extends HclExportResult {
-    resourceCounts: {
-        dashboards: number
-        insights: number
-        alerts: number
-        hogFunctions: number
-    }
-}
-
 export function generateDashboardHCL(
     dashboard: Partial<DashboardBasicType>,
     options: DashboardHclExportOptions = {}
@@ -85,14 +85,12 @@ export function generateDashboardHCL(
     const allWarnings: string[] = []
     const hclSections: string[] = []
 
-    // Count resources for summary
     const insightCount = options.insights?.length || 0
     const alertCount = options.alertsByInsightId ? Array.from(options.alertsByInsightId.values()).flat().length : 0
     const hogFunctionCount = options.hogFunctionsByAlertId
         ? Array.from(options.hogFunctionsByAlertId.values()).flat().length
         : 0
 
-    // Generate dashboard HCL
     const result = generateHCL(dashboard, DASHBOARD_EXPORTER, options)
     hclSections.push(result.hcl)
     allWarnings.push(...result.warnings)
