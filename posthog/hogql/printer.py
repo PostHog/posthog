@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
@@ -809,7 +810,7 @@ class _Printer(Visitor[str]):
             else:
                 assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
-            property_source = self.__get_materialized_property_source(property_type)
+            property_source = self.__get_materialized_property_source_for_property_type(property_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -854,7 +855,7 @@ class _Printer(Visitor[str]):
             if left_type is None or len(left_type.chain) > 1:
                 return None
 
-            property_source = self.__get_materialized_property_source(left_type)
+            property_source = self.__get_materialized_property_source_for_property_type(left_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -927,7 +928,7 @@ class _Printer(Visitor[str]):
             return None
 
         # Check if this property uses an individually materialized column (not a property group)
-        property_source = self.__get_materialized_property_source(property_type)
+        property_source = self.__get_materialized_property_source_for_property_type(property_type)
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
@@ -1214,7 +1215,7 @@ class _Printer(Visitor[str]):
                 # TODO: can probably optimize chained operations, but will need more thought
                 field_type = resolve_field_type(field)
                 if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
-                    property_source = self.__get_materialized_property_source(field_type)
+                    property_source = self.__get_materialized_property_source_for_property_type(field_type)
                     if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                         return None
 
@@ -1680,20 +1681,30 @@ class _Printer(Visitor[str]):
 
         return field_sql
 
-    def __get_materialized_property_source(
+    def __get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
         Find the most efficient materialized property source for the provided property type.
-        Returns sources in priority order: mat_* columns > dmat columns > property groups.
         """
-        if self.context.modifiers.materializationMode == "disabled":
-            return None
+        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+            return source
+        return None
 
-        field_type = type.field_type
-        property_name = str(type.chain[0])
+    def __get_all_materialized_property_sources(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
+        """
+        Find all materialized property sources for the provided field type and property name, ordered from what is
+        likely to be the most efficient access path to the least efficient.
+        """
+        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
+        if self.context.modifiers.materializationMode == "disabled":
+            return
+
         field = field_type.resolve_database_field(self.context)
 
+        # check for a materialised column
         table = field_type.table_type
         while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
             table = table.table_type
@@ -1707,17 +1718,17 @@ class _Printer(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            # Check for traditional mat_* columns first (highest priority)
-            if materialized_column := self._get_materialized_column(table_name, property_name, field_name):
-                return PrintableMaterializedColumn(
+            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
 
-            # Check for dmat (dynamic materialized) columns second
+            # Check for dmat (dynamic materialized) columns
             if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
-                return PrintableMaterializedColumn(
+                yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(dmat_column),
                     is_nullable=True,
@@ -1738,7 +1749,6 @@ class _Printer(Visitor[str]):
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
                     )
-
         elif self.context.within_non_hogql_query and (
             isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
         ):
@@ -1748,13 +1758,11 @@ class _Printer(Visitor[str]):
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")
             if materialized_column is not None:
-                return PrintableMaterializedColumn(
+                yield PrintableMaterializedColumn(
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
-
-        return None
 
     def __get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str
@@ -1799,7 +1807,7 @@ class _Printer(Visitor[str]):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self.__get_materialized_property_source(type)
+        materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
             if (
