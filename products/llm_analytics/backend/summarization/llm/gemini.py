@@ -32,7 +32,6 @@ def _summarize_sync(
 
     config = GenerateContentConfig(
         system_instruction=system_prompt,
-        temperature=0,
         response_mime_type="application/json",
         response_json_schema=SummarizationResponse.model_json_schema(),
     )
