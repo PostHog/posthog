@@ -6,7 +6,7 @@ from string import Formatter
 from typing import Any, Literal, Self
 
 import structlog
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
@@ -168,7 +168,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
-        self._check_access_control()
+        # using sync_to_async because UserAccessControl is fully sync
+        await sync_to_async(self._check_access_control)()
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
