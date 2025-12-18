@@ -39,7 +39,7 @@ RESULTS_DIR = SCRIPT_DIR / "results"
 INPUT_DIR = Path("/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments/runs")
 
 # Pre-initialize tiktoken encoder
-TIKTOKEN_ENCODER = tiktoken.get_encoding("o3")
+TIKTOKEN_ENCODER = tiktoken.get_encoding("o200k_base")
 
 # Global state and lock
 STATE: dict[str, dict[str, Any]] = {}
@@ -92,7 +92,7 @@ def ensure_state_entry(experiment_id: str, model: str) -> None:
     if model not in STATE[experiment_id]:
         STATE[experiment_id][model] = {
             "success": False,
-            "response_time_ms": None,
+            "response_time_s": None,
             "input_tokens": None,
             "output_tokens": None,
             "error_count": 0,
@@ -144,19 +144,15 @@ async def call_anthropic(system_prompt: str, prompt: str, model: str) -> str:
 async def call_openai(system_prompt: str, prompt: str, model: str) -> str:
     """Call OpenAI API."""
     client = openai.AsyncOpenAI()
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "messages": [
+    response = await client.responses.create(
+        model=model,
+        reasoning={"effort": "medium"},
+        input=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        "temperature": TEMPERATURE,
-    }
-    if model == "gpt-5.2":
-        kwargs["reasoning_effort"] = "medium"
-
-    response = await client.chat.completions.create(**kwargs)
-    return response.choices[0].message.content
+    )
+    return response.output_text
 
 
 @retry(stop=stop_after_attempt(3), retry=retry_if_exception_type(LLMBenchmarkRetryException))
@@ -194,7 +190,7 @@ async def make_request(experiment_id: str, model: str, system_prompt: str, promp
             save_state(STATE)
         raise LLMBenchmarkRetryException(f"Error for {experiment_id} with {model}: {e}")
 
-    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    elapsed_s = time.perf_counter() - start_time
     input_tokens = count_tokens(system_prompt + prompt)
     output_tokens = count_tokens(response)
 
@@ -204,7 +200,7 @@ async def make_request(experiment_id: str, model: str, system_prompt: str, promp
         STATE[experiment_id][model].update(
             {
                 "success": True,
-                "response_time_ms": elapsed_ms,
+                "response_time_s": elapsed_s,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }
@@ -250,7 +246,10 @@ def load_prompts() -> list[tuple[str, str, str]]:
         if prompt not in prompts_dict:
             prompts_dict[prompt] = (experiment_id, system_prompt, prompt)
 
-    return list(prompts_dict.values())
+    dedup = list(prompts_dict.values())
+    # TODO: Remove after testing
+    dedup = dedup[:2]
+    return dedup
 
 
 async def run_benchmark_for_model(model: str, prompts: list[tuple[str, str, str]]) -> None:
@@ -300,6 +299,7 @@ def print_stats(state: dict[str, dict[str, Any]]) -> None:
         print("-" * len(model))
 
         response_times: list[float] = []
+        input_tokens_list: list[int] = []
         output_tokens_list: list[int] = []
         total_success = 0
         total_errors = 0
@@ -317,8 +317,10 @@ def print_stats(state: dict[str, dict[str, Any]]) -> None:
 
             if data.get("success"):
                 total_success += 1
-                if data.get("response_time_ms") is not None:
-                    response_times.append(data["response_time_ms"])
+                if data.get("response_time_s") is not None:
+                    response_times.append(data["response_time_s"])
+                if data.get("input_tokens") is not None:
+                    input_tokens_list.append(data["input_tokens"])
                 if data.get("output_tokens") is not None:
                     output_tokens_list.append(data["output_tokens"])
 
@@ -327,18 +329,23 @@ def print_stats(state: dict[str, dict[str, Any]]) -> None:
             continue
 
         response_stats = calculate_stats(response_times)
+        input_stats = calculate_stats([float(t) for t in input_tokens_list])
         output_stats = calculate_stats([float(t) for t in output_tokens_list])
 
         total_attempts = total_success + total_errors + total_timeouts
         error_rate = (total_errors / total_attempts * 100) if total_attempts > 0 else 0
         timeout_rate = (total_timeouts / total_attempts * 100) if total_attempts > 0 else 0
 
-        print(f"  Response Time (ms):")
+        print(f"  Response Time (s):")
         print(f"    avg: {response_stats['avg']:.2f}")
         print(f"    min: {response_stats['min']:.2f}")
         print(f"    max: {response_stats['max']:.2f}")
+        print(f"  Input Tokens:")
+        print(f"    avg: {input_stats['avg']:.0f}")
+        print(f"    min: {input_stats['min']:.0f}")
+        print(f"    max: {input_stats['max']:.0f}")
         print(f"  Output Tokens:")
-        print(f"    avg: {output_stats['avg']:.2f}")
+        print(f"    avg: {output_stats['avg']:.0f}")
         print(f"    min: {output_stats['min']:.0f}")
         print(f"    max: {output_stats['max']:.0f}")
         print(f"  Totals:")
