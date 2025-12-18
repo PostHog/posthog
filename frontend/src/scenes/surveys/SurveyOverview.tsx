@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconComment } from '@posthog/icons'
-import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
@@ -45,23 +45,6 @@ function SurveyOption({ label, children }: { label: string; children: React.Reac
     )
 }
 
-function ScheduledStatusTag({ label, time }: { label: string; time: string }): JSX.Element {
-    return (
-        <Tooltip
-            title={
-                <>
-                    Scheduled for{' '}
-                    {humanFriendlyDetailedTime(time, 'MMMM DD, YYYY', 'h:mm A', { timestampStyle: 'absolute' })}
-                </>
-            }
-        >
-            <LemonTag type="warning" size="small">
-                {label}
-            </LemonTag>
-        </Tooltip>
-    )
-}
-
 const QuestionIconMap = {
     [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
     [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
@@ -77,9 +60,6 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
     const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
 
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
-    const showScheduledStartStatus = Boolean(survey.scheduled_start_datetime && !survey.start_date)
-    const showScheduledResumeStatus = Boolean(survey.scheduled_start_datetime && survey.start_date && survey.end_date)
-    const showScheduledEndStatus = Boolean(survey.scheduled_end_datetime && survey.start_date && !survey.end_date)
 
     return (
         <div className="flex flex-col gap-8">
@@ -109,30 +89,6 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                             )}
                         </div>
                     </SurveyOption>
-
-                    {(showScheduledStartStatus || showScheduledResumeStatus || showScheduledEndStatus) && (
-                        <SurveyOption label="Status">
-                            <div className="flex flex-wrap gap-2">
-                                {showScheduledStartStatus && survey.scheduled_start_datetime && (
-                                    <ScheduledStatusTag
-                                        label="Scheduled start"
-                                        time={survey.scheduled_start_datetime}
-                                    />
-                                )}
-
-                                {showScheduledResumeStatus && survey.scheduled_start_datetime && (
-                                    <ScheduledStatusTag
-                                        label="Scheduled resume"
-                                        time={survey.scheduled_start_datetime}
-                                    />
-                                )}
-
-                                {showScheduledEndStatus && survey.scheduled_end_datetime && (
-                                    <ScheduledStatusTag label="Scheduled end" time={survey.scheduled_end_datetime} />
-                                )}
-                            </div>
-                        </SurveyOption>
-                    )}
                     <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
                         {survey.questions.map((q, idx) => {
                             return (
