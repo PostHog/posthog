@@ -102,6 +102,7 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
+import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -857,6 +858,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: '2fa',
                 title: 'Two-factor authentication',
                 component: <TwoFactorSettings />,
+            },
+            {
+                id: 'passkeys',
+                title: 'Passkeys',
+                component: <PasskeySettings />,
             },
         ],
     },

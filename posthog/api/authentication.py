@@ -290,15 +290,31 @@ class LoginSerializer(serializers.Serializer):
 class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def to_representation(self, instance: dict[str, str]) -> dict[str, Any]:
+    def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
         email = validated_data.get("email", "")
         # TODO: Refactor methods below to remove duplicate queries
+
+        credentials = WebauthnCredential.objects.get_verified_for_email(email)
+        passkey_credentials = [
+            {
+                "id": bytes_to_base64url(cred.credential_id),
+                "type": "public-key",
+                "transports": cred.transports or [],
+            }
+            for cred in credentials
+        ]
+
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
             "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+            "passkey_credentials": passkey_credentials,
         }
 
 

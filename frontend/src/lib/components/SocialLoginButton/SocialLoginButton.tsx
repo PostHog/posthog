@@ -1,12 +1,14 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { IconKey } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { passkeyLogic } from 'scenes/authentication/passkeyLogic'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
@@ -80,6 +82,41 @@ export function SocialLoginButton({
     )
 }
 
+interface PasskeyLoginButtonProps {
+    isLastUsed?: boolean
+}
+
+export function PasskeyLoginButton({ isLastUsed }: PasskeyLoginButtonProps): JSX.Element {
+    const { beginPasskeyLogin } = useActions(passkeyLogic)
+    const { isLoading } = useValues(passkeyLogic)
+
+    return (
+        <LemonButton
+            size="medium"
+            icon={<IconKey />}
+            active={isLastUsed}
+            className="py-1 relative"
+            htmlType="button"
+            onClick={() => {
+                beginPasskeyLogin()
+            }}
+            loading={isLoading}
+            data-attr="passkey-login"
+        >
+            <span className="text-text-3000">Passkey</span>
+            {isLastUsed && (
+                <LemonTag
+                    type="muted"
+                    size="small"
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+                >
+                    Last used
+                </LemonTag>
+            )}
+        </LemonButton>
+    )
+}
+
 interface SocialLoginButtonsProps {
     title?: string
     caption?: string
@@ -89,6 +126,7 @@ interface SocialLoginButtonsProps {
     bottomDivider?: boolean
     extraQueryParams?: Record<string, string>
     lastUsedProvider?: LoginMethod
+    showPasskey?: boolean
 }
 
 export function SocialLoginButtons({
@@ -99,11 +137,12 @@ export function SocialLoginButtons({
     topDivider,
     bottomDivider,
     lastUsedProvider,
+    showPasskey = false,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    if (!preflight || !socialAuthAvailable) {
+    if (!preflight || (!socialAuthAvailable && !showPasskey)) {
         return null
     }
 
@@ -117,16 +156,18 @@ export function SocialLoginButtons({
                 {title && <h3>{title}</h3>}
                 {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
                 <div className="flex gap-2 justify-center flex-wrap">
-                    {Object.keys(preflight.available_social_auth_providers)
-                        .sort((a, b) => order.indexOf(a) - order.indexOf(b))
-                        .map((provider) => (
-                            <SocialLoginButton
-                                key={provider}
-                                provider={provider as SSOProvider}
-                                isLastUsed={lastUsedProvider === provider}
-                                {...props}
-                            />
-                        ))}
+                    {socialAuthAvailable &&
+                        Object.keys(preflight.available_social_auth_providers)
+                            .sort((a, b) => order.indexOf(a) - order.indexOf(b))
+                            .map((provider) => (
+                                <SocialLoginButton
+                                    key={provider}
+                                    provider={provider as SSOProvider}
+                                    isLastUsed={lastUsedProvider === provider}
+                                    {...props}
+                                />
+                            ))}
+                    {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} />}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>
