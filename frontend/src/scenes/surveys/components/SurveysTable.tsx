@@ -18,7 +18,11 @@ import { SurveyResumeDialog, SurveyStopDialog } from 'scenes/surveys/components/
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { buildSurveyResumeUpdatePayload } from 'scenes/surveys/surveyScheduling'
+import {
+    buildSurveyResumeUpdatePayload,
+    buildSurveyStartUpdatePayload,
+    buildSurveyStopUpdatePayload,
+} from 'scenes/surveys/surveyScheduling'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
@@ -216,7 +220,10 @@ export function SurveysTable(): JSX.Element {
                                                                         updateSurvey({
                                                                             id: survey.id,
                                                                             updatePayload: {
-                                                                                start_date: dayjs().toISOString(),
+                                                                                ...buildSurveyStartUpdatePayload(
+                                                                                    null,
+                                                                                    dayjs().toISOString()
+                                                                                ),
                                                                             },
                                                                             intentContext:
                                                                                 ProductIntentContext.SURVEY_LAUNCHED,
@@ -379,7 +386,7 @@ export function SurveysTable(): JSX.Element {
 
             <SurveyResumeDialog
                 isOpen={!!resumeSurvey}
-                onClose={() => setResumeSurvey}
+                onClose={() => setResumeSurvey(null)}
                 initialScheduledStartTime={resumeSurvey?.scheduled_start_datetime || undefined}
                 description="Once resumed, the survey will be visible to your users again."
                 onSubmit={async (scheduledStartTime) => {
@@ -405,22 +412,10 @@ export function SurveysTable(): JSX.Element {
                         return
                     }
 
-                    if (!scheduledEndTime) {
-                        await updateSurvey({
-                            id: stopSurveyDialogSurvey.id,
-                            updatePayload: {
-                                end_date: dayjs().toISOString(),
-                            },
-                            intentContext: ProductIntentContext.SURVEY_COMPLETED,
-                        })
-                        return
-                    }
-
                     await updateSurvey({
                         id: stopSurveyDialogSurvey.id,
-                        updatePayload: {
-                            scheduled_end_datetime: scheduledEndTime,
-                        },
+                        updatePayload: buildSurveyStopUpdatePayload(scheduledEndTime, dayjs().toISOString()),
+                        ...(scheduledEndTime ? {} : { intentContext: ProductIntentContext.SURVEY_COMPLETED }),
                     })
                 }}
             />

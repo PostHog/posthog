@@ -10,6 +10,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { dayjs } from 'lib/dayjs'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -28,7 +29,7 @@ import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackBu
 import { SurveyResumeDialog, SurveyStopDialog } from 'scenes/surveys/components/SurveyLifecycleDialogs'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { buildSurveyResumeUpdatePayload } from 'scenes/surveys/surveyScheduling'
+import { buildSurveyResumeUpdatePayload, buildSurveyStopUpdatePayload } from 'scenes/surveys/surveyScheduling'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import {
@@ -54,14 +55,12 @@ import {
 
 import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
-import { dayjs } from 'lib/dayjs'
 
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
-        useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -250,12 +249,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         description="Stop displaying this survey to users:"
                         defaultDatetimeValue={() => dayjs().toISOString()}
                         onSubmit={async (scheduledEndTime) => {
-                            if (!scheduledEndTime) {
-                                await stopSurvey()
-                                return
-                            }
                             await updateSurvey({
-                                scheduled_end_datetime: scheduledEndTime,
+                                ...buildSurveyStopUpdatePayload(scheduledEndTime, dayjs().toISOString()),
+                                ...(scheduledEndTime ? {} : { intentContext: ProductIntentContext.SURVEY_COMPLETED }),
                             })
                         }}
                     />

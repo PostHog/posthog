@@ -8,7 +8,7 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { DATE_TIME_FORMAT_WITHOUT_SECONDS, formatDateTime } from 'lib/utils'
 import { SurveyScheduleType } from 'scenes/surveys/surveyLogic'
 
-export type SurveyStartSchedulePickerProps = {
+export type SurveySchedulePickerProps = {
     value: string | undefined
     onChange: (value: string | undefined) => void
     manualLabel: string
@@ -16,13 +16,13 @@ export type SurveyStartSchedulePickerProps = {
     defaultDatetimeValue?: () => string
 }
 
-export function SurveyStartSchedulePicker({
+export function SurveySchedulePicker({
     value,
     onChange,
     manualLabel,
     datetimeLabel,
     defaultDatetimeValue,
-}: SurveyStartSchedulePickerProps): JSX.Element {
+}: SurveySchedulePickerProps): JSX.Element {
     const [dateVisible, setDateVisible] = useState(false)
 
     const scheduleType: SurveyScheduleType = value ? 'datetime' : 'manual'

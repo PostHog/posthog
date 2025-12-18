@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStartDialog } from 'scenes/surveys/components/SurveyLifecycleDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { buildSurveyStartUpdatePayload } from 'scenes/surveys/surveyScheduling'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
@@ -59,18 +60,11 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 initialScheduledStartTime={survey.scheduled_start_datetime || undefined}
                 afterPickerContent={<SdkVersionWarnings warnings={surveyWarnings} />}
                 onSubmit={async (scheduledStartTime) => {
-                    const updatedSurvey = {
+                    await updateSurvey({
                         id: survey.id,
                         intentContext: ProductIntentContext.SURVEY_LAUNCHED,
-                    } as Partial<Survey>
-
-                    if (!scheduledStartTime) {
-                        updatedSurvey['start_date'] = dayjs().toISOString()
-                    } else {
-                        updatedSurvey['scheduled_start_datetime'] = scheduledStartTime
-                    }
-
-                    await updateSurvey(updatedSurvey)
+                        ...buildSurveyStartUpdatePayload(scheduledStartTime, dayjs().toISOString()),
+                    } as Partial<Survey>)
                 }}
                 onClose={closeDialog}
             />

@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react'
 
 import { LemonDialog, LemonDialogProps, lemonToast } from '@posthog/lemon-ui'
 
-import { SurveyStartSchedulePicker } from 'scenes/surveys/components/SurveyStartSchedulePicker'
+import { SurveySchedulePicker } from 'scenes/surveys/components/SurveySchedulePicker'
 
 type ScheduleValue = string | undefined
 
@@ -58,7 +58,7 @@ export function SurveyScheduleDialog(props: SurveyScheduleDialogProps): JSX.Elem
             content={
                 <div>
                     <div className="text-sm text-secondary mb-4">{description}</div>
-                    <SurveyStartSchedulePicker
+                    <SurveySchedulePicker
                         value={scheduledTime}
                         onChange={setScheduledTime}
                         manualLabel="Immediately"
