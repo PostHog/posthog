@@ -1,0 +1,31 @@
+# serializer version: 1
+# name: TestMRRStripeBuilder.test_build_mrr_query
+  '''
+  SELECT 'stripe.stripe_test' AS source_label,
+         customer_id AS customer_id,
+         subscription_id AS subscription_id,
+         argMax(amount, timestamp) AS mrr
+  FROM
+    (SELECT 'stripe.stripe_test' AS source_label,
+            timestamp AS timestamp,
+            customer_id AS customer_id,
+            subscription_id AS subscription_id,
+            amount AS amount
+     FROM `stripe.stripe_test.revenue_item_events_revenue_view`
+     WHERE and(equals(is_recurring, true), greater(timestamp, 60))
+     ORDER BY timestamp DESC
+     UNION ALL SELECT 'stripe.stripe_test' AS source_label,
+                      ended_at AS timestamp,
+                      customer_id AS customer_id,
+                      subscription_id AS subscription_id,
+                      toDecimal(0, 10) AS amount
+     FROM `stripe.stripe_test.subscription_events_revenue_view`
+     WHERE and(equals(is_recurring, true), greater(timestamp, 60))
+     ORDER BY timestamp DESC)
+  GROUP BY source_label,
+           customer_id,
+           subscription_id
+  ORDER BY customer_id ASC,
+           subscription_id ASC
+  '''
+# ---

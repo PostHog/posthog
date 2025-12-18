@@ -1,0 +1,142 @@
+from datetime import datetime
+
+from posthog.hogql import ast
+
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+
+from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
+from products.revenue_analytics.backend.views.schemas import (
+    REVENUE_ITEM as REVENUE_ITEM_SCHEMA,
+    SUBSCRIPTION as SUBSCRIPTION_SCHEMA,
+)
+from products.revenue_analytics.backend.views.schemas.mrr import LOOKBACK_PERIOD_DAYS
+
+
+def build(handle: SourceHandle) -> BuiltQuery:
+    source = handle.source
+    if source is None:
+        raise ValueError("Source is required")
+
+    prefix = view_prefix_for_source(source)
+
+    revenue_item_base_query_name = f"{prefix}.{REVENUE_ITEM_SCHEMA.source_suffix}"
+    subscription_base_query_name = f"{prefix}.{SUBSCRIPTION_SCHEMA.source_suffix}"
+
+    # Compute now in Python to make testing easier
+    now = datetime.now()
+    start_date_expr = ast.Call(
+        name="toStartOfMonth",
+        args=[ast.Call(name="addDays", args=[ast.Constant(value=now), ast.Constant(value=-LOOKBACK_PERIOD_DAYS)])],
+    )
+    end_date_expr = ast.Constant(value=now)
+
+    # Make sure we group all revenue items from a single subscription and month together
+    # because if they're from the same subscription then it's recurring amount
+    revenue_item_query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["source_label"]),
+            ast.Field(chain=["customer_id"]),
+            ast.Field(chain=["subscription_id"]),
+            ast.Alias(
+                alias="timestamp",
+                expr=ast.Call(name="toStartOfMonth", args=[ast.Field(chain=["revenue_item", "timestamp"])]),
+            ),
+            ast.Alias(alias="amount", expr=ast.Call(name="sum", args=[ast.Field(chain=["revenue_item", "amount"])])),
+        ],
+        select_from=ast.JoinExpr(
+            alias="revenue_item",
+            table=ast.Field(chain=[revenue_item_base_query_name]),
+        ),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["is_recurring"]),
+                    right=ast.Constant(value=True),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=start_date_expr,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=end_date_expr,
+                ),
+            ]
+        ),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+        group_by=[
+            ast.Field(chain=["source_label"]),
+            ast.Field(chain=["customer_id"]),
+            ast.Field(chain=["subscription_id"]),
+            ast.Field(chain=["revenue_item", "timestamp"]),
+        ],
+    )
+
+    # We need to look at the subscription "end events" and consider them to be a charge of "0" value
+    # to include them in the MRR calculation to "zero" the calculation
+    subscription_query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["source_label"]),
+            ast.Field(chain=["customer_id"]),
+            ast.Alias(alias="subscription_id", expr=ast.Field(chain=["id"])),
+            ast.Alias(alias="timestamp", expr=ast.Field(chain=["ended_at"])),
+            ast.Alias(
+                alias="amount",
+                expr=ast.Call(
+                    name="toDecimal",
+                    args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
+                ),
+            ),
+        ],
+        select_from=ast.JoinExpr(
+            table=ast.Field(chain=[subscription_base_query_name]),
+        ),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=start_date_expr,
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=end_date_expr,
+                ),
+            ]
+        ),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+    )
+
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["source_label"]),
+            ast.Field(chain=["customer_id"]),
+            ast.Field(chain=["subscription_id"]),
+            ast.Alias(
+                alias="mrr",
+                expr=ast.Call(name="argMax", args=[ast.Field(chain=["amount"]), ast.Field(chain=["timestamp"])]),
+            ),
+        ],
+        select_from=ast.JoinExpr(
+            alias="union",
+            table=ast.SelectSetQuery.create_from_queries(
+                queries=[revenue_item_query, subscription_query],
+                set_operator="UNION ALL",
+            ),
+        ),
+        order_by=[
+            ast.OrderExpr(expr=ast.Field(chain=["customer_id"]), order="ASC"),
+            ast.OrderExpr(expr=ast.Field(chain=["subscription_id"]), order="ASC"),
+        ],
+        group_by=[
+            ast.Field(chain=["source_label"]),
+            ast.Field(chain=["customer_id"]),
+            ast.Field(chain=["subscription_id"]),
+        ],
+    )
+
+    return BuiltQuery(key=f"{handle.source.id}-mrr", prefix=prefix, query=query)

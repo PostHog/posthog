@@ -1,0 +1,61 @@
+# serializer version: 1
+# name: TestMRREventsBuilder.test_build_mrr_query
+  '''
+  SELECT 'revenue_analytics.events.purchase' AS source_label,
+         customer_id AS customer_id,
+         subscription_id AS subscription_id,
+         argMax(amount, timestamp) AS mrr
+  FROM
+    (SELECT 'revenue_analytics.events.purchase' AS source_label,
+            timestamp AS timestamp,
+            customer_id AS customer_id,
+            subscription_id AS subscription_id,
+            amount AS amount
+     FROM `revenue_analytics.events.purchase.revenue_item_events_revenue_view`
+     WHERE and(equals(is_recurring, true), greater(timestamp, 60))
+     ORDER BY timestamp DESC
+     UNION ALL SELECT 'revenue_analytics.events.purchase' AS source_label,
+                      ended_at AS timestamp,
+                      customer_id AS customer_id,
+                      subscription_id AS subscription_id,
+                      toDecimal(0, 10) AS amount
+     FROM `revenue_analytics.events.purchase.subscription_events_revenue_view`
+     WHERE and(equals(is_recurring, true), greater(timestamp, 60))
+     ORDER BY timestamp DESC)
+  GROUP BY source_label,
+           customer_id,
+           subscription_id
+  ORDER BY customer_id ASC,
+           subscription_id ASC
+  '''
+# ---
+# name: TestMRREventsBuilder.test_mrr_query_with_different_event
+  '''
+  SELECT 'revenue_analytics.events.subscription_charge' AS source_label,
+         customer_id AS customer_id,
+         subscription_id AS subscription_id,
+         argMax(amount, timestamp) AS mrr
+  FROM
+    (SELECT 'revenue_analytics.events.subscription_charge' AS source_label,
+            timestamp AS timestamp,
+            customer_id AS customer_id,
+            subscription_id AS subscription_id,
+            amount AS amount
+     FROM `revenue_analytics.events.subscription_charge.revenue_item_events_revenue_view`
+     WHERE and(equals(is_recurring, true), greater(timestamp, 60))
+     ORDER BY timestamp DESC
+     UNION ALL SELECT 'revenue_analytics.events.subscription_charge' AS source_label,
+                      ended_at AS timestamp,
+                      customer_id AS customer_id,
+                      subscription_id AS subscription_id,
+                      toDecimal(0, 10) AS amount
+     FROM `revenue_analytics.events.subscription_charge.subscription_events_revenue_view`
+     WHERE and(equals(is_recurring, true), greater(timestamp, 60))
+     ORDER BY timestamp DESC)
+  GROUP BY source_label,
+           customer_id,
+           subscription_id
+  ORDER BY customer_id ASC,
+           subscription_id ASC
+  '''
+# ---

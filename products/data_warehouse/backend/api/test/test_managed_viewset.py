@@ -46,6 +46,30 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
             ).exists()
         )
 
+    def test_enable_managed_viewset_revenue_analytics(self):
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
+            {"enabled": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["enabled"], True)
+        self.assertEqual(response.json()["kind"], "revenue_analytics")
+
+        self.assertEqual(
+            DataWarehouseManagedViewSet.objects.filter(
+                team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+            ).count(),
+            1,
+        )
+
+        self.assertEqual(
+            DataWarehouseSavedQuery.objects.filter(
+                team=self.team, managed_viewset__kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+            ).count(),
+            12,  # 2 events * 6 types
+        )
+
     def test_enable_managed_viewset_idempotent(self):
         response1 = self.client.put(
             f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/",
