@@ -2612,7 +2612,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 20)):
+        with self.assertNumQueries(FuzzyInt(15, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)

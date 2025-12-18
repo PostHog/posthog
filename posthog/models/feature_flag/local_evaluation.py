@@ -14,6 +14,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
@@ -382,10 +383,29 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
         - Client only needs to evaluate simplified property-based filters
     """
 
-    feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-        ~Q(is_remote_configuration=True),
-        team__project_id=team.project_id,
-        deleted=False,
+    # Exclude survey-linked flags from local evaluation since they use operators
+    # (like is_not_set) that are not supported by local evaluation. When a flag
+    # can't be evaluated locally, SDKs fall back to server-side evaluation,
+    # causing unexpected network requests. See GitHub issue #43631.
+    survey_flag_ids = {
+        flag_id
+        for row in Survey.objects.filter(team_id=team.id).values_list(
+            "targeting_flag_id",
+            "internal_targeting_flag_id",
+            "internal_response_sampling_flag_id",
+        )
+        for flag_id in row
+        if flag_id is not None
+    }
+
+    feature_flags = (
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(
+            ~Q(is_remote_configuration=True),
+            team_id=team.id,
+            deleted=False,
+        )
+        .exclude(id__in=survey_flag_ids)
     )
 
     cohorts = {}

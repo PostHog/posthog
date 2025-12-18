@@ -392,7 +392,11 @@ surveys_hypercache = HyperCache(
 @receiver(post_save, sender=Survey)
 @receiver(post_delete, sender=Survey)
 def survey_changed(sender, instance: "Survey", **kwargs):
+    from posthog.tasks.feature_flags import update_team_flags_cache
     from posthog.tasks.surveys import update_team_surveys_cache
 
     # Defer task execution until after the transaction commits
+    # Update both survey cache and flag cache since survey-linked flags are
+    # excluded from local evaluation (GitHub issue #43631)
     transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
