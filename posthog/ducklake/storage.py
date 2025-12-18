@@ -159,15 +159,13 @@ class DuckLakeStorageConfig:
                 is_local=False,
             )
 
-    def to_duckdb_secret_sql(self, secret_name: str = "ducklake_s3") -> str:
+    def to_duckdb_secret_sql(self) -> str:
         """Generate DuckDB CREATE SECRET SQL statement.
-
-        Args:
-            secret_name: Name for the secret (default: "ducklake_s3")
 
         Returns:
             SQL statement to create the S3 secret.
         """
+        secret_name = "ducklake_s3"
         if not self.is_local:
             # Workaround: DuckDB's CREDENTIAL_CHAIN doesn't support IRSA (Web Identity Token).
             # Fetch credentials via boto3 which properly supports IRSA.
@@ -234,7 +232,6 @@ def configure_connection(
     storage_config: DuckLakeStorageConfig | None = None,
     *,
     install_extensions: bool = True,
-    secret_name: str = "ducklake_s3",
 ) -> None:
     """Configure DuckDB connection for DuckLake storage access.
 
@@ -245,7 +242,6 @@ def configure_connection(
         conn: DuckDB connection to configure.
         storage_config: Storage config to use. If None, creates one from runtime.
         install_extensions: Whether to install httpfs and delta extensions.
-        secret_name: Name for the S3 secret.
     """
     if storage_config is None:
         storage_config = DuckLakeStorageConfig.from_runtime()
@@ -258,7 +254,7 @@ def configure_connection(
     conn.execute("LOAD ducklake")
     conn.execute("LOAD httpfs")
     conn.execute("LOAD delta")
-    conn.execute(storage_config.to_duckdb_secret_sql(secret_name))
+    conn.execute(storage_config.to_duckdb_secret_sql())
 
 
 def ensure_ducklake_bucket_exists(

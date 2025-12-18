@@ -259,20 +259,6 @@ class TestDuckLakeStorageConfigEdgeCases:
         assert "key''with''quotes" in sql
         assert "secret''value" in sql
 
-    def test_custom_secret_name(self):
-        config = DuckLakeStorageConfig(
-            access_key="key",
-            secret_key="secret",
-            region="us-east-1",
-            endpoint="",
-            use_ssl=True,
-            url_style="path",
-            is_local=True,
-        )
-        sql = config.to_duckdb_secret_sql(secret_name="custom_s3_secret")
-
-        assert "CREATE OR REPLACE SECRET custom_s3_secret" in sql
-
     def test_explicit_use_local_setup_override(self, monkeypatch):
         monkeypatch.setenv("DUCKLAKE_S3_ACCESS_KEY", "override_key")
         monkeypatch.setenv("DUCKLAKE_S3_SECRET_KEY", "override_secret")
