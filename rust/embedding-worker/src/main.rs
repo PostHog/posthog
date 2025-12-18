@@ -176,7 +176,7 @@ async fn main() {
         // Write the embedding records to CH
         let records: Vec<EmbeddingRecord> = responses
             .into_iter()
-            .flat_map(|response| Vec::<EmbeddingRecord>::from(response))
+            .flat_map(Vec::<EmbeddingRecord>::from)
             .collect();
 
         let emit_results = txn
