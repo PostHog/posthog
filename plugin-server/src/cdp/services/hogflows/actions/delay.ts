@@ -1,23 +1,53 @@
 import { DateTime, DurationLike } from 'luxon'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import { findContinueAction } from '../hogflow-utils'
+import { CyclotronJobInvocationHogFlow } from '../../../types'
+import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 export class DelayHandler implements ActionHandler {
     execute({
         invocation,
         action,
+        result,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'delay' }>>): ActionHandlerResult {
+        // Check if we're resuming from a delay (queueScheduledAt was cleared when queue consumed the job)
+        const isResuming = !invocation.queueScheduledAt && this.isResumingFromDelay(invocation, action)
+
+        if (isResuming) {
+            const nextAction = findContinueAction(invocation)
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `${actionIdForLogging(action)} Delay completed, resuming workflow with latest workflow definition`,
+            })
+            return {
+                nextAction,
+            }
+        }
+
         const nextScheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp
         )
 
         return {
-            nextAction: findContinueAction(invocation),
             scheduledAt: nextScheduledAt ?? undefined,
         }
+    }
+
+    private isResumingFromDelay(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'delay' }>
+    ): boolean {
+        const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
+        if (!startedAtTimestamp || !action.config.delay_duration) {
+            return false
+        }
+
+        const delayCompletionTime = calculatedScheduledAt(action.config.delay_duration, startedAtTimestamp)
+        // If calculatedScheduledAt returns null, it means the delay has already passed
+        return delayCompletionTime === null || DateTime.utc() >= delayCompletionTime
     }
 }
 
