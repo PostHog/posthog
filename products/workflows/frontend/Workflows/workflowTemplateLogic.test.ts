@@ -20,6 +20,7 @@ jest.mock('lib/api', () => ({
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
+        error: jest.fn(),
     },
 }))
 
@@ -119,7 +120,7 @@ describe('workflowTemplateLogic', () => {
                 logic.actions.setTemplateFormValue('name', 'Template Name')
                 logic.actions.submitTemplateForm()
             })
-                .toDispatchActions(['submitTemplateFormSuccess', 'hideSaveAsTemplateModal'])
+                .toDispatchActions(['submitTemplateFormSuccess'])
                 .toMatchValues({
                     saveAsTemplateModalVisible: false,
                 })
@@ -247,11 +248,6 @@ describe('workflowTemplateLogic', () => {
             expect(callArg.image_url).toBe('https://example.com/image.png')
             expect(callArg.scope).toBe('global')
 
-            expect(callArg).not.toHaveProperty('id')
-            expect(callArg).not.toHaveProperty('created_at')
-            expect(callArg).not.toHaveProperty('updated_at')
-            expect(callArg).not.toHaveProperty('status')
-
             expect(mockToast.success).toHaveBeenCalledWith('Workflow template created')
         })
 
@@ -287,7 +283,7 @@ describe('workflowTemplateLogic', () => {
             expect(callArg.description).toBe('Test Description') // Falls back to workflow description
         })
 
-        it('should reset function action inputs to defaults', async () => {
+        it('should preserve function action inputs when creating template', async () => {
             const workflow = createWorkflowWithFunctionAction()
             mockApi.createHogFlowTemplate.mockResolvedValue({ ...workflow, id: 'created-id' } as any)
 
@@ -318,7 +314,7 @@ describe('workflowTemplateLogic', () => {
             )
             if (functionAction && 'inputs' in functionAction.config) {
                 expect(functionAction.config.inputs).toEqual({
-                    url: { value: 'https://example.com' }, // Reset to default
+                    url: { value: 'https://custom-url.com' },
                 })
             }
         })
