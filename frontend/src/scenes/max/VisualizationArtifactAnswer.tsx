@@ -118,7 +118,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     <Query query={query} readOnly embedded />
                 </div>
             )}
-            <div className="h-px bg-border-primary -mx-3" />
+            {!isCollapsed && <div className="h-px bg-border-primary -mx-3" />}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                 <div className="flex items-center gap-1.5">
                     <LemonButton
