@@ -54,3 +54,8 @@ export type UrlTriggerConfig = {
     url: string
     matching: 'regex'
 }
+
+export interface SDKPolicyConfig {
+    match_type: 'any' | 'all'
+    triggers: Trigger[]
+}

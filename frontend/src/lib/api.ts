@@ -1141,6 +1141,10 @@ export class ApiRequest {
         return this.errorTrackingReleases().addPathComponent(id)
     }
 
+    public errorTrackingSDKPolicy(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).withAction('sdk_policy')
+    }
+
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
@@ -3259,6 +3263,12 @@ const api = {
             }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
                 const queryString = { order_by: '-created_at', offset, limit }
                 return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryString)).get()
+            },
+        },
+
+        sdkPolicyConfig: {
+            async get(): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
+                return await new ApiRequest().errorTrackingSDKPolicy().withAction('config').get()
             },
         },
 

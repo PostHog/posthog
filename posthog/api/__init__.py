@@ -40,6 +40,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSDKPolicyConfigViewSet,
     ErrorTrackingStackFrameViewSet,
     ErrorTrackingSuppressionRuleViewSet,
     ErrorTrackingSymbolSetViewSet,
@@ -829,6 +830,13 @@ environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/sdk_policy",
+    ErrorTrackingSDKPolicyConfigViewSet,
+    "environment_error_tracking_sdk_policy_config",
     ["team_id"],
 )
 
