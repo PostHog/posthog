@@ -390,6 +390,10 @@ class BillingManager:
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 llm_events=usage_summary.get("llm_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
+                workflow_emails=usage_summary.get("workflow_emails", {}),
+                workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
+                workflow_push=usage_summary.get("workflow_push", {}),
+                workflow_sms=usage_summary.get("workflow_sms", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
