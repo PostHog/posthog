@@ -51,7 +51,6 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub billing_limiter: RedisLimiter,
-    pub issue_buckets_redis_client: Arc<RedisClient>,
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
@@ -167,24 +166,6 @@ impl AppContext {
         .await?;
         let redis_client = Arc::new(redis_client);
 
-        let issue_buckets_redis_client = RedisClient::with_config(
-            config.issue_buckets_redis_url.clone(),
-            common_redis::CompressionConfig::disabled(),
-            common_redis::RedisValueFormat::default(),
-            if config.redis_response_timeout_ms == 0 {
-                None
-            } else {
-                Some(Duration::from_millis(config.redis_response_timeout_ms))
-            },
-            if config.redis_connection_timeout_ms == 0 {
-                None
-            } else {
-                Some(Duration::from_millis(config.redis_connection_timeout_ms))
-            },
-        )
-        .await?;
-        let issue_buckets_redis_client = Arc::new(issue_buckets_redis_client);
-
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,
         // which we don't want to put into the UnhandledError enum since it basically means "any error"
         let billing_limiter = RedisLimiter::new(
@@ -223,7 +204,6 @@ impl AppContext {
             team_manager,
             geoip_client,
             billing_limiter,
-            issue_buckets_redis_client,
             filtered_teams,
             filter_mode,
         })
