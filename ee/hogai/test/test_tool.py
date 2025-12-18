@@ -335,7 +335,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "read_taxonomy",
         "create_form",
         "todo_write",
-        "switch_mode",  # Only switches assistant modes, doesn't access protected resources
+        "switch_mode",
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         # TODO: Add access control to these tools
@@ -379,8 +379,7 @@ class TestToolAccessControlDeclarations(BaseTest):
             if tool_name.value in self.TOOLS_WITHOUT_ACCESS_CONTROL:
                 continue
 
-            # Check that the get_required_access() is implemented
-            # Provide a dummy description, some tools require it
+            # Check that get_required_access() is implemented
             tool_instance = tool_class(team=self.team, user=self.user, description="Test description")
             required_access = tool_instance.get_required_access()
 
