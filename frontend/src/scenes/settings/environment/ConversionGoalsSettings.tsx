@@ -238,7 +238,7 @@ export function ConversionGoalsSettings(): JSX.Element {
     const isFormValid =
         formState.name.trim() !== '' &&
         ((formState.filter.kind === NodeKind.EventsNode && formState.filter.event) ||
-            (formState.filter.kind === NodeKind.ActionsNode && formState.filter.id) ||
+            (formState.filter.kind === NodeKind.ActionsNode && formState.filter.id !== undefined) ||
             (formState.filter.kind === NodeKind.DataWarehouseNode && formState.filter.table_name))
 
     // Build filter for ActionFilterComponent

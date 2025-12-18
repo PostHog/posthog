@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, selectors } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,15 +16,6 @@ export const conversionGoalsLogic = kea<conversionGoalsLogicType>([
         addConversionGoal: (goal: ConversionGoal) => ({ goal }),
         updateConversionGoal: (goal: ConversionGoal) => ({ goal }),
         removeConversionGoal: (goalId: string) => ({ goalId }),
-        setEditingGoalId: (goalId: string | null) => ({ goalId }),
-    }),
-    reducers({
-        editingGoalId: [
-            null as string | null,
-            {
-                setEditingGoalId: (_, { goalId }) => goalId,
-            },
-        ],
     }),
     selectors({
         conversionGoals: [
@@ -64,7 +55,6 @@ export const conversionGoalsLogic = kea<conversionGoalsLogicType>([
                     conversion_goals: newGoals,
                 },
             })
-            actions.setEditingGoalId(null)
         },
     })),
 ])
