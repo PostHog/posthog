@@ -57,7 +57,7 @@ services:
                     }
 
                     handle @capture-ai {
-                        reverse_proxy capture-ai:3308
+                        reverse_proxy capture-ai:3309
                     }
 
                     handle @capture {
