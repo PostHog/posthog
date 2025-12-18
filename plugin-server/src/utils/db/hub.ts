@@ -24,7 +24,6 @@ import { PostgresDualWriteGroupRepository } from '../../worker/ingestion/groups/
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresDualWritePersonRepository } from '../../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
-import { RustyHook } from '../../worker/rusty-hook'
 import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
@@ -120,7 +119,6 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const pubSub = new PubSub(serverConfig)
     await pubSub.start()
-    const rustyHook = new RustyHook(serverConfig)
     const actionManager = new ActionManager(postgres, pubSub)
     const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
@@ -172,7 +170,6 @@ export async function createHub(
         teamManager,
         pluginsApiKeyManager,
         rootAccessManager,
-        rustyHook,
         actionMatcher,
         groupRepository,
         clickhouseGroupRepository,

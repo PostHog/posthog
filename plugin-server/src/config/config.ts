@@ -92,8 +92,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
-        KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
-        KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         // ok to connect to localhost over plaintext
@@ -129,7 +127,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         TEMPORAL_CLIENT_ROOT_CA: undefined,
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
-        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min

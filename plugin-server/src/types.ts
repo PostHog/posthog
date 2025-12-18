@@ -40,7 +40,6 @@ import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
-import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { PluginInstance } from './worker/vm/lazy'
@@ -67,7 +66,6 @@ export enum KafkaSaslMechanism {
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
-    async_webhooks = 'async-webhooks',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
@@ -348,9 +346,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
 
-    // Consumer specific settings (deprecated but cant be removed until legacy onevent consumer is removed)
-    KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
-    KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
@@ -369,7 +364,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     TEMPORAL_CLIENT_ROOT_CA: string | undefined
     TEMPORAL_CLIENT_CERT: string | undefined
     TEMPORAL_CLIENT_KEY: string | undefined
-    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
@@ -516,7 +510,6 @@ export interface Hub extends PluginsServerConfig {
     actionManagerCDP: ActionManagerCDP
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
-    rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
@@ -542,7 +535,6 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
-    processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean

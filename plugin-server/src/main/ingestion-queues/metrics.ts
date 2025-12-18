@@ -31,24 +31,6 @@ export const setUsageInNonPersonEventsCounter = new Counter({
     help: 'Count of events where $set usage was found in non-person events',
 })
 
-export const kafkaConsumerEventCounter = new Counter({
-    name: 'kafka_consumer_event_total',
-    help: 'Count of events emitted by the Kafka consumer by event type',
-    labelNames: ['event'],
-})
-
-export const kafkaConsumerEventRequestMsSummary = new Summary({
-    name: 'kafka_consumer_event_request_ms',
-    help: 'Duration of Kafka consumer event requests',
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-})
-
-export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
-    name: 'kafka_consumer_event_request_pending_ms',
-    help: 'Pending duration of Kafka consumer event requests',
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-})
-
 export const workflowE2eLagMsSummary = new Summary({
     name: 'workflow_e2e_lag_ms',
     help: 'Time difference in ms between event capture time and workflow finishing time',

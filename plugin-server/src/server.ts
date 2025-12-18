@@ -31,7 +31,6 @@ import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
-import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
@@ -151,10 +150,6 @@ export class PluginServer {
                     await consumer.start()
                     return consumer.service
                 })
-            }
-
-            if (capabilities.processAsyncWebhooksHandlers) {
-                serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
             }
 
             if (capabilities.evaluationScheduler) {

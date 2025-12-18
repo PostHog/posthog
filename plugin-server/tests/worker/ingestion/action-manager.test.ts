@@ -127,18 +127,4 @@ describe('ActionManager', () => {
 
         expect(Object.values(droppedAction!).length).toEqual(0)
     })
-
-    it('does nothing when no `processAsyncWebhooksHandlers` capabilities', async () => {
-        jest.spyOn(hub.db, 'fetchAllActionsGroupedByTeam')
-        jest.spyOn(hub.db, 'fetchAction')
-
-        const manager = new ActionManager(hub.postgres, hub.pubSub)
-
-        await manager.start()
-        await manager.reloadAllActions()
-        await manager.reloadAction(TEAM_ID, ACTION_ID)
-
-        expect(hub.db.fetchAllActionsGroupedByTeam).not.toHaveBeenCalled()
-        expect(hub.db.fetchAction).not.toHaveBeenCalled()
-    })
 })
