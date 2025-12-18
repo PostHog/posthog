@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaConsumer } from '~/kafka/consumer'
-import { addGroupPropertiesToPostIngestionEvent } from '~/main/ingestion-queues/batch-processing/each-batch-webhooks'
 
 import {
     Action,
@@ -21,6 +20,7 @@ import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
+import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 import { CdpConsumerBase } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
