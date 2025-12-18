@@ -50,7 +50,7 @@ class TestWidgetAuthentication(APIBaseTest):
     def test_conversations_disabled(self):
         """Request with valid token but conversations disabled should fail."""
         self.team.conversations_enabled = False
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
 
         response = self.client.post(
@@ -66,7 +66,7 @@ class TestWidgetAuthentication(APIBaseTest):
     def test_valid_token(self):
         """Request with valid token should succeed."""
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
 
         response = self.client.post(
@@ -86,7 +86,7 @@ class TestWidgetMessageView(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
@@ -462,7 +462,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
@@ -614,7 +614,7 @@ class TestWidgetTicketsView(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
@@ -779,7 +779,7 @@ class TestWidgetRateLimiting(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
@@ -811,7 +811,7 @@ class TestWidgetUnreadMessages(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token_123"
+        self.team.conversations_settings = {"widget_public_token": "test_token_123"}
         self.team.save()
         self.headers = {"X-Conversations-Token": "test_token_123"}
 

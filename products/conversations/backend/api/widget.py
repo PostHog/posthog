@@ -69,7 +69,7 @@ class WidgetTeamThrottle(SimpleRateThrottle):
 
 class WidgetAuthentication(BaseAuthentication):
     """
-    Authenticate widget requests via conversations_public_token.
+    Authenticate widget requests via conversations_settings.widget_public_token.
     This provides team-level authentication only. User-level scoping
     is enforced via widget_session_id validation in each endpoint.
     """
@@ -84,7 +84,7 @@ class WidgetAuthentication(BaseAuthentication):
             raise AuthenticationFailed("X-Conversations-Token header required")
 
         try:
-            team = Team.objects.get(conversations_public_token=token, conversations_enabled=True)
+            team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
         except Team.DoesNotExist:
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
@@ -170,12 +170,13 @@ def validate_traits(traits: dict) -> dict:
 def validate_origin(request: Request, team: Team) -> bool:
     """
     Validate request origin to prevent token reuse on unauthorized domains.
-    Checks against team.conversations_widget_domains if configured.
+    Checks against team.conversations_settings.widget_domains if configured.
     Empty list = allow all domains.
     """
     from posthog.api.utils import on_permitted_recording_domain
 
-    domains = team.conversations_widget_domains or []
+    settings = team.conversations_settings or {}
+    domains = settings.get("widget_domains") or []
 
     if not domains:
         return True
