@@ -145,10 +145,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
-        RUSTY_HOOK_FOR_TEAMS: '',
-        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
-        RUSTY_HOOK_URL: '',
-        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
         LAZY_LOADER_MAX_SIZE: 100_000, // Maximum entries per cache before LRU eviction
