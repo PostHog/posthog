@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 
@@ -388,3 +389,42 @@ class TestLLMGatewayViewSet(APIBaseTest):
         mock_completion.assert_called_once()
         call_kwargs = mock_completion.call_args[1]
         self.assertEqual(call_kwargs["metadata"]["ai_product"], "wizard")
+
+    @parameterized.expand(["invalid", "unknown", "foo", "maxai"])
+    def test_anthropic_messages_invalid_product_returns_400(self, invalid_product):
+        response = self.client.post(
+            f"{self.base_url}/{invalid_product}/v1/messages/",
+            data={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 1024,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error = response.json()["error"]
+        self.assertEqual(error["type"], "invalid_request_error")
+        self.assertIn(invalid_product, error["message"])
+        self.assertIn("llm_gateway", error["message"])
+        self.assertIn("array", error["message"])
+        self.assertIn("wizard", error["message"])
+
+    @parameterized.expand(["invalid", "unknown", "foo", "maxai"])
+    def test_chat_completions_invalid_product_returns_400(self, invalid_product):
+        response = self.client.post(
+            f"{self.base_url}/{invalid_product}/v1/chat/completions/",
+            data={
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error = response.json()["error"]
+        self.assertEqual(error["type"], "invalid_request_error")
+        self.assertIn(invalid_product, error["message"])
+        self.assertIn("llm_gateway", error["message"])
+        self.assertIn("array", error["message"])
+        self.assertIn("wizard", error["message"])

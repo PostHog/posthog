@@ -39,7 +39,26 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
+AI_PRODUCTS = ["llm_gateway", "array", "wizard"]
+
 _litellm_configured = False
+
+
+def _validate_ai_product(client_name: str | None) -> tuple[str, Response | None]:
+    """Validate and extract ai_product from client_name. Returns (ai_product, error_response)."""
+    ai_product = client_name.rstrip("/") if client_name else "llm_gateway"
+    if ai_product not in AI_PRODUCTS:
+        error_response = Response(
+            {
+                "error": {
+                    "message": f"Invalid product: {ai_product}. Allowed: {AI_PRODUCTS}",
+                    "type": "invalid_request_error",
+                }
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+        return ai_product, error_response
+    return ai_product, None
 
 
 def _serialize_response(obj: Any) -> Any:
@@ -202,6 +221,10 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False, methods=["POST"], url_path=r"(?P<client_name>\w+/)?v1/messages", required_scopes=["task:write"]
     )
     def anthropic_messages(self, request: Request, client_name: str | None = None, *args, **kwargs):
+        ai_product, error_response = _validate_ai_product(client_name)
+        if error_response:
+            return error_response
+
         _setup_litellm()
         serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
@@ -217,9 +240,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         trace_id = request.data.get("metadata", {}).get(
             "user_id"
         )  # Claude Code passes a user_id in the metadata which is a concatenation of the user_id and the session_id
-
-        # Extract client name from URL path (e.g., /llm_gateway/wizard/v1/messages -> "wizard")
-        ai_product = client_name.rstrip("/") if client_name else "llm_gateway"
 
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
@@ -314,6 +334,10 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["task:write"],
     )
     def chat_completions(self, request: Request, client_name: str | None = None, *args, **kwargs):
+        ai_product, error_response = _validate_ai_product(client_name)
+        if error_response:
+            return error_response
+
         _setup_litellm()
         serializer = ChatCompletionRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -324,9 +348,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         data = dict(serializer.validated_data)
         is_streaming = data.get("stream", False)
-
-        # Extract client name from URL path (e.g., /llm_gateway/wizard/v1/chat/completions -> "wizard")
-        ai_product = client_name.rstrip("/") if client_name else "llm_gateway"
 
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
