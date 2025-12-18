@@ -9,8 +9,6 @@ import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
-import { ActionManager } from '../../cdp/legacy-webhooks/action-manager'
-import { ActionMatcher } from '../../cdp/legacy-webhooks/action-matcher'
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
@@ -119,9 +117,7 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const pubSub = new PubSub(serverConfig)
     await pubSub.start()
-    const actionManager = new ActionManager(postgres, pubSub)
     const actionManagerCDP = new ActionManagerCDP(postgres)
-    const actionMatcher = new ActionMatcher(postgres, actionManager)
 
     const groupRepository = serverConfig.GROUPS_DUAL_WRITE_ENABLED
         ? new PostgresDualWriteGroupRepository(postgres, postgresPersonMigration, {
@@ -170,11 +166,9 @@ export async function createHub(
         teamManager,
         pluginsApiKeyManager,
         rootAccessManager,
-        actionMatcher,
         groupRepository,
         clickhouseGroupRepository,
         personRepository,
-        actionManager,
         actionManagerCDP,
         geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
