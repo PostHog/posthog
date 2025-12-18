@@ -38,7 +38,7 @@ MODELS = [
 ]
 
 TIMEOUT_SECONDS = 300  # 5 minutes
-SEMAPHORE_LIMIT = 20
+SEMAPHORE_LIMIT = 10
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
