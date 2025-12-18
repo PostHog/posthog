@@ -208,6 +208,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        DISABLE_INSTRUMENTATION: false, // Disable OpenTelemetry instrumentation for better performance
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',

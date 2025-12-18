@@ -90,10 +90,35 @@ interface FunctionInstrumentationOptions {
 /**
  * Wraps a function in a timeout guard and a prometheus metric.
  */
+/**
+ * Lightweight instrumentation for high-frequency operations.
+ * Only captures basic metrics without spans or timeouts.
+ */
+export async function lightInstrumentFn<T>(key: string, func: () => Promise<T>): Promise<T> {
+    if (defaultConfig.DISABLE_INSTRUMENTATION) {
+        return func()
+    }
+
+    const end = instrumentedFunctionDuration.startTimer({ function: key })
+    try {
+        const result = await func()
+        end({ success: 'true' })
+        return result
+    } catch (error) {
+        end({ success: 'false' })
+        throw error
+    }
+}
+
 export async function instrumentFn<T>(
     options: string | FunctionInstrumentationOptions,
     func: () => Promise<T>
 ): Promise<T> {
+    // Fast path: skip all instrumentation if disabled
+    if (defaultConfig.DISABLE_INSTRUMENTATION) {
+        return func()
+    }
+
     const key = typeof options === 'string' ? options : options.key
     const timeoutMessage =
         (typeof options === 'string' ? undefined : options.timeoutMessage) ?? `Timeout warning for '${key}'!`
