@@ -1400,18 +1400,12 @@
         "model": "deepseek/deepseek-v3.2",
         "cost": {
             "default": {
-                "prompt_token": 2.4e-7,
-                "completion_token": 3.8e-7,
-                "cache_read_token": 1.9e-7
+                "prompt_token": 2.6e-7,
+                "completion_token": 3.8e-7
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 2.6e-7,
                 "completion_token": 3.8e-7
-            },
-            "avian-fp8": {
-                "prompt_token": 2.4e-7,
-                "completion_token": 3.8e-7,
-                "cache_read_token": 1.9e-7
             },
             "baseten-fp4": {
                 "prompt_token": 3e-7,
@@ -6841,7 +6835,7 @@
                 "completion_token": 0.0000016
             },
             "mancer-fp8": {
-                "prompt_token": 4e-7,
+                "prompt_token": 4.25e-7,
                 "completion_token": 0.000002
             },
             "nebius-fp8": {
