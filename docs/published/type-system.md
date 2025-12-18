@@ -85,12 +85,125 @@ hogli build:openapi
 
 CI will fail if generated types are stale.
 
+> **Tip:** Use `ProductKey` enum values (not strings) when tagging endpoints. This provides type safety and IDE autocomplete. See `posthog/schema.py` for available keys.
+
 ### Adding a new product's API
 
-1. Add `@extend_schema(tags=["your_product"])` to your viewset methods
+1. Add `@extend_schema(tags=[ProductKey.YOUR_PRODUCT])` to your viewset
 2. Ensure `products/your_product/frontend/` directory exists
 3. Run `hogli build:openapi`
 4. Types appear in `products/your_product/frontend/generated/`
+
+### Documenting your API for type generation
+
+The OpenAPI schema is generated from your Django views and serializers. Well-documented endpoints produce accurate TypeScript types.
+
+#### Tag your ViewSet
+
+Use the `ProductKey` enum for type safety:
+
+```python
+from posthog.schema import ProductKey
+from posthog.api.documentation import extend_schema
+
+@extend_schema(tags=[ProductKey.YOUR_PRODUCT])
+class YourViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = YourSerializer
+    ...
+```
+
+#### Define clear serializers
+
+Serializers are the source of truth for response types:
+
+```python
+class YourItemSerializer(serializers.ModelSerializer):
+    # Explicit field definitions improve generated types
+    created_at = serializers.DateTimeField()
+    metadata = serializers.JSONField(help_text="Additional item metadata")
+
+    class Meta:
+        model = YourModel
+        fields = ["id", "name", "created_at", "metadata"]
+```
+
+Tips:
+
+- Add `help_text` for fields that need documentation
+- Use explicit field types rather than relying on auto-detection
+- For nested relationships, define nested serializers
+
+#### Document query parameters
+
+For endpoints with query parameters, create query serializers:
+
+```python
+class YourListQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=["active", "archived"],
+        required=False,
+        help_text="Filter by status"
+    )
+    limit = serializers.IntegerField(required=False, default=100)
+```
+
+Then use `@extend_schema` on the action:
+
+```python
+@extend_schema(parameters=[YourListQuerySerializer])
+def list(self, request, *args, **kwargs):
+    ...
+```
+
+### Advanced: Request validation with @validated_request
+
+> **Note:** This pattern is a work in progress. We're iterating on it as we move fast. Feedback and improvements welcome!
+
+For endpoints that need validated query parameters exposed to the view, use `@validated_request`:
+
+```python
+from posthog.api.utils import validated_request
+
+class MyQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["active", "archived"], required=False)
+    limit = serializers.IntegerField(default=100, min_value=1)
+
+@validated_request(
+    query_serializer=MyQuerySerializer,
+    responses={200: MyResponseSerializer(many=True)},
+)
+@action(methods=["GET"], detail=False)
+def my_action(self, request, **kwargs):
+    # Access validated data - don't parse request.query_params manually!
+    status = request.validated_query_data.get("status")
+    limit = request.validated_query_data.get("limit")
+    ...
+```
+
+Key points:
+
+- The decorator validates inputs AND documents the endpoint for OpenAPI
+- Always use `request.validated_query_data`, never manual `request.query_params` parsing
+- Response serializers ensure the schema matches what you actually return
+
+### Troubleshooting
+
+**Types not generating for my endpoint?**
+
+- Check that your ViewSet has `@extend_schema(tags=[ProductKey.YOUR_PRODUCT])`
+- Verify `products/your_product/frontend/` directory exists
+- Run `hogli build:openapi` and check for warnings
+
+**Generated types have wrong shapes?**
+
+- The serializer is the source of truth—check your field definitions
+- Use `@extend_schema_field` for custom SerializerMethodField types
+- For complex responses, define explicit response serializers
+
+**CI failing with "OpenAPI types are out of date"?**
+
+- Run `hogli build:openapi` locally
+- Commit the regenerated files in `products/*/frontend/generated/`
 
 ### Design decisions
 
