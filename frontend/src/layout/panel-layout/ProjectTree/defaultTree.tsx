@@ -56,7 +56,7 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport, NodeKind } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
@@ -268,6 +268,28 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     folder_open: {
         icon: <IconFolderOpen />,
     },
+}
+
+export function getInsightIconType(kind: NodeKind): FileSystemIconType {
+    switch (kind) {
+        case NodeKind.TrendsQuery:
+            return 'insight/trends'
+        case NodeKind.FunnelsQuery:
+            return 'insight/funnels'
+        case NodeKind.RetentionQuery:
+            return 'insight/retention'
+        case NodeKind.PathsQuery:
+            return 'insight/paths'
+        case NodeKind.LifecycleQuery:
+            return 'insight/lifecycle'
+        case NodeKind.StickinessQuery:
+            return 'insight/stickiness'
+        case NodeKind.HogQLQuery:
+        case NodeKind.DataVisualizationNode:
+            return 'insight/hog'
+        default:
+            return 'product_analytics'
+    }
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
