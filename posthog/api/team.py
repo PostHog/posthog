@@ -368,7 +368,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
-            "conversations_public_token",
         )
 
     def to_representation(self, instance):

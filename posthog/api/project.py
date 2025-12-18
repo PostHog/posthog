@@ -84,10 +84,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             return value
         return [domain for domain in value if domain]
 
-    def validate_conversations_widget_domains(self, value: list[str | None] | None) -> list[str] | None:
+    def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        return [domain for domain in value if domain]
+        # Filter out None values from widget_domains if present
+        if "widget_domains" in value and value["widget_domains"] is not None:
+            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        return value
 
     class Meta:
         model = Project
@@ -151,7 +154,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token_backup",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
-            "conversations_widget_domains",  # Compat with TeamSerializer
+            "conversations_enabled",  # Compat with TeamSerializer
+            "conversations_settings",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -222,7 +226,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token_backup",
             "receive_org_level_activity_logs",
             "business_model",
-            "conversations_widget_domains",
+            "conversations_enabled",
+            "conversations_settings",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -402,6 +407,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
                 **(team.modifiers or {}),
                 **validated_data["modifiers"],
             }
+
+        # Handle conversations_settings merging
+        if "conversations_settings" in validated_data:
+            existing_settings = team.conversations_settings or {}
+            new_settings = validated_data["conversations_settings"] or {}
+            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
