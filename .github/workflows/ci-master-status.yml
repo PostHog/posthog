@@ -2,6 +2,17 @@ name: Master CI Status
 
 on:
     workflow_run:
+        workflows:
+            - 'Backend CI'
+            - 'Container Images CI'
+            - 'Node.js CI'
+            - 'Frontend CI'
+            - 'Storybook'
+            - 'Security'
+            - 'shellcheck'
+            - 'Dagster CI'
+            - 'E2E CI Playwright'
+            - 'Rust CI'
         branches: [master]
         types: [completed]
 
