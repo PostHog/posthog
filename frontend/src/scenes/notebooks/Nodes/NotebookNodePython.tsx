@@ -205,23 +205,25 @@ const NotebookNodePythonComponent = ({
 
     return (
         <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1">
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        icon={<IconPlayFilled />}
-                        loading={running}
-                        onClick={() => runCode()}
-                    >
-                        Run
-                    </LemonButton>
-                    <LemonButton size="xsmall" type="secondary" onClick={toggleEditorVisibility}>
-                        {isEditingThisNode ? 'Collapse code' : 'Expand code'}
-                    </LemonButton>
+            {!isEditingThisNode ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            type="primary"
+                            size="xsmall"
+                            icon={<IconPlayFilled />}
+                            loading={running}
+                            onClick={() => runCode()}
+                        >
+                            Run
+                        </LemonButton>
+                        <LemonButton size="xsmall" type="secondary" onClick={toggleEditorVisibility}>
+                            Expand code
+                        </LemonButton>
+                    </div>
+                    <PythonRunMeta attributes={attributes} />
                 </div>
-                <PythonRunMeta attributes={attributes} />
-            </div>
+            ) : null}
 
             {localError ? (
                 <LemonBanner type="error" onClose={() => setLocalError(null)}>
@@ -376,7 +378,7 @@ const NotebookNodePythonSettings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
-    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { setTitlePlaceholder, toggleEditing } = useActions(notebookNodeLogic)
 
     const [draftCode, setDraftCode] = useState(attributes.code || DEFAULT_CODE)
     const { runCode, restartKernel, stopKernel, running, localError, setLocalError } = usePythonExecution(
@@ -400,7 +402,7 @@ const NotebookNodePythonSettings = ({
     return (
         <div className="p-3 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                     <LemonButton
                         type="primary"
                         size="xsmall"
@@ -409,6 +411,9 @@ const NotebookNodePythonSettings = ({
                         onClick={() => runCode(draftCode)}
                     >
                         Run
+                    </LemonButton>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => toggleEditing(false)}>
+                        Collapse code
                     </LemonButton>
                     <LemonButton size="xsmall" icon={<IconRefresh />} onClick={restartKernel} disabled={running}>
                         Restart kernel
