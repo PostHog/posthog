@@ -250,6 +250,14 @@ describe('Hogflow Executor', () => {
                     {
                         team_id: hogFlow.team_id,
                         app_source_id: hogFlow.id,
+                        instance_id: expect.any(String),
+                        metric_kind: 'fetch',
+                        metric_name: 'billable_invocation',
+                        count: 1,
+                    },
+                    {
+                        team_id: hogFlow.team_id,
+                        app_source_id: hogFlow.id,
                         instance_id: 'function_id_1',
                         metric_kind: 'success',
                         metric_name: 'succeeded',
@@ -506,7 +514,12 @@ describe('Hogflow Executor', () => {
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -519,7 +532,12 @@ describe('Hogflow Executor', () => {
                 // Step 2: run again, should NOT exit early due to exit_only_at_end
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
             })
 
             it('should exit early if exit condition is exit_on_conversion', async () => {
@@ -540,7 +558,12 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -576,7 +599,11 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation1)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -619,7 +646,12 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                expect(result1.metrics.map((m) => m.metric_name)).toEqual(['succeeded', 'succeeded'])
+                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'billable_invocation',
+                    'succeeded',
+                    'succeeded',
+                ])
 
                 const invocation2 = createExampleHogFlowInvocation(hogFlow, {
                     event: {
@@ -1331,10 +1363,14 @@ describe('Hogflow Executor', () => {
             expect(result.finished).toBe(true)
             expect(result.error).toBeUndefined()
 
-            // Verify we have exactly 4 billing metrics, 2 for hog functions and 2 for email actions
-            const hogFunctionBilling = result.metrics.filter((m) => m.metric_kind === 'billing')
-            expect(hogFunctionBilling).toHaveLength(2)
-            const emailBilling = result.metrics.filter((m) => m.metric_kind === 'email')
+            // Verify we have billing metrics for both hog functions and email actions
+            const fetchBilling = result.metrics.filter(
+                (m) => m.metric_kind === 'fetch' && m.metric_name === 'billable_invocation'
+            )
+            expect(fetchBilling).toHaveLength(2)
+            const emailBilling = result.metrics.filter(
+                (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
+            )
             expect(emailBilling).toHaveLength(2)
         })
     })
