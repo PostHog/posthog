@@ -1,4 +1,3 @@
-import re
 import typing
 import asyncio
 
@@ -20,12 +19,10 @@ if typing.TYPE_CHECKING:
 LOGGER = get_write_only_logger(__name__)
 
 
-KEY_ATTEMPT_NUMBER_REGEX = re.compile(r"attempt_(\d+)")
-
-
 class Producer:
     """
-    This is an alternative implementation of the `spmc.Producer` class that reads data from the internal S3 staging area.
+    Async producer that reads data from the internal S3 staging area for a given batch export and puts the data into a
+    provided queue.
     """
 
     def __init__(self):
@@ -46,6 +43,8 @@ class Producer:
         data_interval_end,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        # TODO: after deployment, make this required
+        stage_folder: str | None = None,
     ) -> asyncio.Task:
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
@@ -55,6 +54,7 @@ class Producer:
                 data_interval_end=data_interval_end,
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
+                stage_folder=stage_folder,
             ),
             name="record_batch_producer",
         )
@@ -68,19 +68,24 @@ class Producer:
         data_interval_end: str,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        stage_folder: str | None = None,
     ):
-        base_folder = get_base_s3_staging_folder(
-            batch_export_id=batch_export_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-        )
-
+        # TODO: after deployment, remove the fallback behaviour.
+        if stage_folder is None:
+            stage_folder = get_base_s3_staging_folder(
+                batch_export_id=batch_export_id,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+            )
         async with get_s3_client() as s3_client:
-            keys, common_prefix = await self._list_s3_files(s3_client, base_folder)
-            if not keys:
-                self.logger.info(f"No files found in S3 with prefix '{base_folder}' -> assuming no data to export")
+            response = await s3_client.list_objects_v2(
+                Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=stage_folder
+            )
+            if not (contents := response.get("Contents", [])):
+                self.logger.info(f"No files found in S3 with prefix '{stage_folder}' -> assuming no data to export")
                 return
-            self.logger.info(f"Producer found {len(keys)} files in S3 stage, with prefix '{common_prefix}'")
+            keys = [obj["Key"] for obj in contents if "Key" in obj]
+            self.logger.info(f"Producer found {len(keys)} files in S3 stage, with prefix '{stage_folder}'")
 
             # Read in batches
             try:
@@ -90,35 +95,6 @@ class Producer:
             except Exception as e:
                 self.logger.exception("Unexpected error occurred while producing record batches", exc_info=e)
                 raise
-
-    async def _list_s3_files(self, s3_client: "S3Client", folder: str) -> tuple[list[str], str]:
-        """List the S3 files to read from.
-
-        We use the Temporal activity attempt number in the S3 key, in case several attempts are running at the same time
-        (e.g. due to retries caused by heartbeat timeouts).
-        Therefore, we need to return only the files that correspond to the most recent attempt.
-
-        Returns:
-            tuple[list[str], str]: The list of keys and the common prefix (folder).
-        """
-        response = await s3_client.list_objects_v2(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder)
-        if not (contents := response.get("Contents", [])):
-            return [], folder
-        keys = [obj["Key"] for obj in contents if "Key" in obj]
-        # Find the max attempt number from the keys using a regex.
-        # The attempt number is present in the key as `attempt_<number>`.
-        # If no match found, assume fallback to using all files (for backwards compatibility).
-        matches = [KEY_ATTEMPT_NUMBER_REGEX.search(key) for key in keys]
-        attempt_numbers = [int(match.group(1)) if match else None for match in matches]
-        # TODO: can remove fallback behaviour after a couple of weeks once legacy data has expired from S3.
-        if all(attempt_number is None for attempt_number in attempt_numbers):
-            self.logger.warning("No attempt numbers found in S3 keys, assuming fallback to using all files")
-            return keys, folder
-        max_attempt_number = max(attempt_number for attempt_number in attempt_numbers if attempt_number is not None)
-        common_prefix = f"{folder}/attempt_{max_attempt_number}"
-        return [
-            key for key, attempt_number in zip(keys, attempt_numbers) if attempt_number == max_attempt_number
-        ], common_prefix
 
     async def _stream_record_batches_from_s3(
         self,
