@@ -78,16 +78,16 @@ def set_cluster_label(
     return f"Label set for cluster {cluster_id}: '{title}'"
 ```
 
-| Tool                              | Purpose                              | Key Arguments                        |
-| --------------------------------- | ------------------------------------ | ------------------------------------ |
-| `get_clusters_overview`           | High-level view of all clusters      | None                                 |
+| Tool                                  | Purpose                          | Key Arguments                        |
+| ------------------------------------- | -------------------------------- | ------------------------------------ |
+| `get_clusters_overview`               | High-level view of all clusters  | None                                 |
 | `get_all_clusters_with_sample_titles` | All clusters with sample titles  | `titles_per_cluster` (default 10)    |
-| `get_cluster_trace_titles`        | Scan trace titles in a cluster       | `cluster_id`, `limit` (default 30)   |
-| `get_trace_details`               | Full trace summaries                 | `trace_ids` (list)                   |
-| `get_current_labels`              | Review all labels set so far         | None                                 |
-| `set_cluster_label`               | Set/update a cluster's label         | `cluster_id`, `title`, `description` |
-| `bulk_set_labels`                 | Set labels for multiple clusters     | `labels` (list of dicts)             |
-| `finalize_labels`                 | Signal completion                    | None                                 |
+| `get_cluster_trace_titles`            | Scan trace titles in a cluster   | `cluster_id`, `limit` (default 30)   |
+| `get_trace_details`                   | Full trace summaries             | `trace_ids` (list)                   |
+| `get_current_labels`                  | Review all labels set so far     | None                                 |
+| `set_cluster_label`                   | Set/update a cluster's label     | `cluster_id`, `title`, `description` |
+| `bulk_set_labels`                     | Set labels for multiple clusters | `labels` (list of dicts)             |
+| `finalize_labels`                     | Signal completion                | None                                 |
 
 ## Agent Strategy
 
@@ -109,11 +109,11 @@ The system prompt guides the agent through a two-phase approach:
 
 From `constants.py`:
 
-| Constant                         | Value                      | Description                           |
-| -------------------------------- | -------------------------- | ------------------------------------- |
-| `LABELING_AGENT_MODEL`           | `claude-sonnet-4-20250514` | Claude model for reasoning            |
-| `LABELING_AGENT_RECURSION_LIMIT` | 150                        | Max graph steps before forced stop    |
-| `LABELING_AGENT_TIMEOUT`         | 600.0                      | LLM request timeout (seconds)         |
+| Constant                         | Value                      | Description                        |
+| -------------------------------- | -------------------------- | ---------------------------------- |
+| `LABELING_AGENT_MODEL`           | `claude-sonnet-4-20250514` | Claude model for reasoning         |
+| `LABELING_AGENT_RECURSION_LIMIT` | 150                        | Max graph steps before forced stop |
+| `LABELING_AGENT_TIMEOUT`         | 600.0                      | LLM request timeout (seconds)      |
 
 ## Usage
 
