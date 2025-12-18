@@ -33,6 +33,28 @@ export enum SurveysTabs {
     Settings = 'settings',
 }
 
+export type SurveyScheduledChangeType = 'start' | 'resume' | 'end'
+
+export function getSurveyScheduledChange(
+    survey: Pick<Survey, 'start_date' | 'end_date' | 'scheduled_start_datetime' | 'scheduled_end_datetime'>
+): { type: SurveyScheduledChangeType; scheduledAt: string } | null {
+    const scheduledStartTime = survey.scheduled_start_datetime || undefined
+
+    if (scheduledStartTime && !survey.start_date) {
+        return { type: 'start', scheduledAt: scheduledStartTime }
+    }
+
+    if (scheduledStartTime && survey.start_date && survey.end_date) {
+        return { type: 'resume', scheduledAt: scheduledStartTime }
+    }
+
+    if (survey.scheduled_end_datetime && survey.start_date && !survey.end_date) {
+        return { type: 'end', scheduledAt: survey.scheduled_end_datetime }
+    }
+
+    return null
+}
+
 export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>): ProgressStatus {
     if (!survey.start_date) {
         return ProgressStatus.Draft

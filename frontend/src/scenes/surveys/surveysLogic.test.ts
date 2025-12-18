@@ -4,7 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 
-import { surveysLogic } from './surveysLogic'
+import { getSurveyScheduledChange, getSurveyStatus, surveysLogic } from './surveysLogic'
 
 const createTestSurvey = (id: string, name: string): Survey => ({
     id,
@@ -27,10 +27,57 @@ const createTestSurvey = (id: string, name: string): Survey => ({
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    scheduled_start_datetime: null,
+    scheduled_end_datetime: null,
     user_access_level: AccessControlLevel.Editor,
 })
 
 describe('surveysLogic', () => {
+    describe('getSurveyStatus', () => {
+        it.each([
+            ['draft when no start_date', { start_date: null, end_date: null }, 'draft'],
+            ['running when started and no end_date', { start_date: '2024-01-01T00:00:00Z', end_date: null }, 'running'],
+            [
+                'complete when started and ended',
+                { start_date: '2024-01-01T00:00:00Z', end_date: '2024-01-02T00:00:00Z' },
+                'complete',
+            ],
+        ])('%s', (_name, partialSurvey, expected) => {
+            expect(getSurveyStatus(partialSurvey as any)).toEqual(expected)
+        })
+    })
+
+    describe('getSurveyScheduledChange', () => {
+        it.each([
+            [
+                'start when scheduled_start_datetime set and not started',
+                { scheduled_start_datetime: '2024-02-01T00:00:00Z', start_date: null, end_date: null },
+                { type: 'start', scheduledAt: '2024-02-01T00:00:00Z' },
+            ],
+            [
+                'resume when scheduled_start_datetime set and paused (start_date + end_date)',
+                {
+                    scheduled_start_datetime: '2024-02-01T00:00:00Z',
+                    start_date: '2024-01-01T00:00:00Z',
+                    end_date: '2024-01-02T00:00:00Z',
+                },
+                { type: 'resume', scheduledAt: '2024-02-01T00:00:00Z' },
+            ],
+            [
+                'end when scheduled_end_datetime set and running',
+                {
+                    scheduled_end_datetime: '2024-02-01T00:00:00Z',
+                    start_date: '2024-01-01T00:00:00Z',
+                    end_date: null,
+                },
+                { type: 'end', scheduledAt: '2024-02-01T00:00:00Z' },
+            ],
+            ['null when no scheduled change', { start_date: null, end_date: null }, null],
+        ])('%s', (_name, partialSurvey, expected) => {
+            expect(getSurveyScheduledChange(partialSurvey as any)).toEqual(expected)
+        })
+    })
+
     describe('search functionality', () => {
         let logic: ReturnType<typeof surveysLogic.build>
 

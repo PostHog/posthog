@@ -28,6 +28,7 @@ import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackBu
 import { SurveyStartSchedulePicker } from 'scenes/surveys/components/SurveyStartSchedulePicker'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { buildSurveyResumeUpdatePayload } from 'scenes/surveys/surveyScheduling'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import {
@@ -84,8 +85,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const resumeSurveyWithSchedule = async (): Promise<void> => {
         try {
             await updateSurvey({
-                end_date: null,
-                scheduled_start_datetime: resumeScheduledStartTime ?? null,
+                ...buildSurveyResumeUpdatePayload(resumeScheduledStartTime),
                 intentContext: ProductIntentContext.SURVEY_RESUMED,
             })
             closeResumeDialog()
@@ -286,13 +286,14 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             content={
                                 <div>
                                     <div className="text-sm text-secondary mb-4">
-                                        Once resumed, the survey will be visible to your users again.
+                                        Make this survey visible to your users again:
                                     </div>
                                     <SurveyStartSchedulePicker
                                         value={resumeScheduledStartTime}
                                         onChange={setResumeScheduledStartTime}
                                         manualLabel="Immediately"
                                         datetimeLabel="In the future"
+                                        defaultDatetimeValue={() => new Date(Date.now() + 60 * 60 * 1000).toISOString()}
                                     />
                                 </div>
                             }

@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconComment } from '@posthog/icons'
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
@@ -61,6 +61,17 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
 
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
 
+    const scheduledStartTime = survey.scheduled_start_datetime || undefined
+    const scheduledStartLabel = !survey.start_date
+        ? 'Scheduled start date'
+        : survey.end_date
+          ? 'Scheduled resume date'
+          : 'Scheduled start date'
+
+    const showScheduledStartStatus = Boolean(scheduledStartTime && !survey.start_date)
+    const showScheduledResumeStatus = Boolean(scheduledStartTime && survey.start_date && survey.end_date)
+    const showScheduledEndStatus = Boolean(survey.scheduled_end_datetime && survey.start_date && !survey.end_date)
+
     return (
         <div className="flex flex-col gap-8">
             <FirstSurveyHelper onTabChange={onTabChange} />
@@ -89,6 +100,72 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                             )}
                         </div>
                     </SurveyOption>
+
+                    {(showScheduledStartStatus || showScheduledResumeStatus || showScheduledEndStatus) && (
+                        <SurveyOption label="Status">
+                            <div className="flex flex-wrap gap-2">
+                                {showScheduledStartStatus && (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Scheduled for{' '}
+                                                {humanFriendlyDetailedTime(
+                                                    scheduledStartTime,
+                                                    'MMMM DD, YYYY',
+                                                    'h:mm A',
+                                                    { timestampStyle: 'absolute' }
+                                                )}
+                                            </>
+                                        }
+                                    >
+                                        <LemonTag type="warning" size="small">
+                                            Scheduled start
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+
+                                {showScheduledResumeStatus && (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Scheduled for{' '}
+                                                {humanFriendlyDetailedTime(
+                                                    scheduledStartTime,
+                                                    'MMMM DD, YYYY',
+                                                    'h:mm A',
+                                                    { timestampStyle: 'absolute' }
+                                                )}
+                                            </>
+                                        }
+                                    >
+                                        <LemonTag type="warning" size="small">
+                                            Scheduled resume
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+
+                                {showScheduledEndStatus && (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Scheduled for{' '}
+                                                {humanFriendlyDetailedTime(
+                                                    survey.scheduled_end_datetime,
+                                                    'MMMM DD, YYYY',
+                                                    'h:mm A',
+                                                    { timestampStyle: 'absolute' }
+                                                )}
+                                            </>
+                                        }
+                                    >
+                                        <LemonTag type="warning" size="small">
+                                            Scheduled end
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </div>
+                        </SurveyOption>
+                    )}
                     <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
                         {survey.questions.map((q, idx) => {
                             return (
@@ -114,9 +191,9 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                                     <TZLabel time={survey.start_date} />
                                 </SurveyOption>
                             )}
-                            {survey.scheduled_start_datetime && survey.end_date && (
-                                <SurveyOption label={`Scheduled ${survey.start_date ? 'resume' : 'start'} date`}>
-                                    <TZLabel time={survey.scheduled_start_datetime} />
+                            {scheduledStartTime && (!survey.start_date || survey.end_date) && (
+                                <SurveyOption label={scheduledStartLabel}>
+                                    <TZLabel time={scheduledStartTime} />
                                 </SurveyOption>
                             )}
                             {survey.end_date && (
@@ -124,7 +201,7 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                                     <TZLabel time={survey.end_date} />
                                 </SurveyOption>
                             )}
-                            {survey.scheduled_end_datetime && !survey.end_date && (
+                            {survey.scheduled_end_datetime && survey.start_date && !survey.end_date && (
                                 <SurveyOption label="Scheduled end date">
                                     <TZLabel time={survey.scheduled_end_datetime} />
                                 </SurveyOption>

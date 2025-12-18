@@ -27,6 +27,7 @@ import { SurveyStartSchedulePicker as SurveySchedulePicker } from 'scenes/survey
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { buildSurveyResumeUpdatePayload } from 'scenes/surveys/surveyScheduling'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
@@ -76,10 +77,7 @@ export function SurveysTable(): JSX.Element {
         try {
             await updateSurvey({
                 id: resumeSurvey.id,
-                updatePayload: {
-                    end_date: null,
-                    scheduled_start_datetime: resumeScheduledStartTime ?? null,
-                },
+                updatePayload: buildSurveyResumeUpdatePayload(resumeScheduledStartTime),
                 intentContext: ProductIntentContext.SURVEY_RESUMED,
             })
             closeResumeDialog()

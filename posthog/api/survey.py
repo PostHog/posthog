@@ -609,11 +609,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         user = self.context["request"].user
         changes = []
 
-        # If a survey is started or ended manually, clear any scheduled times so we don't keep stale scheduling
+        # If a survey is ended, always clear any scheduled times so we don't keep stale scheduling
         # state around. This also causes `_add_launch_schedules` to delete any pending ScheduledChange jobs.
         #
-        # Note: When changes are applied via scheduled changes, we intentionally avoid clearing these fields
-        # here, as those updates aren't initiated directly by a user action.
+        # For other actions (e.g. starting), we only clear schedules when initiated manually.
         now = datetime.now(UTC)
         trigger_source = self.context.get("trigger_source")
 
@@ -624,8 +623,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.get("scheduled_start_datetime") if "scheduled_start_datetime" in validated_data else None
         )
 
-        if trigger_source != "scheduled_change":
-            if is_starting_now or is_ending_now:
+        if is_ending_now:
+            validated_data["scheduled_start_datetime"] = None
+            validated_data["scheduled_end_datetime"] = None
+        elif trigger_source != "scheduled_change":
+            if is_starting_now:
                 validated_data["scheduled_start_datetime"] = None
                 validated_data["scheduled_end_datetime"] = None
             elif is_resuming_now and (scheduled_start_in_request is None or scheduled_start_in_request <= now):
@@ -682,7 +684,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
-        end_date = validated_data.get("end_date")
+        # IMPORTANT: `end_date` missing from the payload must not be treated as `end_date=None`.
+        # Otherwise any PATCH (e.g. scheduling changes) would incorrectly "resume" surveys by
+        # re-activating targeting flags.
+        end_date = validated_data["end_date"] if "end_date" in validated_data else instance.end_date
 
         if instance.targeting_flag:
             # turn off feature flag if survey is completed

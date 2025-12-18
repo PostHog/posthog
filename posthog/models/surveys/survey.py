@@ -307,7 +307,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         return None
 
     def scheduled_changes_dispatcher(self, payload, user: AbstractBaseUser, scheduled_change_id: int):
-        from posthog.api.survey import SurveySerializer
+        from posthog.api.survey import SurveySerializerCreateUpdateOnly
         from posthog.event_usage import report_user_action
 
         if "scheduled_start_datetime" not in payload and "scheduled_end_datetime" not in payload:
@@ -342,7 +342,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
             serializer_data["end_date"] = timezone.now()
 
-        serializer = SurveySerializer(self, data=serializer_data, context=context, partial=True)
+        serializer = SurveySerializerCreateUpdateOnly(self, data=serializer_data, context=context, partial=True)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
 

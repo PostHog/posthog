@@ -4965,6 +4965,59 @@ class TestAddLaunchSchedules(APIBaseTest):
 
 
 class TestSurveyStartResumeClearsScheduling(APIBaseTest):
+    def test_scheduling_resume_does_not_resume_immediately(self):
+        # Create and launch a survey (so it has an internal targeting flag).
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey scheduled resume should not resume immediately",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        # Start it
+        start_now = datetime.now(UTC) - timedelta(days=2)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"start_date": start_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # Stop it
+        stop_now = datetime.now(UTC) - timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"end_date": stop_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        survey = Survey.objects.get(id=survey_id)
+        assert survey.end_date is not None
+        assert survey.internal_targeting_flag is not None
+        survey.internal_targeting_flag.refresh_from_db()
+        assert survey.internal_targeting_flag.active is False
+
+        # Schedule a future resume without changing end_date.
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"scheduled_start_datetime": scheduled_start.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        assert survey.scheduled_start_datetime is not None
+        survey.internal_targeting_flag.refresh_from_db()
+        assert survey.internal_targeting_flag.active is False
+
     def test_starting_survey_clears_scheduled_start_and_deletes_jobs(self):
         scheduled_start = datetime.now(UTC) + timedelta(days=1)
         scheduled_end = datetime.now(UTC) + timedelta(days=2)
@@ -5045,6 +5098,67 @@ class TestSurveyStartResumeClearsScheduling(APIBaseTest):
         assert (
             ScheduledChange.objects.filter(
                 model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_scheduled_end_clears_scheduled_times_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Running survey with schedules",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=datetime.now(UTC) - timedelta(days=1),
+            end_date=None,
+            scheduled_start_datetime=scheduled_start,
+            scheduled_end_datetime=scheduled_end,
+        )
+
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_start,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_start_datetime": scheduled_start.isoformat()},
+        )
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_end,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_end_datetime": scheduled_end.isoformat()},
+        )
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        with (
+            patch("posthog.event_usage.report_user_action"),
+            patch("posthog.api.survey.report_user_action"),
+        ):
+            survey.scheduled_changes_dispatcher(
+                {"scheduled_end_datetime": scheduled_end.isoformat()},
+                user=self.user,
+                scheduled_change_id=123,
+            )
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        assert survey.scheduled_start_datetime is None
+        assert survey.scheduled_end_datetime is None
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
             ).count()
             == 0
         )
@@ -5144,7 +5258,7 @@ class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
         self.instantiated_survey_serializer.is_valid.return_value = True
         self.instantiated_survey_serializer.save = MagicMock()
         self.mock_serializer_instance = MagicMock()
-        self.mock_serializer_instance.SurveySerializer = self.survey_serializer
+        self.mock_serializer_instance.SurveySerializerCreateUpdateOnly = self.survey_serializer
 
     def test_does_not_update_start_if_survey_already_running(self):
         with (
