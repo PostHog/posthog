@@ -22,7 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.schema import HogQLASTQuery, HogQLQuery, QueryRequest
+from posthog.schema import HogLanguage, HogQLASTQuery, HogQLMetadata, HogQLQuery, QueryRequest
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
@@ -640,12 +640,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 )
 
     def _inject_kernel_placeholders(self, notebook: Notebook, query: BaseModel) -> None:
-        if not isinstance(query, HogQLQuery | HogQLASTQuery):
-            return
-
         placeholders = notebook_kernel_service.get_hogql_placeholders(notebook)
         if not placeholders:
             return
 
-        existing_values = query.values or {}
-        query.values = {**placeholders, **existing_values}
+        if isinstance(query, HogQLQuery | HogQLASTQuery):
+            existing_values = query.values or {}
+            query.values = {**placeholders, **existing_values}
+            return
+
+        if isinstance(query, HogQLMetadata) and query.language == HogLanguage.HOG_QL:
+            existing_globals = query.globals or {}
+            query.globals = {**placeholders, **existing_globals}
