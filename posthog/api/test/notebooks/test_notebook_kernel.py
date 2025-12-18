@@ -44,6 +44,23 @@ class TestNotebookKernels(APIBaseTest):
         assert payload["variables"]["value"] == "5"
         assert payload["kernel"]["alive"] is True
 
+    def test_kernel_initializes_hogql_helpers(self):
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+
+        execute = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/execute",
+            data={"code": "parsed = str(parse_expr('1 + 1'))\nparsed"},
+            format="json",
+        )
+
+        assert execute.status_code == 200
+
+        payload = execute.json()
+
+        assert payload["status"] == "ok"
+        assert payload["result"]["text/plain"] == "sql(plus(1, 1))"
+        assert payload["variables"]["parsed"] == "sql(plus(1, 1))"
+
     def test_kernel_can_be_stopped_and_restarted(self):
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
 

@@ -21,6 +21,11 @@ from products.notebooks.backend.models import Notebook
 
 logger = structlog.get_logger(__name__)
 
+HOGQL_BOOTSTRAP_CODE = """
+from posthog.hogql.parser import parse_expr as _posthog_parse_expr
+globals()["parse_expr"] = _posthog_parse_expr
+"""
+
 
 @dataclass
 class KernelStatus:
@@ -82,6 +87,7 @@ class _KernelHandle:
     started_at: datetime
     last_activity_at: datetime
     execution_count: int = 0
+    initialized: bool = False
 
     @property
     def status(self) -> KernelStatus:
@@ -288,42 +294,98 @@ class NotebookKernelService:
             handle = self._kernels.get(key)
 
             if handle and handle.manager.is_alive():
-                return handle
+                pass
+            else:
+                if handle:
+                    self._shutdown_handle(handle)
 
-            if handle:
-                self._shutdown_handle(handle)
+                manager = KernelManager(kernel_name="python3")
 
-            manager = KernelManager(kernel_name="python3")
+                try:
+                    manager.start_kernel()
+                    client = manager.blocking_client()
+                    client.start_channels()
+                    client.wait_for_ready(timeout=self._startup_timeout)
+                except Exception as err:
+                    logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+                    with suppress(Exception):
+                        manager.shutdown_kernel(now=True)
+                    raise RuntimeError("Failed to start kernel") from err
 
-            try:
-                manager.start_kernel()
-                client = manager.blocking_client()
-                client.start_channels()
-                client.wait_for_ready(timeout=self._startup_timeout)
-            except Exception as err:
-                logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
-                with suppress(Exception):
-                    manager.shutdown_kernel(now=True)
-                raise RuntimeError("Failed to start kernel") from err
+                handle = _KernelHandle(
+                    id=uuid.uuid4().hex,
+                    notebook_short_id=notebook.short_id,
+                    manager=manager,
+                    client=client,
+                    lock=threading.RLock(),
+                    started_at=timezone.now(),
+                    last_activity_at=timezone.now(),
+                )
+                self._kernels[key] = handle
 
-            handle = _KernelHandle(
-                id=uuid.uuid4().hex,
-                notebook_short_id=notebook.short_id,
-                manager=manager,
-                client=client,
-                lock=threading.RLock(),
-                started_at=timezone.now(),
-                last_activity_at=timezone.now(),
-            )
-            self._kernels[key] = handle
-
-            return handle
+        self._initialize_handle(handle)
+        return handle
 
     def _reset_handle(self, notebook: Notebook, handle: _KernelHandle) -> _KernelHandle:
         self._shutdown_handle(handle)
         with self._service_lock:
             self._kernels.pop(self._get_kernel_key(notebook), None)
         return self._ensure_handle(notebook)
+
+    def _initialize_handle(self, handle: _KernelHandle) -> None:
+        if handle.initialized:
+            return
+
+        with handle.lock:
+            if handle.initialized:
+                return
+
+            success = self._run_setup_code(handle, HOGQL_BOOTSTRAP_CODE)
+            handle.initialized = success
+            handle.last_activity_at = timezone.now()
+
+    def _run_setup_code(self, handle: _KernelHandle, code: str) -> bool:
+        msg_id = handle.client.execute(
+            code,
+            silent=True,
+            store_history=False,
+            stop_on_error=False,
+        )
+
+        status: str | None = None
+
+        try:
+            while True:
+                message = handle.client.get_iopub_msg(timeout=self._startup_timeout)
+
+                if message.get("parent_header", {}).get("msg_id") != msg_id:
+                    continue
+
+                msg_type = message["header"].get("msg_type")
+                content = message.get("content", {})
+
+                if msg_type == "status" and content.get("execution_state") == "idle":
+                    break
+
+                if msg_type == "error":
+                    status = "error"
+        except Empty:
+            status = "timeout"
+
+        try:
+            while True:
+                reply = handle.client.get_shell_msg(timeout=self._startup_timeout)
+                if reply.get("parent_header", {}).get("msg_id") == msg_id:
+                    reply_content = reply.get("content", {})
+                    status = reply_content.get("status", status)
+                    break
+        except Empty:
+            status = status or "timeout"
+
+        if status and status != "ok":
+            logger.warning("notebook_kernel_setup_code_failed", kernel_id=handle.id, status=status)
+
+        return status in (None, "ok")
 
     def _shutdown_handle(self, handle: _KernelHandle) -> None:
         try:
