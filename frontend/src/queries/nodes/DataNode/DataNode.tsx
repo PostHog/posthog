@@ -9,6 +9,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
 interface DataNodeProps {
     query: DataNodeType
@@ -18,6 +19,7 @@ interface DataNodeProps {
     cachedResults?: AnyResponseType
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    context?: QueryContext
 }
 
 let uniqueNode = 0
@@ -25,7 +27,13 @@ let uniqueNode = 0
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
 export function DataNode(props: DataNodeProps): JSX.Element {
     const [key] = useState(() => `DataNode.${uniqueNode++}`)
-    const logic = dataNodeLogic({ ...props, key, cachedResults: props.cachedResults, dataNodeCollectionId: key })
+    const logic = dataNodeLogic({
+        ...props,
+        key,
+        cachedResults: props.cachedResults,
+        dataNodeCollectionId: key,
+        notebook: props.context?.notebook,
+    })
     const { response, responseLoading, responseErrorObject } = useValues(logic)
 
     useAttachedLogic(logic, props.attachTo)

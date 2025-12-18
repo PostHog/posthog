@@ -3,6 +3,7 @@ import re
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -15,6 +16,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     QueryRequest,
     QueryResponseAlternative,
+    QueryStatus,
     QueryStatusResponse,
     QueryUpgradeRequest,
     QueryUpgradeResponse,
@@ -54,7 +56,15 @@ from posthog.rate_limit import (
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.notebooks.backend.query_variables import (
+    clear_cached_notebook_query_variable,
+    get_cached_notebook_query_variable,
+    store_query_result_in_kernel,
+)
+
 from common.hogvm.python.utils import HogVMException
+
+logger = structlog.get_logger(__name__)
 
 
 def _process_query_request(
@@ -192,6 +202,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        self._store_notebook_result_if_requested(query_status)
         query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED
@@ -293,6 +304,47 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    def _store_notebook_result_if_requested(self, query_status: QueryStatus) -> None:
+        pending_variable = get_cached_notebook_query_variable(self.team_id, query_status.id)
+        if not pending_variable:
+            return
+
+        if query_status.error:
+            clear_cached_notebook_query_variable(self.team_id, query_status.id)
+            return
+
+        if not query_status.complete:
+            return
+
+        if query_status.results is None:
+            clear_cached_notebook_query_variable(self.team_id, query_status.id)
+            return
+
+        try:
+            stored = store_query_result_in_kernel(
+                self.team,
+                self.request.user if isinstance(self.request.user, User) else None,
+                pending_variable,
+                query_status.results,
+            )
+        except Exception:
+            logger.exception(
+                "notebook_kernel_store_from_status_exception",
+                query_id=query_status.id,
+                notebook_short_id=pending_variable.notebook_short_id,
+            )
+            clear_cached_notebook_query_variable(self.team_id, query_status.id)
+            return
+
+        clear_cached_notebook_query_variable(self.team_id, query_status.id)
+
+        if not stored:
+            logger.warning(
+                "notebook_kernel_store_from_status_failed",
+                query_id=query_status.id,
+                notebook_short_id=pending_variable.notebook_short_id,
+            )
 
 
 MAX_QUERY_TIMEOUT = 600

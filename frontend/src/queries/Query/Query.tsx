@@ -272,7 +272,14 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             />
         )
     } else {
-        component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
+        component = (
+            <DataNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
     }
 
     return (

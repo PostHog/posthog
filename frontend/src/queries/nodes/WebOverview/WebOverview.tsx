@@ -34,6 +34,7 @@ export function WebOverview(props: {
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
+        notebook: props.context.notebook,
     })
     const { response, responseLoading } = useValues(logic)
     useAttachedLogic(logic, props.attachTo)

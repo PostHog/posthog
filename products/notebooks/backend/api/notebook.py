@@ -1,3 +1,4 @@
+import re
 import hashlib
 from typing import Any, Optional
 
@@ -11,26 +12,50 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers, viewsets
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
+from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.schema import QueryRequest
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.utils import relative_date_parse
 
 from products.notebooks.backend.kernel import notebook_kernel_service
 from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.query_variables import (
+    NotebookQueryVariable,
+    cache_notebook_query_variable,
+    store_query_result_in_kernel,
+)
+
+from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 
@@ -189,6 +214,10 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
+class NotebookKernelQuerySerializer(serializers.Serializer):
+    store_as = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 @extend_schema(
@@ -427,6 +456,72 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         return activity_page_response(activity_page, limit, page, request)
 
+    @action(methods=["POST"], url_path="kernel/query", detail=True)
+    def kernel_query(self, request: Request, **kwargs):
+        serializer = NotebookKernelQuerySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        store_as = self._clean_variable_name(serializer.validated_data.get("store_as"))
+        notebook = self._get_notebook_for_kernel()
+
+        request_payload = request.data.copy()
+        request_payload.pop("store_as", None)
+
+        try:
+            upgraded_query = upgrade(request_payload)
+            request_model = QueryRequest.model_validate(upgraded_query)
+            query, client_query_id, execution_mode = _process_query_request(
+                request_model, self.team, request_model.client_query_id, request.user
+            )
+            if client_query_id:
+                tag_queries(client_query_id=client_query_id)
+            query_dict = query.model_dump()
+
+            result = process_query_model(
+                self.team,
+                query,
+                execution_mode=execution_mode,
+                query_id=client_query_id,
+                user=request.user,
+                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                limit_context=(
+                    LimitContext.QUERY_ASYNC
+                    if (
+                        is_insight_query(query_dict)
+                        or is_insight_actors_query(query_dict)
+                        or is_insight_actors_options_query(query_dict)
+                    )
+                    and get_query_tag_value("access_method") != "personal_api_key"
+                    else None
+                ),
+            )
+
+            if isinstance(result, BaseModel):
+                result = result.model_dump(by_alias=True)
+
+            response_status = (
+                status.HTTP_202_ACCEPTED
+                if result.get("query_status") and result["query_status"].get("complete") is False
+                else status.HTTP_200_OK
+            )
+
+            self._maybe_store_query_result(notebook, store_as, result, client_query_id)
+            return Response(result, status=response_status)
+        except PydanticValidationError as err:
+            raise ValidationError(err.errors())
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as err:
+            raise ValidationError(str(err), getattr(err, "code_name", None))
+        except UserAccessControlError as err:
+            raise ValidationError(str(err))
+        except ResolutionError as err:
+            raise ValidationError(str(err))
+        except ConcurrencyLimitExceeded as err:
+            raise Throttled(detail=str(err))
+        except Exception as err:
+            self._handle_column_ch_error(err)
+            capture_exception(err)
+            raise
+
     @action(methods=["POST"], url_path="kernel/start", detail=True)
     def kernel_start(self, request: Request, **kwargs):
         notebook = self._get_notebook_for_kernel()
@@ -463,3 +558,81 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": str(err)}, status=503)
 
         return Response(execution.as_dict())
+
+    def _maybe_store_query_result(
+        self,
+        notebook: Notebook,
+        store_as: str | None,
+        result: dict[str, Any],
+        client_query_id: str | None,
+    ) -> None:
+        if not store_as:
+            return
+
+        if self._store_result_in_kernel(notebook, store_as, result):
+            return
+
+        query_status = result.get("query_status") if isinstance(result, dict) else None
+        query_id = None
+        if isinstance(query_status, dict) and not query_status.get("complete"):
+            query_id = query_status.get("id") or client_query_id
+
+        if not query_id:
+            return
+
+        cache_notebook_query_variable(query_id, self._build_query_variable(notebook, store_as))
+
+    def _store_result_in_kernel(self, notebook: Notebook, variable_name: str, result: dict[str, Any]) -> bool:
+        query_status = result.get("query_status") if isinstance(result, dict) else None
+        if isinstance(query_status, dict):
+            if not query_status.get("complete"):
+                return False
+
+            final_result = query_status.get("results")
+        else:
+            final_result = result
+
+        if final_result is None:
+            return False
+
+        return store_query_result_in_kernel(
+            self.team,
+            self._current_user(),
+            self._build_query_variable(notebook, variable_name),
+            final_result,
+        )
+
+    def _build_query_variable(self, notebook: Notebook, variable_name: str) -> NotebookQueryVariable:
+        return NotebookQueryVariable(
+            team_id=self.team_id,
+            notebook_short_id=notebook.short_id,
+            user_id=self._current_user_id(),
+            variable_name=variable_name,
+        )
+
+    def _current_user(self) -> User | None:
+        return self.request.user if isinstance(self.request.user, User) else None
+
+    def _current_user_id(self) -> int | None:
+        return self.request.user.id if isinstance(self.request.user, User) else None
+
+    def _clean_variable_name(self, variable_name: str | None) -> str | None:
+        if variable_name is None:
+            return None
+
+        trimmed_name = variable_name.strip()
+        if not trimmed_name:
+            return None
+
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", trimmed_name):
+            raise ValidationError({"store_as": "Variable name must be a valid Python identifier."})
+
+        return trimmed_name
+
+    def _handle_column_ch_error(self, error: Exception) -> None:
+        if getattr(error, "message", None):
+            match = re.search(r"There's no column.*in table", error.message)
+            if match:
+                raise ValidationError(
+                    match.group(0) + ". Note: While in beta, not all column types may be fully supported"
+                )

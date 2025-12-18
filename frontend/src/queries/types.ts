@@ -14,6 +14,7 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
+import { NotebookQueryContext } from './notebookContext'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -59,6 +60,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
+    /** Notebook context for routing query results into notebook kernels */
+    notebook?: NotebookQueryContext
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

@@ -24,6 +24,7 @@ import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { NotebookQueryContext } from '~/queries/notebookContext'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -4625,6 +4626,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            notebook?: NotebookQueryContext
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -4633,15 +4635,31 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
+        const data = {
+            query,
+            client_query_id: queryOptions?.clientQueryId,
+            refresh: queryOptions?.refresh,
+            filters_override: queryOptions?.filtersOverride,
+            variables_override: queryOptions?.variablesOverride,
+        }
+
+        if (queryOptions?.notebook) {
+            return await new ApiRequest()
+                .notebook(queryOptions.notebook.shortId)
+                .withAction('kernel')
+                .withAction('query')
+                .create({
+                    ...queryOptions?.requestOptions,
+                    data: {
+                        ...data,
+                        store_as: queryOptions.notebook.storeAs ?? undefined,
+                    },
+                })
+        }
+
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-            },
+            data,
         })
     },
 

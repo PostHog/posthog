@@ -42,6 +42,7 @@ export function WebVitals(props: {
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
+        notebook: props.context.notebook,
     })
 
     useAttachedLogic(logic, props.attachTo)

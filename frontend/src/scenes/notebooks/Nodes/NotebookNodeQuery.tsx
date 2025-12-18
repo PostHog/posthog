@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     containsHogQLQuery,
     isActorsQuery,
@@ -41,6 +42,8 @@ const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
+const PYTHON_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
+
 const Component = ({
     attributes,
     updateAttributes,
@@ -49,7 +52,24 @@ const Component = ({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
+    const { shortId } = useValues(notebookLogic)
     const summarizeInsight = useSummarizeInsight()
+
+    const outputVariable = attributes.outputVariable ?? ''
+    const cleanedVariableName = outputVariable.trim()
+    const isVariableNameValid = !cleanedVariableName || PYTHON_IDENTIFIER_REGEX.test(cleanedVariableName)
+    const notebookQueryContext = useMemo<QueryContext | undefined>(
+        () =>
+            shortId
+                ? {
+                      notebook: {
+                          shortId,
+                          storeAs: isVariableNameValid && cleanedVariableName ? cleanedVariableName : undefined,
+                      },
+                  }
+                : undefined,
+        [cleanedVariableName, isVariableNameValid, shortId]
+    )
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
@@ -128,10 +148,18 @@ const Component = ({
                                 } as QuerySchema,
                             })
                         }}
+                        context={notebookQueryContext}
                         embedded
                         readOnly
                     />
                 </ScrollableShadows>
+                <div className="mt-2">
+                    <QueryResultVariableField
+                        value={outputVariable}
+                        isValid={isVariableNameValid}
+                        onChange={(value) => updateAttributes({ outputVariable: value })}
+                    />
+                </div>
             </BindLogic>
         </div>
     )
@@ -141,6 +169,7 @@ type NotebookNodeQueryAttributes = {
     query: QuerySchema
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
+    outputVariable?: string
 }
 
 export const Settings = ({
@@ -148,7 +177,23 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const { query, isDefaultFilterApplied } = attributes
-    const { canvasFiltersOverride } = useValues(notebookLogic)
+    const { canvasFiltersOverride, shortId } = useValues(notebookLogic)
+
+    const outputVariable = attributes.outputVariable ?? ''
+    const cleanedVariableName = outputVariable.trim()
+    const isVariableNameValid = !cleanedVariableName || PYTHON_IDENTIFIER_REGEX.test(cleanedVariableName)
+    const notebookQueryContext = useMemo<QueryContext | undefined>(
+        () =>
+            shortId
+                ? {
+                      notebook: {
+                          shortId,
+                          storeAs: isVariableNameValid && cleanedVariableName ? cleanedVariableName : undefined,
+                      },
+                  }
+                : undefined,
+        [cleanedVariableName, isVariableNameValid, shortId]
+    )
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
@@ -237,9 +282,15 @@ export const Settings = ({
                     Detach from insight
                 </LemonButton>
             </div>
+
+            <QueryResultVariableField
+                value={outputVariable}
+                isValid={isVariableNameValid}
+                onChange={(value) => updateAttributes({ outputVariable: value })}
+            />
         </div>
     ) : (
-        <div className="p-3">
+        <div className="p-3 space-y-3">
             <Query
                 // use separate keys for the settings and visualization to avoid conflicts with insightProps
                 uniqueKey={attributes.nodeId + '-settings'}
@@ -252,10 +303,42 @@ export const Settings = ({
                         } as QuerySchema,
                     })
                 }}
+                context={notebookQueryContext}
+            />
+
+            <QueryResultVariableField
+                value={outputVariable}
+                isValid={isVariableNameValid}
+                onChange={(value) => updateAttributes({ outputVariable: value })}
             />
         </div>
     )
 }
+
+const QueryResultVariableField = ({
+    value,
+    onChange,
+    isValid,
+}: {
+    value: string
+    onChange: (value: string) => void
+    isValid: boolean
+}): JSX.Element => (
+    <div className="space-y-1">
+        <LemonInput
+            label="Store results as"
+            value={value}
+            placeholder="query1"
+            status={isValid ? 'default' : 'danger'}
+            onChange={onChange}
+        />
+        <div className="text-xs text-muted-alt">
+            {isValid
+                ? 'Optional: save this query response for use in later Python blocks.'
+                : 'Use letters, numbers, and underscores, starting with a letter or underscore.'}
+        </div>
+    </div>
+)
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
@@ -271,6 +354,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         },
         isDefaultFilterApplied: {
             default: false,
+        },
+        outputVariable: {
+            default: '',
         },
     },
     href: ({ query }) =>

@@ -498,7 +498,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             { date_from: '2022-12-24T17:00:41.165000Z' },
             undefined,
-            false
+            false,
+            undefined
         )
     })
 
@@ -531,7 +532,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             undefined,
             { test_1: { code_name: 'some_name', value: 'hello world', variableId: 'some_id' } },
-            false
+            false,
+            undefined
         )
     })
 
@@ -556,7 +558,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             undefined,
             undefined,
-            false
+            false,
+            undefined
         )
     })
 
@@ -581,7 +584,8 @@ describe('dataNodeLogic', () => {
             expect.any(Function),
             undefined,
             undefined,
-            false
+            false,
+            undefined
         )
     })
 })

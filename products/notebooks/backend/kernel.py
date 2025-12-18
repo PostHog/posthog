@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import uuid
 import atexit
 import signal
@@ -11,6 +12,7 @@ from datetime import datetime
 from queue import Empty
 from typing import Any, Literal
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
 import structlog
@@ -317,6 +319,40 @@ class NotebookKernelService:
                 completed_at=timezone.now(),
                 kernel=handle.status,
             )
+
+    def store_value(self, notebook: Notebook, variable_name: str, value: Any) -> bool:
+        serialized_value = self._serialize_value_for_kernel(value)
+        if not variable_name or serialized_value is None:
+            return False
+
+        assignment_code = "\n".join(
+            [
+                "import json",
+                f"{variable_name} = json.loads({json.dumps(serialized_value)})",
+            ]
+        )
+
+        try:
+            execution = self.execute(
+                notebook,
+                assignment_code,
+                capture_variables=False,
+            )
+        except RuntimeError:
+            logger.exception("notebook_kernel_store_value_failed", notebook_short_id=notebook.short_id)
+            return False
+
+        return execution.status == "ok"
+
+    def _serialize_value_for_kernel(self, value: Any) -> str | None:
+        try:
+            return json.dumps(value, cls=DjangoJSONEncoder)
+        except TypeError:
+            try:
+                return json.dumps(value, default=str)
+            except Exception:
+                logger.warning("notebook_kernel_variable_serialization_failed")
+                return None
 
     def _parse_variables(self, user_expressions: dict[str, Any], expression_key: str) -> list[KernelVariable]:
         expression = user_expressions.get(expression_key)
