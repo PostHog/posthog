@@ -222,7 +222,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.exception("webauthn_registration_error", user_id=user.pk, error=str(e))
             return Response(
-                {"error": f"Registration failed: {str(e)}"},
+                {"error": f"Registration failed: could not complete registration"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -344,7 +344,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.exception("webauthn_verification_error", user_id=user.pk, error=str(e))
             return Response(
-                {"error": f"Verification failed: {str(e)}"},
+                {"error": f"Verification failed: could not complete verification"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -482,7 +482,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.exception("webauthn_login_error", error=str(e))
             return Response(
-                {"error": f"Login failed: {str(e)}"},
+                {"error": f"Login failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -707,6 +707,6 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
         except Exception as e:
             logger.exception("webauthn_credential_verify_error", user_id=user.pk, error=str(e))
             return Response(
-                {"error": f"Verification failed: {str(e)}"},
+                {"error": f"Verification failed: could not complete verification"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
