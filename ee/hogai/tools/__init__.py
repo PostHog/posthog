@@ -10,6 +10,7 @@ from .session_summarization import SessionSummarizationTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool
 from .todo_write import TodoWriteTool
+from .upsert_dashboard import UpsertDashboardTool
 
 __all__ = [
     "CreateAndQueryInsightTool",
@@ -24,4 +25,5 @@ __all__ = [
     "ExecuteSQLTool",
     "SwitchModeTool",
     "CreateInsightTool",
+    "UpsertDashboardTool",
 ]

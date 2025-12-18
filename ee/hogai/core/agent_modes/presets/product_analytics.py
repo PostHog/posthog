@@ -4,8 +4,14 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools import CreateAndQueryInsightTool, CreateDashboardTool, CreateInsightTool, SessionSummarizationTool
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
+from ee.hogai.tools import (
+    CreateAndQueryInsightTool,
+    CreateDashboardTool,
+    CreateInsightTool,
+    SessionSummarizationTool,
+    UpsertDashboardTool,
+)
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag, has_upsert_dashboard_feature_flag
 
 from ..factory import AgentModeDefinition
 from ..toolkit import AgentToolkit
@@ -29,7 +35,10 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
                 tools.append(SessionSummarizationTool)
 
         # Add other lower-priority tools
-        tools.append(CreateDashboardTool)
+        if has_upsert_dashboard_feature_flag(self._team, self._user):
+            tools.append(UpsertDashboardTool)
+        else:
+            tools.append(CreateDashboardTool)
 
         return tools
 
