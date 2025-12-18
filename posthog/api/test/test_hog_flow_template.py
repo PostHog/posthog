@@ -106,6 +106,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             "name": "Test Template Flow",
             "description": "Test description",
             "actions": [trigger_action, function_action],
+            "scope": "team",
         }
 
         if include_metadata:
@@ -150,6 +151,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                     },
                 }
             ],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -211,6 +213,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Template Flow",
             "actions": [trigger_action, function_action_1, function_action_2],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -242,6 +245,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow",
             "actions": [],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -280,6 +284,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow",
             "actions": [trigger_action, action],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -322,6 +327,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow",
             "actions": [trigger_action, action],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -381,6 +387,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow",
             "actions": [trigger_action, conditional_action],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -430,6 +437,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow Single Condition",
             "actions": [trigger_action, wait_action],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -493,6 +501,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow Mutually Exclusive",
             "actions": [trigger_action, wait_action],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -537,6 +546,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         hog_flow_data = {
             "name": "Test Flow",
             "actions": [trigger_action, conditional_action],
+            "scope": "team",
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
