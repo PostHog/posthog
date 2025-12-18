@@ -320,4 +320,26 @@ describe('HogFunctionHandler', () => {
 
         expect(billableMetrics).toHaveLength(0)
     })
+
+    it('should not emit a billable_invocation metric when recipient opts out', async () => {
+        ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(true)
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        const billableMetrics = invocationResult.metrics.filter(
+            (metric) => metric.metric_name === 'billable_invocation'
+        )
+
+        // Ensure NO billing metrics are emitted when recipient has opted out
+        expect(billableMetrics).toHaveLength(0)
+
+        // Verify the function was still marked as finished with the right log
+        expect(invocationResult.logs).toHaveLength(1)
+        expect(invocationResult.logs[0].message).toContain('Recipient opted out')
+    })
 })

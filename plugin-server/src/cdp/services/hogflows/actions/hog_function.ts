@@ -55,11 +55,13 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        // Add billable_invocation metric now that we know the function has finished
-        trackHogFlowBillableInvocation(result, {
-            invocation: functionResult.invocation,
-            billingMetricType: this.hogFlowActionBillingType,
-        })
+        // Add billable_invocation metric only if the function actually executed (not skipped)
+        if (!functionResult.skipped) {
+            trackHogFlowBillableInvocation(result, {
+                invocation: functionResult.invocation,
+                billingMetricType: this.hogFlowActionBillingType,
+            })
+        }
 
         return {
             nextAction: findContinueAction(invocation),
@@ -72,7 +74,7 @@ export class HogFunctionHandler implements ActionHandler {
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
         const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
             invocation,
@@ -87,6 +89,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
             return {
                 finished: true,
+                skipped: true,
                 invocation: hogFunctionInvocation,
                 logs: [
                     {
