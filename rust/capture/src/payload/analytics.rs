@@ -47,8 +47,8 @@ pub async fn handle_event_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
-    headers: &HeaderMap,
-    method: &Method,
+    headers: HeaderMap,
+    method: Method,
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
@@ -64,7 +64,7 @@ pub async fn handle_event_payload(
     //     - lib_version = SDK version that submitted the request
 
     // capture arguments and add to logger, processing context
-    let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
+    let metadata = extract_and_record_metadata(&headers, path.as_str(), state.is_mirror_deploy);
 
     debug!("entering handle_event_payload");
 
@@ -75,12 +75,10 @@ pub async fn handle_event_payload(
     let beacon = query_params.beacon;
     let sent_at_from_query = query_params.sent_at();
     let mut query_params_owned = std::mem::take(query_params);
-    let headers_clone = headers.clone();
-    let method_clone = method.clone();
     let result = tokio::time::timeout(
         state.operation_timeout,
         tokio::task::spawn_blocking(move || {
-            extract_payload_bytes(&mut query_params_owned, &headers_clone, &method_clone, body)
+            extract_payload_bytes(&mut query_params_owned, &headers, &method, body)
         }),
     )
     .await;

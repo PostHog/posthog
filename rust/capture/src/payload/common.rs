@@ -20,20 +20,20 @@ use crate::{
 };
 
 /// Helper struct to hold extracted request metadata
-pub struct RequestMetadata<'a> {
-    pub user_agent: &'a str,
-    pub content_type: &'a str,
-    pub content_encoding: &'a str,
-    pub request_id: &'a str,
+pub struct RequestMetadata {
+    pub user_agent: String,
+    pub content_type: String,
+    pub content_encoding: String,
+    pub request_id: String,
     pub is_mirror_deploy: bool,
 }
 
 /// Extract and record request metadata from headers
-pub fn extract_and_record_metadata<'a>(
-    headers: &'a HeaderMap,
+pub fn extract_and_record_metadata(
+    headers: &HeaderMap,
     path: &str,
     is_mirror_deploy: bool,
-) -> RequestMetadata<'a> {
+) -> RequestMetadata {
     Span::current().record("path", path);
 
     let user_agent = headers
@@ -59,10 +59,10 @@ pub fn extract_and_record_metadata<'a>(
     Span::current().record("is_mirror_deploy", is_mirror_deploy);
 
     RequestMetadata {
-        user_agent,
-        content_type,
-        content_encoding,
-        request_id,
+        user_agent: user_agent.to_string(),
+        content_type: content_type.to_string(),
+        content_encoding: content_encoding.to_string(),
+        request_id: request_id.to_string(),
         is_mirror_deploy,
     }
 }

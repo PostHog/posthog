@@ -43,7 +43,7 @@ pub async fn event(
         );
     }
 
-    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_event_payload(&state, &ip, &mut params, headers, method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
@@ -122,7 +122,7 @@ pub async fn recording(
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
-    match handle_recording_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_recording_payload(&state, &ip, &mut params, headers, method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
