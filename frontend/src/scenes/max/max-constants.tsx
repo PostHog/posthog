@@ -231,6 +231,94 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Searching dashboards...'
                 },
             },
+            cohorts: {
+                name: 'Search cohorts',
+                description: 'Search cohorts for answers',
+                icon: iconForType('cohort'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched cohorts'
+                    }
+                    return 'Searching cohorts...'
+                },
+            },
+            actions: {
+                name: 'Search actions',
+                description: 'Search actions for answers',
+                icon: iconForType('action'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched actions'
+                    }
+                    return 'Searching actions...'
+                },
+            },
+            experiments: {
+                name: 'Search experiments',
+                description: 'Search experiments for answers',
+                icon: iconForType('experiment'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched experiments'
+                    }
+                    return 'Searching experiments...'
+                },
+            },
+            feature_flags: {
+                name: 'Search feature flags',
+                description: 'Search feature flags for answers',
+                icon: iconForType('feature_flag'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched feature flags'
+                    }
+                    return 'Searching feature flags...'
+                },
+            },
+            notebooks: {
+                name: 'Search notebooks',
+                description: 'Search notebooks for answers',
+                icon: iconForType('notebook'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched notebooks'
+                    }
+                    return 'Searching notebooks...'
+                },
+            },
+            surveys: {
+                name: 'Search surveys',
+                description: 'Search surveys for answers',
+                icon: iconForType('survey'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched surveys'
+                    }
+                    return 'Searching surveys...'
+                },
+            },
+            error_tracking_issues: {
+                name: 'Search error tracking issues',
+                description: 'Search error tracking issues for answers',
+                icon: iconForType('error_tracking'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched error tracking issues'
+                    }
+                    return 'Searching error tracking issues...'
+                },
+            },
+            all: {
+                name: 'Search all entities',
+                description: 'Search all entities for answers',
+                icon: <IconSearch />,
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched all entities'
+                    }
+                    return 'Searching all entities...'
+                },
+            },
         },
     },
     read_taxonomy: {
