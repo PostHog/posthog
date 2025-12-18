@@ -25,8 +25,8 @@ import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
-export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
+export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARN', 'ERROR']
 export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 
@@ -116,13 +116,17 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         ORDER BY timestamp ${hogql.raw(request.order)}
         LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
 
-    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
-        refresh: 'force_blocking',
-        filtersOverride: {
-            date_from: request.dateFrom ?? '-7d',
-            date_to: request.dateTo,
-        },
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+        {
+            refresh: 'force_blocking',
+            filtersOverride: {
+                date_from: request.dateFrom ?? '-7d',
+                date_to: request.dateTo,
+            },
+        }
+    )
 
     return response.results.map(
         (result): LogEntry => ({
@@ -151,13 +155,17 @@ const loadGroupedLogs = async (request: LogEntryParams): Promise<LogEntry[]> => 
         )
         ORDER BY timestamp DESC`
 
-    const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
-        refresh: 'force_blocking',
-        filtersOverride: {
-            date_from: request.dateFrom ?? '-7d',
-            date_to: request.dateTo,
-        },
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+        {
+            refresh: 'force_blocking',
+            filtersOverride: {
+                date_from: request.dateFrom ?? '-7d',
+                date_to: request.dateTo,
+            },
+        }
+    )
 
     return response.results.map(
         (result): LogEntry => ({

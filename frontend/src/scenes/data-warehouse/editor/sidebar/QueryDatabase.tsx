@@ -45,7 +45,7 @@ export const QueryDatabase = (): JSX.Element => {
         openUnsavedQuery,
         deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
-    const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
     const { deleteDraft } = useActions(draftsLogic)
@@ -241,6 +241,25 @@ export const QueryDatabase = (): JSX.Element => {
                                     >
                                         <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
                                     </DropdownMenuItem>
+                                    {item.record?.view?.is_materialized && (
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                runDataWarehouseSavedQuery(viewId)
+                                            }}
+                                        >
+                                            <ButtonPrimitive
+                                                menuItem
+                                                disabledReasons={{
+                                                    'Materialization is already running':
+                                                        item.record?.view?.status === 'Running',
+                                                }}
+                                            >
+                                                Sync now
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                         asChild

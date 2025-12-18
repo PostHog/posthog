@@ -866,7 +866,7 @@ const Content = ({
         }
         return (
             <TabScroller>
-                <div className="px-6 py-4 border-t max-w-1/2">
+                <div className="px-6 py-4 border-t">
                     <QueryVariables />
                 </div>
             </TabScroller>
