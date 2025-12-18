@@ -602,7 +602,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
         if value is None or value == "":
-            return value
+            return None
         if not settings.DEBUG:
             try:
                 raise_if_user_provided_url_unsafe(value)
