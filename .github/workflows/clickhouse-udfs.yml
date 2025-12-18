@@ -23,9 +23,10 @@ jobs:
                   private_key: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_PRIVATE_KEY }}
 
             - name: Trigger UDFs Workflow
-              uses: benc-uk/workflow-dispatch@e2e5e9a103e331dad343f381a29e654aea3cf8fc # v1
-              with:
-                  workflow: .github/workflows/clickhouse-udfs.yml
-                  repo: posthog/posthog-cloud-infra
-                  token: ${{ steps.app-token.outputs.token }}
-                  ref: refs/heads/main
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  gh workflow run clickhouse-udfs.yml \
+                    -R posthog/posthog-cloud-infra \
+                    --ref main
