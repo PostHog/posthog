@@ -106,6 +106,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         latency_ms: float,
         trace_id: str | None = None,
         error: Exception | None = None,
+        ai_product: str = "llm_gateway",
     ) -> None:
         """Capture an LLM generation event to PostHog following the LLM Analytics spec."""
         try:
@@ -121,7 +122,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "$ai_http_status": 200 if not error else getattr(error, "status_code", 500),
                 "team_id": self.team.id,
                 "organization_id": str(self.organization.id),
-                "ai_product": "llm_gateway",
+                "ai_product": ai_product,
             }
 
             if response:
@@ -288,6 +289,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     latency_ms=latency_ms,
                     trace_id=trace_id,
                     error=error,
+                    ai_product=ai_product,
                 )
 
     @extend_schema(
