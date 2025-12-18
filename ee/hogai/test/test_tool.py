@@ -354,6 +354,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "create_hog_function_filters",
         "execute_sql",
         "generate_hogql_query",
+        "fix_hogql_query",
         "analyze_user_interviews",
     }
 
