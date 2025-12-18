@@ -19,7 +19,7 @@ export const trackHogFlowBillableInvocation = (
         team_id: data.invocation.teamId,
         app_source_id: data.invocation.functionId,
         instance_id: data.invocation.id,
-        metric_kind: data.billingMetricType === 'email' ? 'email' : 'billing',
+        metric_kind: data.billingMetricType,
         metric_name: 'billable_invocation',
         count: 1,
     })
