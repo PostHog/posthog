@@ -60,11 +60,21 @@ export function DashboardReloadAction(): JSX.Element {
             <LemonButton
                 onClick={() => triggerDashboardRefresh()}
                 type="secondary"
-                icon={itemsLoading ? <Spinner textColored /> : blockRefresh ? <IconCheck /> : <IconRefresh />}
+                icon={
+                    itemsLoading ? (
+                        <Spinner textColored />
+                    ) : blockRefresh &&
+                      nextAllowedDashboardRefresh &&
+                      dayjs(nextAllowedDashboardRefresh).isAfter(dayjs()) ? (
+                        <IconCheck />
+                    ) : (
+                        <IconRefresh />
+                    )
+                }
                 size="small"
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
-                    blockRefresh
+                    blockRefresh && nextAllowedDashboardRefresh && dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
                         ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
                         : itemsLoading
                           ? 'Loading...'
