@@ -1,5 +1,7 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
+
 
 class WebAuthnCredentialManager(models.Manager):
     def get_verified_for_user(self, user_id: int):
@@ -15,7 +17,7 @@ class WebAuthnCredentialManager(models.Manager):
         return self.filter(user__email__iexact=email, user__is_active=True, verified=True)
 
 
-class WebauthnCredential(models.Model):
+class WebauthnCredential(UUIDModel):
     """
     A single webauthn credential (passkey) for a user. Works using private-public key cryptography. Users can have multiple credentials.
 
