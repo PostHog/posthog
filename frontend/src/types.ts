@@ -5309,6 +5309,8 @@ export type RawBatchExportRun = {
     data_interval_start?: string
     data_interval_end: string
     last_updated_at?: string
+    records_completed?: number
+    bytes_exported?: number
 }
 
 export type BatchExportRun = {
@@ -5327,6 +5329,8 @@ export type BatchExportRun = {
     data_interval_start?: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
+    records_completed?: number
+    bytes_exported?: number
 }
 
 export type GroupedBatchExportRuns = {
