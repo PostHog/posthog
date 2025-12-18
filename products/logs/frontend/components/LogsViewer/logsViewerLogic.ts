@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import Papa from 'papaparse'
 
 import { dayjs } from 'lib/dayjs'
@@ -10,7 +10,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
-import type { logsViewerLogicType } from './logsViewerLogicType'
+import type { logsViewerLogicType, logsViewerSettingsLogicType } from './logsViewerLogicType'
 
 export interface VisibleLogsTimeRange {
     date_from: string
@@ -29,10 +29,9 @@ export interface LogsViewerLogicProps {
     onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
 }
 
-export const logsViewerLogic = kea<logsViewerLogicType>([
-    props({} as LogsViewerLogicProps),
-    key((props) => props.tabId),
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+// Shared logic for user preferences which should be used across all tabs+windows
+const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
+    path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerSettingsLogic']),
 
     actions({
         // Timezone (IANA string, e.g. "UTC", "America/New_York")
@@ -41,7 +40,46 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         // Display options
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
+    }),
 
+    reducers(({}) => ({
+        // Timezone selection (IANA string, persisted)
+        timezone: [
+            'UTC',
+            { persist: true },
+            {
+                setTimezone: (_, { timezone }) => timezone,
+            },
+        ],
+
+        wrapBody: [
+            true,
+            { persist: true },
+            {
+                setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+
+        prettifyJson: [
+            true,
+            { persist: true },
+            {
+                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
+            },
+        ],
+    })),
+])
+
+export const logsViewerLogic = kea<logsViewerLogicType>([
+    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+    props({} as LogsViewerLogicProps),
+    key((props) => props.tabId),
+    connect(() => ({
+        values: [logsViewerSettingsLogic, ['timezone', 'wrapBody', 'prettifyJson']],
+        actions: [logsViewerSettingsLogic, ['setTimezone', 'setWrapBody', 'setPrettifyJson']],
+    })),
+
+    actions({
         // Pinning
         togglePinLog: (log: ParsedLogMessage) => ({ log }),
 
@@ -103,31 +141,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     reducers(({ props }) => ({
         // Synced from props via propsChanged
         logs: [props.logs, { setLogs: (_, { logs }) => logs }],
-
-        // Timezone selection (IANA string, persisted)
-        timezone: [
-            'UTC',
-            { persist: true },
-            {
-                setTimezone: (_, { timezone }) => timezone,
-            },
-        ],
-
-        wrapBody: [
-            true,
-            { persist: true },
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
-            },
-        ],
-
-        prettifyJson: [
-            true,
-            { persist: true },
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
-            },
-        ],
 
         pinnedLogs: [
             {} as Record<string, ParsedLogMessage>,

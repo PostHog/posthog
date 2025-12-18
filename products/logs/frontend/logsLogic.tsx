@@ -37,8 +37,6 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
-const DEFAULT_WRAP_BODY = true
-const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
@@ -205,8 +203,6 @@ export const logsLogic = kea<logsLogicType>([
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
-        setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
         setLiveLogsCheckpoint: (liveLogsCheckpoint: string | null) => ({ liveLogsCheckpoint }),
 
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
@@ -299,13 +295,6 @@ export const logsLogic = kea<logsLogicType>([
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
-        wrapBody: [
-            DEFAULT_WRAP_BODY as boolean,
-            { persist: true },
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
-            },
-        ],
         liveLogsCheckpoint: [
             null as string | null,
             { persist: false },
@@ -319,13 +308,6 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailExpired: (_, { liveTailExpired }) => liveTailExpired,
                 fetchLogsSuccess: () => false,
-            },
-        ],
-        prettifyJson: [
-            DEFAULT_PRETTIFY_JSON as boolean,
-            { persist: true },
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         logsAbortController: [
