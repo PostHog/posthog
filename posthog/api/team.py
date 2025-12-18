@@ -191,6 +191,7 @@ TEAM_CONFIG_FIELDS = (
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",
+    "error_tracking_spike_detection_multiplier",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
