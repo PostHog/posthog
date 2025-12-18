@@ -5,7 +5,7 @@ from django.db.models import QuerySet
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 
 from posthog.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from posthog.api.log_entries import LogEntryMixin
@@ -209,6 +209,18 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         return queryset
 
     def perform_create(self, serializer):
+        if not posthoganalytics.feature_enabled(
+            "workflows-template-creation",
+            serializer.context["request"].user.distinct_id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            raise exceptions.PermissionDenied(
+                "Template creation is not available. Please enable the 'workflows-template-creation' feature flag."
+            )
+
         serializer.save()
         log_activity(
             organization_id=self.organization.id,

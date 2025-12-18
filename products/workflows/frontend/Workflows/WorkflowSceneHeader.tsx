@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -20,6 +21,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         useActions(logic)
     const templateLogic = workflowTemplateLogic(props)
     const { showSaveAsTemplateModal } = useActions(templateLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isManualWorkflow = ['manual', 'schedule', 'batch'].includes(workflow?.trigger?.type || '')
@@ -107,9 +109,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 Clear changes
                             </LemonButton>
                         )}
-                        <LemonButton type="primary" size="small" onClick={showSaveAsTemplateModal}>
-                            Save as template
-                        </LemonButton>
+                        {canCreateTemplates && (
+                            <LemonButton type="primary" size="small" onClick={showSaveAsTemplateModal}>
+                                Save as template
+                            </LemonButton>
+                        )}
                         <LemonButton
                             type="primary"
                             size="small"
