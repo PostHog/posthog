@@ -326,25 +326,21 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         before_start_date = self.start_date
         before_end_date = self.end_date
 
-        serializer_data = {}
-        if payload.get("scheduled_start_datetime"):
-            # this survey is already running. nothing to do here.
-            if self.start_date and not self.end_date:
+        has_scheduled_start = bool(payload.get("scheduled_start_datetime"))
+        is_running = self.start_date is not None and self.end_date is None
+
+        if has_scheduled_start:
+            if is_running:
                 return
-
-            serializer_data["start_date"] = timezone.now()
-            serializer_data["end_date"] = None
-
-        elif payload.get("scheduled_end_datetime"):
-            # this survey is not running. nothing to do here.
-            if self.end_date:
+            serializer_data = {"start_date": timezone.now(), "end_date": None}
+        else:
+            if self.end_date is not None:
                 return
-
-            serializer_data["end_date"] = timezone.now()
+            serializer_data = {"end_date": timezone.now()}
 
         serializer = SurveySerializerCreateUpdateOnly(self, data=serializer_data, context=context, partial=True)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
         event_payload = self.get_lifecycle_analytics_event(
             before_start_date=before_start_date,

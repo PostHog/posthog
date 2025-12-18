@@ -404,9 +404,42 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         return cleaned_questions
 
     def validate_schedule(self, value):
-        if value is not None and value not in ["once", "recurring", "always"]:
+        if value is not None and value not in Survey.Schedule.values:
             raise serializers.ValidationError("Schedule must be one of: once, recurring, always")
         return value
+
+    def _normalize_scheduled_datetimes(self, validated_data: dict, *, trigger_source: str | None) -> None:
+        def _clear_scheduled_times() -> None:
+            validated_data["scheduled_start_datetime"] = None
+            validated_data["scheduled_end_datetime"] = None
+
+        end_date_in_request = "end_date" in validated_data
+        start_date_in_request = "start_date" in validated_data
+
+        # Ending a survey always clears any future schedules.
+        if end_date_in_request and validated_data.get("end_date") is not None:
+            _clear_scheduled_times()
+            return
+
+        # Scheduled changes should not be treated as user-initiated scheduling edits.
+        if trigger_source == "scheduled_change":
+            return
+
+        # Starting a survey immediately clears any future schedules.
+        if start_date_in_request and validated_data.get("start_date") is not None:
+            _clear_scheduled_times()
+            return
+
+        # If we're resuming now (explicit end_date=None), clear an immediate/omitted scheduled start.
+        if not (end_date_in_request and validated_data.get("end_date") is None):
+            return
+
+        now = datetime.now(UTC)
+        scheduled_start_in_request = (
+            validated_data.get("scheduled_start_datetime") if "scheduled_start_datetime" in validated_data else None
+        )
+        if scheduled_start_in_request is None or scheduled_start_in_request <= now:
+            validated_data["scheduled_start_datetime"] = None
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
@@ -609,29 +642,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         user = self.context["request"].user
         changes = []
 
-        # If a survey is ended, always clear any scheduled times so we don't keep stale scheduling
-        # state around. This also causes `_add_launch_schedules` to delete any pending ScheduledChange jobs.
-        #
-        # For other actions (e.g. starting), we only clear schedules when initiated manually.
-        now = datetime.now(UTC)
         trigger_source = self.context.get("trigger_source")
-
-        is_starting_now = "start_date" in validated_data and validated_data.get("start_date") is not None
-        is_ending_now = "end_date" in validated_data and validated_data.get("end_date") is not None
-        is_resuming_now = "end_date" in validated_data and validated_data.get("end_date") is None
-        scheduled_start_in_request = (
-            validated_data.get("scheduled_start_datetime") if "scheduled_start_datetime" in validated_data else None
-        )
-
-        if is_ending_now:
-            validated_data["scheduled_start_datetime"] = None
-            validated_data["scheduled_end_datetime"] = None
-        elif trigger_source != "scheduled_change":
-            if is_starting_now:
-                validated_data["scheduled_start_datetime"] = None
-                validated_data["scheduled_end_datetime"] = None
-            elif is_resuming_now and (scheduled_start_in_request is None or scheduled_start_in_request <= now):
-                validated_data["scheduled_start_datetime"] = None
+        self._normalize_scheduled_datetimes(validated_data, trigger_source=trigger_source)
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
@@ -789,26 +801,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # if this is an update, delete existing schedules that have not run yet
         ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id, executed_at__isnull=True).delete()
 
-        # create start schedule if its in the future
-        if instance.scheduled_start_datetime and instance.scheduled_start_datetime > datetime.now(UTC):
-            ScheduledChange.objects.create(
-                model_name="Survey",
-                record_id=instance.id,
-                scheduled_at=instance.scheduled_start_datetime,
-                created_by_id=self.context["request"].user.id,
-                team_id=self.context["team_id"],
-                payload={"scheduled_start_datetime": instance.scheduled_start_datetime.isoformat()},
-            )
+        now = datetime.now(UTC)
+        schedules: list[tuple[str, datetime | None]] = [
+            ("scheduled_start_datetime", instance.scheduled_start_datetime),
+            ("scheduled_end_datetime", instance.scheduled_end_datetime),
+        ]
 
-        # create end schedule if its in the future
-        if instance.scheduled_end_datetime and instance.scheduled_end_datetime > datetime.now(UTC):
+        for payload_key, scheduled_at in schedules:
+            if scheduled_at is None or scheduled_at <= now:
+                continue
+
             ScheduledChange.objects.create(
                 model_name="Survey",
                 record_id=instance.id,
-                scheduled_at=instance.scheduled_end_datetime,
+                scheduled_at=scheduled_at,
                 created_by_id=self.context["request"].user.id,
                 team_id=self.context["team_id"],
-                payload={"scheduled_end_datetime": instance.scheduled_end_datetime.isoformat()},
+                payload={payload_key: scheduled_at.isoformat()},
             )
 
     def _associate_actions(self, instance: Survey, conditions):
