@@ -40,7 +40,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
 
-from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, execute_and_format_query
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor, execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
 
@@ -53,7 +53,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with freeze_time("2025-01-20T12:00:00Z"):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_trends(self, mock_process_query):
         """Test successful execution and formatting of trends query"""
         mock_process_query.return_value = {
@@ -68,7 +68,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Date|test", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_funnels(self, mock_process_query):
         """Test successful execution and formatting of funnels query"""
         mock_process_query.return_value = {
@@ -92,7 +92,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Metric|test", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_retention(self, mock_process_query):
         """Test successful execution and formatting of retention query"""
         mock_process_query.return_value = {
@@ -112,7 +112,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Date|Number of persons on date", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_sql(self, mock_process_query):
         """Test successful execution and formatting of SQL query"""
         mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
@@ -125,7 +125,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("count\n100\n200", result)
         mock_process_query.assert_called_once()
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_with_fallback_info_no_fallback(self, mock_process_query):
         """Test run_and_format_query_with_fallback_info returns fallback info"""
         mock_process_query.return_value = {
@@ -139,8 +139,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.capture_exception")
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.capture_exception")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_with_fallback_on_compression_error(self, mock_process_query, mock_capture):
         """Test fallback to JSON when compression fails and capture_exception is called"""
         mock_process_query.return_value = {"results": [{"invalid": "data"}]}
@@ -149,7 +149,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
 
         with patch(
-            "ee.hogai.chat_agent.query_executor.format.TrendsResultsFormatter.format",
+            "ee.hogai.context.insight.format.TrendsResultsFormatter.format",
             side_effect=Exception("Compression failed"),
         ):
             result, used_fallback = await self.query_runner.arun_and_format_query(query)
@@ -161,8 +161,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         # Should capture the exception for non-NotImplementedError
         mock_capture.assert_called_once()
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.capture_exception")
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.capture_exception")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_with_fallback_on_not_implemented_error_no_capture(
         self, mock_process_query, mock_capture
     ):
@@ -183,7 +183,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         # Should NOT capture NotImplementedError
         mock_capture.assert_not_called()
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_api_exception(self, mock_process_query):
         """Test handling of APIException"""
 
@@ -196,7 +196,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("API error message", str(context.exception))
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
         """Test handling of ExposedHogQLError"""
 
@@ -209,7 +209,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("HogQL error", str(context.exception))
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
         """Test handling of ExposedCHQueryError"""
 
@@ -222,7 +222,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("ClickHouse error", str(context.exception))
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
         """Test handling of generic exceptions"""
         mock_process_query.side_effect = ValueError("Some other error")
@@ -234,8 +234,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("There was an unknown error running this query.", str(context.exception))
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
     async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
         """Test successful async query polling"""
         # Initial response with incomplete query
@@ -255,7 +255,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with patch("ee.hogai.chat_agent.query_executor.query_executor.asyncio.sleep") as mock_sleep:
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep") as mock_sleep:
             result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
         self.assertIsInstance(result, str)
@@ -264,8 +264,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(mock_get_query_status.call_count, 2)
         self.assertEqual(mock_sleep.call_count, 2)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
     async def test_async_query_polling_timeout(self, mock_get_query_status, mock_process_query):
         """Test async query polling timeout"""
         # Initial response with incomplete query
@@ -276,14 +276,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with patch("ee.hogai.chat_agent.query_executor.query_executor.asyncio.sleep"):
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
     async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
         """Test async query polling that returns an error"""
         # Initial response with incomplete query
@@ -301,14 +301,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with patch("ee.hogai.chat_agent.query_executor.query_executor.asyncio.sleep"):
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
             with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("Query failed with error", str(context.exception))
 
     @override_settings(TEST=False)
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_execution_mode_in_production(self, mock_process_query):
         """Test that production uses correct execution mode"""
         mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
@@ -536,7 +536,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIn("Jane Doe", result)
         self.assertIn("John Doe", result)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_response_dict_handling(self, mock_process_query):
         """Test that response is handled correctly whether it's a dict or model"""
         # Test with dict response
@@ -581,7 +581,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         with freeze_time("2025-01-20T12:00:00Z"):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_includes_insight_schema_for_trends_query(self, mock_process_query):
         """Verify insight schema is included for TrendsQuery"""
         mock_process_query.return_value = {
@@ -596,7 +596,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         # Verify it contains query configuration
         self.assertIn("kind", result)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_insight_schema_excludes_unset_fields(self, mock_process_query):
         """Verify that unset fields are excluded from the schema (exclude_unset=True)"""
         mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
@@ -607,7 +607,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         self.assertIn("kind", result)
         self.assertNotIn("breakdownFilter", result)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_insight_schema_excludes_none_values(self, mock_process_query):
         """Verify that None values are excluded from the schema (exclude_none=True)"""
         mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
@@ -620,7 +620,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         self.assertNotIn("null", result)
         self.assertNotIn("breakdownFilter", result)
 
-    @patch("ee.hogai.chat_agent.query_executor.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_excludes_sql_schema(self, mock_process_query):
         """Verify that None values are excluded from the schema (exclude_none=True)"""
         mock_process_query.return_value = {"results": []}

@@ -50,7 +50,7 @@ jobs:
                     echo "since=$(jq -r '.since' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "failCount=$(jq -r '.failCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "commitCount=$(jq -r '.commitCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
-                    echo "commits=$(jq -r '.commits // []' .master-ci-incident)" >> $GITHUB_OUTPUT
+                    echo "commits=$(jq -c '.commits // []' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "Current incident:"
                     cat .master-ci-incident
                   else
