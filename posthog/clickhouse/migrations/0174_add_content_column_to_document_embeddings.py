@@ -7,7 +7,7 @@ from products.error_tracking.backend.embedding import (
     DOCUMENT_EMBEDDINGS_MV_SQL,
     KAFKA_DOCUMENT_EMBEDDINGS,
     KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL,
-    SHARDED_DOCUMENT_EMBEDDINGS,
+    PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS,
 )
 
 ADD_CONTENT_COLUMN_SQL = """
@@ -25,7 +25,7 @@ operations = [
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
     run_sql_with_exceptions(
-        ADD_CONTENT_COLUMN_SQL.format(table_name=SHARDED_DOCUMENT_EMBEDDINGS),
+        ADD_CONTENT_COLUMN_SQL.format(table_name=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
         sharded=False,
         is_alter_on_replicated_table=True,

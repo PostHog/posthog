@@ -262,6 +262,27 @@ SETTINGS
 """
 )
 
+SELECT_FROM_EVENTS_WORKFLOWS = Template(
+    """
+SELECT
+    $fields
+FROM events
+    PREWHERE
+        COALESCE(events.timestamp) >= {{interval_start:DateTime64}}
+        AND COALESCE(events.timestamp) < {{interval_end:DateTime64}}
+    WHERE
+        team_id = {{team_id:Int64}}
+        AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
+        AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
+        $filters
+FORMAT ArrowStream
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1
+"""
+)
+
 SELECT_FROM_EVENTS_VIEW_RECENT = Template(
     """
 SELECT
@@ -669,6 +690,34 @@ SETTINGS
 """
 )
 
+EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS = Template(
+    """
+INSERT INTO FUNCTION
+   s3(
+       '$s3_folder/export_{{_partition_id}}.arrow',
+       '$s3_key',
+       '$s3_secret',
+       'ArrowStream'
+    )
+    PARTITION BY rand() %% $num_partitions
+SELECT
+    $fields
+FROM
+    events
+WHERE
+    team_id = {{team_id:Int64}}
+    AND events.timestamp >= {{interval_start:DateTime64}}
+    AND events.timestamp < {{interval_end:DateTime64}}
+    AND (length({{include_events:Array(String)}}) = 0 OR event IN {{include_events:Array(String)}})
+    AND (length({{exclude_events:Array(String)}}) = 0 OR event NOT IN {{exclude_events:Array(String)}})
+    $filters
+SETTINGS
+    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
+    max_bytes_before_external_sort=50000000000,
+    optimize_aggregation_in_order=1,
+    log_comment={log_comment}
+"""
+)
 EXPORT_TO_S3_FROM_EVENTS = Template(
     """
 INSERT INTO FUNCTION

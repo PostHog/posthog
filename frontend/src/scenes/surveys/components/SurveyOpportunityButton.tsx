@@ -36,6 +36,7 @@ export interface SurveyOpportunityButtonProps {
     disableAutoPromptSubmit?: boolean
     source: SURVEY_CREATED_SOURCE
     fromProduct: ProductKey
+    _cardWidth?: number // injected by insight card meta
 }
 
 export function SurveyOpportunityButton({
@@ -43,7 +44,9 @@ export function SurveyOpportunityButton({
     disableAutoPromptSubmit,
     source,
     fromProduct,
+    _cardWidth,
 }: SurveyOpportunityButtonProps): JSX.Element | null {
+    const showLabel = !_cardWidth || _cardWidth > 480
     const [modalOpen, setModalOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -116,8 +119,8 @@ export function SurveyOpportunityButton({
 
     return (
         <>
-            <LemonButton size="xsmall" type="primary" sideIcon={<IconMessage />} onClick={handleClick}>
-                Ask users why
+            <LemonButton size="xsmall" type="primary" icon={<IconMessage />} onClick={handleClick}>
+                {showLabel && 'Ask users why'}
             </LemonButton>
             {shouldUseQuickCreate && (
                 <QuickSurveyModal

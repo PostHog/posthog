@@ -58,6 +58,7 @@ class RealtimeCohortCalculationWorkflowInputs:
     limit: Optional[int] = None
     offset: int = 0
     team_id: Optional[int] = None
+    cohort_id: Optional[int] = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -65,6 +66,7 @@ class RealtimeCohortCalculationWorkflowInputs:
             "limit": self.limit,
             "offset": self.offset,
             "team_id": self.team_id,
+            "cohort_id": self.cohort_id,
         }
 
 
@@ -88,12 +90,16 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             if inputs.team_id is not None:
                 queryset = queryset.filter(team_id=inputs.team_id)
 
-            # Apply pagination
-            queryset = (
-                queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-                if inputs.limit
-                else queryset[inputs.offset :]
-            )
+            # Apply cohort_id filter if provided - skip pagination when filtering by specific cohort
+            if inputs.cohort_id is not None:
+                queryset = queryset.filter(id=inputs.cohort_id)
+            else:
+                # Only apply pagination when not filtering by specific cohort
+                queryset = (
+                    queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
+                    if inputs.limit
+                    else queryset[inputs.offset :]
+                )
 
             return list(queryset)
 

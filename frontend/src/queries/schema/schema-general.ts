@@ -1702,6 +1702,11 @@ export interface EndpointRunRequest {
     query_override?: Record<string, any>
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
+    /**
+     * Whether to include debug information (such as the executed HogQL) in the response.
+     * @default false
+     */
+    debug?: boolean
 }
 
 export interface EndpointLastExecutionTimesRequest {
