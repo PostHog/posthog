@@ -87,6 +87,10 @@ interface FunctionInstrumentationOptions {
     sendException?: boolean
 }
 
+/**
+ * Wraps a function in a timeout guard and a prometheus metric.
+ */
+
 export async function instrumentFn<T>(
     options: string | FunctionInstrumentationOptions,
     func: () => Promise<T>
