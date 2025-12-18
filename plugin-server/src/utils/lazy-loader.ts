@@ -315,14 +315,7 @@ export class LazyLoader<T> {
             // and then picks out its value
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise
-                .then((map) => {
-                    // Clean up if the key was evicted while loading
-                    if (!(key in this.cache)) {
-                        delete this.pendingLoads[key]
-                        return null
-                    }
-                    return map[key] ?? null
-                })
+                .then((map) => map[key] ?? null)
                 .finally(() => {
                     delete this.pendingLoads[key]
                 })
