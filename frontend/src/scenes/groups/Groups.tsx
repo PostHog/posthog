@@ -21,6 +21,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+
 import { getCRMColumns } from './crm/utils'
 import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
@@ -107,6 +109,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     ) : undefined
                 }
             />
+            <FeedbackBanner feedbackButtonId="groups-list" />
 
             <Query
                 uniqueKey={`groups-query-${tabId}`}

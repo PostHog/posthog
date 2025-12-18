@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -309,6 +311,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         const updateCurrentTeam = (): void => {
             if (values.revenueAnalyticsConfig) {
                 actions.updateCurrentTeam({ revenue_analytics_config: values.revenueAnalyticsConfig })
+                lemonToast.success('Revenue analytics config saved')
             }
         }
 

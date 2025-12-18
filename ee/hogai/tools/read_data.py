@@ -6,7 +6,11 @@ from pydantic import BaseModel, Field, create_model
 
 from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
@@ -39,10 +43,19 @@ Use this tool to read user data created in PostHog. This tool returns data that 
 
 # Data warehouse schema
 
-Returns the SQL ClickHouse schema for the user's data warehouse.
+Read the SQL ClickHouse schema (tables, views, and columns) for the user's data.
+
+## Available operations:
+- `data_warehouse_schema`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only). Use this first to see what data is available.
+- `data_warehouse_table`: Returns the full schema for a specific data warehouse table or view. Use this after `data_warehouse_schema` to get details on specific tables you need.
+
 You MUST use this tool when:
 - Working with SQL.
 - The request is about data warehouse, connected data sources, etc.
+
+Workflow:
+1. Start with `data_warehouse_schema` to see available tables
+2. Use `data_warehouse_table` with a specific `table_name` to get schema details for warehouse tables you need
 
 # Insight
 
@@ -60,6 +73,25 @@ Retrieves and optionally queries data for an existing insight by its ID.
 BILLING_INSUFFICIENT_ACCESS_PROMPT = """
 The user does not have admin access to view detailed billing information. They would need to contact an organization admin for billing details.
 Suggest the user to contact the admins.
+""".strip()
+
+READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
+# Core PostHog tables
+{{{posthog_tables}}}
+{{#data_warehouse_tables}}
+
+# Data warehouse tables
+{{{data_warehouse_tables}}}
+{{/data_warehouse_tables}}
+{{#data_warehouse_views}}
+
+# Data warehouse views
+{{{data_warehouse_views}}}
+{{/data_warehouse_views}}
+
+<system_reminder>
+Use the `read_data` tool with the `data_warehouse_table` kind to get column and relationship details for a specific table.
+</system_reminder>
 """.strip()
 
 INSIGHT_NOT_FOUND_PROMPT = """
@@ -91,9 +123,16 @@ Query definition:
 
 
 class ReadDataWarehouseSchema(BaseModel):
-    """Returns the SQL ClickHouse schema for the user's data warehouse."""
+    """Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only)."""
 
-    kind: Literal["datawarehouse_schema"] = "datawarehouse_schema"
+    kind: Literal["data_warehouse_schema"] = "data_warehouse_schema"
+
+
+class ReadDataWarehouseTableSchema(BaseModel):
+    """Returns the full schema with columns for a specific data warehouse table or view."""
+
+    kind: Literal["data_warehouse_table"] = "data_warehouse_table"
+    table_name: str = Field(description="The name of the table to read the schema for.")
 
 
 class ReadInsight(BaseModel):
@@ -119,7 +158,7 @@ class ReadArtifacts(BaseModel):
     kind: Literal["artifacts"] = "artifacts"
 
 
-ReadDataQuery = ReadDataWarehouseSchema | ReadInsight | ReadBillingInfo | ReadArtifacts
+ReadDataQuery = ReadDataWarehouseSchema | ReadDataWarehouseTableSchema | ReadInsight | ReadBillingInfo | ReadArtifacts
 
 
 class _InternalReadDataToolArgs(BaseModel):
@@ -166,7 +205,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
-        ReadDataKind = Union[ReadDataWarehouseSchema, ReadInsight, *kinds]  # type: ignore
+        ReadDataKind = Union[ReadDataWarehouseSchema, ReadDataWarehouseTableSchema, ReadInsight, *kinds]  # type: ignore
 
         ReadDataToolArgs = create_model(
             "ReadDataToolArgs",
@@ -207,7 +246,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 result = await billing_tool.execute()
                 return result, None
             case ReadDataWarehouseSchema():
-                return await self._serialize_database_schema(), None
+                return await self._read_data_warehouse_schema(), None
+            case ReadDataWarehouseTableSchema() as data_warehouse_table:
+                return await self._read_data_warehouse_table_schema(data_warehouse_table.table_name), None
             case ReadArtifacts():
                 return await self._read_artifacts()
             case ReadInsight() as schema:
@@ -280,3 +321,72 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if len(formatted_artifacts) == 0:
             return "No artifacts available", None
         return "\n\n".join(formatted_artifacts), None
+
+    async def _read_data_warehouse_schema(self) -> str:
+        database = await self._aget_database()
+        hogql_context = self._get_default_hogql_context(database)
+        return await self._build_tables_list(database, hogql_context)
+
+    async def _read_data_warehouse_table_schema(self, table_name: str) -> str:
+        database = await self._aget_database()
+        hogql_context = self._get_default_hogql_context(database)
+        return await self._build_table_schema(database, hogql_context, table_name)
+
+    @database_sync_to_async
+    def _build_tables_list(self, database: Database, hogql_context: HogQLContext) -> str:
+        core_tables = {"events", "groups", "persons", "sessions"}
+        serialized = database.serialize(hogql_context, include_only=core_tables)
+
+        system_table_lines: list[str] = []
+        for table_name, table in serialized.items():
+            system_table_lines.append(f"## Table `{table_name}`")
+            for field in table.fields.values():
+                system_table_lines.append(f"- {field.name} ({field.type})")
+            system_table_lines.append("")
+
+        warehouse_tables = database.get_warehouse_table_names()
+        views = database.get_view_names()
+
+        listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
+
+        return format_prompt_string(
+            READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
+            template_format="mustache",
+            posthog_tables="\n".join(system_table_lines),
+            data_warehouse_tables=listify(warehouse_tables),
+            data_warehouse_views=listify(views),
+        )
+
+    @database_sync_to_async
+    def _build_table_schema(self, database: Database, hogql_context: HogQLContext, table_name: str) -> str:
+        # Load tables on demand: warehouse first, then views, then posthog tables
+        table_sources = [
+            database.get_warehouse_table_names,
+            database.get_view_names,
+            database.get_posthog_table_names,
+        ]
+
+        table_found = False
+        all_tables: list[str] = []
+        for get_tables in table_sources:
+            tables = get_tables()
+            if table_name in tables:
+                table_found = True
+                break
+            all_tables.extend(tables)
+
+        if not table_found:
+            available = ", ".join(sorted(all_tables)[:20])
+            return f"Table `{table_name}` not found. Available tables include: {available}..."
+
+        serialized = database.serialize(hogql_context, include_only={table_name})
+
+        if table_name not in serialized:
+            return f"Could not serialize schema for table `{table_name}`."
+
+        table = serialized[table_name]
+        lines = [f"Table `{table_name}` with fields:"]
+        for field in table.fields.values():
+            lines.append(f"- {field.name} ({field.type})")
+
+        return "\n".join(lines)

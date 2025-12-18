@@ -26,7 +26,7 @@ pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
     // Ok I broke it at the end, but the limit on our ingress is 60 and that's a nicer way of reaching it
     const EXPONENTIAL_SECONDS: &[f64] = &[
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
+        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
     ];
     const BATCH_SIZES: &[f64] = &[
         1.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0,
@@ -56,6 +56,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Suffix("capture_full_payload_size".to_string()),
             PAYLOAD_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Prefix("capture_debug_".to_string()),
+            EXPONENTIAL_SECONDS,
         )
         .unwrap()
         .install_recorder()

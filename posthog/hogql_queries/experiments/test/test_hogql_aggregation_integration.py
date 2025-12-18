@@ -56,7 +56,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         for expr_str, expected_agg, description in test_cases:
             with self.subTest(expression=expr_str, description=description):
-                aggregation, inner_expr = extract_aggregation_and_inner_expr(expr_str)
+                aggregation, inner_expr, _ = extract_aggregation_and_inner_expr(expr_str)
 
                 if expected_agg is None:
                     self.assertIsNone(aggregation, f"Expected no aggregation for: {expr_str}")

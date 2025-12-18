@@ -2,8 +2,6 @@
 {% load i18n %}
 
 {% block content %}
-<h1>Export History for {{ team.name }}</h1>
-
 <p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
 
 {% if exports %}
@@ -28,7 +26,9 @@
             <td style="padding: 10px;">{{ export.created_by.email|default:"-" }}</td>
             <td style="padding: 10px;">{{ export.created_at }}</td>
             <td style="padding: 10px;">
-                {% if export.status == "complete" %}
+                {% if export.is_expired %}
+                    <span style="color: gray;">Expired</span>
+                {% elif export.status == "complete" %}
                     <span style="color: green;">Complete</span>
                 {% elif export.status == "failed" %}
                     <span style="color: red;">Failed</span>
@@ -39,7 +39,9 @@
                 {% endif %}
             </td>
             <td style="padding: 10px;">
-                {% if export.export_location %}
+                {% if export.is_expired %}
+                    -
+                {% elif export.export_location %}
                     <a href="/admin/posthog/team/{{ team.pk }}/download-export/{{ export.id }}/" class="button" style="font-size: 11px;">Download</a>
                 {% else %}
                     -
