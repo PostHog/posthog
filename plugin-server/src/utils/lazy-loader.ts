@@ -141,9 +141,7 @@ export class LazyLoader<T> {
 
         // Clean up stale pending loads
         for (const key in this.pendingLoads) {
-            // Check if the promise has been pending for too long
-            const promise = this.pendingLoads[key]
-            if (promise && !cacheKeys.has(key)) {
+            if (!cacheKeys.has(key)) {
                 delete this.pendingLoads[key]
             }
         }
