@@ -137,7 +137,7 @@ function SeriesDisplay({
                     <SeriesLetter
                         seriesIndex={seriesIndex}
                         hasBreakdown={hasBreakdown}
-                        className="opacity-50"
+                        className="opacity-50 border-secondary text-secondary"
                         size="xsmall"
                     />
                 )}
