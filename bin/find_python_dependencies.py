@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(REPO_ROOT))
 
 # All local Python packages in the repository
-LOCAL_PACKAGES = ("posthog", "ee", "products", "common", "dags")
+LOCAL_PACKAGES = ("posthog", "ee", "products", "common")
 
 
 def build_import_graph(packages: tuple[str, ...]) -> grimp.ImportGraph:
