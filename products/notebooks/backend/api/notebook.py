@@ -590,7 +590,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if not query_status.get("complete"):
                 return False
 
-            final_result = query_status.get("results")
+            final_result = query_status.get("results") or (result.get("results") if isinstance(result, dict) else None)
+        elif isinstance(result, dict):
+            final_result = result.get("results")
         else:
             final_result = result
 

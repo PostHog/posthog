@@ -202,7 +202,11 @@ def _posthog_run_sync(query):
         user=user,
     )
 
-    return result.model_dump(by_alias=True) if hasattr(result, "model_dump") else result
+    response = result.model_dump(by_alias=True) if hasattr(result, "model_dump") else result
+    if isinstance(response, dict) and "results" in response:
+        return response.get("results")
+
+    return response
 
 
 def _posthog_run_in_thread(query):
