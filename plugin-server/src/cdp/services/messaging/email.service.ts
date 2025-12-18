@@ -6,7 +6,6 @@ import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { Hub } from '../../../types'
-import { recordHogFlowBillableInvocation } from '../hogflows/billing-utils'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { addPreheaderToEmail } from './helpers/preheader'
@@ -77,12 +76,13 @@ export class EmailService {
             success,
         })
 
-        recordHogFlowBillableInvocation(result, {
-            teamId: invocation.teamId,
-            functionId: invocation.functionId,
-            invocationId: invocation.id,
-            metricKind: 'email',
-            metricName: success ? 'email_sent' : 'email_failed',
+        result.metrics.push({
+            team_id: invocation.teamId,
+            app_source_id: invocation.functionId,
+            instance_id: invocation.id,
+            metric_kind: 'email',
+            metric_name: success ? 'email_sent' : 'email_failed',
+            count: 1,
         })
 
         return result

@@ -1,16 +1,9 @@
-import { CyclotronJobInvocationResult } from '~/cdp/types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '~/cdp/types'
 
-type HogFlowBillingMetric = {
-    teamId: number
-    functionId: string
-    invocationId: string
-} & (
-    | {
-          metricKind: 'billing'
-          metricName: 'billable_invocation'
-      }
-    | { metricKind: 'email'; metricName: 'email_sent' | 'email_failed' }
-)
+type HogFlowBillingMetricData = {
+    invocation: CyclotronJobInvocation
+    billingMetricType: 'fetch' | 'email'
+}
 
 /**
  * In workflows, we bill per-function-invocation so that pricing is equivalent to Hog Functions.
@@ -18,13 +11,16 @@ type HogFlowBillingMetric = {
  * For certain native functions like email sending, we instead bill per email sent as these
  * have a slight upcharge associated with them.
  */
-export const recordHogFlowBillableInvocation = (result: CyclotronJobInvocationResult, metric: HogFlowBillingMetric) => {
+export const trackHogFlowBillableInvocation = (
+    result: CyclotronJobInvocationResult,
+    data: HogFlowBillingMetricData
+) => {
     result.metrics.push({
-        team_id: metric.teamId,
-        app_source_id: metric.functionId,
-        instance_id: metric.invocationId,
-        metric_name: metric.metricName,
-        metric_kind: metric.metricKind,
+        team_id: data.invocation.teamId,
+        app_source_id: data.invocation.functionId,
+        instance_id: data.invocation.id,
+        metric_kind: data.billingMetricType === 'email' ? 'email' : 'billing',
+        metric_name: 'billable_invocation',
         count: 1,
     })
 }
