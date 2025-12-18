@@ -25,6 +25,35 @@ CACHE_WARMING_BATCH_SIZE = getattr(settings, "CACHE_WARMING_BATCH_SIZE", 50)
 CACHE_WARMING_PAGE_SIZE = getattr(settings, "CACHE_WARMING_PAGE_SIZE", 1000)  # Teams per database page
 
 
+def _warm_team_caches(team_api_tokens: list[str], reason: str, log_context: dict) -> int:
+    """
+    Warm caches for a list of teams.
+
+    Args:
+        team_api_tokens: List of project API keys to warm caches for
+        reason: Description for logging (e.g., "user activation", "PersonalAPIKey deletion")
+        log_context: Additional context to include in log messages
+
+    Returns:
+        Number of teams successfully updated
+    """
+    teams_updated = 0
+    for project_api_key in team_api_tokens:
+        try:
+            warm_team_token_cache(project_api_key)
+            teams_updated += 1
+            logger.debug(
+                f"Warmed cache for team after {reason}",
+                extra={"project_api_key": project_api_key, **log_context},
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to warm cache for team after {reason}: {e}",
+                extra={"project_api_key": project_api_key, **log_context},
+            )
+    return teams_updated
+
+
 def _warm_teams_for_user(user_id: int, reason: str) -> dict:
     """
     Shared implementation for warming team caches based on a user's access.
@@ -46,20 +75,7 @@ def _warm_teams_for_user(user_id: int, reason: str) -> dict:
             logger.debug(f"No teams found for user {user_id}, no cache updates needed")
             return {"status": "success", "user_id": user_id, "teams_updated": 0}
 
-        teams_updated = 0
-        for project_api_key in affected_teams:
-            try:
-                warm_team_token_cache(project_api_key)
-                teams_updated += 1
-                logger.debug(
-                    f"Warmed cache for team {project_api_key} after {reason}",
-                    extra={"project_api_key": project_api_key, "user_id": user_id},
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to warm cache for team {project_api_key} after {reason}: {e}",
-                    extra={"project_api_key": project_api_key, "user_id": user_id},
-                )
+        teams_updated = _warm_team_caches(affected_teams, reason, {"user_id": user_id})
 
         logger.info(
             f"Updated {teams_updated} team caches after {reason}",
@@ -162,20 +178,7 @@ def warm_personal_api_key_deleted_cache_task(self: "Task", user_id: int, scoped_
             logger.debug(f"No teams found for deleted PersonalAPIKey (user {user_id}), no cache updates needed")
             return {"status": "success", "user_id": user_id, "teams_updated": 0}
 
-        teams_updated = 0
-        for project_api_key in team_api_tokens:
-            try:
-                warm_team_token_cache(project_api_key)
-                teams_updated += 1
-                logger.debug(
-                    f"Warmed cache for team {project_api_key} after PersonalAPIKey deletion",
-                    extra={"project_api_key": project_api_key, "user_id": user_id},
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to warm cache for team {project_api_key} after PersonalAPIKey deletion: {e}",
-                    extra={"project_api_key": project_api_key, "user_id": user_id},
-                )
+        teams_updated = _warm_team_caches(team_api_tokens, "PersonalAPIKey deletion", {"user_id": user_id})
 
         logger.info(
             f"Updated {teams_updated} team caches after PersonalAPIKey deletion",
@@ -214,20 +217,8 @@ def warm_organization_teams_cache_task(self: "Task", organization_id: str, user_
             logger.debug(f"No teams found in organization {organization_id}, no cache updates needed")
             return {"status": "success", "organization_id": organization_id, "user_id": user_id, "teams_updated": 0}
 
-        teams_updated = 0
-        for project_api_key in team_api_tokens:
-            try:
-                warm_team_token_cache(project_api_key)
-                teams_updated += 1
-                logger.debug(
-                    f"Warmed cache for team {project_api_key} after user {action}",
-                    extra={"project_api_key": project_api_key, "user_id": user_id, "organization_id": organization_id},
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to warm cache for team {project_api_key} after user {action}: {e}",
-                    extra={"project_api_key": project_api_key, "user_id": user_id, "organization_id": organization_id},
-                )
+        log_context = {"user_id": user_id, "organization_id": organization_id}
+        teams_updated = _warm_team_caches(team_api_tokens, f"user {action}", log_context)
 
         logger.info(
             f"Updated {teams_updated} team caches after user {action}",
