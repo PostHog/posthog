@@ -9,6 +9,8 @@ from posthog.schema import FeatureFlagGroupType
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, GroupTypeMapping, Tag, TaggedItem, Team, User
 from posthog.models.property_definition import PropertyDefinition
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
@@ -613,6 +615,13 @@ The tool will automatically:
     """.strip()
     context_prompt_template: str = "Creates a new feature flag in the project with optional property-based targeting and multivariate variants for A/B testing"
     args_schema: type[BaseModel] = CreateFeatureFlagArgs
+
+    def get_required_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        """
+        Creating a feature flag requires editor-level access to feature flags.
+        This check runs before the tool executes.
+        """
+        return [("feature_flag", "editor")]
 
     async def _create_flag_from_instructions(self, instructions: str) -> FeatureFlagCreationSchema:
         """Use TaxonomyAgent graph to generate structured flag configuration."""

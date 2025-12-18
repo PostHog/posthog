@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool, AssistantToolCallMessage
 
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
+
 from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
@@ -156,6 +159,10 @@ class CreateAndQueryInsightTool(MaxTool):
     args_schema: type[BaseModel] = CreateAndQueryInsightToolArgs
     description: str = INSIGHT_TOOL_PROMPT
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
+
+    def get_required_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        """Creating/querying an insight requires editor-level access to insights."""
+        return [("insight", "editor")]
 
     async def _arun_impl(self, query_description: str) -> tuple[str, ToolMessagesArtifact | None]:
         graph = InsightsGraph(self._team, self._user).compile_full_graph()
