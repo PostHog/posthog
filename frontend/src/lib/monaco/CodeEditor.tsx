@@ -286,7 +286,7 @@ export function CodeEditor({
                     run: () => {
                         const selection = editor.getSelection()
                         const model = editor.getModel()
-                        if (selection && model) {
+                        if (selection && model && !selection.isEmpty()) {
                             const highlightedText = model.getValueInRange(selection)
                             onPressCmdEnter(highlightedText, 'selection')
                             return
