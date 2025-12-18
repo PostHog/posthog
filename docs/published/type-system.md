@@ -8,9 +8,9 @@ PostHog has two type generation systems that keep frontend and backend in sync. 
 
 ## Overview
 
-| Flow               | Source of truth        | Generated output     | Used for                               |
-| ------------------ | ---------------------- | -------------------- | -------------------------------------- |
-| Backend → Frontend | Django serializers     | TypeScript (Orval)   | API responses                          |
+| Flow               | Source of truth        | Generated output     | Used for                                                  |
+| ------------------ | ---------------------- | -------------------- | --------------------------------------------------------- |
+| Backend → Frontend | Django serializers     | TypeScript (Orval)   | API responses                                             |
 | Frontend → Backend | TypeScript `schema.ts` | Pydantic `schema.py` | Query types (HogQL, filters, insights), some legacy types |
 
 These are independent systems. Don't conflate them.

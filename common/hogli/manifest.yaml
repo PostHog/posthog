@@ -278,7 +278,7 @@ build:
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
         cmd: |
-            DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json 2>/dev/null && echo "OpenAPI schema written to frontend/tmp/openapi.json"
+            mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI schema written to frontend/tmp/openapi.json"
         description: Generate OpenAPI schema from Django backend (writes to gitignored temp location)
         services:
             - postgresql
@@ -462,7 +462,7 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:markdown:
-        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
+        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix "$@" && pnpm exec prettier --write "$@"
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
