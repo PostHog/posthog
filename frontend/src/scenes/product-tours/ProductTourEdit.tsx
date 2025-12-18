@@ -196,7 +196,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                     <div>
                                         <h4 className="font-semibold">Auto-show this tour</h4>
                                         <p className="text-secondary text-sm mb-0">
-                                            Automatically show this tour to users who match your condiitons
+                                            Automatically show this tour to users who match your conditions
                                         </p>
                                     </div>
                                     <LemonSwitch
