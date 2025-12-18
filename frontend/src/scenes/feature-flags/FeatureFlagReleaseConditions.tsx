@@ -31,7 +31,13 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagGroupType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -129,12 +135,20 @@ export function FeatureFlagReleaseConditions({
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
+    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } =
         useValues(featureFlagLogic)
+    const { setBucketingIdentifier } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
+
+    // Compute display name for aggregation target, accounting for device_id bucketing
+    const displayAggregationTargetName =
+        filters.aggregation_group_type_index == null &&
+        featureFlag.bucketing_identifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+            ? 'devices'
+            : aggregationTargetName
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
@@ -176,17 +190,17 @@ export function FeatureFlagReleaseConditions({
                                     <>
                                         {readOnly ? (
                                             <>
-                                                Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
+                                                Match <b>{displayAggregationTargetName}</b> against <b>all</b> criteria
                                             </>
                                         ) : (
                                             <>
-                                                Matching <b>{aggregationTargetName}</b> against the criteria
+                                                Matching <b>{displayAggregationTargetName}</b> against the criteria
                                             </>
                                         )}
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match <b>all {displayAggregationTargetName}</b>
                                     </>
                                 )}
                             </div>
@@ -387,7 +401,7 @@ export function FeatureFlagReleaseConditions({
                                 {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
                                 <b>%</b>
                                 <span> of </span>
-                                <b>{aggregationTargetName}</b> <span>in this set.</span>
+                                <b>{displayAggregationTargetName}</b> <span>in this set.</span>
                             </div>
                         </LemonTag>
                     ) : (
@@ -424,7 +438,7 @@ export function FeatureFlagReleaseConditions({
                                         propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
                                     )}
                                 />
-                                of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
+                                of <b>{displayAggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
@@ -460,7 +474,7 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                <span>of total {aggregationTargetName}.</span>
+                                <span>of total {displayAggregationTargetName}.</span>
                             </div>
                         </div>
                     )}
@@ -469,7 +483,7 @@ export function FeatureFlagReleaseConditions({
                             <LemonDivider className="my-3" />
                             {readOnly ? (
                                 <div>
-                                    All <b>{aggregationTargetName}</b> in this set{' '}
+                                    All <b>{displayAggregationTargetName}</b> in this set{' '}
                                     {group.variant ? (
                                         <>
                                             {' '}
@@ -482,8 +496,8 @@ export function FeatureFlagReleaseConditions({
                             ) : (
                                 <div className="feature-flag-form-row">
                                     <div className="centered">
-                                        <b>Optional override:</b> Set variant for all <b>{aggregationTargetName}</b> in
-                                        this set to{' '}
+                                        <b>Optional override:</b> Set variant for all{' '}
+                                        <b>{displayAggregationTargetName}</b> in this set to{' '}
                                         <LemonSelect
                                             placeholder="Select variant"
                                             allowClear={true}
@@ -523,12 +537,12 @@ export function FeatureFlagReleaseConditions({
                             <div>
                                 {group.properties?.length ? (
                                     <>
-                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
+                                        Match <b>{displayAggregationTargetName}</b> against value set on{' '}
                                         <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match <b>all {displayAggregationTargetName}</b>
                                     </>
                                 )}
                             </div>
@@ -579,9 +593,9 @@ export function FeatureFlagReleaseConditions({
                 !excludeTitle && (
                     <>
                         <div className="text-secondary mb-2">
-                            Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
-                            - the first matching set is used. A condition matches when all property filters pass AND the
-                            target falls within the rollout percentage.
+                            Specify {displayAggregationTargetName} for flag release. Condition sets are evaluated top to
+                            bottom - the first matching set is used. A condition matches when all property filters pass
+                            AND the target falls within the rollout percentage.
                         </div>
                     </>
                 )
@@ -609,12 +623,31 @@ export function FeatureFlagReleaseConditions({
                                 return
                             }
 
+                            // Device ID selected
+                            if (value === -3) {
+                                setAggregationGroupTypeIndex(null)
+                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                                return
+                            }
+
+                            // User ID or Group selected
                             const groupTypeIndex = value !== -1 ? value : null
                             setAggregationGroupTypeIndex(groupTypeIndex)
+                            // Reset bucketing identifier to default when selecting User ID or a Group
+                            if (value === -1) {
+                                setBucketingIdentifier(null)
+                            }
                         }}
-                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
+                        value={
+                            filters.aggregation_group_type_index != null
+                                ? filters.aggregation_group_type_index
+                                : featureFlag.bucketing_identifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                  ? -3
+                                  : -1
+                        }
                         options={[
-                            { value: -1, label: 'Users' },
+                            { value: -1, label: 'User ID' },
+                            { value: -3, label: 'Device ID' },
                             ...Array.from(groupTypes.values()).map((groupType) => ({
                                 value: groupType.group_type_index,
                                 label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
