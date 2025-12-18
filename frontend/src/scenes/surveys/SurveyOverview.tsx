@@ -77,28 +77,9 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
     const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
 
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
-
-    const scheduledStartTime = survey.scheduled_start_datetime || undefined
-    const scheduledStartLabel = !survey.start_date
-        ? 'Scheduled start date'
-        : survey.end_date
-          ? 'Scheduled resume date'
-          : 'Scheduled start date'
-
-    const showScheduledStartStatus = Boolean(scheduledStartTime && !survey.start_date)
-    const showScheduledResumeStatus = Boolean(scheduledStartTime && survey.start_date && survey.end_date)
+    const showScheduledStartStatus = Boolean(survey.scheduled_start_datetime && !survey.start_date)
+    const showScheduledResumeStatus = Boolean(survey.scheduled_start_datetime && survey.start_date && survey.end_date)
     const showScheduledEndStatus = Boolean(survey.scheduled_end_datetime && survey.start_date && !survey.end_date)
-
-    const dateOptions: Array<{ key: string; label: string; time: string }> = [
-        ...(survey.start_date ? [{ key: 'start-date', label: 'Start date', time: survey.start_date }] : []),
-        ...(scheduledStartTime && (!survey.start_date || survey.end_date)
-            ? [{ key: 'scheduled-start', label: scheduledStartLabel, time: scheduledStartTime }]
-            : []),
-        ...(survey.end_date ? [{ key: 'end-date', label: 'End date', time: survey.end_date }] : []),
-        ...(survey.scheduled_end_datetime && survey.start_date && !survey.end_date
-            ? [{ key: 'scheduled-end', label: 'Scheduled end date', time: survey.scheduled_end_datetime }]
-            : []),
-    ]
 
     return (
         <div className="flex flex-col gap-8">
@@ -132,12 +113,18 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                     {(showScheduledStartStatus || showScheduledResumeStatus || showScheduledEndStatus) && (
                         <SurveyOption label="Status">
                             <div className="flex flex-wrap gap-2">
-                                {showScheduledStartStatus && scheduledStartTime && (
-                                    <ScheduledStatusTag label="Scheduled start" time={scheduledStartTime} />
+                                {showScheduledStartStatus && survey.scheduled_start_datetime && (
+                                    <ScheduledStatusTag
+                                        label="Scheduled start"
+                                        time={survey.scheduled_start_datetime}
+                                    />
                                 )}
 
-                                {showScheduledResumeStatus && scheduledStartTime && (
-                                    <ScheduledStatusTag label="Scheduled resume" time={scheduledStartTime} />
+                                {showScheduledResumeStatus && survey.scheduled_start_datetime && (
+                                    <ScheduledStatusTag
+                                        label="Scheduled resume"
+                                        time={survey.scheduled_start_datetime}
+                                    />
                                 )}
 
                                 {showScheduledEndStatus && survey.scheduled_end_datetime && (
@@ -166,11 +153,26 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                         survey.scheduled_start_datetime ||
                         survey.scheduled_end_datetime) && (
                         <div className="flex gap-16">
-                            {dateOptions.map(({ key, label, time }) => (
-                                <SurveyOption key={key} label={label}>
-                                    <TZLabel time={time} />
+                            {survey.start_date && (
+                                <SurveyOption label="Start date">
+                                    <TZLabel time={survey.start_date} />
                                 </SurveyOption>
-                            ))}
+                            )}
+                            {survey.scheduled_start_datetime && !survey.start_date && (
+                                <SurveyOption label="Scheduled start date">
+                                    <TZLabel time={survey.scheduled_start_datetime} />
+                                </SurveyOption>
+                            )}
+                            {survey.end_date && (
+                                <SurveyOption label="End date">
+                                    <TZLabel time={survey.end_date} />
+                                </SurveyOption>
+                            )}
+                            {survey.scheduled_end_datetime && !survey.end_date && (
+                                <SurveyOption label="Scheduled end date">
+                                    <TZLabel time={survey.scheduled_end_datetime} />
+                                </SurveyOption>
+                            )}
                         </div>
                     )}
                     <SurveyOption label="Schedule">

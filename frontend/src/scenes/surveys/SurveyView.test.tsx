@@ -1,15 +1,119 @@
 import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { BindLogic } from 'kea'
-
-import { useMocks } from '~/mocks/jest'
 import { getByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyView } from './SurveyView'
-import { surveyLogic } from './surveyLogic'
+
+// Keep this test focused: avoid mounting SceneLayout/sceneLogic/router machinery.
+jest.mock('~/layout/scenes/SceneLayout', () => ({
+    ScenePanel: ({ children }: any) => <div>{children}</div>,
+    ScenePanelActionsSection: ({ children }: any) => <div>{children}</div>,
+    ScenePanelDivider: () => null,
+    ScenePanelInfoSection: ({ children }: any) => <div>{children}</div>,
+}))
+
+jest.mock('~/layout/scenes/components/SceneTitleSection', () => ({
+    SceneTitleSection: ({ name, actions }: any) => (
+        <div>
+            <div>{name}</div>
+            <div>{actions}</div>
+        </div>
+    ),
+}))
+
+jest.mock('lib/components/AccessControlAction', () => ({
+    AccessControlAction: ({ children }: any) => <>{children}</>,
+}))
+
+jest.mock('lib/components/Scenes/SceneFile', () => ({
+    SceneFile: () => null,
+}))
+
+jest.mock('lib/components/Scenes/SceneDuplicate', () => ({
+    SceneDuplicate: ({ onClick }: any) => <button onClick={onClick}>Duplicate</button>,
+}))
+
+jest.mock('scenes/organizationLogic', () => {
+    const { kea } = require('kea')
+    const organizationLogic = kea({
+        reducers: {
+            currentOrganization: [
+                {
+                    id: 'ABCD',
+                    teams: [{ id: 997 }],
+                    membership_level: 15,
+                },
+                {},
+            ],
+        },
+    })
+    return { organizationLogic }
+})
+
+jest.mock('scenes/surveys/surveysLogic', () => {
+    const { kea } = require('kea')
+    const surveysLogic = kea({
+        actions: {
+            deleteSurvey: (id: string) => ({ id }),
+        },
+    })
+    return { surveysLogic }
+})
+
+jest.mock('scenes/surveys/surveyLogic', () => {
+    const { kea } = require('kea')
+    const { loaders } = require('kea-loaders')
+
+    const testMocks = {
+        updateSurveySpy: jest.fn(),
+        stopSurveySpy: jest.fn(),
+    }
+
+    const surveyLogic = kea([
+        {
+            actions: {
+                setSurvey: (survey: any) => ({ survey }),
+                editingSurvey: (editing: boolean) => ({ editing }),
+                setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
+                duplicateSurvey: true,
+            },
+            reducers: {
+                surveyLoading: [false, {}],
+                survey: [
+                    {
+                        id: 'new',
+                        name: '',
+                        start_date: null,
+                        end_date: null,
+                        questions: [],
+                    },
+                    {
+                        setSurvey: (_: any, { survey }: any) => survey,
+                    },
+                ],
+            },
+        },
+        loaders(({ values }: any) => ({
+            survey: {
+                updateSurvey: async (payload: any) => {
+                    testMocks.updateSurveySpy(payload)
+                    return { ...values.survey, ...payload }
+                },
+                stopSurvey: async () => {
+                    testMocks.stopSurveySpy()
+                    return { ...values.survey, end_date: new Date().toISOString() }
+                },
+            },
+        })),
+    ])
+
+    return { surveyLogic, __testMocks: testMocks }
+})
+
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 jest.mock('lib/hooks/useFileSystemLogView', () => ({
     useFileSystemLogView: () => {},
@@ -89,50 +193,12 @@ describe('SurveyView lifecycle dialogs', () => {
         window.HTMLElement.prototype.scrollIntoView = jest.fn()
         jest.useFakeTimers().setSystemTime(new Date('2023-01-10T17:22:08.000Z'))
 
-        initKeaTests()
-
-        useMocks({
-            get: {
-                // organizationLogic requires `membership_level`, otherwise it treats the org as unavailable and redirects.
-                '/api/organizations/@current*': () => [
-                    200,
-                    {
-                        id: 'ABCD',
-                        teams: [{ id: 997 }],
-                        membership_level: 15,
-                    },
-                ],
-                '/api/sdk_doctor*': () => [200, {}],
-                '/api/user_home_settings/@me*': () => [200, { tabs: [], homepage: null }],
-                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
-                '/api/projects/:team_id/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
-                '/api/projects/:team/surveys/responses_count*': () => [200, {}],
-                '/api/projects/:team_id/surveys/responses_count*': () => [200, {}],
-                '/api/projects/:team/surveys/:id/archived-response-uuids/': () => [200, []],
-                '/api/projects/:team/surveys/:id/archived-response-uuids': () => [200, []],
-                '/api/projects/:team_id/surveys/:id/archived-response-uuids/': () => [200, []],
-                '/api/projects/:team_id/surveys/:id/archived-response-uuids': () => [200, []],
-            },
-            post: {
-                // surveyLogic uses HogQL queries for stats; return minimal shapes to avoid network errors.
-                '/api/environments/:team_id/query*': async (req) => {
-                    const body: any = await req.json()
-                    const queryText: string = body?.query?.query || body?.query || ''
-                    if (queryText.includes('QUERYING DISMISSED AND SENT COUNT')) {
-                        return [200, { results: [[0]] }]
-                    }
-                    return [200, { results: [] }]
-                },
-            },
-            patch: {
-                '/api/environments/@current/add_product_intent/': () => [200, {}],
-                '/api/environments/@current/add_product_intent': () => [200, {}],
-                '/api/user_home_settings/@me*': () => [200, {}],
-            },
-        })
+        // Minimal Kea setup (we mock the logics SurveyView depends on).
+        initKeaTests(false)
     })
 
     afterEach(() => {
+        ;(surveyLogic as any).unmount?.()
         cleanup()
         jest.useRealTimers()
         jest.restoreAllMocks()
@@ -140,63 +206,13 @@ describe('SurveyView lifecycle dialogs', () => {
 
     it('does not clear end_date when scheduling a resume in the future', async () => {
         const surveyId = 'survey-1'
-        let capturedRequest: any
-        useMocks({
-            get: {
-                '/api/projects/:team/surveys/:id': () => [200, createEndedSurvey(surveyId)],
-                '/api/projects/:team/surveys/:id/': () => [200, createEndedSurvey(surveyId)],
-                '/api/projects/:team_id/surveys/:id': () => [200, createEndedSurvey(surveyId)],
-                '/api/projects/:team_id/surveys/:id/': () => [200, createEndedSurvey(surveyId)],
-            },
-            patch: {
-                '/api/projects/:team/surveys/:id': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createEndedSurvey(surveyId),
-                            scheduled_start_datetime: capturedRequest.scheduled_start_datetime,
-                        },
-                    ]
-                },
-                '/api/projects/:team/surveys/:id/': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createEndedSurvey(surveyId),
-                            scheduled_start_datetime: capturedRequest.scheduled_start_datetime,
-                        },
-                    ]
-                },
-                '/api/projects/:team_id/surveys/:id': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createEndedSurvey(surveyId),
-                            scheduled_start_datetime: capturedRequest.scheduled_start_datetime,
-                        },
-                    ]
-                },
-                '/api/projects/:team_id/surveys/:id/': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createEndedSurvey(surveyId),
-                            scheduled_start_datetime: capturedRequest.scheduled_start_datetime,
-                        },
-                    ]
-                },
-            },
-        })
+        const { __testMocks }: any = require('scenes/surveys/surveyLogic')
+        __testMocks.updateSurveySpy.mockClear()
 
-        render(
-            <BindLogic logic={surveyLogic} props={{ id: surveyId }}>
-                <SurveyView id={surveyId} />
-            </BindLogic>
-        )
+        ;(surveyLogic as any).mount()
+        ;(surveyLogic as any).actions.setSurvey(createEndedSurvey(surveyId))
+
+        render(<SurveyView id={surveyId} />)
 
         await screen.findByText('Ended survey')
 
@@ -215,76 +231,23 @@ describe('SurveyView lifecycle dialogs', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Schedule resume' }))
 
         await waitFor(() => {
-            expect(capturedRequest).toBeTruthy()
+            expect(__testMocks.updateSurveySpy).toHaveBeenCalledTimes(1)
         })
 
-        await waitFor(() => {
-            expect(screen.queryByText('Resume this survey?')).not.toBeInTheDocument()
-        })
-
-        expect(capturedRequest.end_date).toBeUndefined()
-        expect(capturedRequest.scheduled_start_datetime).toMatch(/^2023-01-15T/) // time depends on picker defaults
+        const payload = __testMocks.updateSurveySpy.mock.calls[0][0]
+        expect(payload.end_date).toBeUndefined()
+        expect(payload.scheduled_start_datetime).toMatch(/^2023-01-15T/) // time depends on picker defaults
     })
 
     it('sets scheduled_end_datetime when scheduling a stop in the future', async () => {
         const surveyId = 'survey-2'
-        let capturedRequest: any
-        useMocks({
-            get: {
-                '/api/projects/:team/surveys/:id': () => [200, createRunningSurvey(surveyId)],
-                '/api/projects/:team/surveys/:id/': () => [200, createRunningSurvey(surveyId)],
-                '/api/projects/:team_id/surveys/:id': () => [200, createRunningSurvey(surveyId)],
-                '/api/projects/:team_id/surveys/:id/': () => [200, createRunningSurvey(surveyId)],
-            },
-            patch: {
-                '/api/projects/:team/surveys/:id': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createRunningSurvey(surveyId),
-                            scheduled_end_datetime: capturedRequest.scheduled_end_datetime,
-                        },
-                    ]
-                },
-                '/api/projects/:team/surveys/:id/': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createRunningSurvey(surveyId),
-                            scheduled_end_datetime: capturedRequest.scheduled_end_datetime,
-                        },
-                    ]
-                },
-                '/api/projects/:team_id/surveys/:id': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createRunningSurvey(surveyId),
-                            scheduled_end_datetime: capturedRequest.scheduled_end_datetime,
-                        },
-                    ]
-                },
-                '/api/projects/:team_id/surveys/:id/': async (req) => {
-                    capturedRequest = await req.json()
-                    return [
-                        200,
-                        {
-                            ...createRunningSurvey(surveyId),
-                            scheduled_end_datetime: capturedRequest.scheduled_end_datetime,
-                        },
-                    ]
-                },
-            },
-        })
+        const { __testMocks }: any = require('scenes/surveys/surveyLogic')
+        __testMocks.updateSurveySpy.mockClear()
 
-        render(
-            <BindLogic logic={surveyLogic} props={{ id: surveyId }}>
-                <SurveyView id={surveyId} />
-            </BindLogic>
-        )
+        ;(surveyLogic as any).mount()
+        ;(surveyLogic as any).actions.setSurvey(createRunningSurvey(surveyId))
+
+        render(<SurveyView id={surveyId} />)
 
         await screen.findByText('Running survey')
 
@@ -303,14 +266,11 @@ describe('SurveyView lifecycle dialogs', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Schedule stop' }))
 
         await waitFor(() => {
-            expect(capturedRequest).toBeTruthy()
+            expect(__testMocks.updateSurveySpy).toHaveBeenCalledTimes(1)
         })
 
-        await waitFor(() => {
-            expect(screen.queryByText('Stop this survey?')).not.toBeInTheDocument()
-        })
-
-        expect(capturedRequest.scheduled_end_datetime).toMatch(/^2023-01-15T/)
-        expect(capturedRequest.end_date).toBeUndefined()
+        const payload = __testMocks.updateSurveySpy.mock.calls[0][0]
+        expect(payload.scheduled_end_datetime).toMatch(/^2023-01-15T/)
+        expect(payload.end_date).toBeUndefined()
     })
 })

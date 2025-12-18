@@ -46,19 +46,9 @@ export function SurveysTable(): JSX.Element {
         useActions(surveysLogic)
 
     const [resumeSurvey, setResumeSurvey] = useState<Survey | null>(null)
-
     const [stopSurveyDialogSurvey, setStopSurveyDialogSurvey] = useState<Survey | null>(null)
 
-    const closeResumeDialog = (): void => {
-        setResumeSurvey(null)
-    }
-
-    const closeStopDialog = (): void => {
-        setStopSurveyDialogSurvey(null)
-    }
-
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
-
     if (shouldShowEmptyState) {
         return <SurveysEmptyState numOfSurveys={surveys.length} />
     }
@@ -389,7 +379,7 @@ export function SurveysTable(): JSX.Element {
 
             <SurveyResumeDialog
                 isOpen={!!resumeSurvey}
-                onClose={closeResumeDialog}
+                onClose={() => setResumeSurvey}
                 initialScheduledStartTime={resumeSurvey?.scheduled_start_datetime || undefined}
                 description="Once resumed, the survey will be visible to your users again."
                 onSubmit={async (scheduledStartTime) => {
@@ -406,7 +396,7 @@ export function SurveysTable(): JSX.Element {
 
             <SurveyStopDialog
                 isOpen={!!stopSurveyDialogSurvey}
-                onClose={closeStopDialog}
+                onClose={() => setStopSurveyDialogSurvey(null)}
                 initialScheduledEndTime={stopSurveyDialogSurvey?.scheduled_end_datetime || undefined}
                 defaultDatetimeValue={() => dayjs().add(1, 'hour').toISOString()}
                 description="The survey will no longer be visible to your users."

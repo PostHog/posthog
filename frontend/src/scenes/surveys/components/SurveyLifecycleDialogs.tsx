@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
 import { LemonDialog, LemonDialogProps, lemonToast } from '@posthog/lemon-ui'
 
@@ -6,12 +6,13 @@ import { SurveyStartSchedulePicker } from 'scenes/surveys/components/SurveyStart
 
 type ScheduleValue = string | undefined
 
-type BaseSurveyScheduleDialogProps = {
+export type SurveyScheduleDialogProps = {
     isOpen: boolean
     title: string
     description: string
     initialScheduledTime?: ScheduleValue
     defaultDatetimeValue?: () => string
+    afterPickerContent?: ReactNode
     onSubmit: (scheduledTime: ScheduleValue) => Promise<void>
     onClose: () => void
     submitNowLabel: string
@@ -20,13 +21,14 @@ type BaseSurveyScheduleDialogProps = {
     errorToastMessage: string
 }
 
-function SurveyScheduleDialog(props: BaseSurveyScheduleDialogProps): JSX.Element | null {
+export function SurveyScheduleDialog(props: SurveyScheduleDialogProps): JSX.Element | null {
     const {
         isOpen,
         title,
         description,
         initialScheduledTime,
         defaultDatetimeValue,
+        afterPickerContent,
         onSubmit,
         onClose,
         submitNowLabel,
@@ -63,6 +65,7 @@ function SurveyScheduleDialog(props: BaseSurveyScheduleDialogProps): JSX.Element
                         datetimeLabel="In the future"
                         defaultDatetimeValue={defaultDatetimeValue}
                     />
+                    {afterPickerContent}
                 </div>
             }
             primaryButton={
@@ -98,6 +101,34 @@ export type SurveyResumeDialogProps = {
     defaultDatetimeValue?: () => string
     onSubmit: (scheduledStartTime: ScheduleValue) => Promise<void>
     onClose: () => void
+}
+
+export type SurveyStartDialogProps = {
+    isOpen: boolean
+    description: string
+    initialScheduledStartTime?: ScheduleValue
+    defaultDatetimeValue?: () => string
+    afterPickerContent?: ReactNode
+    onSubmit: (scheduledStartTime: ScheduleValue) => Promise<void>
+    onClose: () => void
+}
+
+export function SurveyStartDialog(props: SurveyStartDialogProps): JSX.Element | null {
+    return (
+        <SurveyScheduleDialog
+            isOpen={props.isOpen}
+            title="Launch this survey?"
+            description={props.description}
+            initialScheduledTime={props.initialScheduledStartTime}
+            defaultDatetimeValue={props.defaultDatetimeValue}
+            afterPickerContent={props.afterPickerContent}
+            onSubmit={props.onSubmit}
+            onClose={props.onClose}
+            submitNowLabel="Launch"
+            submitScheduledLabel="Schedule launch"
+            errorToastMessage="Failed to launch survey. Please try again."
+        />
+    )
 }
 
 export function SurveyResumeDialog(props: SurveyResumeDialogProps): JSX.Element | null {

@@ -54,6 +54,7 @@ import {
 
 import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
+import { dayjs } from 'lib/dayjs'
 
 const RESOURCE_TYPE = 'survey'
 
@@ -67,18 +68,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-
     const [isResumeDialogOpen, setIsResumeDialogOpen] = useState(false)
-
     const [isStopDialogOpen, setIsStopDialogOpen] = useState(false)
-
-    const closeResumeDialog = (): void => {
-        setIsResumeDialogOpen(false)
-    }
-
-    const closeStopDialog = (): void => {
-        setIsStopDialogOpen(false)
-    }
 
     const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
 
@@ -240,10 +231,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 
                     <SurveyResumeDialog
                         isOpen={isResumeDialogOpen}
-                        onClose={closeResumeDialog}
+                        onClose={() => setIsResumeDialogOpen(false)}
                         initialScheduledStartTime={survey.scheduled_start_datetime || undefined}
                         description="Make this survey visible to your users again:"
-                        defaultDatetimeValue={() => new Date(Date.now() + 60 * 60 * 1000).toISOString()}
+                        defaultDatetimeValue={() => dayjs().toISOString()}
                         onSubmit={async (scheduledStartTime) => {
                             await updateSurvey({
                                 ...buildSurveyResumeUpdatePayload(scheduledStartTime),
@@ -254,10 +245,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 
                     <SurveyStopDialog
                         isOpen={isStopDialogOpen}
-                        onClose={closeStopDialog}
+                        onClose={() => setIsStopDialogOpen(false)}
                         initialScheduledEndTime={survey.scheduled_end_datetime || undefined}
                         description="Stop displaying this survey to users:"
-                        defaultDatetimeValue={() => new Date(Date.now() + 60 * 60 * 1000).toISOString()}
+                        defaultDatetimeValue={() => dayjs().toISOString()}
                         onSubmit={async (scheduledEndTime) => {
                             if (!scheduledEndTime) {
                                 await stopSurvey()
