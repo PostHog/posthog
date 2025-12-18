@@ -2977,7 +2977,7 @@ async fn test_config_conversations_enabled() -> Result<()> {
     let token = team.api_token.clone();
 
     // Enable conversations on the team
-    team.conversations_enabled = true;
+    team.conversations_enabled = Some(true);
     team.conversations_settings = Some(sqlx::types::Json(serde_json::json!({
         "widget_enabled": true,
         "widget_greeting_text": "Hey, how can I help you today?",
@@ -3046,7 +3046,7 @@ async fn test_config_conversations_disabled() -> Result<()> {
     let token = team.api_token.clone();
 
     // Explicitly disable conversations
-    team.conversations_enabled = false;
+    team.conversations_enabled = Some(false);
 
     // Update the team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -3100,7 +3100,7 @@ async fn test_config_conversations_returns_empty_domains() -> Result<()> {
     let token = team.api_token.clone();
 
     // Enable conversations with empty domains list
-    team.conversations_enabled = true;
+    team.conversations_enabled = Some(true);
     team.conversations_settings = Some(sqlx::types::Json(serde_json::json!({
         "widget_enabled": true,
         "widget_public_token": "test_token",
@@ -3159,7 +3159,7 @@ async fn test_config_conversations_returns_domains_for_sdk_filtering() -> Result
     let token = team.api_token.clone();
 
     // Enable conversations with specific domains
-    team.conversations_enabled = true;
+    team.conversations_enabled = Some(true);
     team.conversations_settings = Some(sqlx::types::Json(serde_json::json!({
         "widget_enabled": true,
         "widget_public_token": "test_token",

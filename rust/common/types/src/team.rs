@@ -60,8 +60,7 @@ pub struct Team {
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
-    #[serde(default)]
-    pub conversations_enabled: bool,
+    pub conversations_enabled: Option<bool>,
     pub conversations_settings: Option<Json<JsonValue>>,
 }
 

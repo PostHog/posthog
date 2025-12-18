@@ -384,7 +384,7 @@ class Team(UUIDTClassicModel):
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
 
     # Conversations (support widget)
-    conversations_enabled = models.BooleanField(default=False)
+    conversations_enabled = models.BooleanField(null=True, blank=True)
     conversations_settings = models.JSONField(null=True, blank=True)
     # Product tours
     product_tours_opt_in = models.BooleanField(null=True, blank=True)

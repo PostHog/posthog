@@ -119,7 +119,7 @@ async fn apply_config_fields(
     };
 
     // Handle conversations widget config (domains returned for SDK-side filtering)
-    response.config.conversations = if team.conversations_enabled {
+    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
         let settings = team.conversations_settings.as_ref().map(|s| s.0.clone()).unwrap_or_default();
         let widget_enabled = settings.get("widget_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
         let greeting_text = settings.get("widget_greeting_text").and_then(|v| v.as_str()).unwrap_or("Hey, how can I help you today?");
@@ -279,7 +279,7 @@ mod tests {
             inject_web_apps: None,
             surveys_opt_in: None,
             heatmaps_opt_in: None,
-            conversations_enabled: false,
+            conversations_enabled: None,
             conversations_settings: None,
             capture_dead_clicks: None,
             flags_persistence_default: None,
