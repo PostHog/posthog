@@ -1723,15 +1723,17 @@ class _Printer(Visitor[str]):
                     is_nullable=True,
                 )
 
-            # Check property groups third
             if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
-                if property_group_column := property_groups.get_property_group_column(
+                # For now, we're assuming that properties are in either no groups or one group, so just using the
+                # first group returned is fine. If we start putting properties in multiple groups, this should be
+                # revisited to find the optimal set (i.e. smallest set) of groups to read from.
+                for property_group_column in property_groups.get_property_group_columns(
                     table_name, field_name, property_name
                 ):
-                    return PrintableMaterializedPropertyGroupItem(
+                    yield PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
@@ -1784,7 +1786,7 @@ class _Printer(Visitor[str]):
             return None
         field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-        if property_group_column := property_groups.get_property_group_column(table_name, field_name, property_name):
+        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
             return PrintableMaterializedPropertyGroupItem(
                 self.visit(field_type.table_type),
                 self._print_identifier(property_group_column),
