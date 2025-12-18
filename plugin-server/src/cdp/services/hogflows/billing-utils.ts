@@ -2,7 +2,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '~/cdp/type
 
 type HogFlowBillingMetricData = {
     invocation: CyclotronJobInvocation
-    billingMetricType: 'fetch' | 'email'
+    billingMetricType: 'fetch' | 'email' | 'sms' | 'push'
 }
 
 /**
