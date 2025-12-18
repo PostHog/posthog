@@ -6,6 +6,7 @@ LLM Benchmark Script
 Benchmarks different LLM models on experiment prompts and collects response statistics.
 """
 
+import os
 import re
 import json
 import time
@@ -16,8 +17,15 @@ from typing import Any
 import openai
 import tiktoken
 import anthropic
+from dotenv import load_dotenv
 from google import genai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
+
+load_dotenv()
+
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 # Configuration, ordering to avoid hitting a single API too often
 MODELS = [
@@ -116,7 +124,7 @@ def save_result_file(experiment_id: str, model: str, response: str) -> None:
 
 async def call_gemini(system_prompt: str, prompt: str, model: str) -> str:
     """Call Gemini API."""
-    client = genai.Client()
+    client = genai.Client(api_key=GEMINI_API_KEY)
     response = await client.aio.models.generate_content(
         model=model,
         contents=prompt,
@@ -130,7 +138,7 @@ async def call_gemini(system_prompt: str, prompt: str, model: str) -> str:
 
 async def call_anthropic(system_prompt: str, prompt: str, model: str) -> str:
     """Call Anthropic API."""
-    client = anthropic.AsyncAnthropic()
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     response = await client.messages.create(
         model=model,
         system=system_prompt,
@@ -143,7 +151,7 @@ async def call_anthropic(system_prompt: str, prompt: str, model: str) -> str:
 
 async def call_openai(system_prompt: str, prompt: str, model: str) -> str:
     """Call OpenAI API."""
-    client = openai.AsyncOpenAI()
+    client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
     response = await client.responses.create(
         model=model,
         reasoning={"effort": "medium"},
@@ -249,8 +257,6 @@ def load_prompts() -> list[tuple[str, str, str]]:
             prompts_dict[prompt] = (experiment_id, system_prompt, prompt)
 
     dedup = list(prompts_dict.values())
-    # TODO: Remove after testing
-    dedup = dedup[:3]
     return dedup
 
 
