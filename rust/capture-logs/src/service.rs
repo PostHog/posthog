@@ -21,6 +21,7 @@ use tracing::{debug, error, instrument};
 
 // due to a bug in the otel proto rust library we need to patch the json to support (valid) empty Values
 // see https://github.com/open-telemetry/opentelemetry-rust/issues/1253
+// FIXME: remove once upstream has fixed the issue, OR we should fork upstream and fix the issue ourselves
 fn patch_otel_json(v: &mut Value) {
     match v {
         Value::Object(map) => {
@@ -29,8 +30,7 @@ fn patch_otel_json(v: &mut Value) {
             if let Some(inner) = map.get_mut("value") {
                 if inner.is_object()
                     && inner
-                        .as_object()
-                        .and_then(|obj| Some(obj.is_empty()))
+                        .as_object().map(|obj| obj.is_empty())
                         .unwrap_or(false)
                 {
                     *inner = Value::Null;
