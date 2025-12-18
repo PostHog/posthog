@@ -1,10 +1,12 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from inline_snapshot import snapshot
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models import Team
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
@@ -14,6 +16,17 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 class TestHogFlowTemplateAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # Mock workflows-template-creation feature flag to be enabled
+        self.feature_flag_patcher = patch("posthog.api.hog_flow_template.posthoganalytics.feature_enabled")
+        self.mock_feature_enabled = self.feature_flag_patcher.start()
+
+        def check_flag(flag_name, *_args, **_kwargs):
+            if flag_name == "workflows-template-creation":
+                return True
+            return False
+
+        self.mock_feature_enabled.side_effect = check_flag
+
         # Create slack template in DB
         sync_template_to_db(template_slack)
         sync_template_to_db(webhook_template)
@@ -54,6 +67,11 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             category=["Testing"],
             free=True,
         )
+
+    def tearDown(self):
+        if hasattr(self, "feature_flag_patcher"):
+            self.feature_flag_patcher.stop()
+        super().tearDown()
 
     def _create_hog_flow_data(self, include_metadata=False, custom_inputs=None):
         """Helper to create hog flow data for template creation"""
@@ -103,8 +121,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         return hog_flow_data
 
-    def test_template_creation_resets_function_inputs_to_defaults(self):
-        """Test that function action inputs are reset to template defaults"""
+    def test_template_creation(self):
+        """Test that templates are created with correct function actions"""
         hog_flow_data = self._create_hog_flow_data(custom_inputs={"url": {"value": "https://custom.example.com"}})
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
@@ -113,12 +131,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         template = HogFlowTemplate.objects.get(pk=response.json()["id"])
         function_action = next(action for action in template.actions if action["type"] == "function")
 
-        # Verify inputs were reset to defaults
-        assert function_action["config"]["inputs"] == {
-            "url": {"value": "https://default.example.com"},
-            "method": {"value": "POST"},
-            "headers": {"value": {"Content-Type": "application/json"}},
-        }
+        # Verify inputs are preserved - only url was provided in custom_inputs
+        assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
 
     def test_template_creation_validates_actions(self):
         """Test that actions are validated before saving"""
@@ -161,7 +175,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         }
 
     def test_template_creation_with_multiple_function_actions(self):
-        """Test that all function actions have their inputs reset to defaults"""
+        """Test that all function actions preserve their inputs when creating templates"""
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -204,16 +218,11 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template = HogFlowTemplate.objects.get(pk=response.json()["id"])
 
-        # Verify both function actions have default inputs
         function_actions = [action for action in template.actions if action["type"] == "function"]
         assert len(function_actions) == 2
 
-        for action in function_actions:
-            assert action["config"]["inputs"] == {
-                "url": {"value": "https://default.example.com"},
-                "method": {"value": "POST"},
-                "headers": {"value": {"Content-Type": "application/json"}},
-            }
+        assert function_actions[0]["config"]["inputs"] == {"url": {"value": "https://custom1.example.com"}}
+        assert function_actions[1]["config"]["inputs"] == {"url": {"value": "https://custom2.example.com"}}
 
     def test_template_creation_sets_team_and_created_by(self):
         """Test that team_id and created_by are set from context"""
@@ -301,8 +310,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             "name": "action_1",
             "type": "function",
             "config": {
-                "template_id": "template-webhook-simple",
-                "inputs": {"url": {"value": "https://custom.example.com"}},  # This will be reset to default
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://custom.example.com"}},
             },
         }
 
@@ -328,9 +337,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
         )
 
-        # Templates reset inputs to defaults but don't compile bytecode (unlike regular workflows)
         # Bytecode compilation happens when a workflow is created from a template
-        assert template.actions[1]["config"]["inputs"] == snapshot({"url": {"value": "https://example.com"}})
+        assert template.actions[1]["config"]["inputs"] == snapshot({"url": {"value": "https://custom.example.com"}})
 
     def test_template_conditional_branch_filters_bytecode(self):
         """Test that conditional branch filters have bytecode compiled"""
@@ -569,3 +577,53 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template = HogFlowTemplate.objects.get(pk=response.json()["id"])
         assert template.image_url == "https://example.com/image.png"
+
+    def test_template_filtering_returns_global_and_team_templates(self):
+        """Test that listing templates returns global templates and templates for current team"""
+        team_template_data = self._create_hog_flow_data()
+        team_template_data["scope"] = "team"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", team_template_data)
+        assert response.status_code == 201
+        team_template_id = response.json()["id"]
+
+        global_template_data = self._create_hog_flow_data()
+        global_template_data["scope"] = "global"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", global_template_data)
+        assert response.status_code == 201
+        global_template_id = response.json()["id"]
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_team_template = HogFlowTemplate.objects.create(
+            name="Other Team Template",
+            team=other_team,
+            scope="team",
+            trigger={"type": "event"},
+            actions=[],
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
+        assert response.status_code == 200
+
+        template_ids = [t["id"] for t in response.json()["results"]]
+
+        assert team_template_id in template_ids
+        assert global_template_id in template_ids
+
+        assert str(other_team_template.id) not in template_ids
+
+    def test_template_filtering_global_templates_visible_to_all_teams(self):
+        """Test that global templates are visible to all teams"""
+        global_template_data = self._create_hog_flow_data()
+        global_template_data["scope"] = "global"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", global_template_data)
+        assert response.status_code == 201
+        global_template_id = response.json()["id"]
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        response = self.client.get(f"/api/projects/{other_team.id}/hog_flow_templates")
+        assert response.status_code == 200
+
+        template_ids = [t["id"] for t in response.json()["results"]]
+        assert global_template_id in template_ids
