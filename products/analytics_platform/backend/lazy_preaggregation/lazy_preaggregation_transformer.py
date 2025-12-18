@@ -568,6 +568,11 @@ class Transformer(CloningVisitor):
                 right=ast.Constant(value=end_date_for_query),
                 op=CompareOperationOp.Lt,
             ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["job_id"]),
+                right=ast.Constant(value=result.job_ids),
+                op=CompareOperationOp.In,
+            ),
         ]
         where = ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0]
 
