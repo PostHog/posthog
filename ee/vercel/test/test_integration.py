@@ -104,7 +104,7 @@ class TestVercelIntegration(TestCase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=self.installation_id,
-            config={"billing_plan_id": "free", "scopes": ["read"]},
+            config={"billing_plan_id": "posthog-usage-based", "scopes": ["read"]},
             created_by=self.user,
         )
 
@@ -149,28 +149,14 @@ class TestVercelIntegration(TestCase):
 
     def test_get_vercel_plans_structure(self):
         plans = VercelIntegration.get_vercel_plans()
-        assert len(plans) == 2
+        assert len(plans) > 0
+        assert plans[0]["id"]
+        assert plans[0]["paymentMethodRequired"] is True
 
-        free_plan = next(p for p in plans if p["id"] == "free")
-        assert free_plan["type"] == "subscription"
-        assert free_plan["name"] == "Free"
-        assert not free_plan["paymentMethodRequired"]
-
-        paid_plan = next(p for p in plans if p["id"] == "pay_as_you_go")
-        assert paid_plan["type"] == "subscription"
-        assert paid_plan["name"] == "Pay-as-you-go"
-        assert paid_plan["paymentMethodRequired"]
-
-    def test_get_installation_returns_free_plan(self):
+    def test_get_installation_billing_plan(self):
         result = VercelIntegration.get_installation_billing_plan(self.installation_id)
-        assert "billingplan" in result
-        assert result["billingplan"]["id"] == "free"
-
-    def test_update_installation_success(self):
-        VercelIntegration.update_installation(self.installation_id, "pro200")
-
-        updated_installation = OrganizationIntegration.objects.get(integration_id=self.installation_id)
-        assert updated_installation.config["billing_plan_id"] == "free"
+        # Returns empty dict - billing handled through PostHog, not Vercel
+        assert result == {}
 
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
@@ -196,7 +182,8 @@ class TestVercelIntegration(TestCase):
     def test_get_product_plans_posthog(self):
         result = VercelIntegration.get_product_plans("posthog")
         assert "plans" in result
-        assert len(result["plans"]) == 2
+        assert len(result["plans"]) == 1
+        assert result["plans"][0]["id"] == "posthog-usage-based"
 
     def test_get_product_plans_invalid_product(self):
         with self.assertRaises(NotFound) as context:
@@ -335,7 +322,7 @@ class TestVercelIntegration(TestCase):
             "productId": "posthog",
             "name": "New Resource",
             "metadata": {"key": "value"},
-            "billingPlanId": "free",
+            "billingPlanId": "posthog-usage-based",
         }
 
         result = VercelIntegration.create_resource(self.installation_id, resource_data)
@@ -374,7 +361,7 @@ class TestVercelIntegration(TestCase):
             {
                 "name": "Original Name",
                 "metadata": {"old": "value"},
-                "billingPlanId": "free",
+                "billingPlanId": "posthog-usage-based",
             }
         )
         resource.save()
@@ -403,7 +390,7 @@ class TestVercelIntegration(TestCase):
         resource_data = {
             "productId": "posthog",
             "metadata": {"key": "value"},
-            "billingPlanId": "free",
+            "billingPlanId": "posthog-usage-based",
         }
 
         with self.assertRaises(exceptions.ValidationError) as context:
