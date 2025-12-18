@@ -1,10 +1,6 @@
 name: ClickHouse UDFs
 
 on:
-    # TODO just adding for testing, remove before merge
-    pull_request:
-        branches:
-            - master
     push:
         branches:
             - master
