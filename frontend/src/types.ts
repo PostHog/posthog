@@ -11,10 +11,10 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
+import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UrlTriggerConfig } from 'lib/components/Triggers/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
@@ -350,7 +350,7 @@ export interface UserType extends UserBaseType {
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
-    role_at_organization?: string
+    role_at_organization?: UserRole | null
 }
 
 export type HedgehogColorOptions =
@@ -1952,12 +1952,17 @@ export interface BillingProductV2AddonType {
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
+export enum BillingProvider {
+    Vercel = 'vercel',
+}
 export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
+    billing_provider?: BillingProvider | null
     free_trial_until?: Dayjs
     stripe_portal_url?: string
+    external_billing_provider_invoices_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
@@ -5232,6 +5237,11 @@ export type BatchExportServiceDatabricks = {
     }
 }
 
+export type BatchExportRealtimeDestinationBackfill = {
+    type: 'Workflows'
+    config: {}
+}
+
 // When adding a new option here also add a icon for it to
 // frontend/public/services/
 // and update RenderBatchExportIcon
@@ -5243,6 +5253,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'Redshift',
     'HTTP',
     'Databricks',
+    'Workflows',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
@@ -5252,6 +5263,7 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
     | BatchExportServiceDatabricks
+    | BatchExportRealtimeDestinationBackfill
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
@@ -5668,6 +5680,7 @@ export type HogFunctionType = {
     filters?: CyclotronJobFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
+    batch_export_id?: string | null
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'

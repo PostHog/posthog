@@ -1,4 +1,4 @@
-import { LogicWrapper } from 'kea'
+import { LogicWrapper, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCheck, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
@@ -11,8 +11,9 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { AccessControlAction } from '../AccessControlAction'
-import { UrlTriggerConfig } from './types'
+import { AccessControlAction } from '../../AccessControlAction'
+import { ingestionControlsLogic } from '../ingestionControlsLogic'
+import { UrlTriggerConfig } from '../types'
 
 export function UrlConfig({
     logic,
@@ -44,21 +45,20 @@ export function UrlConfig({
     onEdit: (index: number) => void
     onRemove: (index: number) => void
 }): JSX.Element {
+    const { resourceType, logicKey } = useValues(ingestionControlsLogic)
+
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
                     {title} <Since web={{ version: '1.171.0' }} />
                 </LemonLabel>
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
+                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
                     <LemonButton
                         onClick={props.onAdd}
                         type="secondary"
                         icon={<IconPlus />}
-                        data-attr="session-replay-add-url"
+                        data-attr={`${logicKey}-add-url`}
                         size="small"
                     >
                         Add
@@ -114,6 +114,7 @@ export function UrlConfig({
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
                     checkUrlResult={checkUrlResults[index]}
+                    resourceType={resourceType}
                 />
             ))}
         </div>
@@ -131,6 +132,7 @@ function UrlConfigRow({
     formKey,
     addUrl,
     validationWarning,
+    resourceType,
 }: {
     trigger: UrlTriggerConfig
     index: number
@@ -142,6 +144,7 @@ function UrlConfigRow({
     formKey: string
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
+    resourceType: AccessControlResourceType
 }): JSX.Element {
     if (editIndex === index) {
         return (
@@ -188,19 +191,13 @@ function UrlConfigRow({
                 )}
             </span>
             <div className="Actions flex deprecated-space-x-1 shrink-0">
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
+                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
                     <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center>
                         Edit
                     </LemonButton>
                 </AccessControlAction>
 
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
+                <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
                     <LemonButton
                         icon={<IconTrash />}
                         tooltip="Remove URL"
