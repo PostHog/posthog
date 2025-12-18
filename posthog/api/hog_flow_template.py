@@ -158,6 +158,9 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = team_id
+        # Ensure scope is always set (defaults to 'team' if not provided)
+        if not validated_data.get("scope"):
+            validated_data["scope"] = HogFlowTemplate.Scope.ONLY_TEAM
 
         return super().create(validated_data=validated_data)
 
@@ -208,7 +211,6 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
         try:
-            # Extract trigger type from the trigger config
             # trigger_type = serializer.instance.trigger.get("type", "unknown")
 
             # Count edges and actions

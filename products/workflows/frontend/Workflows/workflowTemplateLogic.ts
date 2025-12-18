@@ -85,8 +85,5 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 })
             }
         },
-        submitTemplateFormSuccess: async () => {
-            actions.hideSaveAsTemplateModal()
-        },
     })),
 ])

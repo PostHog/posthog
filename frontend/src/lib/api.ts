@@ -1638,7 +1638,7 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('hog_flow_templates')
     }
 
-    public hogFlowTemplate(hogFlowTemplateId: HogFlow['id']): ApiRequest {
+    public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
     }
 

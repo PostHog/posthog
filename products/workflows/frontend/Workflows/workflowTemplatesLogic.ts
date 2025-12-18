@@ -41,7 +41,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
     })),
     selectors({
         workflowTemplateFuse: [
-            (s: any) => [s.workflowTemplates],
+            (s) => [s.workflowTemplates],
             (workflowTemplates: HogFlowTemplate[]): Fuse => {
                 return new FuseClass(workflowTemplates || [], {
                     keys: [{ name: 'name', weight: 2 }, 'description'],
@@ -51,7 +51,7 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
             },
         ],
         filteredTemplates: [
-            (s: any) => [s.workflowTemplates, s.templateFilter, s.workflowTemplateFuse],
+            (s) => [s.workflowTemplates, s.templateFilter, s.workflowTemplateFuse],
             (
                 workflowTemplates: HogFlowTemplate[],
                 templateFilter: string,

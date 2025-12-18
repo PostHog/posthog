@@ -38,8 +38,8 @@ class HogFlowTemplate(UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     image_url = models.CharField(max_length=8201, null=True, blank=True)
-    scope = models.CharField(max_length=24, choices=Scope.choices, null=True, blank=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
+    scope = models.CharField(max_length=24, choices=Scope.choices)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

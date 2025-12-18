@@ -50,6 +50,7 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
 
                     <LemonField name="scope" label="Scope">
                         <LemonSelect
+                            value={templateForm.scope}
                             options={[
                                 { value: 'team', label: 'Team only' },
                                 { value: 'global', label: 'Official (visible to everyone)' },
