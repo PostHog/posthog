@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 
@@ -13,7 +14,11 @@ import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabas
 
 import { SyncMoreNotice } from './SyncMoreNotice'
 
-export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefObject<HTMLDivElement> }): JSX.Element {
+export const DatabaseTree = memo(function DatabaseTree({
+    databaseTreeRef,
+}: {
+    databaseTreeRef: React.RefObject<HTMLDivElement>
+}): JSX.Element {
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
@@ -21,7 +26,7 @@ export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefOb
     return (
         <div
             className={cn(
-                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col',
+                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col min-w-min',
                 isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`,
                 databaseTreeWillCollapse && 'opacity-50'
             )}
@@ -69,4 +74,4 @@ export function DatabaseTree({ databaseTreeRef }: { databaseTreeRef: React.RefOb
             />
         </div>
     )
-}
+})

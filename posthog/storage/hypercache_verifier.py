@@ -171,6 +171,7 @@ def _verify_and_fix_batch(
                 issue_type="cache_mismatch",
                 cache_type=cache_type,
                 result=result,
+                verification=verification,
             )
 
 
@@ -180,6 +181,7 @@ def _fix_and_record(
     issue_type: str,
     cache_type: str,
     result: VerificationResult,
+    verification: dict | None = None,
 ) -> None:
     """
     Fix a team's cache and record the result.
@@ -190,7 +192,17 @@ def _fix_and_record(
         issue_type: Type of issue (cache_miss, cache_mismatch, expiry_missing)
         cache_type: Cache type for metrics
         result: VerificationResult to update
+        verification: Optional verification result dict containing diff info
     """
+    # Log what's being fixed, including diff details for mismatches
+    log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type}
+    if verification:
+        if "diff_fields" in verification:
+            log_kwargs["diff_fields"] = verification["diff_fields"]
+        if "diff_flags" in verification:
+            log_kwargs["diff_flags"] = verification["diff_flags"]
+    logger.info("Fixing cache entry", **log_kwargs)
+
     try:
         success = config.update_fn(team)
     except Exception as e:

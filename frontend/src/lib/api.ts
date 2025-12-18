@@ -45,6 +45,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -200,7 +201,7 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import { HogFlow, HogFlowAction } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -995,13 +996,20 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
 
-    public featureFlagDeleteScheduledChange(
+    public featureFlagScheduledChange(
         teamId: TeamType['id'],
         scheduledChangeId: ScheduledChangeType['id']
     ): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('scheduled_changes')
             .addPathComponent(`${scheduledChangeId}`)
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.featureFlagScheduledChange(teamId, scheduledChangeId)
     }
 
     // # Features
@@ -1884,6 +1892,13 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async updateScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id'],
+            data: Partial<ScheduledChangeType>
+        ): Promise<ScheduledChangeType> {
+            return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
         },
         async getStatus(
             teamId: TeamType['id'],
@@ -4563,6 +4578,14 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
+        async getBatchTriggerBlastRadius(
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+        ): Promise<{
+            users_affected: number
+            total_users: number
+        }> {
+            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+        },
     },
 
     queryURL: (): string => {
@@ -4597,7 +4620,7 @@ const api = {
         })
     },
 
-    async queryHogQL<T = any[]>(
+    async SHAMEFULLY_UNTAGGED_queryHogQL<T = any[]>(
         query: HogQLQueryString,
         queryOptions?: {
             requestOptions?: ApiMethodOptions
@@ -4605,13 +4628,29 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+        }
+    ): Promise<HogQLQueryResponse<T>> {
+        return this.queryHogQL(query, {}, queryOptions)
+    },
+
+    async queryHogQL<T = any[]>(
+        query: HogQLQueryString,
+        tags: QueryLogTags,
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
+            tags,
         })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,

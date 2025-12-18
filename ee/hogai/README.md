@@ -133,35 +133,7 @@ NOTE: this won't extend query types generation. For that, talk to the PostHog AI
 
 ### Adding a new query type
 
-1. **Update the schema to include the new query types**
-   - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
-
-     ```typescript
-     AnyAssistantSupportedQuery =
-         | TrendsQuery
-         | FunnelsQuery
-         | RetentionQuery
-         | HogQLQuery
-         | YourNewQuery           // Add your query type
-     ```
-
-   - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
-
-     ```python
-     SupportedQueryTypes = (
-         AssistantTrendsQuery
-         | TrendsQuery
-         | AssistantFunnelsQuery
-         | FunnelsQuery
-         | AssistantRetentionQuery
-         | RetentionQuery
-         | AssistantHogQLQuery
-         | HogQLQuery
-         | YourNewQuery           # Add your query type
-     )
-     ```
-
-2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
+1. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
    - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
    - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
 
@@ -178,20 +150,7 @@ NOTE: this won't extend query types generation. For that, talk to the PostHog AI
          return YOUR_NEW_EXAMPLE_PROMPT
      ```
 
-3. **Update the root node** (`@ee/hogai/graph/root/`):
-   - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
-
-     ```python
-     MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
-         "TrendsQuery": TrendsQuery,
-         "FunnelsQuery": FunnelsQuery,
-         "RetentionQuery": RetentionQuery,
-         "HogQLQuery": HogQLQuery,
-         "YourNewQuery": YourNewQuery,  # Add your query mapping
-     }
-     ```
-
-4. **Create the formatter class**:
+2. **Create the formatter class**:
 
    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
@@ -209,7 +168,7 @@ NOTE: this won't extend query types generation. For that, talk to the PostHog AI
            pass
    ```
 
-5. **Add tests**:
+3. **Add tests**:
    - Add test cases in `test/test_query_executor.py` for your new query type
    - Add test cases in `test/format/test_format.py` for your new formatter
    - Ensure tests cover both successful execution and error handling

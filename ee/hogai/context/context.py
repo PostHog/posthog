@@ -31,12 +31,12 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
@@ -292,13 +292,7 @@ class AssistantContextManager(AssistantContextMixin):
             Formatted insight string or empty string if failed
         """
         try:
-            query_kind = cast(str | None, getattr(insight.query, "kind", None))
-            serialized_query = insight.query.model_dump_json(exclude_none=True)
-
-            if not query_kind or query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND.keys():
-                return None  # Skip unsupported query types
-
-            query_obj = cast(SupportedQueryTypes, insight.query)
+            query_model = insight.query
 
             if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
                 query_dict = insight.query.model_dump(mode="json")
@@ -312,12 +306,9 @@ class AssistantContextManager(AssistantContextMixin):
                     variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
                     query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
 
-                if query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND:
-                    return None  # Skip if query kind is not supported after filters applied
-                QueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[query_kind]
-                query_obj = QueryModel.model_validate(query_dict)
+                query_model = validate_assistant_query(query_dict)
 
-            raw_results, _ = await query_runner.arun_and_format_query(query_obj)
+            raw_results, _ = await query_runner.arun_and_format_query(query_model)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
@@ -325,7 +316,7 @@ class AssistantContextManager(AssistantContextMixin):
                     heading=heading or "",
                     name=insight.name or f"ID {insight.id}",
                     description=insight.description,
-                    query_schema=serialized_query,
+                    query_schema=insight.query.model_dump_json(exclude_none=True),
                     query=raw_results,
                 )
                 .to_string()

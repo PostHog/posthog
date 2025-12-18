@@ -369,9 +369,6 @@ migrations:
         services:
             - postgresql
             - clickhouse
-    migrations:kafka:
-        bin_script: migrate_kafka_data.py
-        description: Migrate data between Kafka clusters/topics with consumer group tracking
 db:
     db:upgrade:
         bin_script: upgrade-postgres

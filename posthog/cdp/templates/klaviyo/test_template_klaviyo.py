@@ -42,7 +42,7 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
 
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://a.klaviyo.com/api/profiles",
+                "https://a.klaviyo.com/api/profile-import",
                 {
                     "method": "POST",
                     "headers": {
@@ -65,61 +65,6 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
                                 "email": "max@posthog.com",
                                 "external_id": "EXTERNAL_ID",
                             },
-                        }
-                    },
-                },
-            )
-        )
-
-    def test_patch_existing_profile(self):
-        self.mock_fetch_response = lambda *args: {  # type: ignore
-            "status": 409,
-            "body": {
-                "errors": [
-                    {
-                        "id": "207e2b13-ac84-4afe-a064-616a33006e6e",
-                        "status": 409,
-                        "code": "duplicate_profile",
-                        "title": "Conflict.",
-                        "detail": "A profile already exists with one of these identifiers.",
-                        "source": {"pointer": "/data/attributes"},
-                        "links": {},
-                        "meta": {"duplicate_profile_id": "01JAFS0VVWGJFE7QE4EJQBA5AS"},
-                    }
-                ]
-            },
-        }
-
-        # both requests will fail with error code 409
-        with pytest.raises(UncaughtHogVMException):
-            self.run_function(inputs=self.create_inputs())
-
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://a.klaviyo.com/api/profiles/01JAFS0VVWGJFE7QE4EJQBA5AS",
-                {
-                    "method": "PATCH",
-                    "headers": {
-                        "Authorization": "Klaviyo-API-Key API_KEY",
-                        "revision": "2024-10-15",
-                        "Content-Type": "application/json",
-                    },
-                    "body": {
-                        "data": {
-                            "type": "profile",
-                            "attributes": {
-                                "location": {},
-                                "properties": {
-                                    "first_name": "Max",
-                                    "last_name": "AI",
-                                    "title": "Hedgehog in Residence",
-                                    "organization": "PostHog",
-                                    "phone_number": "+0123456789",
-                                },
-                                "email": "max@posthog.com",
-                                "external_id": "EXTERNAL_ID",
-                            },
-                            "id": "01JAFS0VVWGJFE7QE4EJQBA5AS",
                         }
                     },
                 },
@@ -167,7 +112,7 @@ class TestTemplateKlaviyoUser(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # type: ignore
         with pytest.raises(UncaughtHogVMException) as e:
             self.run_function(inputs=self.create_inputs())
-        assert e.value.message == "Error from a.klaviyo.com api: 400: {'error': 'error'}"
+        assert e.value.message == "Error from a.klaviyo.com api: 400"
 
 
 class TestTemplateKlaviyoEvent(BaseHogFunctionTemplateTest):
