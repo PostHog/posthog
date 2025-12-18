@@ -18,6 +18,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
+                cdpLegacyWebhooks: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
@@ -36,6 +37,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
+                cdpLegacyWebhooks: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
@@ -98,6 +100,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_legacy_on_event:
             return {
                 cdpLegacyOnEvent: true,
+            }
+        case PluginServerMode.cdp_legacy_webhooks:
+            return {
+                cdpLegacyWebhooks: true,
             }
         case PluginServerMode.cdp_api:
             return {
