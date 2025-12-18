@@ -45,15 +45,21 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     return
                 }
 
-                await api.hogFlowTemplates.createHogFlowTemplate({
-                    ...workflow,
-                    name: formValues.name || workflow.name || '',
-                    description: formValues.description || workflow.description || '',
-                    image_url: formValues.image_url || undefined,
-                    scope: formValues.scope || 'team',
-                })
-                lemonToast.success('Workflow template created')
-                actions.hideSaveAsTemplateModal()
+                try {
+                    await api.hogFlowTemplates.createHogFlowTemplate({
+                        ...workflow,
+                        name: formValues.name || workflow.name || '',
+                        description: formValues.description || workflow.description || '',
+                        image_url: formValues.image_url || undefined,
+                        scope: formValues.scope || 'team',
+                    })
+                    lemonToast.success('Workflow template created')
+                    actions.hideSaveAsTemplateModal()
+                } catch (e: any) {
+                    const errorMessage = e?.detail || e?.message || 'Failed to create workflow template'
+                    lemonToast.error(errorMessage)
+                    throw e
+                }
             },
         },
     })),
