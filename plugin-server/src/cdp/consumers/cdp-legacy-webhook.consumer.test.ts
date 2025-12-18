@@ -7,8 +7,7 @@ import { Action, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } 
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { FetchResponse } from '../../utils/request'
-import { createHogExecutionGlobals, createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
-import { HogFunctionInvocationGlobals } from '../types'
+import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { CdpLegacyWebhookConsumer } from './cdp-legacy-webhook.consumer'
 
 jest.setTimeout(10000)
@@ -39,10 +38,10 @@ describe('CdpLegacyWebhookConsumer', () => {
         }
     }
 
-    const createMockHook = (overrides: Partial<Hook> = {}): Hook => {
+    const createMockHook = (teamId: number, overrides: Partial<Hook> = {}): Hook => {
         return {
             id: 'test-hook-id',
-            team_id: team.id,
+            team_id: teamId,
             user_id: 1,
             resource_id: 1,
             event: 'action_performed',
@@ -69,8 +68,6 @@ describe('CdpLegacyWebhookConsumer', () => {
             isHealthy: jest.fn(),
         } as any
 
-        await processor.start()
-
         mockFetch.mockResolvedValue({
             status: 200,
             headers: {},
@@ -87,104 +84,85 @@ describe('CdpLegacyWebhookConsumer', () => {
     })
 
     describe('_parseKafkaBatch', () => {
-        it('should parse events for teams with webhooks', async () => {
+        it('should parse events for teams with both webhooks and zapier', async () => {
             hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const invocations = await processor._parseKafkaBatch(messages)
+            const events = await processor._parseKafkaBatch(messages)
 
-            expect(invocations).toHaveLength(1)
-            expect(invocations[0].projectId).toBe(team.id)
-            expect(invocations[0].event).toBe('$pageview')
+            expect(events).toHaveLength(1)
+            expect(events[0].teamId).toBe(team.id)
+            expect(events[0].event).toBe('$pageview')
         })
 
-        it('should filter out events for teams without webhooks', async () => {
+        it('should filter out events for teams without webhooks and without zapier', async () => {
             hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(false)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
 
             const messages: Message[] = [
                 createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' })),
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            const invocations = await processor._parseKafkaBatch(messages)
+            const events = await processor._parseKafkaBatch(messages)
 
-            expect(invocations).toHaveLength(0)
+            expect(events).toHaveLength(0)
         })
 
-        it('should filter out events for non-existent teams', async () => {
-            const messages: Message[] = [createKafkaMessage(createIncomingEvent(99999, { event: '$pageview' }))]
+        it('should filter out events for teams with zapier but without webhooks', async () => {
+            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(false)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
-            const invocations = await processor._parseKafkaBatch(messages)
+            const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            expect(invocations).toHaveLength(0)
+            const events = await processor._parseKafkaBatch(messages)
+
+            expect(events).toHaveLength(0)
+        })
+
+        it('should filter out events for teams with webhooks but without zapier', async () => {
+            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
+
+            const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
+
+            const events = await processor._parseKafkaBatch(messages)
+
+            expect(events).toHaveLength(0)
+        })
+
+        it('should parse events for teams with both webhooks and zapier', async () => {
+            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+
+            const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
+
+            const events = await processor._parseKafkaBatch(messages)
+
+            expect(events).toHaveLength(1)
+            expect(events[0].teamId).toBe(team.id)
         })
 
         it('should handle multiple teams correctly', async () => {
             hub.actionMatcher.hasWebhooks = jest.fn().mockImplementation((teamId) => teamId === team.id)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const messages: Message[] = [
                 createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' })),
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            const invocations = await processor._parseKafkaBatch(messages)
+            const events = await processor._parseKafkaBatch(messages)
 
-            expect(invocations).toHaveLength(1)
-            expect(invocations[0].project.id).toBe(team.id)
-        })
-    })
-
-    describe('processBatch', () => {
-        let globals: HogFunctionInvocationGlobals
-
-        beforeEach(() => {
-            globals = createHogExecutionGlobals({
-                project: {
-                    id: team.id,
-                } as any,
-                event: {
-                    uuid: 'test-uuid',
-                    event: '$pageview',
-                    distinct_id: 'test-user',
-                    properties: {},
-                } as any,
-            })
+            expect(events).toHaveLength(1)
+            expect(events[0].teamId).toBe(team.id)
         })
 
-        it('should process events with webhooks', async () => {
-            const action = createMockAction(team.id, { post_to_slack: true })
+        it('should enrich events with group properties when available', async () => {
             hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
-            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
-
-            const result = await processor.processBatch([globals])
-
-            await result.backgroundTask
-
-            expect(result.invocations).toHaveLength(0)
-            expect(hub.actionMatcher.match).toHaveBeenCalled()
-        })
-
-        it('should skip events without webhooks', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(false)
-            const matchSpy = jest.spyOn(hub.actionMatcher, 'match')
-
-            const result = await processor.processBatch([globals])
-
-            await result.backgroundTask
-
-            expect(result.invocations).toHaveLength(0)
-            expect(matchSpy).not.toHaveBeenCalled()
-        })
-
-        it('should enrich events with group properties when group analytics is enabled', async () => {
-            const action = createMockAction(team.id, { post_to_slack: true })
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
-            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
-            hub.teamManager.hasAvailableFeature = jest.fn().mockImplementation((teamId, feature) => {
-                return feature === 'group_analytics' || feature === 'zapier'
-            })
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
             hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
                 project: 0,
             })
@@ -192,16 +170,87 @@ describe('CdpLegacyWebhookConsumer', () => {
                 group_properties: { name: 'Test Project' },
             })
 
-            globals.event.properties['$groups'] = { project: 'test-project-id' }
+            const messages: Message[] = [
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'test-project-id' } }),
+                    })
+                ),
+            ]
 
-            const result = await processor.processBatch([globals])
+            const events = await processor._parseKafkaBatch(messages)
+
+            expect(events).toHaveLength(1)
+            expect(events[0].groups).toBeDefined()
+            expect(events[0].groups?.project).toEqual({
+                index: 0,
+                key: 'test-project-id',
+                type: 'project',
+                properties: { name: 'Test Project' },
+            })
+        })
+    })
+
+    describe('processBatch', () => {
+        let event: PostIngestionEvent
+
+        beforeEach(() => {
+            event = {
+                eventUuid: 'test-uuid',
+                event: '$pageview',
+                teamId: team.id,
+                distinctId: 'test-user',
+                properties: {},
+                timestamp: new Date().toISOString() as ISOTimestamp,
+                projectId: team.id as ProjectId,
+                person_created_at: null,
+                person_properties: {},
+                person_id: undefined,
+            }
+        })
+
+        it('should process events with matching actions', async () => {
+            const hook = createMockHook(team.id)
+            const action = createMockAction(team.id, { hooks: [hook] })
+            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+
+            const result = await processor.processBatch([event])
 
             await result.backgroundTask
 
-            expect(hub.groupTypeManager.fetchGroupTypes).toHaveBeenCalled()
-            expect(hub.groupRepository.fetchGroup).toHaveBeenCalledWith(team.id, 0, 'test-project-id', {
-                useReadReplica: true,
-            })
+            expect(hub.actionMatcher.match).toHaveBeenCalledWith(event)
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://hooks.zapier.com/test',
+                expect.objectContaining({
+                    method: 'POST',
+                })
+            )
+        })
+
+        it('should skip events without matching actions', async () => {
+            hub.actionMatcher.match = jest.fn().mockReturnValue([])
+
+            const result = await processor.processBatch([event])
+
+            await result.backgroundTask
+
+            expect(hub.actionMatcher.match).toHaveBeenCalledWith(event)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('should skip events when team not found', async () => {
+            const hook = createMockHook(team.id)
+            const action = createMockAction(team.id, { hooks: [hook] })
+            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
+            hub.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await processor.processBatch([event])
+
+            await result.backgroundTask
+
+            expect(mockFetch).not.toHaveBeenCalled()
         })
     })
 
@@ -223,11 +272,10 @@ describe('CdpLegacyWebhookConsumer', () => {
             }
         })
 
-        it('should fire Zapier webhooks when zapier feature is enabled', async () => {
-            const hook = createMockHook()
+        it('should fire webhooks when zapier feature is enabled', async () => {
+            const hook = createMockHook(team.id)
             const action = createMockAction(team.id, { hooks: [hook] })
 
-            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             await processor['fireWebhooks'](event, [action])
@@ -241,11 +289,10 @@ describe('CdpLegacyWebhookConsumer', () => {
             )
         })
 
-        it('should not fire Zapier webhooks when zapier feature is disabled', async () => {
-            const hook = createMockHook()
+        it('should not fire webhooks when zapier feature is disabled', async () => {
+            const hook = createMockHook(team.id)
             const action = createMockAction(team.id, { hooks: [hook] })
 
-            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
 
             await processor['fireWebhooks'](event, [action])
@@ -256,13 +303,11 @@ describe('CdpLegacyWebhookConsumer', () => {
         it('should handle multiple actions with webhooks', async () => {
             const action1 = createMockAction(team.id, {
                 id: 1,
-                post_to_slack: false,
-                hooks: [createMockHook({ id: 'hook-1' })],
+                hooks: [createMockHook(team.id, { id: 'hook-1' })],
             })
             const action2 = createMockAction(team.id, {
                 id: 2,
-                post_to_slack: false,
-                hooks: [createMockHook({ id: 'hook-2', target: 'https://hooks.zapier.com/test2' })],
+                hooks: [createMockHook(team.id, { id: 'hook-2', target: 'https://hooks.zapier.com/test2' })],
             })
 
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
@@ -275,7 +320,6 @@ describe('CdpLegacyWebhookConsumer', () => {
 
     describe('postWebhook', () => {
         let event: PostIngestionEvent
-        let action: Action
 
         beforeEach(() => {
             event = {
@@ -290,14 +334,12 @@ describe('CdpLegacyWebhookConsumer', () => {
                 person_properties: {},
                 person_id: undefined,
             }
-
-            action = createMockAction(team.id)
         })
 
         it('should send webhook request', async () => {
-            const hook = createMockHook()
+            const hook = createMockHook(team.id)
 
-            await processor['postWebhook'](event, action, team, hook)
+            await processor['postWebhook'](event, team, hook)
 
             expect(mockFetch).toHaveBeenCalledWith(
                 'https://hooks.zapier.com/test',
@@ -308,7 +350,7 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should delete hook on 410 response', async () => {
-            const hook = createMockHook()
+            const hook = createMockHook(team.id)
             mockFetch.mockResolvedValue({
                 status: 410,
                 headers: {},
@@ -319,7 +361,7 @@ describe('CdpLegacyWebhookConsumer', () => {
 
             const querySpy = jest.spyOn(hub.postgres, 'query')
 
-            await processor['postWebhook'](event, action, team, hook)
+            await processor['postWebhook'](event, team, hook)
 
             expect(querySpy).toHaveBeenCalledWith(
                 PostgresUse.COMMON_WRITE,
@@ -330,98 +372,18 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should skip when no URL is provided', async () => {
-            const hook = createMockHook({ target: '' })
+            const hook = createMockHook(team.id, { target: '' })
 
-            await processor['postWebhook'](event, action, team, hook)
+            await processor['postWebhook'](event, team, hook)
 
             expect(mockFetch).not.toHaveBeenCalled()
         })
-    })
 
-    describe('addGroupPropertiesToEvent', () => {
-        let globals: HogFunctionInvocationGlobals
+        it('should throw error when fetch has an error', async () => {
+            const hook = createMockHook(team.id)
+            mockFetch.mockRejectedValue(new Error('Network error'))
 
-        beforeEach(() => {
-            globals = createHogExecutionGlobals({
-                project: {
-                    id: team.id,
-                } as any,
-                event: {
-                    uuid: 'test-uuid',
-                    event: '$pageview',
-                    distinct_id: 'test-user',
-                    properties: {},
-                } as any,
-            })
-        })
-
-        it('should add group properties when group analytics is enabled', async () => {
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
-                project: 0,
-            })
-            hub.groupRepository.fetchGroup = jest.fn().mockResolvedValue({
-                group_properties: { name: 'Test Project' },
-            })
-
-            globals.event.properties['$groups'] = { project: 'test-project-id' }
-
-            const result = await processor['addGroupPropertiesToEvent'](globals)
-
-            expect(result.groups).toBeDefined()
-            expect(result.groups?.project).toEqual({
-                index: 0,
-                key: 'test-project-id',
-                type: 'project',
-                properties: { name: 'Test Project' },
-            })
-        })
-
-        it('should not add group properties when group analytics is disabled', async () => {
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
-            const fetchGroupTypesSpy = jest.spyOn(hub.groupTypeManager, 'fetchGroupTypes')
-
-            const result = await processor['addGroupPropertiesToEvent'](globals)
-
-            expect(result.groups).toBeUndefined()
-            expect(fetchGroupTypesSpy).not.toHaveBeenCalled()
-        })
-
-        it('should handle missing group keys', async () => {
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
-                project: 0,
-                organization: 1,
-            })
-
-            globals.event.properties['$groups'] = { project: 'test-project-id' }
-
-            const result = await processor['addGroupPropertiesToEvent'](globals)
-
-            expect(result.groups).toBeDefined()
-            expect(result.groups?.project).toBeDefined()
-            expect(result.groups?.organization).toBeUndefined()
-        })
-
-        it('should handle null group properties', async () => {
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
-                project: 0,
-            })
-            hub.groupRepository.fetchGroup = jest.fn().mockResolvedValue(null)
-
-            globals.event.properties['$groups'] = { project: 'test-project-id' }
-
-            const result = await processor['addGroupPropertiesToEvent'](globals)
-
-            // When group is null, groupProperties becomes {}, which is still added
-            expect(result.groups).toBeDefined()
-            expect(result.groups?.project).toEqual({
-                index: 0,
-                key: 'test-project-id',
-                type: 'project',
-                properties: {},
-            })
+            await expect(processor['postWebhook'](event, team, hook)).rejects.toThrow('Network error')
         })
     })
 })

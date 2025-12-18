@@ -6,18 +6,13 @@ import { addGroupPropertiesToPostIngestionEvent } from '~/main/ingestion-queues/
 
 import {
     Action,
-    GroupTypeIndex,
-    GroupTypeToColumnIndex,
     HealthCheckResult,
     Hook,
     HookPayload,
     Hub,
-    ISOTimestamp,
     PostIngestionEvent,
-    ProjectId,
     RawClickHouseEvent,
     Team,
-    TeamId,
 } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload, convertToPostIngestionEvent } from '../../utils/event'
@@ -25,7 +20,6 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
-import { HogFunctionInvocationGlobals } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
@@ -128,67 +122,6 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
         return { backgroundTask: Promise.resolve() }
     }
 
-    private async addGroupPropertiesToEvent(globals: HogFunctionInvocationGlobals): Promise<PostIngestionEvent> {
-        const eventWithoutGroups: PostIngestionEvent = {
-            eventUuid: globals.event.uuid,
-            event: globals.event.event,
-            teamId: globals.project.id,
-            distinctId: globals.event.distinct_id,
-            properties: globals.event.properties,
-            timestamp: globals.event.timestamp as ISOTimestamp,
-            projectId: globals.project.id as ProjectId,
-            person_created_at: null,
-            person_properties: {},
-            person_id: undefined,
-        }
-
-        let groupTypes: GroupTypeToColumnIndex | null = null
-        if (await this.hub.teamManager.hasAvailableFeature(globals.project.id, 'group_analytics')) {
-            groupTypes = await this.hub.groupTypeManager.fetchGroupTypes(globals.project.id as ProjectId)
-        }
-
-        let groups: PostIngestionEvent['groups'] = undefined
-        if (groupTypes) {
-            groups = {}
-
-            for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
-                const $groups = globals.event.properties['$groups']
-                const groupKey = (
-                    $groups && typeof $groups === 'object' && !Array.isArray($groups)
-                        ? ($groups as Record<string, string>)[groupType]
-                        : undefined
-                ) as string | undefined
-
-                if (!groupKey) {
-                    continue
-                }
-
-                const group = await this.hub.groupRepository.fetchGroup(
-                    globals.project.id as TeamId,
-                    columnIndex as GroupTypeIndex,
-                    groupKey,
-                    { useReadReplica: true }
-                )
-
-                const groupProperties = group ? group.group_properties : {}
-
-                if (groupKey && groupProperties) {
-                    groups[groupType] = {
-                        index: columnIndex,
-                        key: groupKey,
-                        type: groupType,
-                        properties: groupProperties,
-                    }
-                }
-            }
-        }
-
-        return {
-            ...eventWithoutGroups,
-            groups,
-        }
-    }
-
     @instrumented('cdpLegacyWebhookConsumer.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<PostIngestionEvent[]> {
         return await this.runWithHeartbeat(async () => {
@@ -200,8 +133,8 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
                         const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
                         if (
-                            !this.hub.actionMatcher.hasWebhooks(clickHouseEvent.team_id) &&
-                            (await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
+                            !this.hub.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
+                            !(await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
                         ) {
                             // exit early if no webhooks nor resthooks
                             return
