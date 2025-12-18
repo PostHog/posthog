@@ -44,6 +44,26 @@ from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
+
+def _decode_jwt_payload(token: str) -> dict | None:
+    """
+    Decode JWT payload without signature verification.
+
+    Used to extract claims from OAuth tokens (id_token, access_token) where
+    we trust the token source (received directly from provider over HTTPS).
+
+    Returns None if JWT doesn't have enough parts. Raises on decode errors
+    so callers can log exceptions with full traceback.
+    """
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    # Handle missing base64 padding
+    decoded = base64.urlsafe_b64decode(payload + "===")
+    return json.loads(decoded)
+
+
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
@@ -559,12 +579,8 @@ class OauthIntegration:
             try:
                 id_token = config.get("id_token")
                 if id_token:
-                    parts = id_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
                         bing_user_id = jwt_data.get("oid")
                         bing_username = jwt_data.get("preferred_username")
                         if bing_user_id:
@@ -581,14 +597,8 @@ class OauthIntegration:
             try:
                 access_token = config.get("access_token")
                 if access_token:
-                    # Split JWT and get payload (middle part)
-                    parts = access_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        # Decode JWT payload (handle missing padding)
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
                         # Extract user ID from JWT (lid = login ID)
                         reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
                         if reddit_user_id:
@@ -603,12 +613,8 @@ class OauthIntegration:
             try:
                 id_token = config.get("id_token")
                 if id_token:
-                    parts = id_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
                         linkedin_user_id = jwt_data.get("sub")
                         linkedin_email = jwt_data.get("email")
                         if linkedin_user_id:
