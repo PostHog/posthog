@@ -179,17 +179,10 @@ export class LazyLoader<T> {
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
-        const keysToAdd: string[] = []
         const now = Date.now()
 
         for (const [key, value] of Object.entries(map)) {
-            // Track if this is a new key being added
-            const isNewKey = !(key in this.cache)
             this.cache[key] = value ?? null
-
-            if (isNewKey) {
-                keysToAdd.push(key)
-            }
 
             // Always update the lastUsed time
             this.lastUsed[key] = now
