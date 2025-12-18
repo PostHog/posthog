@@ -2,7 +2,7 @@ import './CodeSnippet.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { type HTMLProps, useEffect, useState } from 'react'
+import React, { type CSSProperties, type HTMLProps, useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
@@ -155,6 +155,8 @@ export interface CodeSnippetProps {
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
     maxLinesWithoutExpansion?: number
+    /** Render ANSI escape codes with colors */
+    ansi?: boolean
 }
 
 export const CodeSnippet = React.memo(function CodeSnippet({
@@ -166,6 +168,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
+    ansi = false,
 }: CodeSnippetProps): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
     const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(() =>
@@ -206,7 +209,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
                     tooltip="Copy to clipboard"
                 />
             </div>
-            <CodeLine text={displayedText} language={language} wrapLines={wrap} />
+            <CodeLine text={displayedText} language={language} wrapLines={wrap} ansi={ansi} />
             {indexOfLimitNewline !== -1 && (
                 <LemonButton
                     onClick={() => setExpanded(!expanded)}
@@ -238,12 +241,26 @@ export function CodeLine({
     text,
     wrapLines,
     language,
+    ansi = false,
 }: {
     text: string
     wrapLines: boolean
     language: Language
+    ansi?: boolean
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
+
+    if (ansi) {
+        return (
+            <pre className="m-0 whitespace-pre-wrap overflow-auto">
+                {renderAnsiText(text).map(({ content, style }, index) => (
+                    <span key={index} style={style}>
+                        {content}
+                    </span>
+                ))}
+            </pre>
+        )
+    }
 
     return (
         <SyntaxHighlighter
@@ -256,6 +273,91 @@ export function CodeLine({
             {text}
         </SyntaxHighlighter>
     )
+}
+
+type AnsiSpan = { content: string; style: CSSProperties }
+
+const ANSI_PATTERN = /\u001b\[(\d+(?:;\d+)*)m/g
+
+const ANSI_COLORS: Record<number, string> = {
+    30: '#000000',
+    31: '#d81e00',
+    32: '#008700',
+    33: '#af8500',
+    34: '#005faf',
+    35: '#875fff',
+    36: '#008787',
+    37: '#e4e4e4',
+    90: '#4d4d4d',
+    91: '#ff5f5f',
+    92: '#5fd75f',
+    93: '#ffd75f',
+    94: '#5fafff',
+    95: '#d75fff',
+    96: '#5fd7ff',
+    97: '#ffffff',
+}
+
+const ANSI_BACKGROUND_COLORS: Record<number, string> = {
+    40: '#000000',
+    41: '#d81e00',
+    42: '#008700',
+    43: '#af8500',
+    44: '#005faf',
+    45: '#875fff',
+    46: '#008787',
+    47: '#e4e4e4',
+    100: '#4d4d4d',
+    101: '#ff5f5f',
+    102: '#5fd75f',
+    103: '#ffd75f',
+    104: '#5fafff',
+    105: '#d75fff',
+    106: '#5fd7ff',
+    107: '#ffffff',
+}
+
+function renderAnsiText(text: string): AnsiSpan[] {
+    const spans: AnsiSpan[] = []
+    const activeStyle: CSSProperties = {}
+    let currentIndex = 0
+
+    for (const match of text.matchAll(ANSI_PATTERN)) {
+        const matchStart = match.index ?? 0
+        if (matchStart > currentIndex) {
+            spans.push({ content: text.slice(currentIndex, matchStart), style: { ...activeStyle } })
+        }
+
+        const codes = match[1].split(';').map((code) => parseInt(code, 10))
+        applyAnsiCodes(activeStyle, codes)
+        currentIndex = matchStart + match[0].length
+    }
+
+    if (currentIndex < text.length) {
+        spans.push({ content: text.slice(currentIndex), style: { ...activeStyle } })
+    }
+
+    return spans.length ? spans : [{ content: text, style: {} }]
+}
+
+function applyAnsiCodes(style: CSSProperties, codes: number[]): void {
+    for (const code of codes) {
+        if (code === 0) {
+            Object.keys(style).forEach((key) => delete (style as Record<string, string>)[key])
+        } else if (code === 1) {
+            style.fontWeight = 'bold'
+        } else if (code === 22) {
+            delete style.fontWeight
+        } else if (ANSI_COLORS[code]) {
+            style.color = ANSI_COLORS[code]
+        } else if (ANSI_BACKGROUND_COLORS[code]) {
+            style.backgroundColor = ANSI_BACKGROUND_COLORS[code]
+        } else if (code === 39) {
+            delete style.color
+        } else if (code === 49) {
+            delete style.backgroundColor
+        }
+    }
 }
 
 function indexOfNth(string: string, character: string, n: number): number {

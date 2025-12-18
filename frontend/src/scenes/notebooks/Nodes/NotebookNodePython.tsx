@@ -240,14 +240,14 @@ const NotebookNodePythonComponent = ({
                     ) : null}
                     {stdoutText ? (
                         <OutputBlock title="Stdout">
-                            <CodeSnippet language={Language.Text} wrap compact>
+                            <CodeSnippet language={Language.Text} wrap compact ansi>
                                 {stdoutText}
                             </CodeSnippet>
                         </OutputBlock>
                     ) : null}
                     {stderrText ? (
                         <OutputBlock title="Stderr">
-                            <CodeSnippet language={Language.Text} wrap compact>
+                            <CodeSnippet language={Language.Text} wrap compact ansi>
                                 {stderrText}
                             </CodeSnippet>
                         </OutputBlock>
