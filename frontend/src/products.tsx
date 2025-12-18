@@ -40,6 +40,12 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    ConversationsTickets: () =>
+        import('../../products/conversations/frontend/scenes/tickets/ConversationsTicketsScene'),
+    ConversationsTicketDetail: () =>
+        import('../../products/conversations/frontend/scenes/ticket/ConversationsTicketScene'),
+    ConversationsSettings: () =>
+        import('../../products/conversations/frontend/scenes/settings/ConversationsSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import(
@@ -100,6 +106,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/conversations/tickets': ['ConversationsTickets', 'conversationsTickets'],
+    '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
+    '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -163,6 +172,7 @@ export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/conversations': '/conversations/tickets',
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -204,6 +214,9 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
+    ConversationsTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
+    ConversationsTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
+    ConversationsSettings: { name: 'Conversations settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -420,6 +433,10 @@ export const productUrls = {
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+    conversationsDashboard: (): string => '/conversations',
+    conversationsTickets: (): string => '/conversations/tickets',
+    conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
+    conversationsSettings: (): string => '/conversations/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
@@ -952,6 +969,19 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Conversations',
+        intents: [ProductKey.CONVERSATIONS],
+        category: 'Unreleased',
+        href: urls.conversationsTickets(),
+        type: 'chat',
+        flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
+        tags: ['alpha'],
+        iconType: 'chat',
+        iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
+        sceneKey: 'ConversationsTickets',
+        sceneKeys: ['ConversationsTickets', 'ConversationsTicketDetail', 'ConversationsSettings'],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: 'Analytics',
@@ -1295,6 +1325,17 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.comments(),
         sceneKey: 'Comments',
         sceneKeys: ['Comments'],
+    },
+    {
+        path: 'Conversations',
+        category: 'Unreleased',
+        iconType: 'chat' as FileSystemIconType,
+        iconColor: ['var(--color-product-conversations-light)'] as FileSystemIconColor,
+        href: urls.conversationsTickets(),
+        sceneKey: 'ConversationsTickets',
+        flag: FEATURE_FLAGS.PRODUCT_CONVERSATIONS,
+        tags: ['alpha'],
+        sceneKeys: ['ConversationsTickets', 'ConversationsTicketDetail', 'ConversationsSettings'],
     },
     {
         path: 'Data pipelines',
