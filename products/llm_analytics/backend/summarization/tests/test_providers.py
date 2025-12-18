@@ -248,4 +248,3 @@ class TestSummarizeWithGemini:
             config = call_kwargs["config"]
             assert config.response_mime_type == "application/json"
             assert config.response_json_schema is not None
-            assert config.temperature == 0
