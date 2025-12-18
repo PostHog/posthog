@@ -59,16 +59,6 @@ DASHBOARD_NOT_FOUND_PROMPT = """
 The dashboard with the ID "{dashboard_id}" was not found. Please verify the dashboard ID is correct.
 """.strip()
 
-DASHBOARD_RESULT_TEMPLATE = """
-Dashboard name: {{{dashboard_name}}}
-Dashboard ID: {{{dashboard_id}}}
-{{#description}}
-Description: {{{description}}}
-{{/description}}
-
-{{{insights}}}
-""".strip()
-
 READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
 # Core PostHog tables
 {{{posthog_tables}}}

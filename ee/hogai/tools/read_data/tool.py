@@ -25,7 +25,6 @@ from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
-    DASHBOARD_RESULT_TEMPLATE,
     INSIGHT_NOT_FOUND_PROMPT,
     READ_DATA_ARTIFACTS_PROMPT,
     READ_DATA_BILLING_PROMPT,
@@ -380,8 +379,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         if execute:
-            text_result = await dashboard_ctx.execute_and_format(prompt_template=DASHBOARD_RESULT_TEMPLATE)
+            text_result = await dashboard_ctx.execute_and_format()
         else:
-            text_result = await dashboard_ctx.format_schema(prompt_template=DASHBOARD_RESULT_TEMPLATE)
+            text_result = await dashboard_ctx.format_schema()
 
         return text_result, None
