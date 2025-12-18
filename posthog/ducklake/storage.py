@@ -61,6 +61,8 @@ def _get_boto3_credentials() -> tuple[str, str, str | None]:
     if credentials is None:
         raise RuntimeError("No AWS credentials available via boto3")
     frozen = credentials.get_frozen_credentials()
+    if frozen.access_key is None or frozen.secret_key is None:
+        raise RuntimeError("AWS credentials missing access_key or secret_key")
     return frozen.access_key, frozen.secret_key, frozen.token
 
 
