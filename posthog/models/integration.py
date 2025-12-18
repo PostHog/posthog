@@ -309,10 +309,11 @@ class OauthIntegration:
             if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
                 raise NotImplementedError("LinkedIn Ads app not configured")
 
+            # Note: We extract user info from id_token JWT instead of calling token_info_url
+            # because LinkedIn's /v2/userinfo endpoint has intermittent issues returning
+            # REVOKED_ACCESS_TOKEN errors for valid tokens. See JWT extraction below.
             return OauthConfig(
                 authorize_url="https://www.linkedin.com/oauth/v2/authorization",
-                token_info_url="https://api.linkedin.com/v2/userinfo",
-                token_info_config_fields=["sub", "email"],
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
@@ -595,6 +596,29 @@ class OauthIntegration:
                             integration_id = reddit_user_id
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
+
+        # LinkedIn id_token is a JWT, extract user ID and email from it
+        # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
+        if kind == "linkedin-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    parts = id_token.split(".")
+                    if len(parts) >= 2:
+                        payload = parts[1]
+                        decoded = base64.urlsafe_b64decode(payload + "===")
+                        jwt_data = json.loads(decoded)
+
+                        linkedin_user_id = jwt_data.get("sub")
+                        linkedin_email = jwt_data.get("email")
+                        if linkedin_user_id:
+                            config["sub"] = linkedin_user_id
+                            config["email"] = linkedin_email
+                            integration_id = linkedin_user_id
+                else:
+                    logger.error("LinkedIn Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode LinkedIn JWT")
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
