@@ -28,10 +28,7 @@ fn patch_otel_json(v: &mut Value) {
             // In OTel, AnyValue is usually a field named "value"
             // If we find "value": {}, change it to "value": null
             if let Some(inner) = map.get_mut("value") {
-                if inner.is_object()
-                    && inner
-                        .as_object().map(|obj| obj.is_empty())
-                        .unwrap_or(false)
+                if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
                 {
                     *inner = Value::Null;
                 }
