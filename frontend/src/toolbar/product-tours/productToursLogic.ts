@@ -378,7 +378,7 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL', 'userIntent', 'productTourId']],
+        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL']],
     })),
 
     selectors({
@@ -712,22 +712,10 @@ export const productToursLogic = kea<productToursLogicType>([
                 console.warn('[Creation] Failed to capture screenshot:', e)
             }
         },
-        loadToursSuccess: () => {
-            const { userIntent, productTourId } = values
-            if (userIntent === 'edit-product-tour' && productTourId) {
-                actions.selectTour(productTourId)
-                toolbarConfigLogic.actions.clearUserIntent()
-            } else if (userIntent === 'add-product-tour') {
-                actions.startCreation()
-                toolbarConfigLogic.actions.clearUserIntent()
-            }
-        },
     })),
 
     events(({ actions, values, cache }) => ({
         afterMount: () => {
-            actions.loadTours()
-
             // Watch for DOM changes to update highlights when elements appear/disappear
             cache.mutationTimeout = null as ReturnType<typeof setTimeout> | null
             cache.mutationObserver = new MutationObserver(() => {

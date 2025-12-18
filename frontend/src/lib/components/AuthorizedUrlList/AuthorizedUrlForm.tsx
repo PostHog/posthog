@@ -13,21 +13,18 @@ export interface AuthorizedUrlFormProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
-    productTourId?: string | null
     allowWildCards?: boolean
 }
 
 export function AuthorizedUrlForm({
     actionId,
     experimentId,
-    productTourId,
     type,
     allowWildCards,
 }: AuthorizedUrlFormProps): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: actionId ?? null,
         experimentId: experimentId ?? null,
-        productTourId: productTourId ?? null,
         type,
         allowWildCards,
     })

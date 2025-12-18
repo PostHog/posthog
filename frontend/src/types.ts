@@ -739,14 +739,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent =
-    | 'add-action'
-    | 'edit-action'
-    | 'heatmaps'
-    | 'add-experiment'
-    | 'edit-experiment'
-    | 'add-product-tour'
-    | 'edit-product-tour'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -766,7 +759,6 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     toolbarFlagsKey?: string
-    productTourId?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
