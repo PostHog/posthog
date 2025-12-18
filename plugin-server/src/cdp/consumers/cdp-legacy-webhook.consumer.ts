@@ -24,9 +24,8 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 /**
- * This consumer processes webhook events from the legacy webhooks system.
- * It uses the new node-rdkafka consumer tech while maintaining compatibility
- * with the existing webhook processing logic but using inline safe fetch.
+ * This consumer processes webhook events from the legacy webhooks system - this is the "hooks" table that used to be filled via Zapier.
+ * Now the only path for creation is via a hog function but this just exists for now to keep non-migrated webhooks working.
  */
 
 export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
