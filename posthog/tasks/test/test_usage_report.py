@@ -2393,14 +2393,14 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             team_id=self.org_1_team_1.id,
             app_source="hog_flow",
             metric_name="billable_invocation",
-            metric_kind="sms",
+            metric_kind="push",
             count=5,
         )
         create_app_metric2(
             team_id=self.org_1_team_1.id,
             app_source="hog_flow",
             metric_name="billable_invocation",
-            metric_kind="push",
+            metric_kind="sms",
             count=3,
         )
         create_app_metric2(
