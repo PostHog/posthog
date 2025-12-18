@@ -1214,3 +1214,95 @@ def test_creating_batch_export_with_filters(
 
     if expected_error:
         assert expected_error in response.json()["detail"]
+
+
+@pytest.fixture
+def enable_backfilling_workflows(team):
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+    ) as feature_enabled:
+        yield
+
+        feature_enabled.assert_any_call(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+
+def test_creating_workflows_batch_export(
+    client: HttpClient, temporal, organization, team, user, enable_backfilling_workflows
+):
+    """Test that we can create a Workflows batch export if the feature flag is enabled."""
+
+    destination_data = {
+        "type": "Workflows",
+        "config": {
+            "topic": "my-topic",
+        },
+        "integration": None,
+    }
+
+    batch_export_data = {
+        "name": "my-workflows-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    data = response.json()
+    assert data["destination"] == destination_data
+
+    schedule = describe_schedule(temporal, data["id"])
+    intervals = schedule.schedule.spec.intervals
+
+    assert len(intervals) == 1
+    assert schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+    assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.schedule.action.workflow == "workflows-export"
+
+
+def test_creating_workflows_batch_export_fails_if_feature_flag_is_not_enabled(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Test that creating a Workflows batch export fails if the feature flag is not enabled."""
+
+    destination_data = {
+        "type": "Workflows",
+        "config": {
+            "topic": "my-topic",
+        },
+        "integration": None,
+    }
+
+    batch_export_data = {
+        "name": "my-workflows-destination",
+        "destination": destination_data,
+        "interval": "day",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert "Backfilling Workflows is not enabled for this team." in response.json()["detail"]

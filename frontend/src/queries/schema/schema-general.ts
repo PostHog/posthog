@@ -100,6 +100,8 @@ export enum NodeKind {
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
+    LogAttributesQuery = 'LogAttributesQuery',
+    LogValuesQuery = 'LogValuesQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -209,6 +211,8 @@ export type AnyDataNode =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
+    | LogAttributesQuery
+    | LogValuesQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -291,7 +295,11 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // Logs
     | LogsQuery
+    | LogAttributesQuery
+    | LogValuesQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -338,6 +346,8 @@ export type AnyResponseType =
     | SessionsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
+    | LogAttributesQueryResponse
+    | LogValuesQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1692,6 +1702,11 @@ export interface EndpointRunRequest {
     query_override?: Record<string, any>
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
+    /**
+     * Whether to include debug information (such as the executed HogQL) in the response.
+     * @default false
+     */
+    debug?: boolean
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -2624,6 +2639,45 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
     columns?: string[]
     /** Cursor for fetching the next page of results */
     nextCursor?: string
+}
+
+export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse> {
+    kind: NodeKind.LogAttributesQuery
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    search?: string
+    severityLevels?: LogSeverityLevel[]
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+    attributeType: string
+}
+
+export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+    count: number
+}
+
+export interface LogValueResult {
+    id: string
+    name: string
+}
+
+export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: LogValueResult[]
+}
+
+export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
+    kind: NodeKind.LogValuesQuery
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    search?: string
+    severityLevels?: LogSeverityLevel[]
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+    attributeKey: string
+    attributeType: string
 }
 
 export interface SessionEventsItem {
