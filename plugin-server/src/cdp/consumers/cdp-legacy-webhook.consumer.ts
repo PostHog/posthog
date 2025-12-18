@@ -170,6 +170,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
+        await this.hub.actionManager.start()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -186,6 +187,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        await this.hub.actionManager.stop()
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }
