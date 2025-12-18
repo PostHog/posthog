@@ -637,9 +637,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             ValueError: If unique_hashes is empty
         """
         if not unique_hashes:
-            raise ValueError(
-                f"Cannot create merged property with empty unique_hashes. " f"Template property: {template}"
-            )
+            raise ValueError(f"Cannot create merged property with empty unique_hashes. Template property: {template}")
 
         merged_prop = deepcopy(template)
         merged_prop._merged_condition_hashes = unique_hashes  # type: ignore[union-attr]
@@ -826,12 +824,19 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
     def _should_combine_person_properties(self) -> bool:
         """
-        Disable person property combining optimization for realtime cohorts.
+        Override parent class to disable person property combining optimization for realtime cohorts.
 
-        Each person property in realtime cohorts has its own conditionHash in
-        precalculated_person_properties, so we can't combine them into a single
-        query like the parent class does with the person table. Instead, we rely
-        on individual get_person_condition calls which query precalculated_person_properties.
+        Why disabled:
+        - Parent class (HogQLCohortQuery) combines multiple person properties into a single query
+          against the `persons` table using AND(condition1, condition2, ...) logic
+        - Realtime cohorts use `precalculated_person_properties` table where each property
+          has a unique conditionHash for fast lookup
+        - Each conditionHash must be queried separately or combined using IN clauses
+        - Our property merging optimization (in _preprocess_property_groups) already handles
+          combining properties with the same key+operator using IN clauses
+
+        Returns:
+            False to disable the parent's combining optimization
         """
         return False
 
@@ -1021,6 +1026,125 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             ),
         )
 
+    def _build_or_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
+        """
+        Build query for OR semantics where at least ONE condition must match.
+
+        For example: email contains X OR email contains Y
+        Uses HAVING matching_count >= 1
+
+        Args:
+            merged_hashes: List of condition hashes to match against
+
+        Returns:
+            SelectQuery AST that returns person_ids matching at least one condition
+        """
+        query_str = """
+            SELECT
+                pdi2.person_id as id
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    countIf(latest_matches = 1) as matching_count
+                FROM
+                (
+                    SELECT
+                        distinct_id,
+                        condition,
+                        argMax(matches, _timestamp) as latest_matches
+                    FROM precalculated_person_properties
+                    WHERE
+                        team_id = {team_id}
+                        AND condition IN {condition_hashes}
+                    GROUP BY distinct_id, condition
+                )
+                GROUP BY distinct_id
+                HAVING matching_count >= 1
+            ) AS ppp
+            INNER JOIN
+            (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) as person_id
+                FROM raw_person_distinct_ids
+                WHERE team_id = {team_id}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
+                },
+            ),
+        )
+
+    def _build_and_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
+        """
+        Build query for AND semantics where ALL conditions must match.
+
+        For example: email contains X AND email contains Y
+        Uses HAVING matching_count = len(merged_hashes)
+
+        Args:
+            merged_hashes: List of condition hashes that all must match
+
+        Returns:
+            SelectQuery AST that returns person_ids matching all conditions
+        """
+        query_str = """
+            SELECT
+                pdi2.person_id as id
+            FROM
+            (
+                SELECT
+                    distinct_id,
+                    countIf(latest_matches = 1) as matching_count
+                FROM
+                (
+                    SELECT
+                        distinct_id,
+                        condition,
+                        argMax(matches, _timestamp) as latest_matches
+                    FROM precalculated_person_properties
+                    WHERE
+                        team_id = {team_id}
+                        AND condition IN {condition_hashes}
+                    GROUP BY distinct_id, condition
+                )
+                GROUP BY distinct_id
+                HAVING matching_count = {num_conditions}
+            ) AS ppp
+            INNER JOIN
+            (
+                SELECT
+                    distinct_id,
+                    argMax(person_id, version) as person_id
+                FROM raw_person_distinct_ids
+                WHERE team_id = {team_id}
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
+                    "num_conditions": ast.Constant(value=len(merged_hashes)),
+                },
+            ),
+        )
+
     def get_person_condition(self, prop: Property) -> ast.SelectQuery:
         """
         Query precalculated_person_properties using conditionHash for realtime person property matching.
@@ -1044,102 +1168,9 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             is_or_group = getattr(prop, "_is_or_group", False)
 
             if is_or_group:
-                # OR semantics: At least ONE condition must match
-                # For example: email contains X OR email contains Y
-                query_str = """
-                    SELECT
-                        pdi2.person_id as id
-                    FROM
-                    (
-                        SELECT
-                            distinct_id,
-                            countIf(latest_matches = 1) as matching_count
-                        FROM
-                        (
-                            SELECT
-                                distinct_id,
-                                condition,
-                                argMax(matches, _timestamp) as latest_matches
-                            FROM precalculated_person_properties
-                            WHERE
-                                team_id = {team_id}
-                                AND condition IN {condition_hashes}
-                            GROUP BY distinct_id, condition
-                        )
-                        GROUP BY distinct_id
-                        HAVING matching_count >= 1
-                    ) AS ppp
-                    INNER JOIN
-                    (
-                        SELECT
-                            distinct_id,
-                            argMax(person_id, version) as person_id
-                        FROM raw_person_distinct_ids
-                        WHERE team_id = {team_id}
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0
-                    ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
-                """
-
-                return cast(
-                    ast.SelectQuery,
-                    parse_select(
-                        query_str,
-                        {
-                            "team_id": ast.Constant(value=self.team.pk),
-                            "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                        },
-                    ),
-                )
+                return self._build_or_semantics_query(merged_hashes)
             else:
-                # AND semantics: ALL conditions must match
-                # For example: email contains X AND email contains Y
-                query_str = """
-                    SELECT
-                        pdi2.person_id as id
-                    FROM
-                    (
-                        SELECT
-                            distinct_id,
-                            countIf(latest_matches = 1) as matching_count
-                        FROM
-                        (
-                            SELECT
-                                distinct_id,
-                                condition,
-                                argMax(matches, _timestamp) as latest_matches
-                            FROM precalculated_person_properties
-                            WHERE
-                                team_id = {team_id}
-                                AND condition IN {condition_hashes}
-                            GROUP BY distinct_id, condition
-                        )
-                        GROUP BY distinct_id
-                        HAVING matching_count = {num_conditions}
-                    ) AS ppp
-                    INNER JOIN
-                    (
-                        SELECT
-                            distinct_id,
-                            argMax(person_id, version) as person_id
-                        FROM raw_person_distinct_ids
-                        WHERE team_id = {team_id}
-                        GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0
-                    ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
-                """
-
-                return cast(
-                    ast.SelectQuery,
-                    parse_select(
-                        query_str,
-                        {
-                            "team_id": ast.Constant(value=self.team.pk),
-                            "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                            "num_conditions": ast.Constant(value=len(merged_hashes)),
-                        },
-                    ),
-                )
+                return self._build_and_semantics_query(merged_hashes)
         else:
             # Single condition - original logic
             condition_hash = getattr(prop, "conditionHash", None)

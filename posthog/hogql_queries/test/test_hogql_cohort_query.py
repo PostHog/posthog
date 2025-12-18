@@ -1181,3 +1181,119 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         error_msg = str(context.exception).lower()
         self.assertIn("empty unique_hashes", error_msg)
+
+    def test_duplicate_condition_hashes_deduplicated_correctly(self) -> None:
+        """
+        Test that duplicate condition hashes are deduplicated when merging properties.
+
+        This tests the edge case where a user accidentally adds the same filter multiple times
+        (e.g., "email contains @gmail.com" appears twice). The deduplication ensures that
+        the count matches the distinct conditions in the GROUP BY query.
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        # Same condition hash appears 3 times (simulating accidental duplicates)
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "duplicate_hash_123",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",  # Same filter again
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "duplicate_hash_123",  # Same hash
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@gmail.com",  # Same filter third time
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "%@gmail.com%",
+                                32,
+                                "email",
+                                32,
+                                "properties",
+                                32,
+                                "person",
+                                1,
+                                3,
+                                2,
+                                "toString",
+                                1,
+                                18,
+                            ],
+                            "negation": False,
+                            "operator": "icontains",
+                            "conditionHash": "duplicate_hash_123",  # Same hash again
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Duplicate Hashes", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # Should have been deduplicated to a single condition
+        # The IN clause should contain only one hash, not three
+        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
+        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause after deduplication")
+
+        # Should have HAVING matching_count = 1 (not 3) because duplicates were removed
+        self.assertIn("equals(matching_count, 1)", query_str.lower())
+
+        # Should NOT use INTERSECT since all properties merged into one
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
