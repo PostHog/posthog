@@ -6,6 +6,7 @@ import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
+import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
 import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
@@ -28,6 +29,50 @@ export class FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
                 mappingFn
             )
         )
+    }
+}
+
+/**
+ * Builder for configuring how items within a group are processed.
+ */
+export class GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey> {
+    constructor(
+        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
+        private groupingFn: GroupingFunction<TOutput, TKey>
+    ) {}
+
+    /**
+     * Process items within each group sequentially through the provided pipeline.
+     */
+    sequentially<U>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+        const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
+        return new BatchPipelineBuilder(
+            new ConcurrentlyGroupingBatchPipeline(this.groupingFn, processor, this.previousPipeline)
+        )
+    }
+}
+
+/**
+ * Builder for grouped batch pipelines that allows configuring how groups are processed.
+ */
+export class GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey> {
+    constructor(
+        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
+        private groupingFn: GroupingFunction<TOutput, TKey>
+    ) {}
+
+    /**
+     * Process groups concurrently. Returns a builder to configure how items within each group are processed.
+     * Results are returned unordered as each group completes.
+     */
+    concurrently<U>(
+        callback: (
+            builder: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey>
+        ) => BatchPipelineBuilder<TInput, U, CInput, COutput>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+        return callback(new GroupProcessingBuilder(this.previousPipeline, this.groupingFn))
     }
 }
 
@@ -62,6 +107,12 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
 
     filterOk(): FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
         return new FilteredBatchPipelineBuilder(new FilterOkBatchPipeline(this.pipeline))
+    }
+
+    groupBy<TKey>(
+        groupingFn: GroupingFunction<TOutput, TKey>
+    ): GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey> {
+        return new GroupingBatchPipelineBuilder(this.pipeline, groupingFn)
     }
 
     handleSideEffects(
