@@ -76,8 +76,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         try:
             self._context = await self._get_task_processing_context(input)
-
-            # Update status to in_progress
             await self._update_task_run_status("in_progress")
 
             await self._track_workflow_event(
@@ -113,9 +111,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            # Update status to completed
             await self._update_task_run_status("completed")
-
             await self._post_slack_update()
 
             return ProcessTaskOutput(
@@ -145,7 +141,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "sandbox_id": sandbox_id,
                     },
                 )
-                # Update status to failed
                 await self._update_task_run_status("failed", error_message=error_message)
                 await self._post_slack_update()
 
