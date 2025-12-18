@@ -8,6 +8,11 @@ import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
+
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
@@ -48,6 +53,19 @@ EXCEPTIONS_TO_RETRY = (
     CHQueryErrorTooManySimultaneousQueries,
     OperationalError,
 )
+
+USER_QUERY_ERRORS = (
+    QueryError,
+    HogQLSyntaxError,
+)
+
+# User query error class names for checking exception_type field
+USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
+
+
+def is_user_query_error_type(exception_type: str | None) -> bool:
+    """Check if an exception type is a user query error."""
+    return exception_type in USER_QUERY_ERROR_NAMES
 
 
 # export_asset is used in chords/groups and so must not ignore its results
@@ -139,14 +157,24 @@ def export_asset_direct(
         exported_asset.exception = None
     except Exception as e:
         is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
+        is_user_error = isinstance(e, USER_QUERY_ERRORS)
 
-        logger.exception(
-            "export_asset.error",
-            exported_asset_id=exported_asset.id,
-            error=str(e),
-            might_retry=is_retriable,
-            team_id=team.id,
-        )
+        if is_user_error:
+            logger.warning(
+                "export_asset.user_config_error",
+                exported_asset_id=exported_asset.id,
+                error=str(e),
+                team_id=team.id,
+            )
+        else:
+            logger.exception(
+                "export_asset.error",
+                exported_asset_id=exported_asset.id,
+                error=str(e),
+                might_retry=is_retriable,
+                team_id=team.id,
+            )
+
         posthoganalytics.capture(
             distinct_id=distinct_id,
             event="export failed",
@@ -154,6 +182,7 @@ def export_asset_direct(
                 **analytics_props,
                 "error": str(e),
                 "might_retry": is_retriable,
+                "is_user_error": is_user_error,
                 "duration_ms": round((perf_counter() - start_time) * 1000, 2),
             },
             groups=groups(team.organization, team),
@@ -162,5 +191,7 @@ def export_asset_direct(
         if is_retriable:
             raise
 
+        # Store exception message and type separately for classification
         exported_asset.exception = str(e)
+        exported_asset.exception_type = type(e).__name__
         exported_asset.save()
