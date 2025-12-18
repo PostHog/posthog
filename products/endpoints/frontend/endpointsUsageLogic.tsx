@@ -94,9 +94,11 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
                         ORDER BY name ASC
                     `
 
-                    const response = await api.queryHogQL(query, {
-                        refresh: 'force_blocking',
-                    })
+                    const response = await api.queryHogQL(
+                        query,
+                        { scene: 'EndpointsUsage', productKey: 'endpoints' },
+                        { refresh: 'force_blocking' }
+                    )
 
                     return response.results?.map((row: string[]) => row[0]) || []
                 },

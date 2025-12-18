@@ -294,6 +294,8 @@ services:
         environment:
             WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             # Shared Redis for non-critical path (analytics, billing, cookieless)
             REDIS_URL: 'redis://redis:6379/'
@@ -444,6 +446,7 @@ services:
             - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
             # mount docker containers dir so we can ship the docker logs to local posthog
             - /var/lib/docker/containers:/var/lib/docker/containers:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
         ports:
             - '4317:4317' # OTLP gRPC receiver (mapped to host)
             - '4318:4318' # OTLP HTTP receiver (mapped to host)

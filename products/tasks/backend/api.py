@@ -4,6 +4,7 @@ import logging
 import traceback
 from typing import cast
 
+from django.http import HttpResponse
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -443,3 +444,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         expires_in = 3600
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(description="Log content in JSONL format"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run logs",
+        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
+    )
+    @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
+    def logs(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+        response = HttpResponse(log_content, content_type="application/jsonl")
+        response["Cache-Control"] = "no-cache"
+        return response

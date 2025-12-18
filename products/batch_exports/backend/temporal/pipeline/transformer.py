@@ -436,6 +436,9 @@ class ParquetStreamTransformer:
                 else:
                     current_file_size += len(chunk)
 
+        if not self._schema:
+            return
+
         footer = await asyncio.to_thread(self.finish_parquet_file)
         yield Chunk(footer, True)
 
