@@ -51,7 +51,7 @@ def _summarize_sync(
         raise
     except Exception as e:
         logger.exception("Gemini API call failed", error=str(e), team_id=team_id, model=model)
-        raise exceptions.APIException(f"Failed to generate summary: {e}")
+        raise exceptions.APIException("Failed to generate summary due to an internal error")
 
 
 async def summarize_with_gemini(
