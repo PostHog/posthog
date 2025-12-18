@@ -24,9 +24,7 @@ jobs:
                           - 'posthog/migrations/*.py'
                           - 'posthog/clickhouse/migrations/*.py'
                           - 'products/*/backend/migrations/*.py'
-                          - 'products/*/migrations/*.py'
                           - 'ee/migrations/*.py'
-                          - 'ee/clickhouse/migrations/*.py'
                           - 'rust/persons_migrations/*.sql'
                       plugin_server:
                           - 'plugin-server/**'
@@ -41,19 +39,6 @@ jobs:
                       echo "error=false" >> $GITHUB_OUTPUT
                       echo "✅ No conflicting changes detected"
                   fi
-
-            - name: Comment on PR
-              if: steps.check.outputs.error == 'true' && github.event_name == 'pull_request'
-              uses: actions/github-script@v7
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      await github.rest.issues.createComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                          body: '⚠️ **This PR contains both migration and plugin-server changes.**\n\nPlease split into separate PRs:\n1. One PR for migrations\n2. Another PR for plugin-server changes\n3. Deploy migrations first, then plugin-server\n\nThis ensures safe deployment and easier rollbacks.'
-                      });
 
             - name: Fail if conflicting changes detected
               if: steps.check.outputs.error == 'true'
