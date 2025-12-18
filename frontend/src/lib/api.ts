@@ -11,7 +11,13 @@ import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculati
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import {
+    NotebookKernelExecutionResponse,
+    NotebookKernelStatus,
+    NotebookListItemType,
+    NotebookNodeResource,
+    NotebookType,
+} from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -3623,6 +3629,25 @@ const api = {
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
+        },
+        async startKernel(notebookId: NotebookType['short_id']): Promise<NotebookKernelStatus> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel').withAction('start').create()
+        },
+        async stopKernel(notebookId: NotebookType['short_id']): Promise<{ stopped: boolean }> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel').withAction('stop').create()
+        },
+        async restartKernel(notebookId: NotebookType['short_id']): Promise<NotebookKernelStatus> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel').withAction('restart').create()
+        },
+        async executeKernel(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number }
+        ): Promise<NotebookKernelExecutionResponse> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction('kernel')
+                .withAction('execute')
+                .create({ data })
         },
     },
 

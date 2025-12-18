@@ -35,6 +35,7 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPerio
 
 import { addInsightsToNotebookModalLogic } from '../AddInsightsToNotebookModal/addInsightsToNotebookModalLogic'
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
+import { buildPythonNodeContent } from '../Nodes/NotebookNodePython'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeType } from '../types'
 import NotebookIconHeading from './NotebookIconHeading'
@@ -196,6 +197,12 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                     },
                 })
             ),
+    },
+    {
+        title: 'Python',
+        search: 'code python kernel',
+        icon: <IconCode color="currentColor" />,
+        command: (chain, pos) => chain.insertContentAt(pos, buildPythonNodeContent()),
     },
     {
         title: 'Stickiness',
