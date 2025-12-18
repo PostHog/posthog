@@ -129,6 +129,10 @@ export const workflowLogic = kea<workflowLogicType>([
             variables,
             scheduledAt,
         }),
+        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
         duplicate: true,
         deleteWorkflow: true,
@@ -495,6 +499,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
                 return
             }
+        },
+        triggerBatchWorkflow: async ({}) => {
+            if (!values.workflow.id || values.workflow.id === 'new') {
+                lemonToast.error('You need to save the workflow before triggering it manually.')
+                return
+            }
+
+            lemonToast.info('Batch workflow runs coming soon...')
         },
     })),
     afterMount(({ actions }) => {

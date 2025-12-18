@@ -17,6 +17,8 @@ bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
 health = { path = "../common/health" }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }

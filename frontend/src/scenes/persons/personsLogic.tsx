@@ -329,7 +329,7 @@ export const personsLogic = kea<personsLogicType>([
         currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
         defaultTab: [
             (s) => [s.feedEnabled],
-            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
+            (feedEnabled) => (feedEnabled ? PersonsTabType.PROFILE : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],

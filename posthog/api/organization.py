@@ -131,6 +131,8 @@ class OrganizationSerializer(
             "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         read_only_fields = [
             "id",
@@ -146,6 +148,8 @@ class OrganizationSerializer(
             "customer_id",
             "member_count",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         extra_kwargs = {
             "slug": {

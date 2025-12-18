@@ -64,7 +64,6 @@ describe('SessionBatchManager', () => {
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
-            metadataSwitchoverDate: new Date('2025-01-02'),
         })
     })
 
@@ -82,7 +81,6 @@ describe('SessionBatchManager', () => {
             mockFileStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            new Date('2025-01-02'),
             Number.MAX_SAFE_INTEGER
         )
 
@@ -161,7 +159,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -169,7 +166,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 500
             )
         })
@@ -183,7 +179,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
             })
 
             await manager.flush()
@@ -193,7 +188,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 250
             )
         })
@@ -207,7 +201,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -215,7 +208,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 0
             )
         })
@@ -229,7 +221,6 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
-                metadataSwitchoverDate: new Date('2025-01-02'),
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -237,7 +228,6 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                new Date('2025-01-02'),
                 Number.MAX_SAFE_INTEGER
             )
         })

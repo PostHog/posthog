@@ -551,7 +551,7 @@ function ExplorerRowListItem({
                     </span>
                     <span
                         data-explorer-row-clickable={isEditing ? undefined : 'true'}
-                        className={clsx('flex min-w-0 items-center gap-2', !isEditing && 'cursor-pointer')}
+                        className={clsx('flex min-w-0 items-center gap-2 w-full', !isEditing && 'cursor-pointer')}
                     >
                         <span className="shrink-0 text-primary">{icon}</span>
                         {isEditing ? (
@@ -569,7 +569,7 @@ function ExplorerRowListItem({
                     ) : null}
                 </div>
                 {shouldUseSearchRows && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm text-primary">
+                    <div className="flex items-center gap-2 px-3 py-1.5 min-w-0 text-sm text-primary w-full">
                         <span className="truncate">{folderLabel}</span>
                     </div>
                 )}
@@ -659,7 +659,7 @@ function ExplorerNameEditor({ initialName, onSubmit, onCancel }: ExplorerNameEdi
     return (
         <input
             ref={inputRef}
-            className="w-full rounded border border-border bg-surface px-2 py-1 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-highlight"
+            className="w-full rounded border border-border bg-surface-primary text-sm text-primary input-like"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => finishEditing(true)}

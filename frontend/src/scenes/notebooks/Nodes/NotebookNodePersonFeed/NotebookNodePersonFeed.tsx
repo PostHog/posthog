@@ -37,7 +37,7 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
     return (
         <div className="p-2">
             <AISessionSummary personId={id} />
-            <h3 className="font-semibold mb-2">Session Timeline</h3>
+            <h3 className="font-semibold mb-2">Session timeline</h3>
             {sessions.map((session: any) => (
                 <Session key={session.sessionId} session={session} />
             ))}

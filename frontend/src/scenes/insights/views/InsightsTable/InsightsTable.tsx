@@ -88,8 +88,10 @@ export function InsightsTable({
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned } = useValues(
+        insightsTableDataLogic(insightProps)
+    )
+    const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -172,7 +174,13 @@ export function InsightsTable({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
+            title: (
+                <BreakdownColumnTitle
+                    breakdownFilter={breakdownFilter}
+                    isPinned={isColumnPinned('breakdown')}
+                    onTogglePin={() => toggleColumnPin('breakdown')}
+                />
+            ),
             render: (_, item) => {
                 return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
             },
@@ -210,16 +218,20 @@ export function InsightsTable({
                     index
                 )
 
+            const columnKey = `breakdown-${breakdown.property?.toString() || index}`
             columns.push({
                 title: (
-                    <MultipleBreakdownColumnTitle>
+                    <MultipleBreakdownColumnTitle
+                        isPinned={isColumnPinned(columnKey)}
+                        onTogglePin={() => toggleColumnPin(columnKey)}
+                    >
                         {extractExpressionComment(breakdown.property?.toString())}
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
                     return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },
-                key: `breakdown-${breakdown.property?.toString() || index}`,
+                key: columnKey,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
                     const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value
@@ -351,6 +363,7 @@ export function InsightsTable({
                     : undefined
             }
             firstColumnSticky
+            pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
         />
     )

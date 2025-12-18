@@ -9,7 +9,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils'
-import { addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
@@ -34,18 +34,21 @@ import { SurveyableFunnelInsight, extractFunnelContext } from '../utils/opportun
 export interface SurveyOpportunityButtonProps {
     insight: SurveyableFunnelInsight
     disableAutoPromptSubmit?: boolean
-    source?: SURVEY_CREATED_SOURCE
+    source: SURVEY_CREATED_SOURCE
+    fromProduct: ProductKey
+    _cardWidth?: number // injected by insight card meta
 }
 
 export function SurveyOpportunityButton({
     insight,
     disableAutoPromptSubmit,
     source,
+    fromProduct,
+    _cardWidth,
 }: SurveyOpportunityButtonProps): JSX.Element | null {
+    const showLabel = !_cardWidth || _cardWidth > 480
     const [modalOpen, setModalOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const creationSource = source ?? SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL
 
     const shouldUseQuickCreate = featureFlags[FEATURE_FLAGS.SURVEYS_INSIGHT_BUTTON_EXPERIMENT] === 'test'
 
@@ -65,9 +68,9 @@ export function SurveyOpportunityButton({
         posthog.capture('survey opportunity displayed', {
             linked_insight_id: insight.id,
             conversionRate: funnelContext.conversionRate,
-            source: creationSource,
+            source: source,
         })
-    }, [insight.id, funnelContext, creationSource])
+    }, [insight.id, funnelContext, source])
 
     const { openMax } = useMaxTool({
         identifier: 'create_survey',
@@ -83,13 +86,13 @@ export function SurveyOpportunityButton({
                 intent_context: ProductIntentContext.SURVEY_CREATED,
                 metadata: {
                     survey_id: toolOutput.survey_id,
-                    source: creationSource,
+                    source: source,
                     created_successfully: !toolOutput?.error,
                 },
             })
 
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                return captureMaxAISurveyCreationException(toolOutput.error, creationSource)
+                return captureMaxAISurveyCreationException(toolOutput.error, source)
             }
 
             router.actions.push(urls.survey(toolOutput.survey_id))
@@ -100,7 +103,12 @@ export function SurveyOpportunityButton({
         posthog.capture('survey opportunity clicked', {
             linked_insight_id: insight.id,
             conversionRate: funnelContext?.conversionRate,
-            source: creationSource,
+            source: source,
+        })
+        void addProductIntentForCrossSell({
+            from: fromProduct,
+            to: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
         })
         shouldUseQuickCreate ? setModalOpen(true) : openMax?.()
     }
@@ -111,8 +119,8 @@ export function SurveyOpportunityButton({
 
     return (
         <>
-            <LemonButton size="xsmall" type="primary" sideIcon={<IconMessage />} onClick={handleClick}>
-                Ask users why
+            <LemonButton size="xsmall" type="primary" icon={<IconMessage />} onClick={handleClick}>
+                {showLabel && 'Ask users why'}
             </LemonButton>
             {shouldUseQuickCreate && (
                 <QuickSurveyModal
@@ -131,13 +139,15 @@ export interface SurveyOpportunityButtonWithQueryProps {
         query: InsightVizNode
     }
     insightProps: InsightLogicProps<QuerySchema>
-    source?: SURVEY_CREATED_SOURCE
+    source: SURVEY_CREATED_SOURCE
+    fromProduct: ProductKey
 }
 
 export function SurveyOpportunityButtonWithQuery({
     insight,
     insightProps,
     source,
+    fromProduct,
 }: SurveyOpportunityButtonWithQueryProps): JSX.Element | null {
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -158,5 +168,5 @@ export function SurveyOpportunityButtonWithQuery({
         result,
     }
 
-    return <SurveyOpportunityButton insight={surveyableInsight} source={source} />
+    return <SurveyOpportunityButton insight={surveyableInsight} source={source} fromProduct={fromProduct} />
 }

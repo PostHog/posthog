@@ -1499,7 +1499,7 @@ class TestPrinter(BaseTest):
     def test_select_sample(self):
         self.assertEqual(
             self._select("SELECT events.event FROM events SAMPLE 1"),
-            f"SELECT events.event AS event FROM events SAMPLE 1 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         self.assertEqual(

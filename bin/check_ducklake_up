@@ -31,7 +31,7 @@ HEALTHCHECK_ALIAS = "ducklake_dev_health"
 def check_once(config: dict[str, str]) -> None:
     conn = duckdb.connect()
     try:
-        ducklake_common.configure_connection(conn, config, install_extension=False)
+        conn.execute("LOAD ducklake")
         ducklake_common.attach_catalog(conn, config, alias=HEALTHCHECK_ALIAS)
         ducklake_common.run_smoke_check(conn, alias=HEALTHCHECK_ALIAS)
     finally:

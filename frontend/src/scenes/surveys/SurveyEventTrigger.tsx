@@ -258,7 +258,7 @@ export function SurveyEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="events"
             label="User sends events"
-            info="It only triggers when the event is captured in the current user session and using the PostHog SDK. Filtering by event properties requires posthog-js SDK at least v1.268.0, and it's supported only for web surveys."
+            info="It only triggers when the event is captured in the current user session and using the PostHog SDK. Filtering by event properties requires posthog-js >= v1.268.0 or posthog-react-native >= v4.15.0. Not supported for other SDKs."
             emptyTitle="No events selected"
             emptyDescription="Add events to trigger this survey when those events are captured in the current user session"
             showRepeatedActivation

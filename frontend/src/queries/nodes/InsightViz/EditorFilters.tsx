@@ -45,10 +45,11 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    QuerySchema,
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -449,15 +450,22 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)
-                            let node: DataVisualizationNode | InsightVizNode
+                            if (!source) {
+                                return
+                            }
+
+                            let node: QuerySchema
                             if (isHogQLQuery(source)) {
                                 node = {
                                     kind: NodeKind.DataVisualizationNode,
                                     source,
                                 } satisfies DataVisualizationNode
-                            } else {
+                            } else if (isInsightQueryNode(source)) {
                                 node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            } else {
+                                node = source
                             }
+
                             handleInsightSuggested(node)
                             setQuery(node)
                         }}

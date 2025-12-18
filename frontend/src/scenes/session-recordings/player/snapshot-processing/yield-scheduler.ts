@@ -1,17 +1,23 @@
-declare global {
-    interface Scheduler {
-        postTask<T>(callback: () => T, options?: { priority?: 'user-visible' }): Promise<T>
-    }
+type IdleCallbackHandle = number | ReturnType<typeof setTimeout>
 
-    interface Window {
-        scheduler?: Scheduler
-    }
-}
+const requestIdleCallbackAvailable = !!window?.requestIdleCallback
 
-export async function yieldToMain(): Promise<void> {
-    if ('scheduler' in window && window.scheduler?.postTask) {
-        await window.scheduler.postTask(() => {}, { priority: 'user-visible' })
-    } else {
-        await new Promise((resolve) => setTimeout(resolve, 0))
+export const requestIdleCallback = (
+    callback: (deadline: IdleDeadline) => void,
+    options?: { timeout?: number }
+): IdleCallbackHandle => {
+    // safari does not have requestIdleCallback implemented
+    if (requestIdleCallbackAvailable) {
+        return window.requestIdleCallback(callback, {
+            // we specify a timeout to ensure the callback gets called eventually
+            timeout: options?.timeout ?? 150,
+        })
     }
+    const start = Date.now()
+    return setTimeout(() => {
+        callback({
+            didTimeout: false,
+            timeRemaining: () => Math.max(0, 50 - (Date.now() - start)),
+        })
+    }, 1)
 }

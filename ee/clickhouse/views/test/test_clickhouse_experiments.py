@@ -2773,6 +2773,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "parameters": {},
                 "filters": {},
                 "metrics": [initial_mean_metric, initial_funnel_metric, initial_ratio_metric],
+                "primary_metrics_ordered_uuids": ["metric-1", "metric-2", "metric-3"],
             },
         )
         exp_id = response.json()["id"]
@@ -2827,6 +2828,11 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
             {
                 "metrics": [updated_funnel_metric, updated_mean_metric, updated_ratio_metric],
+                "primary_metrics_ordered_uuids": [
+                    "964398d7-ec8a-424d-890b-4e6bbc9a5c84",
+                    "824e38ae-f9d7-41f4-962c-74c9e744529a",
+                    "70e0c887-1f32-4c7d-8405-0faded2e9722",
+                ],
                 "start_date": "2024-01-01T10:00:00Z",
                 "stats_config": {"method": "frequentist"},
                 "exposure_criteria": {
@@ -3612,3 +3618,158 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not exist or does not belong to this project", str(update_response.json()))
+
+    def test_update_fails_when_inline_metric_uuid_missing_from_ordering_array(self):
+        """Test that updating an experiment fails if an inline metric's UUID is not in the ordering array"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-ordering-validation",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Try to add a metric but with an ordering array that doesn't include its UUID
+        metric_uuid = "test-metric-uuid-123"
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "metrics": [
+                    {
+                        "uuid": metric_uuid,
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    }
+                ],
+                "primary_metrics_ordered_uuids": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("primary_metrics_ordered_uuids is missing UUIDs", str(update_response.json()))
+
+    def test_update_fails_when_saved_metric_uuid_missing_from_ordering_array(self):
+        """Test that updating an experiment fails if a saved metric's UUID is not in the ordering array"""
+        saved_metric_uuid = "saved-metric-uuid-456"
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Saved Metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "uuid": saved_metric_uuid,
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-saved-metric-ordering",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Try to add a saved metric but with an ordering array that doesn't include its UUID
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+                "primary_metrics_ordered_uuids": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("primary_metrics_ordered_uuids is missing UUIDs", str(update_response.json()))
+
+    def test_update_succeeds_when_ordering_arrays_are_correct(self):
+        """Test that updating an experiment succeeds when ordering arrays contain all metric UUIDs"""
+        saved_metric_uuid = "saved-metric-uuid-789"
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Saved Metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "uuid": saved_metric_uuid,
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-correct-ordering",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        inline_metric_uuid = "inline-metric-uuid-abc"
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "metrics": [
+                    {
+                        "uuid": inline_metric_uuid,
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    }
+                ],
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+                "primary_metrics_ordered_uuids": [inline_metric_uuid, saved_metric_uuid],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+    def test_create_fails_when_inline_metric_uuid_missing_from_ordering_array(self):
+        """Test that creating an experiment fails if an inline metric's UUID is not in the ordering array"""
+        metric_uuid = "create-metric-uuid-123"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "test-create-ordering-validation",
+                "parameters": None,
+                "metrics": [
+                    {
+                        "uuid": metric_uuid,
+                        "kind": "ExperimentMetric",
+                        "metric_type": "funnel",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    }
+                ],
+                "primary_metrics_ordered_uuids": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("primary_metrics_ordered_uuids is missing UUIDs", str(response.json()))
