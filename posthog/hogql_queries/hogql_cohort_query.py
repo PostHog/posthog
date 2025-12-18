@@ -786,7 +786,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
                 # Collect hashes: property may already be merged (has multiple hashes) or single hash
                 if hasattr(child, "_merged_condition_hashes"):
-                    mergeable_by_key[key].extend(getattr(child, "_merged_condition_hashes", []))
+                    mergeable_by_key[key].extend(child._merged_condition_hashes)
                 elif hasattr(child, "conditionHash") and child.conditionHash:
                     mergeable_by_key[key].append(child.conditionHash)
                 else:
