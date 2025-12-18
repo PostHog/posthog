@@ -12,11 +12,10 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { IconCalculate } from 'lib/lemon-ui/icons'
+import { IconBlank, IconCalculate } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
@@ -68,10 +67,13 @@ export function InsightDetailSectionDisplay({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <section className="flex items-start gap-2 text-xs">
+        <section
+            data-attr="insight-detail-section-display"
+            className="flex items-start gap-2 text-xs mt-2 first-of-type:mt-1"
+        >
             <div className="flex text-muted-alt mt-px flex-shrink-0 text-sm">{icon}</div>
             <div className="flex-1 min-w-0">
-                <div className="text-muted-alt mb-0.5">{label}</div>
+                {label && <div className="text-muted-alt mb-0.5">{label}</div>}
                 <div className="leading-6">{children}</div>
             </div>
         </section>
@@ -123,11 +125,23 @@ function SeriesDisplay({
 
     return (
         <div className="SeriesDisplay">
-            {isFunnelsQuery(query) ? (
-                <Lettermark name={seriesIndex + 1} color={LettermarkColor.Gray} className="mt-px" />
-            ) : (
-                <SeriesLetter seriesIndex={seriesIndex} hasBreakdown={hasBreakdown} className="mt-0.5" />
-            )}
+            <div className="flex place-items-start h-6 pt-1">
+                {isFunnelsQuery(query) ? (
+                    <Lettermark
+                        name={seriesIndex + 1}
+                        color={LettermarkColor.Gray}
+                        size="xsmall"
+                        className="opacity-50"
+                    />
+                ) : (
+                    <SeriesLetter
+                        seriesIndex={seriesIndex}
+                        hasBreakdown={hasBreakdown}
+                        className="opacity-50"
+                        size="xsmall"
+                    />
+                )}
+            </div>
             <div>
                 {isFunnelsQuery(query) ? 'Performed' : 'Counting'}
                 <EntityDisplay entity={series} />
@@ -253,10 +267,8 @@ export function SeriesSummary({
     query: InsightQueryNode | HogQLQuery
     heading?: JSX.Element | null
 }): JSX.Element {
-    const IconComponent = QUERY_TYPES_METADATA[query.kind].icon
-
     return (
-        <InsightDetailSectionDisplay icon={<IconComponent />} label={heading !== null ? heading || 'Query' : ''}>
+        <InsightDetailSectionDisplay icon={<IconBlank />} label={heading !== null ? heading || 'Query' : ''}>
             {isHogQLQuery(query) ? (
                 <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={8} compact>
                     {query.query}

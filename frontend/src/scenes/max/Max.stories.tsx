@@ -18,6 +18,9 @@ import { twMerge } from 'tailwind-merge'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
@@ -25,9 +28,9 @@ import {
     NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
-import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
-import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator, RetentionPeriod } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
@@ -2045,6 +2048,466 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
     return <Template />
 }
 ThreadWithMultiQuestionFormNoCustomAnswer.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const VisualizationArtifactTrends: StoryFn = () => {
+    const artifactMessage: ArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'artifact_trends',
+        source: ArtifactSource.State,
+        id: 'msg-viz-trends',
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: {
+                kind: 'TrendsQuery',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: 'Pageviews',
+                    },
+                ],
+                trendsFilter: {
+                    display: 'ActionsLineGraph',
+                },
+                dateRange: {
+                    date_from: '-30d',
+                },
+            } as TrendsQuery,
+            name: 'Daily Active Users',
+            description: 'Track user engagement over the past 30 days',
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Show me daily active users' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(artifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me daily active users')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+VisualizationArtifactTrends.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const VisualizationArtifactFunnels: StoryFn = () => {
+    const artifactMessage: ArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'artifact_funnels',
+        source: ArtifactSource.State,
+        id: 'msg-viz-funnels',
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: {
+                kind: 'FunnelsQuery',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'user signed up',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'viewed product',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'completed purchase',
+                    },
+                ],
+                funnelsFilter: {
+                    funnelVizType: 'steps',
+                },
+            } as FunnelsQuery,
+            name: 'User Conversion Funnel',
+            description: 'Analyze conversion from signup to purchase',
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Create a conversion funnel' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(artifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Create a conversion funnel')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+VisualizationArtifactFunnels.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const VisualizationArtifactWithBreakdown: StoryFn = () => {
+    const artifactMessage: ArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'artifact_breakdown',
+        source: ArtifactSource.State,
+        id: 'msg-viz-breakdown',
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: {
+                kind: 'TrendsQuery',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: 'Pageviews',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'button clicked',
+                        name: 'Button Clicks',
+                    },
+                ],
+                trendsFilter: {
+                    display: 'ActionsLineGraph',
+                },
+                breakdownFilter: {
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                },
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: ['Mac OS X', 'Windows'],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                dateRange: {
+                    date_from: '-30d',
+                },
+            } as TrendsQuery,
+            name: 'Pageviews by Browser',
+            description: 'Breakdown of pageviews by browser type',
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show pageviews by browser',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(artifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show pageviews by browser')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+VisualizationArtifactWithBreakdown.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const VisualizationArtifactHogQL: StoryFn = () => {
+    const artifactMessage: ArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'artifact_hogql',
+        source: ArtifactSource.State,
+        id: 'msg-viz-hogql',
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: `
+                    SELECT
+                        toStartOfDay(timestamp) as date,
+                        count() as event_count
+                    FROM events
+                    WHERE timestamp >= now() - INTERVAL 30 DAY
+                    GROUP BY date
+                    ORDER BY date
+                `,
+            },
+            name: 'Custom HogQL Query',
+            description: 'Daily event counts using HogQL',
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Write a HogQL query' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(artifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Write a HogQL query')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+VisualizationArtifactHogQL.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const VisualizationArtifactSavedInsight: StoryFn = () => {
+    const artifactMessage: ArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'abc123' as InsightShortId,
+        source: ArtifactSource.Insight,
+        id: 'msg-viz-saved',
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: {
+                kind: 'TrendsQuery',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: 'Pageviews',
+                    },
+                ],
+                trendsFilter: {
+                    display: 'ActionsLineGraph',
+                },
+                dateRange: {
+                    date_from: '-30d',
+                },
+            } as TrendsQuery,
+            name: 'Weekly Active Users',
+            description: 'Saved insight from library',
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me weekly active users',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(artifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me weekly active users')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+VisualizationArtifactSavedInsight.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const VisualizationArtifactRetention: StoryFn = () => {
+    const artifactMessage: ArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'artifact_retention',
+        source: ArtifactSource.State,
+        id: 'msg-viz-retention',
+        content: {
+            content_type: ArtifactContentType.Visualization,
+            query: {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    retentionType: 'retention_first_time',
+                    period: RetentionPeriod.Day,
+                },
+            },
+            name: 'User Retention Analysis',
+            description: 'First-time retention by day',
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user retention' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(artifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Analyze user retention')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+VisualizationArtifactRetention.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

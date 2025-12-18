@@ -1404,6 +1404,24 @@
         border: 2px solid var(--text-3000);
         border-radius: 50%;
 
+        &--xsmall {
+            width: 16px;
+            height: 16px;
+            font-size: 8px;
+        }
+
+        &--small {
+            width: 20px;
+            height: 20px;
+            font-size: 10px;
+        }
+
+        &--medium {
+            width: 22px;
+            height: 22px;
+            font-size: 12px;
+        }
+
         // variants
         &.funnel-step-glyph {
             width: 23px;
