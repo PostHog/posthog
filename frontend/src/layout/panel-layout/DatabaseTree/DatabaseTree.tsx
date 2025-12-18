@@ -26,7 +26,7 @@ export const DatabaseTree = memo(function DatabaseTree({
     return (
         <div
             className={cn(
-                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col',
+                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col min-w-min',
                 isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`,
                 databaseTreeWillCollapse && 'opacity-50'
             )}

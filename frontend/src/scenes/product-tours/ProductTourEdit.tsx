@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useMemo } from 'react'
 
+import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -10,6 +11,7 @@ import {
     LemonSelect,
     LemonSwitch,
     LemonTag,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -25,6 +27,10 @@ import { PropertyDefinitionType, SurveyMatchType } from '~/types'
 
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { productTourLogic } from './productTourLogic'
+
+function InlineCode({ text }: { text: string }): JSX.Element {
+    return <code className="border border-1 border-primary rounded-xs px-1 py-0.5 text-xs">{text}</code>
+}
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, productTourForm, targetingFlagFilters, isProductTourFormSubmitting } =
@@ -108,10 +114,12 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     <LemonDivider />
 
                     <div>
-                        <h3 className="font-semibold mb-2">Tour URLs</h3>
-                        <p className="text-secondary text-sm mb-4">
-                            Tour will only display on URLs matching these conditions
-                        </p>
+                        <h3 className="font-semibold mb-4">
+                            Tour URLs&nbsp;
+                            <Tooltip title="Tour will only display on URLs matching these conditions.">
+                                <IconInfo />
+                            </Tooltip>
+                        </h3>
                         <div className="flex gap-2">
                             <LemonSelect
                                 value={conditions.urlMatchType || SurveyMatchType.Contains}
@@ -160,6 +168,18 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 data-attr="product-tour-url-input"
                             />
                         </div>
+                        {conditions.urlMatchType === SurveyMatchType.Exact && (
+                            <div className="flex flex-col gap-2 mt-2 text-secondary text-sm">
+                                <p className="m-0">
+                                    When using <InlineCode text="= equals" />, trailing slashes will be removed before
+                                    URL comparison.
+                                </p>
+                                <p className="m-0">
+                                    Example: <InlineCode text="https://posthog.com/" /> will also match{' '}
+                                    <InlineCode text="https://posthog.com" />, and vice versa.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     <LemonDivider />
