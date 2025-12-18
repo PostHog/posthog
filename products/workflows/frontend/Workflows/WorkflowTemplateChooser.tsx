@@ -28,6 +28,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
         <div>
             <div className="WorkflowTemplateChooser">
                 <TemplateItem
+                    key={0}
                     template={{
                         name: 'Empty workflow',
                         description: 'Create a blank workflow from scratch',

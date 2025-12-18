@@ -211,8 +211,6 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
         try:
-            # trigger_type = serializer.instance.trigger.get("type", "unknown")
-
             # Count edges and actions
             edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
             actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
