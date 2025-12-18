@@ -6613,6 +6613,7 @@ dependencies = [
  "sha1_smol",
  "socket2 0.6.0",
  "tokio",
+ "tokio-rustls 0.26.0",
  "tokio-util",
  "url",
  "webpki-roots 1.0.4",
