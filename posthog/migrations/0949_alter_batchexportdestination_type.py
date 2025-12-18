@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             CREATE INDEX CONCURRENTLY IF NOT EXISTS "posthog_hogfunction_batch_export_id_d64c3403" ON "posthog_hogfunction" ("batch_export_id");
             """,
             reverse_sql="""
-                DROP INDEX IF EXISTS "posthog_hogfunction_batch_export_id_d64c3403";
+                DROP INDEX CONCURRENTLY IF EXISTS "posthog_hogfunction_batch_export_id_d64c3403";
             """,
         ),
     ]
