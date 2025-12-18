@@ -74,15 +74,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                         select: columns,
                     },
                 })
-            } else if (isActorsQuery(query.source)) {
-                setQuery?.({
-                    ...query,
-                    source: {
-                        ...query.source,
-                        select: columns,
-                    },
-                })
-            } else if (isGroupsQuery(query.source)) {
+            } else if (isActorsQuery(query.source) || isGroupsQuery(query.source)) {
                 setQuery?.({
                     ...query,
                     source: {
@@ -136,23 +128,26 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         }
     }
 
-    const taxonomicGroupTypes = isGroupsQuery(query.source)
-        ? [
-              `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
-              TaxonomicFilterGroupType.HogQLExpression,
-          ]
-        : isActorsQuery(query.source)
-          ? [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
-          : isSessionsQuery(query.source)
-            ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
-            : [
-                  TaxonomicFilterGroupType.EventProperties,
-                  TaxonomicFilterGroupType.EventFeatureFlags,
-                  TaxonomicFilterGroupType.PersonProperties,
-                  ...(isEventsQuery(query.source)
-                      ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
-                      : []),
-              ]
+    let taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
+    if (isGroupsQuery(query.source)) {
+        taxonomicGroupTypes = [
+            `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
+    } else if (isActorsQuery(query.source)) {
+        taxonomicGroupTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
+    } else if (isSessionsQuery(query.source)) {
+        taxonomicGroupTypes = [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+    } else {
+        taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.PersonProperties,
+            ...(isEventsQuery(query.source)
+                ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+                : []),
+        ]
+    }
 
     const showPersistedColumnReorder =
         isEventsQuery(query.source) ||
