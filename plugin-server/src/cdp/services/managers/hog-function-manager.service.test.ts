@@ -103,6 +103,7 @@ describe('HogFunctionManager', () => {
         ).toMatchInlineSnapshot(`
             [
               {
+                "batch_export_id": null,
                 "bytecode": {},
                 "created_at": "<REPLACED-DATE>",
                 "deleted": false,
