@@ -24,6 +24,11 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
             )
 
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+
         steps:
             - uses: actions/checkout@v4
               with:
@@ -95,7 +100,6 @@ jobs:
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@v8
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 import asyncpg
+import litellm
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,7 +103,16 @@ async def init_redis(url: str | None) -> Redis[bytes] | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    import os
+
     settings = get_settings()
+
+    if settings.anthropic_api_key:
+        litellm.anthropic_key = settings.anthropic_api_key
+    if settings.openai_api_key:
+        litellm.openai_key = settings.openai_api_key
+    if settings.gemini_api_key:
+        os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(

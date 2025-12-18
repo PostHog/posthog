@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { TeamManager } from '~/utils/team-manager'
 
-import { EventHeaders, IncomingEvent, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import {
     createApplyEventRestrictionsStep,
@@ -23,6 +23,7 @@ export interface PreTeamPreprocessingSubpipelineOutput {
     headers: EventHeaders
     event: IncomingEvent
     eventWithTeam: IncomingEventWithTeam
+    team: Team
 }
 
 export interface PreTeamPreprocessingSubpipelineConfig {

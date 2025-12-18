@@ -246,6 +246,35 @@ class TestProperty(BaseTest):
                 "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
             ),
         )
+        # Python boolean True (not string "true") should also work
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "string_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.string_prop = 'true'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": False},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": True},
+                team=self.team,
+            ),
+            self._parse_expr("properties.unknown_prop = 'true'"),
+        )
 
     def test_property_to_expr_event_list(self):
         # positive

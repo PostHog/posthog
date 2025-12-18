@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -26,7 +26,39 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         actions: [insightVizDataLogic(props), ['setDetailedResultsAggregationType']],
     })),
 
+    actions({
+        toggleColumnPin: (columnKey: string) => ({ columnKey }),
+    }),
+
+    reducers({
+        pinnedBreakdownColumns: [
+            [] as string[],
+            { persist: true },
+            {
+                toggleColumnPin: (state, { columnKey }) => {
+                    if (state.includes(columnKey)) {
+                        return state.filter((k) => k !== columnKey)
+                    }
+                    return [...state, columnKey]
+                },
+            },
+        ],
+    }),
+
     selectors({
+        pinnedColumns: [
+            (s) => [s.pinnedBreakdownColumns],
+            (pinnedBreakdownColumns): string[] => {
+                return ['label', ...pinnedBreakdownColumns]
+            },
+        ],
+        isColumnPinned: [
+            (s) => [s.pinnedBreakdownColumns],
+            (pinnedBreakdownColumns) =>
+                (columnKey: string): boolean => {
+                    return pinnedBreakdownColumns.includes(columnKey)
+                },
+        ],
         /** Only allow table aggregation options when the math is total volume
          * otherwise double counting will happen when the math is set to unique.
          * Except when view type is Table or WorldMap */

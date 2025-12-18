@@ -2,15 +2,18 @@ import { Message } from 'node-rdkafka'
 
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
-import { createApplyCookielessProcessingStep } from '../event-preprocessing'
+import { createApplyCookielessProcessingStep, createRateLimitToOverflowStep } from '../event-preprocessing'
+import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
+import { MemoryRateLimiter } from '../utils/overflow-detector'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
@@ -18,7 +21,9 @@ export interface PreprocessingPipelineConfig {
     hub: Hub
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
+    hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    overflowRateLimiter: MemoryRateLimiter
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -41,7 +46,9 @@ export function createPreprocessingPipeline<
         hub,
         kafkaProducer,
         personsStore,
+        hogTransformer,
         eventIngestionRestrictionManager,
+        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -84,7 +91,7 @@ export function createPreprocessingPipeline<
                 result: element.result,
                 context: {
                     ...element.context,
-                    team: element.result.value.eventWithTeam.team,
+                    team: element.result.value.team,
                 },
             }))
             .messageAware((b) =>
@@ -103,12 +110,23 @@ export function createPreprocessingPipeline<
                             // Any steps that depend on the final distinct ID must run after this step.
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(hub.cookielessManager))
+                            // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
+                            .pipeBatch(
+                                createRateLimitToOverflowStep(
+                                    overflowRateLimiter,
+                                    overflowEnabled,
+                                    overflowTopic,
+                                    hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+                                )
+                            )
                             // Prefetch must run after cookieless, as cookieless changes distinct IDs
                             .pipeBatch(prefetchPersonsStep(personsStore, hub.PERSONS_PREFETCH_ENABLED))
                             // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
                             .pipeBatch(
                                 processPersonlessDistinctIdsBatchStep(personsStore, hub.PERSONS_PREFETCH_ENABLED)
                             )
+                            // Prefetch hog functions for all teams in the batch
+                            .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, hub.CDP_HOG_WATCHER_SAMPLE_RATE))
                     )
                     .handleIngestionWarnings(kafkaProducer)
             )

@@ -37,7 +37,7 @@ export function ExceptionFilters(): JSX.Element {
     }
 
     return (
-        <div>
+        <div className="mt-2">
             <LemonLabel className="mb-2">Exception filters</LemonLabel>
             <div className="border rounded p-3 bg-bg-light">
                 <div className="text-xs font-medium text-muted-alt mb-2">

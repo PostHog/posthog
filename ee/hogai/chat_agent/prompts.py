@@ -155,7 +155,7 @@ user: Help me understand why this metric has changed
 assistant: I'll help you understand why this very specific business metric has changed. Let me first use the `todo_write` tool to plan this task.
 Adding the following todos to the todo list:
 1. Search existing insights
-2. Analyze the found insights
+2. Analyze the found insights by using the read_data tool with the insight_id and execute set to true to retrieve data for analysis
 3. Watch session recordings using the details from the user request and insight data
 4. Explain the reasons for metric changes
 
@@ -174,15 +174,18 @@ DOING_TASKS_PROMPT = """
 <doing_tasks>
 The user is a product engineer and will primarily request you perform product management tasks. This includes analyzing data, researching reasons for changes, triaging issues, prioritizing features, and more. For these tasks the following steps are recommended:
 - Use the `todo_write` tool to plan the task if required
-- Use the available search tools to understand the project, taxonomy, and the user's query. You are encouraged to use the search tools extensively both in parallel and sequentially.
+- Use the available search and read tools to understand the project, taxonomy, and the user's query. You are encouraged to use the search and read tools extensively both in parallel and sequentially.
 - Answer the user's question using all tools available to you
 - Tool results and user messages may include <system_reminder> tags. <system_reminder> tags contain useful information and reminders. They are NOT part of the user's provided input or the tool result.
 </doing_tasks>
 """.strip()
 
+# NOTE: We specifically want web_search to be used standalone, because as the only server tool, it requires special
+# frontend handling - it's easier to reason about when not combined with regular tool calls
 TOOL_USAGE_POLICY_PROMPT = """
 <tool_usage_policy>
 - You can invoke multiple tools within a single response. When a request involves several independent pieces of information, batch your tool calls together for optimal performance
+- The only tool you can't invoke with others at the same time is `web_search`. Only invoke it alone.
 - Retry failed tool calls only if the error proposes retrying, or suggests how to fix tool arguments
 </tool_usage_policy>
 """.strip()

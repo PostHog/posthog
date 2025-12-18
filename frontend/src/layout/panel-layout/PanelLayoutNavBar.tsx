@@ -8,7 +8,6 @@ import {
     IconChevronRight,
     IconClock,
     IconDatabase,
-    IconDatabaseBolt,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -218,27 +217,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
-        {
-            identifier: 'Products',
-            label: 'All apps',
-            icon: <IconApps />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open products', 'Close products'],
-        },
-        {
-            identifier: 'Database',
-            label: 'Data warehouse',
-            icon: <IconDatabaseBolt />,
-            to: urls.sqlEditor(),
-            onClick: () => handleStaticNavbarItemClick(urls.sqlEditor(), true),
-            collapsedTooltip: ['Open data warehouse', 'Close data warehouse'],
-            documentationUrl: 'https://posthog.com/docs/data-warehouse/sql',
-        },
+        ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+            ? []
+            : [
+                  {
+                      identifier: 'Products',
+                      label: 'All apps',
+                      icon: <IconApps />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      collapsedTooltip: ['Open products', 'Close products'],
+                  },
+              ]),
         {
             identifier: 'DataManagement',
             label: 'Data management',
@@ -289,6 +283,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             showChevron: true,
             collapsedTooltip: ['Open project tree', 'Close project tree'],
         },
+        ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+            ? [
+                  {
+                      identifier: 'Products',
+                      label: 'All apps',
+                      icon: <IconApps />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      collapsedTooltip: ['Open products', 'Close products'],
+                  },
+              ]
+            : []),
     ].filter(Boolean)
 
     return (

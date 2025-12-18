@@ -354,6 +354,10 @@ docker:
         description: Set up Docker services and run evaluation scripts with cleanup
         hidden: true
 migrations:
+    db:migrate:
+        bin_script: migrate
+        description: Apply database migrations (Django and ClickHouse)
+        hidden: true
     migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
@@ -365,9 +369,6 @@ migrations:
         services:
             - postgresql
             - clickhouse
-    migrations:kafka:
-        bin_script: migrate_kafka_data.py
-        description: Migrate data between Kafka clusters/topics with consumer group tracking
 db:
     db:upgrade:
         bin_script: upgrade-postgres
@@ -510,6 +511,19 @@ tools:
         description: 'TODO: add description for start-llm-gateway'
         hidden: true
 utilities:
+    nuke:
+        steps:
+            - name: announce
+              cmd: say -v 'Samantha' 'Nuclear launch detected' 2>/dev/null || true
+            - name: node_modules
+              cmd: rm -rf **/node_modules
+            - name: python venvs
+              cmd: rm -rf .venv .flox/cache/venv && uv sync --active
+            - name: rust builds
+              cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+            - dev:reset
+        description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
+        destructive: true
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
