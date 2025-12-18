@@ -2014,11 +2014,16 @@ def public_survey_page(request, survey_id: str):
 
     serializer = SurveyAPISerializer(survey)
     survey_data = serializer.data
+
+    enable_captcha = getattr(survey, "enable_hosted_captcha", False) and bool(os.environ.get("TURNSTILE_SITE_KEY"))
+
     context = {
         "name": survey.name,
         "survey_data": survey_data,
         "project_config": project_config,
         "debug": settings.DEBUG,
+        "enable_captcha": enable_captcha,
+        "turnstile_site_key": os.environ.get("TURNSTILE_SITE_KEY") if enable_captcha else None,
     }
 
     logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
