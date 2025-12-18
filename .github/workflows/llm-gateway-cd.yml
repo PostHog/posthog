@@ -1,6 +1,7 @@
 name: LLM Gateway CD
 
 on:
+    workflow_dispatch:
     push:
         branches:
             - master
@@ -79,11 +80,12 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ needs.build.outputs.sha }}"
+                            "sha": "${{ needs.build.outputs.sha }}"
                           }
                         },
                         "release": "llm-gateway",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
+                        "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
