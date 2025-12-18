@@ -3306,7 +3306,6 @@ export interface ProductTourDisplayConditions {
         }[]
     } | null
     events?: {
-        repeatedActivation?: boolean
         values: SurveyEventsWithProperties[]
     } | null
     cancelEvents?: {
