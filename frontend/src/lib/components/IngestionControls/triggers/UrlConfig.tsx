@@ -45,7 +45,7 @@ export function UrlConfig({
     onEdit: (index: number) => void
     onRemove: (index: number) => void
 }): JSX.Element {
-    const { resourceType } = useValues(ingestionControlsLogic)
+    const { resourceType, logicKey } = useValues(ingestionControlsLogic)
 
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-4">
@@ -58,7 +58,7 @@ export function UrlConfig({
                         onClick={props.onAdd}
                         type="secondary"
                         icon={<IconPlus />}
-                        data-attr="ingestion-triggers-url-config-add-url"
+                        data-attr={`${logicKey}-add-url`}
                         size="small"
                     >
                         Add
