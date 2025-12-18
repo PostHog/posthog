@@ -11,9 +11,9 @@ use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use prost::Message;
 use serde::Deserialize;
 use serde_json::json;
-use std::sync::Arc;
 use std::fs::File;
 use std::io::Write;
+use std::sync::Arc;
 
 use crate::kafka::KafkaSink;
 
@@ -121,8 +121,8 @@ pub async fn export_logs_http(
                 //
                 if let Err(e) = File::create("/tmp/last_failed_event.txt").and_then(|mut file|
                     // write the raw message to a file prepended by the token for debugging
-                    file.write_all(token.as_bytes()).and_then(|_| file.write_all(&body))
-                ) {
+                    file.write_all(token.as_bytes()).and_then(|_| file.write_all(&body)))
+                {
                     error!("Failed to write last failed event to file: {}", e);
                 }
                 error!(
