@@ -19,6 +19,8 @@ import { convertToHookPayload, convertToPostIngestionEvent } from '../../utils/e
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { ActionManager } from '../legacy-webhooks/action-manager'
+import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 import { CdpConsumerBase } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
@@ -32,6 +34,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     protected name = 'CdpLegacyWebhookConsumer'
     protected promiseScheduler = new PromiseScheduler()
     protected kafkaConsumer: KafkaConsumer
+    protected actionMatcher: ActionMatcher
 
     constructor(hub: Hub) {
         super(hub)
@@ -41,12 +44,14 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
             topic: hub.CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC,
         })
 
+        this.actionMatcher = new ActionMatcher(new ActionManager(hub.postgres, hub.pubSub))
+
         logger.info('🔁', `CdpLegacyWebhookConsumer setup`)
     }
 
     @instrumented('cdpLegacyWebhookConsumer.processEvent')
     public async processEvent(event: PostIngestionEvent) {
-        const actionMatches = this.hub.actionMatcher.match(event)
+        const actionMatches = this.actionMatcher.match(event)
         if (!actionMatches.length) {
             return
         }
@@ -132,7 +137,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
                         const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
                         if (
-                            !this.hub.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
+                            !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
                             !(await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
                         ) {
                             // exit early if no webhooks nor resthooks

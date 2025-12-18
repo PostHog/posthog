@@ -1,8 +1,8 @@
-import { Hub, PropertyOperator } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
-import { ActionManager } from '../../../src/worker/ingestion/action-manager'
-import { resetTestDatabase } from '../../helpers/sql'
+import { resetTestDatabase } from '../../../tests/helpers/sql'
+import { Hub, PropertyOperator } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
+import { ActionManager } from './action-manager'
 
 describe('ActionManager', () => {
     let hub: Hub

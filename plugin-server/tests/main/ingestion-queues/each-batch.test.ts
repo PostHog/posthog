@@ -1,6 +1,8 @@
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
+import { ActionManager } from '../../../src/cdp/legacy-webhooks/action-manager'
+import { ActionMatcher } from '../../../src/cdp/legacy-webhooks/action-matcher'
 import {
     eachBatchWebhooksHandlers,
     groupIntoBatchesByUsage,
@@ -13,8 +15,6 @@ import {
     ProjectId,
     RawKafkaEvent,
 } from '../../../src/types'
-import { ActionManager } from '../../../src/worker/ingestion/action-manager'
-import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 
