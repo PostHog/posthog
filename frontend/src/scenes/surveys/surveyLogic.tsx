@@ -738,13 +738,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
-                    queryParams: {
-                        filters: {
-                            properties: values.propertyFilters,
+                const response = await api.queryHogQL(
+                    query,
+                    { scene: 'Survey', productKey: 'surveys' },
+                    {
+                        queryParams: {
+                            filters: {
+                                properties: values.propertyFilters,
+                            },
                         },
-                    },
-                })
+                    }
+                )
                 actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
                 const numberOfSurveySentEvents = response.results?.find(
                     (result) => result[0] === SurveyEventName.SENT
@@ -786,13 +790,17 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
-                    queryParams: {
-                        filters: {
-                            properties: values.propertyFilters, // Property filters applied in WHERE
+                const response = await api.queryHogQL(
+                    query,
+                    { scene: 'Survey', productKey: 'surveys' },
+                    {
+                        queryParams: {
+                            filters: {
+                                properties: values.propertyFilters, // Property filters applied in WHERE
+                            },
                         },
-                    },
-                })
+                    }
+                )
                 const count = response.results?.[0]?.[0] ?? 0
                 actions.setDismissedAndSentCount(count)
                 return count as DismissedAndSentCountResult
@@ -830,13 +838,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     ORDER BY events.timestamp DESC
                     LIMIT ${limit}` as HogQLQueryString
 
-                const responseJSON = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
-                    queryParams: {
-                        filters: {
-                            properties: values.propertyFilters,
+                const responseJSON = await api.queryHogQL(
+                    query,
+                    { scene: 'Survey', productKey: 'surveys' },
+                    {
+                        queryParams: {
+                            filters: {
+                                properties: values.propertyFilters,
+                            },
                         },
-                    },
-                })
+                    }
+                )
                 const { results } = responseJSON
 
                 // Process the results into a format that can be used by each question type
