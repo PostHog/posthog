@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconPlayFilled, IconRefresh, IconStopFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -12,7 +12,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { NotebookKernelExecutionResponse, NotebookKernelStatus, NotebookNodeProps, NotebookNodeType } from '../types'
+import {
+    NotebookKernelExecutionResponse,
+    NotebookKernelStatus,
+    NotebookNodeAttributeProperties,
+    NotebookNodeProps,
+    NotebookNodeType,
+} from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -30,6 +36,7 @@ type NotebookNodePythonAttributes = {
     errorName?: string | null
     traceback?: string[]
     kernel?: NotebookKernelStatus | null
+    showVariables?: boolean
 }
 
 const statusToTag = (
@@ -49,15 +56,111 @@ const statusToTag = (
 
 const NotebookNodePythonComponent = ({
     attributes,
-    updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
-    const { shortId } = useValues(notebookLogic)
     const { expanded } = useValues(notebookNodeLogic)
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder('Python')
+    }, [setTitlePlaceholder])
+
+    const resultText = useMemo(() => {
+        if (!attributes.result) {
+            return null
+        }
+
+        const textResult = attributes.result['text/plain']
+        if (typeof textResult === 'string') {
+            return textResult
+        }
+
+        return JSON.stringify(attributes.result, null, 2)
+    }, [attributes.result])
+
+    const tracebackText = useMemo(() => (attributes.traceback || []).join('\n'), [attributes.traceback])
+    const hasOutputs = Boolean(resultText || attributes.stdout || attributes.stderr || tracebackText)
+
+    if (!expanded) {
+        return null
+    }
+
+    return (
+        <div className="space-y-2">
+            <PythonRunMeta attributes={attributes} />
+
+            {hasOutputs ? (
+                <div className="space-y-2 overflow-auto max-h-[20rem] pr-1">
+                    {resultText ? (
+                        <OutputBlock title="Result">
+                            <CodeSnippet language={Language.Python} wrap compact>
+                                {resultText}
+                            </CodeSnippet>
+                        </OutputBlock>
+                    ) : null}
+                    {attributes.stdout ? (
+                        <OutputBlock title="Stdout">
+                            <CodeSnippet language={Language.Text} wrap compact>
+                                {attributes.stdout}
+                            </CodeSnippet>
+                        </OutputBlock>
+                    ) : null}
+                    {attributes.stderr ? (
+                        <OutputBlock title="Stderr">
+                            <CodeSnippet language={Language.Text} wrap compact>
+                                {attributes.stderr}
+                            </CodeSnippet>
+                        </OutputBlock>
+                    ) : null}
+                    {tracebackText ? (
+                        <OutputBlock title={attributes.errorName ? `Error: ${attributes.errorName}` : 'Error'}>
+                            <CodeSnippet language={Language.Text} wrap compact>
+                                {tracebackText}
+                            </CodeSnippet>
+                        </OutputBlock>
+                    ) : null}
+                </div>
+            ) : (
+                <LemonBanner type="info">
+                    Use Filters to edit and run your Python code. Results will appear here once the code runs.
+                </LemonBanner>
+            )}
+        </div>
+    )
+}
+
+const OutputBlock = ({ title, children }: { title: string; children: JSX.Element }): JSX.Element => (
+    <div className="space-y-1">
+        <div className="text-xs text-muted-alt">{title}</div>
+        {children}
+    </div>
+)
+
+const PythonRunMeta = ({ attributes }: { attributes: NotebookNodePythonAttributes }): JSX.Element => (
+    <div className="flex flex-wrap items-center gap-1">
+        <LemonTag type={attributes.kernel?.alive ? 'success' : 'default'}>
+            {attributes.kernel?.alive ? 'Kernel running' : 'Kernel stopped'}
+        </LemonTag>
+        {attributes.executionCount ? <LemonTag>Run #{attributes.executionCount}</LemonTag> : null}
+        {attributes.status ? <LemonTag type={statusToTag(attributes.status)}>{attributes.status}</LemonTag> : null}
+        {attributes.lastRunAt ? (
+            <LemonTag>
+                Last run <TZLabel time={attributes.lastRunAt} />
+            </LemonTag>
+        ) : null}
+    </div>
+)
+
+const NotebookNodePythonSettings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
+    const { shortId } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const [draftCode, setDraftCode] = useState(attributes.code || DEFAULT_CODE)
     const [running, setRunning] = useState(false)
     const [localError, setLocalError] = useState<string | null>(null)
+    const [showVariables, setShowVariables] = useState(attributes.showVariables ?? false)
 
     useEffect(() => {
         setTitlePlaceholder('Python')
@@ -66,6 +169,10 @@ const NotebookNodePythonComponent = ({
     useEffect(() => {
         setDraftCode(attributes.code || DEFAULT_CODE)
     }, [attributes.code])
+
+    useEffect(() => {
+        setShowVariables(attributes.showVariables ?? false)
+    }, [attributes.showVariables])
 
     const persistCode = useDebouncedCallback((nextCode: string) => {
         updateAttributes({ code: nextCode })
@@ -126,34 +233,10 @@ const NotebookNodePythonComponent = ({
         }
     }, [shortId, updateAttributes])
 
-    const resultText = useMemo(() => {
-        if (!attributes.result) {
-            return null
-        }
-
-        const textResult = attributes.result['text/plain']
-        if (typeof textResult === 'string') {
-            return textResult
-        }
-
-        return JSON.stringify(attributes.result, null, 2)
-    }, [attributes.result])
-
-    const tracebackText = useMemo(() => (attributes.traceback || []).join('\n'), [attributes.traceback])
-    const hasOutputs = Boolean(
-        resultText ||
-            attributes.stdout ||
-            attributes.stderr ||
-            tracebackText ||
-            (attributes.variables && Object.keys(attributes.variables).length)
-    )
-
-    if (!expanded) {
-        return null
-    }
+    const hasVariables = attributes.variables && Object.keys(attributes.variables).length > 0
 
     return (
-        <div className="space-y-2">
+        <div className="p-3 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1">
                     <LemonButton
@@ -177,88 +260,60 @@ const NotebookNodePythonComponent = ({
                         Stop kernel
                     </LemonButton>
                 </div>
-                <div className="flex flex-wrap items-center gap-1">
-                    <LemonTag type={attributes.kernel?.alive ? 'success' : 'default'}>
-                        {attributes.kernel?.alive ? 'Kernel running' : 'Kernel stopped'}
-                    </LemonTag>
-                    {attributes.executionCount ? <LemonTag>Run #{attributes.executionCount}</LemonTag> : null}
-                    {attributes.status ? (
-                        <LemonTag type={statusToTag(attributes.status)}>{attributes.status}</LemonTag>
-                    ) : null}
-                    {attributes.lastRunAt ? (
-                        <LemonTag>
-                            Last run <TZLabel time={attributes.lastRunAt} />
-                        </LemonTag>
-                    ) : null}
-                </div>
+                <PythonRunMeta attributes={attributes} />
             </div>
 
             {localError ? <LemonBanner type="error">{localError}</LemonBanner> : null}
 
-            <CodeEditorInline
-                language="python"
-                height="200px"
-                value={draftCode}
-                onChange={(value) => {
-                    setDraftCode(value)
-                    persistCode(value)
-                }}
-            />
-
-            {hasOutputs ? (
-                <div className="space-y-2 overflow-auto max-h-[20rem] pr-1">
-                    {resultText ? (
-                        <OutputBlock title="Result">
-                            <CodeSnippet language={Language.Python} wrap compact>
-                                {resultText}
-                            </CodeSnippet>
-                        </OutputBlock>
-                    ) : null}
-                    {attributes.stdout ? (
-                        <OutputBlock title="Stdout">
-                            <CodeSnippet language={Language.Text} wrap compact>
-                                {attributes.stdout}
-                            </CodeSnippet>
-                        </OutputBlock>
-                    ) : null}
-                    {attributes.stderr ? (
-                        <OutputBlock title="Stderr">
-                            <CodeSnippet language={Language.Text} wrap compact>
-                                {attributes.stderr}
-                            </CodeSnippet>
-                        </OutputBlock>
-                    ) : null}
-                    {tracebackText ? (
-                        <OutputBlock title={attributes.errorName ? `Error: ${attributes.errorName}` : 'Error'}>
-                            <CodeSnippet language={Language.Text} wrap compact>
-                                {tracebackText}
-                            </CodeSnippet>
-                        </OutputBlock>
-                    ) : null}
-                    {attributes.variables && Object.keys(attributes.variables).length ? (
-                        <OutputBlock title="Variables">
+            <div className="flex flex-col gap-3 md:flex-row">
+                <div className="flex-1 space-y-2">
+                    <CodeEditorInline
+                        language="python"
+                        height="240px"
+                        value={draftCode}
+                        onChange={(value) => {
+                            setDraftCode(value)
+                            persistCode(value)
+                        }}
+                    />
+                </div>
+                <div className="w-full md:w-80 md:min-w-[18rem] flex-shrink-0 space-y-2 rounded border border-border p-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold uppercase text-muted-alt">Variables</div>
+                        <LemonSwitch
+                            size="small"
+                            checked={showVariables}
+                            onChange={(checked) => {
+                                setShowVariables(checked)
+                                updateAttributes({ showVariables: checked })
+                            }}
+                            label="Debug"
+                        />
+                    </div>
+                    {showVariables ? (
+                        hasVariables ? (
                             <CodeSnippet language={Language.JSON} wrap compact>
                                 {JSON.stringify(attributes.variables, null, 2)}
                             </CodeSnippet>
-                        </OutputBlock>
-                    ) : null}
+                        ) : (
+                            <div className="text-xs text-muted-alt">No variables captured. Run code to populate.</div>
+                        )
+                    ) : (
+                        <div className="text-xs text-muted-alt">
+                            Toggle on to inspect variables alongside your code.
+                        </div>
+                    )}
                 </div>
-            ) : null}
+            </div>
         </div>
     )
 }
-
-const OutputBlock = ({ title, children }: { title: string; children: JSX.Element }): JSX.Element => (
-    <div className="space-y-1">
-        <div className="text-xs text-muted-alt">{title}</div>
-        {children}
-    </div>
-)
 
 export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttributes>({
     nodeType: NotebookNodeType.Python,
     titlePlaceholder: 'Python',
     Component: NotebookNodePythonComponent,
+    Settings: NotebookNodePythonSettings,
     heightEstimate: '26rem',
     minHeight: '16rem',
     resizeable: true,
@@ -275,6 +330,7 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         errorName: { default: null },
         traceback: { default: [] },
         kernel: { default: null },
+        showVariables: { default: false },
     },
     serializedText: (attrs) => attrs.code || '',
 })
