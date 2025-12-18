@@ -58,13 +58,27 @@ pub async fn handle_recording_payload(
     debug!("entering handle_recording_payload");
 
     // Extract payload bytes and metadata using shared helper
-    let result = tokio::time::timeout(state.operation_timeout, async {
-        extract_payload_bytes(query_params, headers, method, body)
-    })
+    // Capture fields before spawn_blocking consumes query_params:
+    // - beacon: endpoint needs for response code (204 vs 200)
+    // - sent_at: needed for ProcessingContext
+    let beacon = query_params.beacon;
+    let sent_at_from_query = query_params.sent_at();
+    let mut query_params_owned = std::mem::take(query_params);
+    let headers_clone = headers.clone();
+    let method_clone = method.clone();
+    let result = tokio::time::timeout(
+        state.operation_timeout,
+        tokio::task::spawn_blocking(move || {
+            extract_payload_bytes(&mut query_params_owned, &headers_clone, &method_clone, body)
+        }),
+    )
     .await;
     let (data, compression, lib_version) = match result {
-        Ok(Ok((d, c, lv))) => (d, c, lv),
-        Ok(Err(e)) => return Err(e),
+        Ok(Ok(Ok((d, c, lv)))) => (d, c, lv),
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(_join_err)) => {
+            return Err(CaptureError::RequestDecodingError("task panicked".into()))
+        }
         Err(_) => {
             counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "extract").increment(1);
             return Err(CaptureError::OperationTimeout);
@@ -77,13 +91,21 @@ pub async fn handle_recording_payload(
     debug!("payload processed: deserializing to RawRecording");
 
     // Decompress the payload
-    let result = tokio::time::timeout(state.operation_timeout, async {
-        decompress_payload(data, compression, state.event_size_limit, path.as_str())
-    })
+    let event_size_limit = state.event_size_limit;
+    let path_owned = path.as_str().to_string();
+    let result = tokio::time::timeout(
+        state.operation_timeout,
+        tokio::task::spawn_blocking(move || {
+            decompress_payload(data, compression, event_size_limit, &path_owned)
+        }),
+    )
     .await;
     let payload = match result {
-        Ok(Ok(payload)) => payload,
-        Ok(Err(e)) => return Err(e),
+        Ok(Ok(Ok(payload))) => payload,
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(_join_err)) => {
+            return Err(CaptureError::RequestDecodingError("task panicked".into()))
+        }
         Err(_) => {
             counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "decompress").increment(1);
             return Err(CaptureError::OperationTimeout);
@@ -91,13 +113,17 @@ pub async fn handle_recording_payload(
     };
 
     // Deserialize to RecordingPayload (handles both single event and array)
-    let result = tokio::time::timeout(state.operation_timeout, async {
-        serde_json::from_str::<RecordingPayload>(&payload)
-    })
+    let result = tokio::time::timeout(
+        state.operation_timeout,
+        tokio::task::spawn_blocking(move || serde_json::from_str::<RecordingPayload>(&payload)),
+    )
     .await;
     let recording_payload: RecordingPayload = match result {
-        Ok(Ok(payload)) => payload,
-        Ok(Err(e)) => return Err(e.into()),
+        Ok(Ok(Ok(payload))) => payload,
+        Ok(Ok(Err(e))) => return Err(e.into()),
+        Ok(Err(_join_err)) => {
+            return Err(CaptureError::RequestDecodingError("task panicked".into()))
+        }
         Err(_) => {
             counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "parse").increment(1);
             return Err(CaptureError::OperationTimeout);
@@ -125,7 +151,7 @@ pub async fn handle_recording_payload(
     .increment(events.len() as u64);
 
     let now = state.timesource.current_time();
-    let sent_at = query_params.sent_at();
+    let sent_at = sent_at_from_query;
 
     let context = ProcessingContext {
         lib_version,
@@ -137,6 +163,7 @@ pub async fn handle_recording_payload(
         path: path.as_str().to_string(),
         is_mirror_deploy: metadata.is_mirror_deploy,
         historical_migration: false, // recordings don't support historical migration
+        beacon,
         user_agent: Some(metadata.user_agent.to_string()),
     };
 

@@ -69,13 +69,27 @@ pub async fn handle_event_payload(
     debug!("entering handle_event_payload");
 
     // Extract payload bytes and metadata using shared helper
-    let result = tokio::time::timeout(state.operation_timeout, async {
-        extract_payload_bytes(query_params, headers, method, body)
-    })
+    // Capture fields before spawn_blocking consumes query_params:
+    // - beacon: endpoint needs for response code (204 vs 200)
+    // - sent_at: needed for ProcessingContext
+    let beacon = query_params.beacon;
+    let sent_at_from_query = query_params.sent_at();
+    let mut query_params_owned = std::mem::take(query_params);
+    let headers_clone = headers.clone();
+    let method_clone = method.clone();
+    let result = tokio::time::timeout(
+        state.operation_timeout,
+        tokio::task::spawn_blocking(move || {
+            extract_payload_bytes(&mut query_params_owned, &headers_clone, &method_clone, body)
+        }),
+    )
     .await;
     let (data, compression, lib_version) = match result {
-        Ok(Ok((d, c, lv))) => (d, c, lv),
-        Ok(Err(e)) => return Err(e),
+        Ok(Ok(Ok((d, c, lv)))) => (d, c, lv),
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(_join_err)) => {
+            return Err(CaptureError::RequestDecodingError("task panicked".into()))
+        }
         Err(_) => {
             counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "extract").increment(1);
             return Err(CaptureError::OperationTimeout);
@@ -87,26 +101,35 @@ pub async fn handle_event_payload(
 
     debug!("payload processed: passing to RawRequest::from_bytes");
 
-    let result = tokio::time::timeout(state.operation_timeout, async {
-        RawRequest::from_bytes(
-            data,
-            compression,
-            metadata.request_id,
-            state.event_size_limit,
-            path.as_str().to_string(),
-        )
-    })
+    let request_id_owned = metadata.request_id.to_string();
+    let event_size_limit = state.event_size_limit;
+    let path_owned = path.as_str().to_string();
+    let result = tokio::time::timeout(
+        state.operation_timeout,
+        tokio::task::spawn_blocking(move || {
+            RawRequest::from_bytes(
+                data,
+                compression,
+                &request_id_owned,
+                event_size_limit,
+                path_owned,
+            )
+        }),
+    )
     .await;
     let request = match result {
-        Ok(Ok(request)) => request,
-        Ok(Err(e)) => return Err(e),
+        Ok(Ok(Ok(request))) => request,
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(_join_err)) => {
+            return Err(CaptureError::RequestDecodingError("task panicked".into()))
+        }
         Err(_) => {
             counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "decompress").increment(1);
             return Err(CaptureError::OperationTimeout);
         }
     };
 
-    let sent_at = request.sent_at().or(query_params.sent_at());
+    let sent_at = request.sent_at().or(sent_at_from_query);
     let historical_migration = request.historical_migration();
     Span::current().record("historical_migration", historical_migration);
 
@@ -114,13 +137,18 @@ pub async fn handle_event_payload(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let result = tokio::time::timeout(state.operation_timeout, async {
-        request.events(path.as_str())
-    })
+    let path_for_events = path.as_str().to_string();
+    let result = tokio::time::timeout(
+        state.operation_timeout,
+        tokio::task::spawn_blocking(move || request.events(&path_for_events)),
+    )
     .await;
     let mut events = match result {
-        Ok(Ok(events)) => events,
-        Ok(Err(e)) => return Err(e),
+        Ok(Ok(Ok(events))) => events,
+        Ok(Ok(Err(e))) => return Err(e),
+        Ok(Err(_join_err)) => {
+            return Err(CaptureError::RequestDecodingError("task panicked".into()))
+        }
         Err(_) => {
             counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "parse").increment(1);
             return Err(CaptureError::OperationTimeout);
@@ -152,6 +180,7 @@ pub async fn handle_event_payload(
         is_mirror_deploy: metadata.is_mirror_deploy,
         historical_migration,
         user_agent: Some(metadata.user_agent.to_string()),
+        beacon,
     };
 
     // Apply all billing limit quotas and drop partial or whole

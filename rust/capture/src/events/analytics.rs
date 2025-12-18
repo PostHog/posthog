@@ -177,6 +177,7 @@ mod tests {
             path: "/e/".to_string(),
             is_mirror_deploy: false,
             historical_migration: false,
+            beacon: false,
         }
     }
 

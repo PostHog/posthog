@@ -143,6 +143,7 @@ pub struct ProcessingContext {
     pub path: String,
     pub is_mirror_deploy: bool, // TODO(eli): can remove after migration
     pub historical_migration: bool,
+    pub beacon: bool, // if true, return 204 No Content
 }
 
 // these are the legacy endpoints capture maintains. Can eliminate this

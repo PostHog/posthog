@@ -85,7 +85,7 @@ pub async fn event(
             }
 
             Ok(CaptureResponse {
-                status: if params.beacon {
+                status: if context.beacon {
                     CaptureResponseCode::NoContent
                 } else {
                     CaptureResponseCode::Ok
@@ -141,7 +141,7 @@ pub async fn recording(
                 return Err(err);
             }
             Ok(CaptureResponse {
-                status: if params.beacon {
+                status: if context.beacon {
                     CaptureResponseCode::NoContent
                 } else {
                     CaptureResponseCode::Ok
