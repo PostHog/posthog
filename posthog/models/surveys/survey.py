@@ -1,20 +1,24 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models import QuerySet
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
 from posthog.models import Action
+from posthog.models.feature_flag.feature_flag import AbstractBaseUser
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.integration import HttpRequest
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
@@ -200,6 +204,8 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     start_date = models.DateTimeField(null=True)
     end_date = models.DateTimeField(null=True)
+    scheduled_start_datetime = models.DateTimeField(null=True)
+    scheduled_end_datetime = models.DateTimeField(null=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
     # It's not a strict limit as it's enforced in a periodic task
@@ -272,6 +278,81 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             },
             should_delete=False,
         )
+
+    def get_lifecycle_analytics_event(
+        self,
+        before_start_date: datetime | None,
+        before_end_date: datetime | None,
+        trigger_source: str | None = None,
+    ) -> tuple[str, dict] | None:
+        properties = {
+            "name": self.name,
+            "id": self.id,
+            "survey_type": self.type,
+            "question_types": [question.get("type") for question in self.questions] if self.questions else [],
+            "created_at": self.created_at,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+        }
+
+        if trigger_source is not None:
+            properties["trigger_source"] = trigger_source
+
+        if before_start_date is None and self.start_date is not None:
+            return "survey launched", properties
+        if before_end_date is None and self.end_date is not None:
+            return "survey stopped", properties
+        if before_start_date is not None and before_end_date is not None and self.end_date is None:
+            return "survey resumed", properties
+
+        return None
+
+    def scheduled_changes_dispatcher(self, payload, user: AbstractBaseUser, scheduled_change_id: int):
+        from posthog.api.survey import SurveySerializerCreateUpdateOnly
+        from posthog.event_usage import report_user_action
+
+        if "scheduled_start_datetime" not in payload and "scheduled_end_datetime" not in payload:
+            raise Exception("Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key")
+
+        http_request = HttpRequest()
+        http_request.user = user
+        http_request.method = "PATCH"
+        context = {
+            "request": http_request,
+            "team_id": self.team_id,
+            "project_id": self.team.project_id,
+            "trigger_source": "scheduled_change",
+        }
+
+        before_start_date = self.start_date
+        before_end_date = self.end_date
+
+        has_scheduled_start = bool(payload.get("scheduled_start_datetime"))
+        is_running = self.start_date is not None and self.end_date is None
+
+        if has_scheduled_start:
+            if is_running:
+                return
+            serializer_data = {"start_date": timezone.now(), "end_date": None}
+        else:
+            if self.end_date is not None:
+                return
+            serializer_data = {"end_date": timezone.now()}
+
+        serializer = SurveySerializerCreateUpdateOnly(self, data=serializer_data, context=context, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        event_payload = self.get_lifecycle_analytics_event(
+            before_start_date=before_start_date,
+            before_end_date=before_end_date,
+            trigger_source="scheduled_change",
+        )
+        if event_payload is None:
+            return
+
+        event, properties = event_payload
+        report_user_action(user, event, {**properties, "scheduled_change_id": scheduled_change_id}, team=self.team)
 
 
 def update_response_sampling_limits(sender, instance, **kwargs):
@@ -396,3 +477,16 @@ def survey_changed(sender, instance: "Survey", **kwargs):
 
     # Defer task execution until after the transaction commits
     transaction.on_commit(lambda: update_team_surveys_cache.delay(instance.team_id))
+
+
+@receiver(pre_delete, sender=Survey)
+def delete_survey_scheduled_jobs(sender, instance: "Survey", **kwargs):
+    sender.objects.filter(pk=instance.pk).update(
+        scheduled_start_datetime=None,
+        scheduled_end_datetime=None,
+    )
+    ScheduledChange.objects.filter(
+        model_name="Survey",
+        record_id=str(instance.id),
+        executed_at__isnull=True,
+    ).delete()

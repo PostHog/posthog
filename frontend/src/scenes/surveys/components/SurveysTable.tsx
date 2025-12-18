@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
@@ -14,12 +15,22 @@ import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import {
+    SurveyResumeDialog,
+    SurveyStartDialog,
+    SurveyStopDialog,
+} from 'scenes/surveys/components/SurveyLifecycleDialogs'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import {
+    buildSurveyResumeUpdatePayload,
+    buildSurveyStartUpdatePayload,
+    buildSurveyStopUpdatePayload,
+} from 'scenes/surveys/surveyScheduling'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
-import { isSurveyRunning } from 'scenes/surveys/utils'
+import { doesSurveyHaveDisplayConditions, isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext } from '~/queries/schema/schema-general'
@@ -54,8 +65,11 @@ export function SurveysTable(): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
-    const shouldShowEmptyState = !dataLoading && surveys.length === 0
+    const [resumeSurvey, setResumeSurvey] = useState<Survey | null>(null)
+    const [stopSurveyDialogSurvey, setStopSurveyDialogSurvey] = useState<Survey | null>(null)
+    const [startSurveyDialogSurvey, setStartSurveyDialogSurvey] = useState<Survey | null>(null)
 
+    const shouldShowEmptyState = !dataLoading && surveys.length === 0
     if (shouldShowEmptyState) {
         return <SurveysEmptyState numOfSurveys={surveys.length} />
     }
@@ -222,39 +236,7 @@ export function SurveysTable(): JSX.Element {
                                                     <LemonButton
                                                         fullWidth
                                                         onClick={() => {
-                                                            const warnings = getSurveyWarnings(survey, teamSdkVersions)
-                                                            LemonDialog.open({
-                                                                title: 'Launch this survey?',
-                                                                content: (
-                                                                    <div>
-                                                                        <div className="text-sm text-secondary">
-                                                                            The survey will immediately start displaying
-                                                                            to users matching the display conditions.
-                                                                        </div>
-                                                                        <SdkVersionWarnings warnings={warnings} />
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Launch',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                start_date: dayjs().toISOString(),
-                                                                            },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_LAUNCHED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
+                                                            setStartSurveyDialogSurvey(survey)
                                                         }}
                                                     >
                                                         Launch survey
@@ -270,35 +252,7 @@ export function SurveysTable(): JSX.Element {
                                                     <LemonButton
                                                         fullWidth
                                                         onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: 'Stop this survey?',
-                                                                content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        The survey will no longer be visible to your
-                                                                        users.
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Stop',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                end_date: dayjs().toISOString(),
-                                                                            },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_COMPLETED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
+                                                            setStopSurveyDialogSurvey(survey)
                                                         }}
                                                     >
                                                         Stop survey
@@ -314,35 +268,7 @@ export function SurveysTable(): JSX.Element {
                                                     <LemonButton
                                                         fullWidth
                                                         onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: 'Resume this survey?',
-                                                                content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        Once resumed, the survey will be visible to your
-                                                                        users again.
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Resume',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                end_date: null,
-                                                                            },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_RESUMED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
+                                                            setResumeSurvey(survey)
                                                         }}
                                                     >
                                                         Resume survey
@@ -456,6 +382,72 @@ export function SurveysTable(): JSX.Element {
                         },
                     },
                 ]}
+            />
+
+            <SurveyResumeDialog
+                isOpen={!!resumeSurvey}
+                onClose={() => setResumeSurvey(null)}
+                initialScheduledTime={resumeSurvey?.scheduled_start_datetime || undefined}
+                description="Once resumed, the survey will be visible to your users again."
+                defaultDatetimeValue={() => resumeSurvey?.scheduled_start_datetime || dayjs().toISOString()}
+                onSubmit={async (scheduledStartTime) => {
+                    if (!resumeSurvey) {
+                        return
+                    }
+                    await updateSurvey({
+                        id: resumeSurvey.id,
+                        updatePayload: buildSurveyResumeUpdatePayload(scheduledStartTime),
+                        intentContext: ProductIntentContext.SURVEY_RESUMED,
+                    })
+                }}
+            />
+
+            <SurveyStartDialog
+                isOpen={!!startSurveyDialogSurvey}
+                onClose={() => setStartSurveyDialogSurvey(null)}
+                initialScheduledTime={startSurveyDialogSurvey?.scheduled_start_datetime || undefined}
+                description={`Start displaying to ${
+                    startSurveyDialogSurvey && doesSurveyHaveDisplayConditions(startSurveyDialogSurvey)
+                        ? 'users matching the display conditions'
+                        : 'all your users'
+                }:`}
+                afterPickerContent={
+                    <SdkVersionWarnings
+                        warnings={
+                            startSurveyDialogSurvey ? getSurveyWarnings(startSurveyDialogSurvey, teamSdkVersions) : []
+                        }
+                    />
+                }
+                onSubmit={async (scheduledStartTime) => {
+                    if (!startSurveyDialogSurvey) {
+                        return
+                    }
+
+                    await updateSurvey({
+                        id: startSurveyDialogSurvey.id,
+                        updatePayload: buildSurveyStartUpdatePayload(scheduledStartTime, dayjs().toISOString()),
+                        intentContext: ProductIntentContext.SURVEY_LAUNCHED,
+                    })
+                }}
+            />
+
+            <SurveyStopDialog
+                isOpen={!!stopSurveyDialogSurvey}
+                onClose={() => setStopSurveyDialogSurvey(null)}
+                initialScheduledTime={stopSurveyDialogSurvey?.scheduled_end_datetime || undefined}
+                defaultDatetimeValue={() => dayjs().add(1, 'hour').toISOString()}
+                description="The survey will no longer be visible to your users."
+                onSubmit={async (scheduledEndTime) => {
+                    if (!stopSurveyDialogSurvey) {
+                        return
+                    }
+
+                    await updateSurvey({
+                        id: stopSurveyDialogSurvey.id,
+                        updatePayload: buildSurveyStopUpdatePayload(scheduledEndTime, dayjs().toISOString()),
+                        ...(scheduledEndTime ? {} : { intentContext: ProductIntentContext.SURVEY_COMPLETED }),
+                    })
+                }}
             />
         </>
     )

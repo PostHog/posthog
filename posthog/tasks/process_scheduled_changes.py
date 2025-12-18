@@ -13,11 +13,10 @@ from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, ScheduledChange
+from posthog.models import FeatureFlag, ScheduledChange, Survey
 
 logger = structlog.get_logger(__name__)
-
-models = {"FeatureFlag": FeatureFlag}
+models = {"FeatureFlag": FeatureFlag, "Survey": Survey}
 
 # Maximum number of retry attempts before marking as permanently failed
 MAX_RETRY_ATTEMPTS = 5

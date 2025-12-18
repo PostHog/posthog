@@ -70,6 +70,7 @@ import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 
+
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =

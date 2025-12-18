@@ -85,7 +85,9 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
+import { buildSurveyResumeUpdatePayload, buildSurveyStopUpdatePayload } from './surveyScheduling'
+import type { SurveyFeatureWarning, TeamSdkVersions } from './surveyVersionRequirements'
+import { getSurveyWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -193,6 +195,8 @@ export interface QuestionResultsReady {
 }
 
 export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
+
+export type SurveyScheduleType = 'manual' | 'datetime'
 
 export interface SurveyDateRange {
     date_from: string | null
@@ -672,7 +676,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return response
             },
             stopSurvey: async () => {
-                const response = await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                const response = await api.surveys.update(
+                    props.id,
+                    buildSurveyStopUpdatePayload(null, dayjs().toISOString())
+                )
                 actions.addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEY_COMPLETED,
@@ -683,7 +690,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return response
             },
             resumeSurvey: async () => {
-                const response = await api.surveys.update(props.id, { end_date: null })
+                const response = await api.surveys.update(props.id, buildSurveyResumeUpdatePayload(null))
                 actions.addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEY_RESUMED,
@@ -1973,7 +1980,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         surveyWarnings: [
             (s) => [s.survey, s.teamSdkVersions],
-            (survey, teamSdkVersions): SurveyFeatureWarning[] => {
+            (survey: Survey | NewSurvey, teamSdkVersions: TeamSdkVersions): SurveyFeatureWarning[] => {
                 return getSurveyWarnings(survey as Survey, teamSdkVersions)
             },
         ],

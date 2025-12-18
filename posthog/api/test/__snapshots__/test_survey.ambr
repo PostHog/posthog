@@ -219,6 +219,8 @@
          "posthog_survey"."created_by_id",
          "posthog_survey"."start_date",
          "posthog_survey"."end_date",
+         "posthog_survey"."scheduled_start_datetime",
+         "posthog_survey"."scheduled_end_datetime",
          "posthog_survey"."updated_at",
          "posthog_survey"."archived",
          "posthog_survey"."responses_limit",

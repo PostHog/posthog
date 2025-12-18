@@ -17,7 +17,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test.client import Client
@@ -25,13 +25,14 @@ from django.test.client import Client
 from nanoid import generate
 from rest_framework import status
 
-from posthog.api.survey import nh3_clean_with_allow_list
+from posthog.api.survey import SurveySerializerCreateUpdateOnly, nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models import Action, FeatureFlag, Person, Survey, Team, User
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.scheduled_change import ScheduledChange
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 from products.product_tours.backend.models import ProductTour
@@ -1241,6 +1242,8 @@ class TestSurvey(APIBaseTest):
                     "archived": False,
                     "start_date": None,
                     "end_date": None,
+                    "scheduled_start_datetime": None,
+                    "scheduled_end_datetime": None,
                     "responses_limit": None,
                     "feature_flag_keys": [
                         {"key": "linked_flag_key", "value": None},
@@ -1339,6 +1342,24 @@ class TestSurvey(APIBaseTest):
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_400_BAD_REQUEST
         assert (
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
+        )
+
+    def test_cannot_create_scheduled_launch_after_scheduled_end(self):
+        invalid_launch_schedule_survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "scheduled_start_datetime": "2023-05-10T12:00:00Z",
+                "scheduled_end_datetime": "2023-05-05T12:00:00Z",
+            },
+            format="json",
+        )
+
+        assert invalid_launch_schedule_survey.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            invalid_launch_schedule_survey.json()["detail"]
+            == "Scheduled launch time must be before scheduled end time."
         )
 
     @freeze_time("2023-05-01 12:00:00")
@@ -4845,3 +4866,610 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(uuid1, uuids)
         self.assertIn(uuid2, uuids)
         self.assertNotIn(uuid3, uuids)
+
+
+class TestAddLaunchSchedules(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.team = MagicMock(spec=Team)
+        self.team.id = 1
+        self.user = MagicMock(spec=User)
+        self.user.id = 1
+        self.survey = MagicMock(spec=Survey)
+        self.survey.id = 123
+        self.survey.team = self.team
+        self.survey.created_by = self.user
+        self.survey.scheduled_start_datetime = None
+        self.survey.scheduled_end_datetime = None
+        self.context = {
+            "request": MagicMock(user=self.user),
+            "team_id": self.team.id,
+        }
+        self.serializer = SurveySerializerCreateUpdateOnly(context=self.context)
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_no_change_in_schedule_noop(self, mock_filter, mock_create):
+        before = datetime.now(UTC)
+        self.survey.scheduled_start_datetime = before
+        self.survey.scheduled_end_datetime = before
+        self.serializer._add_launch_schedules(self.survey, before, before)
+        mock_filter.assert_not_called()
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_null_schedule_noop(self, mock_filter, mock_create):
+        self.survey.scheduled_start_datetime = None
+        self.survey.scheduled_end_datetime = None
+        self.serializer._add_launch_schedules(self.survey, None, None)
+        mock_filter.assert_not_called()
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_deletes_existing_schedules_that_have_not_already_run(self, mock_filter, _):
+        before = datetime.now(UTC) + timedelta(days=1)
+        after = datetime.now(UTC) + timedelta(days=2)
+        self.survey.scheduled_start_datetime = after
+        self.survey.scheduled_end_datetime = after
+        mock_delete = MagicMock()
+        mock_filter.return_value.delete = mock_delete
+        self.serializer._add_launch_schedules(self.survey, before, before)
+        mock_filter.assert_called_once_with(model_name="Survey", record_id=self.survey.id, executed_at__isnull=True)
+        mock_delete.assert_called_once()
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_does_not_create_schedules_if_dates_in_past(self, mock_filter, mock_create):
+        start = datetime.now(UTC) - timedelta(days=3)
+        end = datetime.now(UTC) - timedelta(days=2)
+        self.survey.scheduled_start_datetime = start
+        self.survey.scheduled_end_datetime = end
+        self.serializer._add_launch_schedules(self.survey, None, None)
+        mock_create.assert_not_called()
+        mock_filter.assert_called_once_with(model_name="Survey", record_id=self.survey.id, executed_at__isnull=True)
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_create_start_schedule(self, _, mock_create):
+        start = datetime.now(UTC) + timedelta(days=2)
+        self.survey.scheduled_start_datetime = start
+        self.survey.scheduled_end_datetime = None
+        self.serializer._add_launch_schedules(self.survey, None, None)
+        mock_create.assert_called_once_with(
+            model_name="Survey",
+            record_id=self.survey.id,
+            scheduled_at=start,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_start_datetime": start.isoformat()},
+        )
+
+    @patch("posthog.api.survey.ScheduledChange.objects.create")
+    @patch("posthog.api.survey.ScheduledChange.objects.filter")
+    def test_create_end_schedule(self, _, mock_create):
+        end = datetime.now(UTC) + timedelta(days=2)
+        self.survey.scheduled_start_datetime = None
+        self.survey.scheduled_end_datetime = end
+        self.serializer._add_launch_schedules(self.survey, None, None)
+        mock_create.assert_called_once_with(
+            model_name="Survey",
+            record_id=self.survey.id,
+            scheduled_at=end,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_end_datetime": end.isoformat()},
+        )
+
+
+class TestSurveyStartResumeClearsScheduling(APIBaseTest):
+    def test_scheduling_resume_does_not_resume_immediately(self):
+        # Create and launch a survey (so it has an internal targeting flag).
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey scheduled resume should not resume immediately",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        # Start it
+        start_now = datetime.now(UTC) - timedelta(days=2)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"start_date": start_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # Stop it
+        stop_now = datetime.now(UTC) - timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"end_date": stop_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        survey = Survey.objects.get(id=survey_id)
+        assert survey.end_date is not None
+        assert survey.internal_targeting_flag is not None
+        survey.internal_targeting_flag.refresh_from_db()
+        assert survey.internal_targeting_flag.active is False
+
+        # Schedule a future resume without changing end_date.
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"scheduled_start_datetime": scheduled_start.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        assert survey.scheduled_start_datetime is not None
+        survey.internal_targeting_flag.refresh_from_db()
+        assert survey.internal_targeting_flag.active is False
+
+    def test_starting_survey_clears_scheduled_start_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Scheduled survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "scheduled_start_datetime": scheduled_start.isoformat(),
+                "scheduled_end_datetime": scheduled_end.isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        start_now = datetime.now(UTC)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"start_date": start_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is None
+        assert response.json()["scheduled_end_datetime"] is None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_stopping_survey_clears_scheduled_times_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey to stop",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "scheduled_start_datetime": scheduled_start.isoformat(),
+                "scheduled_end_datetime": scheduled_end.isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        stop_now = datetime.now(UTC)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"end_date": stop_now.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is None
+        assert response.json()["scheduled_end_datetime"] is None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey_id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_scheduled_end_clears_scheduled_times_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Running survey with schedules",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=datetime.now(UTC) - timedelta(days=1),
+            end_date=None,
+            scheduled_start_datetime=scheduled_start,
+            scheduled_end_datetime=scheduled_end,
+        )
+
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_start,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_start_datetime": scheduled_start.isoformat()},
+        )
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_end,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_end_datetime": scheduled_end.isoformat()},
+        )
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        with (
+            patch("posthog.event_usage.report_user_action"),
+            patch("posthog.api.survey.report_user_action"),
+        ):
+            survey.scheduled_changes_dispatcher(
+                {"scheduled_end_datetime": scheduled_end.isoformat()},
+                user=self.user,
+                scheduled_change_id=123,
+            )
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        assert survey.scheduled_start_datetime is None
+        assert survey.scheduled_end_datetime is None
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_scheduled_start_clears_scheduled_times_and_deletes_jobs(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Ended survey with schedules",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=None,
+            end_date=datetime.now(UTC) - timedelta(days=1),
+            scheduled_start_datetime=scheduled_start,
+            scheduled_end_datetime=scheduled_end,
+        )
+
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_start,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_start_datetime": scheduled_start.isoformat()},
+        )
+        ScheduledChange.objects.create(
+            model_name="Survey",
+            record_id=str(survey.id),
+            scheduled_at=scheduled_end,
+            created_by_id=self.user.id,
+            team_id=self.team.id,
+            payload={"scheduled_end_datetime": scheduled_end.isoformat()},
+        )
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 2
+        )
+
+        with (
+            patch("posthog.event_usage.report_user_action"),
+            patch("posthog.api.survey.report_user_action"),
+        ):
+            survey.scheduled_changes_dispatcher(
+                {"scheduled_start_datetime": scheduled_start.isoformat()},
+                user=self.user,
+                scheduled_change_id=123,
+            )
+
+        survey.refresh_from_db()
+        assert survey.start_date is not None
+        assert survey.end_date is None
+        assert survey.scheduled_start_datetime is None
+        assert survey.scheduled_end_datetime is None
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey", record_id=str(survey.id), executed_at__isnull=True
+            ).count()
+            == 0
+        )
+
+    def test_resuming_immediately_clears_scheduled_start_and_deletes_jobs(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Ended survey",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=datetime.now(UTC) - timedelta(days=2),
+            end_date=datetime.now(UTC) - timedelta(days=1),
+        )
+
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"scheduled_start_datetime": scheduled_start.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is not None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey.id),
+                executed_at__isnull=True,
+                payload__has_key="scheduled_start_datetime",
+            ).count()
+            == 1
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey.id),
+                executed_at__isnull=True,
+                payload__has_key="scheduled_start_datetime",
+            ).count()
+            == 0
+        )
+
+    def test_resuming_with_future_schedule_keeps_scheduled_start_and_jobs(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Ended survey scheduled resume",
+            type="popover",
+            questions=[{"type": "open", "question": "?"}],
+            created_by=self.user,
+            start_date=datetime.now(UTC) - timedelta(days=2),
+            end_date=datetime.now(UTC) - timedelta(days=1),
+        )
+
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": None, "scheduled_start_datetime": scheduled_start.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["scheduled_start_datetime"] is not None
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey.id),
+                executed_at__isnull=True,
+                payload__has_key="scheduled_start_datetime",
+            ).count()
+            == 1
+        )
+
+
+class TestSurveyDeleteCleansUpScheduledJobs(APIBaseTest):
+    def test_deleting_survey_deletes_pending_scheduled_changes(self):
+        scheduled_start = datetime.now(UTC) + timedelta(days=1)
+        scheduled_end = datetime.now(UTC) + timedelta(days=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Scheduled survey to delete",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "?"}],
+                "scheduled_start_datetime": scheduled_start.isoformat(),
+                "scheduled_end_datetime": scheduled_end.isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey_id = response.json()["id"]
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey_id),
+                executed_at__isnull=True,
+            ).count()
+            == 2
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey_id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        assert (
+            ScheduledChange.objects.filter(
+                model_name="Survey",
+                record_id=str(survey_id),
+                executed_at__isnull=True,
+            ).count()
+            == 0
+        )
+
+
+class TestSurveyScheduledChangesDispatcher(APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+
+        self.survey = Survey.objects.create(
+            name="Test Survey",
+            team=self.team,
+        )
+
+        self.survey_serializer = MagicMock()
+        self.instantiated_survey_serializer = MagicMock()
+        self.survey_serializer.return_value = self.instantiated_survey_serializer
+        self.instantiated_survey_serializer.is_valid = MagicMock()
+        self.instantiated_survey_serializer.is_valid.return_value = True
+        self.instantiated_survey_serializer.save = MagicMock()
+        self.mock_serializer_instance = MagicMock()
+        self.mock_serializer_instance.SurveySerializerCreateUpdateOnly = self.survey_serializer
+
+    def test_does_not_update_start_if_survey_already_running(self):
+        with (
+            patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}),
+            patch("posthog.event_usage.report_user_action") as mock_report_user_action,
+        ):
+            self.survey.start_date = datetime.now(UTC)
+            self.survey.end_date = None
+            scheduled_start_datetime = datetime.now(UTC)
+            self.survey.scheduled_changes_dispatcher(
+                {"scheduled_start_datetime": scheduled_start_datetime.isoformat()},
+                user=self.user,
+                scheduled_change_id=1,
+            )
+
+            self.survey_serializer.assert_not_called()
+            mock_report_user_action.assert_not_called()
+
+    def test_does_not_update_end_if_survey_already_ended(self):
+        with (
+            patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}),
+            patch("posthog.event_usage.report_user_action") as mock_report_user_action,
+        ):
+            self.survey.end_date = datetime.now(UTC)
+            scheduled_end_datetime = datetime.now(UTC)
+            self.survey.scheduled_changes_dispatcher(
+                {"scheduled_end_datetime": scheduled_end_datetime.isoformat()}, user=self.user, scheduled_change_id=2
+            )
+            self.survey_serializer.assert_not_called()
+            mock_report_user_action.assert_not_called()
+
+    def test_start_datetime_calls_validate_and_save(self):
+        with (
+            patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}),
+            patch("posthog.event_usage.report_user_action") as mock_report_user_action,
+        ):
+            scheduled_start_datetime = datetime.now(UTC)
+            self.survey.start_date = None
+            self.survey.end_date = datetime.now(UTC)
+
+            new_start_date = datetime.now(UTC)
+
+            def _save_side_effect():
+                self.survey.start_date = new_start_date
+                self.survey.end_date = None
+
+            self.instantiated_survey_serializer.save.side_effect = _save_side_effect
+
+            with patch("posthog.models.surveys.survey.timezone.now", return_value=new_start_date):
+                self.survey.scheduled_changes_dispatcher(
+                    {"scheduled_start_datetime": scheduled_start_datetime.isoformat()},
+                    user=self.user,
+                    scheduled_change_id=3,
+                )
+
+            self.survey_serializer.assert_called_once()
+            _, kwargs = self.survey_serializer.call_args
+            assert kwargs["data"] == {"start_date": new_start_date, "end_date": None}
+            self.instantiated_survey_serializer.is_valid.assert_called_once_with(raise_exception=True)
+            self.instantiated_survey_serializer.save.assert_called_once()
+            mock_report_user_action.assert_called_once()
+            call_args, call_kwargs = mock_report_user_action.call_args
+            assert call_kwargs["team"] == self.team
+            assert call_args[1] in ["survey launched", "survey resumed"]
+            assert call_args[2]["trigger_source"] == "scheduled_change"
+            assert call_args[2]["scheduled_change_id"] == 3
+
+    def test_end_datetime_calls_validate_and_save(self):
+        with (
+            patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}),
+            patch("posthog.event_usage.report_user_action") as mock_report_user_action,
+        ):
+            scheduled_end_datetime = datetime.now(UTC)
+            self.survey.end_date = None
+
+            new_end_date = datetime.now(UTC)
+
+            def _save_side_effect():
+                self.survey.end_date = new_end_date
+
+            self.instantiated_survey_serializer.save.side_effect = _save_side_effect
+
+            with patch("posthog.models.surveys.survey.timezone.now", return_value=new_end_date):
+                self.survey.scheduled_changes_dispatcher(
+                    {"scheduled_end_datetime": scheduled_end_datetime.isoformat()},
+                    user=self.user,
+                    scheduled_change_id=4,
+                )
+            self.survey_serializer.assert_called_once()
+            _, kwargs = self.survey_serializer.call_args
+            assert kwargs["data"] == {"end_date": new_end_date}
+            self.instantiated_survey_serializer.is_valid.assert_called_once_with(raise_exception=True)
+            self.instantiated_survey_serializer.save.assert_called_once()
+            mock_report_user_action.assert_called_once()
+            call_args, call_kwargs = mock_report_user_action.call_args
+            assert call_kwargs["team"] == self.team
+            assert call_args[1] == "survey stopped"
+            assert call_args[2]["trigger_source"] == "scheduled_change"
+            assert call_args[2]["scheduled_change_id"] == 4
+
+    def test_raises_exception_if_payload_invalid(self):
+        with patch.dict("sys.modules", {"posthog.api.survey": self.mock_serializer_instance}):
+            with pytest.raises(
+                Exception,
+                match="Payload must contain either 'scheduled_start_datetime' or 'scheduled_end_datetime' key",
+            ):
+                self.survey.scheduled_changes_dispatcher(
+                    {"invalid_payload_key": 123}, user=self.user, scheduled_change_id=5
+                )
+
+            self.survey_serializer.assert_not_called()

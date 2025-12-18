@@ -951,6 +951,7 @@ export function determineDifferenceType(
 
 export const DATE_FORMAT = 'MMMM D, YYYY'
 export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
+export const DATE_TIME_FORMAT_WITHOUT_SECONDS = 'MMMM D, YYYY HH:mm'
 export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 export const DATE_FORMAT_WITHOUT_DAY = 'HH:mm:ss'
 

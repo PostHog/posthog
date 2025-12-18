@@ -41,7 +41,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models import Action
+from posthog.models import Action, ScheduledChange
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -182,6 +182,8 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "created_by",
             "start_date",
             "end_date",
+            "scheduled_start_datetime",
+            "scheduled_end_datetime",
             "archived",
             "responses_limit",
             "feature_flag_keys",
@@ -251,6 +253,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "created_by",
             "start_date",
             "end_date",
+            "scheduled_start_datetime",
+            "scheduled_end_datetime",
             "archived",
             "responses_limit",
             "iteration_count",
@@ -400,9 +404,42 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         return cleaned_questions
 
     def validate_schedule(self, value):
-        if value is not None and value not in ["once", "recurring", "always"]:
+        if value is not None and value not in Survey.Schedule.values:
             raise serializers.ValidationError("Schedule must be one of: once, recurring, always")
         return value
+
+    def _normalize_scheduled_datetimes(self, validated_data: dict, *, trigger_source: str | None) -> None:
+        def _clear_scheduled_times() -> None:
+            validated_data["scheduled_start_datetime"] = None
+            validated_data["scheduled_end_datetime"] = None
+
+        end_date_in_request = "end_date" in validated_data
+        start_date_in_request = "start_date" in validated_data
+
+        # Ending a survey clears future schedules.
+        if end_date_in_request and validated_data.get("end_date") is not None:
+            _clear_scheduled_times()
+            return
+
+        # Starting a survey clears future schedules.
+        if start_date_in_request and validated_data.get("start_date") is not None:
+            _clear_scheduled_times()
+            return
+
+        # Scheduled changes should not be treated as user-initiated scheduling edits.
+        if trigger_source == "scheduled_change":
+            return
+
+        # If we're resuming now (explicit end_date=None), clear an immediate/omitted scheduled start.
+        if not (end_date_in_request and validated_data.get("end_date") is None):
+            return
+
+        now = datetime.now(UTC)
+        scheduled_start_in_request = (
+            validated_data.get("scheduled_start_datetime") if "scheduled_start_datetime" in validated_data else None
+        )
+        if scheduled_start_in_request is None or scheduled_start_in_request <= now:
+            validated_data["scheduled_start_datetime"] = None
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
@@ -555,6 +592,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if errors:
                 raise serializers.ValidationError(errors)
 
+        # Validate scheduled start date is before scheduled end date
+        # this is also enforced in the UI. double-check it here.
+        scheduled_start_datetime = data.get("scheduled_start_datetime")
+        scheduled_end_datetime = data.get("scheduled_end_datetime")
+        if scheduled_start_datetime and scheduled_end_datetime and scheduled_start_datetime >= scheduled_end_datetime:
+            raise serializers.ValidationError("Scheduled launch time must be before scheduled end time.")
+
         return data
 
     def create(self, validated_data):
@@ -577,6 +621,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
+        self._add_launch_schedules(instance)
 
         team = Team.objects.get(id=self.context["team_id"])
         log_activity(
@@ -596,6 +641,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
+        trigger_source = self.context.get("trigger_source")
+        self._normalize_scheduled_datetimes(validated_data, trigger_source=trigger_source)
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
@@ -648,7 +696,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
-        end_date = validated_data.get("end_date")
+        # IMPORTANT: `end_date` missing from the payload must not be treated as `end_date=None`.
+        # Otherwise any PATCH (e.g. scheduling changes) would incorrectly "resume" surveys by
+        # re-activating targeting flags.
+        end_date = validated_data["end_date"] if "end_date" in validated_data else instance.end_date
 
         if instance.targeting_flag:
             # turn off feature flag if survey is completed
@@ -694,42 +745,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             detail=Detail(changes=changes, name=instance.name),
         )
 
-        # Report survey events based on start_date and end_date changes
-
-        properties = {
-            "name": instance.name,
-            "id": instance.id,
-            "survey_type": instance.type,
-            "question_types": [question.get("type") for question in instance.questions] if instance.questions else [],
-            "created_at": instance.created_at,
-            "start_date": instance.start_date,
-            "end_date": instance.end_date,
-        }
-        if before_update.start_date is None and instance.start_date is not None:
-            report_user_action(
-                user,
-                "survey launched",
-                properties,
-                team,
-            )
-        elif before_update.end_date is None and instance.end_date is not None:
-            report_user_action(
-                user,
-                "survey stopped",
-                properties,
-                team,
-            )
-        elif before_update.start_date is not None and before_update.end_date is not None and instance.end_date is None:
-            report_user_action(
-                user,
-                "survey resumed",
-                properties,
-                team,
-            )
+        event_payload = instance.get_lifecycle_analytics_event(
+            before_start_date=before_update.start_date,
+            before_end_date=before_update.end_date,
+        )
+        if event_payload is not None:
+            event, properties = event_payload
+            report_user_action(user, event, properties, team)
 
         self._add_user_survey_interacted_filters(instance, end_date)
         self._associate_actions(instance, validated_data.get("conditions"))
         self._add_internal_response_sampling_filters(instance)
+        self._add_launch_schedules(
+            instance,
+            before_update.scheduled_start_datetime,
+            before_update.scheduled_end_datetime,
+        )
+
         return instance
 
     def _add_internal_response_sampling_filters(self, instance: Survey):
@@ -752,6 +784,41 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
         )
         instance.save()
+
+    def _add_launch_schedules(
+        self,
+        instance: Survey,
+        before_update_scheduled_start_datetime: datetime | None = None,
+        before_update_scheduled_end_datetime: datetime | None = None,
+    ) -> None:
+        # no new launch schedules, exit early
+        if (
+            instance.scheduled_start_datetime == before_update_scheduled_start_datetime
+            and instance.scheduled_end_datetime == before_update_scheduled_end_datetime
+        ):
+            return
+
+        # if this is an update, delete existing schedules that have not run yet
+        ScheduledChange.objects.filter(model_name="Survey", record_id=instance.id, executed_at__isnull=True).delete()
+
+        now = datetime.now(UTC)
+        schedules: list[tuple[str, datetime | None]] = [
+            ("scheduled_start_datetime", instance.scheduled_start_datetime),
+            ("scheduled_end_datetime", instance.scheduled_end_datetime),
+        ]
+
+        for payload_key, scheduled_at in schedules:
+            if scheduled_at is None or scheduled_at <= now:
+                continue
+
+            ScheduledChange.objects.create(
+                model_name="Survey",
+                record_id=instance.id,
+                scheduled_at=scheduled_at,
+                created_by_id=self.context["request"].user.id,
+                team_id=self.context["team_id"],
+                payload={payload_key: scheduled_at.isoformat()},
+            )
 
     def _associate_actions(self, instance: Survey, conditions):
         if conditions is None:
