@@ -28,7 +28,7 @@ MODELS = [
     "claude-opus-4-5-20251101",
 ]
 
-TIMEOUT_SECONDS = 25  # 5 minutes
+TIMEOUT_SECONDS = 300  # 5 minutes
 SEMAPHORE_LIMIT = 20
 TEMPERATURE = 0
 
