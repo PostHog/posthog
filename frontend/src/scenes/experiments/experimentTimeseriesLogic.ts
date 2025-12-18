@@ -5,7 +5,7 @@ import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
@@ -226,7 +226,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                 // If all days are computed, show "Calculated N days"
                 if (computedDays === totalDays) {
-                    return `Calculated ${totalDays} day${totalDays === 1 ? '' : 's'}`
+                    return `Calculated ${pluralize(totalDays, 'day')}`
                 }
 
                 // Otherwise show progress "Computed N of M days"

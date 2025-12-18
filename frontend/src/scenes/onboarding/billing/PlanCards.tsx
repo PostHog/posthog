@@ -9,6 +9,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
+import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -73,7 +74,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
         ...(projectLimitFeature?.limit
             ? [
                   {
-                      name: `${projectLimitFeature.limit} project${projectLimitFeature.limit === 1 ? '' : 's'}`,
+                      name: pluralize(projectLimitFeature.limit, 'project'),
                       available: true,
                   },
               ]

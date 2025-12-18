@@ -31,6 +31,13 @@ jobs:
               env:
                   RAW_BODY: ${{ github.event.pull_request.body }}
 
+            # `gh` CLI in the next step requires the repo to be checked out
+            - uses: actions/checkout@v6
+              if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
+              with:
+                  # make the checkout extremely quickly
+                  sparse-checkout: 'README.md'
+
             - name: Shame if PR has no description
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
               env:

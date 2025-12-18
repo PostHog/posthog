@@ -19,13 +19,17 @@ from posthog.batch_exports.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportModel,
+    BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
 )
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models.integration import DatabricksIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+    BigQueryClient,
+    bigquery_default_fields,
+)
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
     databricks_default_fields,
@@ -483,26 +487,37 @@ class BatchExportsDebugger:
         return column_stats
 
     @contextlib.asynccontextmanager
-    async def get_client(self) -> collections.abc.AsyncIterator[DatabricksClient]:
+    async def get_client(self) -> collections.abc.AsyncIterator[DatabricksClient | BigQueryClient]:
         """Get a client for the destination.
 
-        Only Databricks is supported at the moment.
+        Only Databricks and BigQuery are supported at the moment.
         """
         match self.batch_export.destination.type:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
-                inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
+                databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
                 assert self.batch_export.destination.integration is not None
                 integration = DatabricksIntegration(self.batch_export.destination.integration)
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
-                    http_path=inputs.http_path,
+                    http_path=databricks_inputs.http_path,
                     client_id=integration.client_id,
                     client_secret=integration.client_secret,
-                    catalog=inputs.catalog,
-                    schema=inputs.schema,
+                    catalog=databricks_inputs.catalog,
+                    schema=databricks_inputs.schema,
                 )
                 async with client.connect() as databricks_client:
                     yield databricks_client
+            case BatchExportDestination.Destination.BIGQUERY:
+                console.print("[bold green]Getting BigQuery client...[/bold green]")
+                bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
+                async with BigQueryClient.from_service_account_inputs(
+                    private_key=bigquery_inputs.private_key,
+                    private_key_id=bigquery_inputs.private_key_id,
+                    token_uri=bigquery_inputs.token_uri,
+                    client_email=bigquery_inputs.client_email,
+                    project_id=bigquery_inputs.project_id,
+                ) as bigquery_client:
+                    yield bigquery_client
             case t:
                 raise NotImplementedError(f"get_client not yet implemented for destination: {t}")

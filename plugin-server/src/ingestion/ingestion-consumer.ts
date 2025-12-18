@@ -1,14 +1,12 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
@@ -22,7 +20,7 @@ import {
     PluginsServerConfig,
     Team,
 } from '../types'
-import { EventIngestionRestrictionManager, Restriction } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -36,16 +34,6 @@ import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-
-const ingestionEventOverflowed = new Counter({
-    name: 'ingestion_event_overflowed',
-    help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
-})
-
-const forcedOverflowEventsCounter = new Counter({
-    name: 'ingestion_forced_overflow_events_total',
-    help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-})
 
 type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
 
@@ -93,14 +81,12 @@ export class IngestionConsumer {
     protected topic: string
     protected dlqTopic: string
     protected overflowTopic?: string
-    protected testingTopic?: string
     protected kafkaConsumer: KafkaConsumer
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
     private overflowRateLimiter: MemoryRateLimiter
-    private ingestionWarningLimiter: MemoryRateLimiter
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -125,7 +111,6 @@ export class IngestionConsumer {
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
                 | 'INGESTION_CONSUMER_DLQ_TOPIC'
-                | 'INGESTION_CONSUMER_TESTING_TOPIC'
             >
         > = {}
     ) {
@@ -147,15 +132,12 @@ export class IngestionConsumer {
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
         this.overflowRateLimiter = new MemoryRateLimiter(
             this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
             this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
         )
-
-        this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
@@ -206,6 +188,7 @@ export class IngestionConsumer {
                 personsStore: this.personsStore,
                 hogTransformer: this.hogTransformer,
                 eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                overflowRateLimiter: this.overflowRateLimiter,
                 overflowEnabled: this.overflowEnabled(),
                 overflowTopic: this.overflowTopic || '',
                 dlqTopic: this.dlqTopic,
@@ -319,10 +302,8 @@ export class IngestionConsumer {
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(eventsPerDistinctId).map(async (events) => {
-                    const eventsToProcess = this.redirectEvents(events)
-
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, groupStoreForBatch)
+                        this.processEventsForDistinctId(events, groupStoreForBatch)
                     )
                 })
             )
@@ -392,73 +373,6 @@ export class IngestionConsumer {
         await this.kafkaProducer!.flush()
     }
 
-    /**
-     * Redirect events to overflow or testing topic based on their configuration
-     * returning events that have not been redirected
-     */
-    private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
-        if (!eventsForDistinctId.events.length) {
-            return eventsForDistinctId
-        }
-
-        if (this.testingTopic) {
-            void this.promiseScheduler.schedule(
-                this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message))
-            )
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        // NOTE: We know at this point that all these events are the same token distinct_id
-        const token = eventsForDistinctId.token
-        const distinctId = eventsForDistinctId.distinctId
-        const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
-        const eventKey = `${token}:${distinctId}`
-
-        // Check if this token is in the force overflow static/dynamic config list
-        const restrictions = this.getAppliedRestrictions(token, distinctId)
-        const shouldForceOverflow = restrictions.has(Restriction.FORCE_OVERFLOW)
-
-        // Check the rate limiter and emit to overflow if necessary
-        const isBelowRateLimit = this.overflowRateLimiter.consume(
-            eventKey,
-            eventsForDistinctId.events.length,
-            kafkaTimestamp
-        )
-
-        if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-            ingestionEventOverflowed.inc(eventsForDistinctId.events.length)
-
-            if (shouldForceOverflow) {
-                forcedOverflowEventsCounter.inc()
-            } else if (this.ingestionWarningLimiter.consume(eventKey, eventsForDistinctId.events.length)) {
-                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-            }
-
-            // NOTE: If we are forcing to overflow we typically want to keep the partition key
-            // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
-            // of random partitioning.
-            const preserveLocality =
-                shouldForceOverflow && !restrictions.has(Restriction.SKIP_PERSON_PROCESSING) ? true : undefined
-
-            void this.promiseScheduler.schedule(
-                this.emitToOverflow(
-                    eventsForDistinctId.events.map((x) => x.message),
-                    preserveLocality
-                )
-            )
-
-            return {
-                ...eventsForDistinctId,
-                events: [],
-            }
-        }
-
-        return eventsForDistinctId
-    }
-
     private async processEventsForDistinctId(
         eventsForDistinctId: EventsForDistinctId,
         groupStoreForBatch: GroupStoreForBatch
@@ -526,61 +440,7 @@ export class IngestionConsumer {
         return groupedEvents
     }
 
-    private getAppliedRestrictions(token?: string, distinctId?: string): ReadonlySet<Restriction> {
-        return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, { distinct_id: distinctId })
-    }
-
     private overflowEnabled(): boolean {
-        return (
-            !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
-            !this.testingTopic
-        )
-    }
-
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean): Promise<void> {
-        const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        if (!overflowTopic) {
-            throw new Error('No overflow topic configured')
-        }
-
-        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
-
-        const preservePartitionLocality =
-            preservePartitionLocalityOverride !== undefined
-                ? preservePartitionLocalityOverride
-                : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-
-        await Promise.all(
-            kafkaMessages.map((message) => {
-                return this.kafkaOverflowProducer!.produce({
-                    topic: this.overflowTopic!,
-                    value: message.value,
-                    // ``message.key`` should not be undefined here, but in the
-                    // (extremely) unlikely event that it is, set it to ``null``
-                    // instead as that behavior is safer.
-                    key: preservePartitionLocality ? (message.key ?? null) : null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            })
-        )
-    }
-
-    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
-        const testingTopic = this.testingTopic
-        if (!testingTopic) {
-            throw new Error('No testing topic configured')
-        }
-
-        await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaOverflowProducer!.produce({
-                    topic: this.testingTopic!,
-                    value: message.value,
-                    key: message.key ?? null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            )
-        )
+        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
     }
 }

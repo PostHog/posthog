@@ -19,14 +19,6 @@ import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manag
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 
 jest.mock('../../../src/worker/plugins/run')
-
-jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
-    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
-    return {
-        ...originalModule,
-        processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
-    }
-})
 jest.mock('../../../src/utils/logger')
 jest.mock('./../../../src/worker/ingestion/utils')
 

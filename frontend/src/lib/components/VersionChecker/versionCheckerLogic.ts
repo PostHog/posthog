@@ -12,6 +12,7 @@ import {
     tryParseVersion,
     versionToString,
 } from 'lib/utils/semver'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { hogql } from '~/queries/utils'
 
@@ -98,7 +99,12 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                         ORDER BY latest_timestamp DESC
                         limit 10`
 
-                    const res = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, { refresh: 'force_blocking' })
+                    const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'VersionChecker'
+                    const res = await api.queryHogQL(
+                        query,
+                        { scene: currentScene, productKey: 'platform_and_support' },
+                        { refresh: 'force_blocking' }
+                    )
 
                     return (
                         res.results

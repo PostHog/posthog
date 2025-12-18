@@ -16,7 +16,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
-import { getSurveyVersionWarnings } from 'scenes/surveys/surveyVersionRequirements'
+import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -54,8 +54,8 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
     const { teamSdkVersions } = useValues(surveysSdkLogic)
     const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
 
-    const versionWarnings = useMemo(
-        () => getSurveyVersionWarnings(previewSurvey as Survey, teamSdkVersions),
+    const warnings = useMemo(
+        () => getSurveyWarnings(previewSurvey as Survey, teamSdkVersions),
         [previewSurvey, teamSdkVersions]
     )
 
@@ -217,7 +217,7 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
                     </div>
                 )}
 
-                <SdkVersionWarnings warnings={versionWarnings} />
+                <SdkVersionWarnings warnings={warnings} />
 
                 {submitDisabledReason && (
                     <LemonBanner type="error" className="mb-4">

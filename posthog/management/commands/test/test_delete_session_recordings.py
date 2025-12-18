@@ -34,26 +34,34 @@ class TestDeleteSessionRecordingsCommand(BaseTest):
         )
         assert created_ids == set(expected_ids)
 
-    def test_parses_session_ids_from_csv_file(self):
+    @parameterized.expand(
+        [
+            ("without_header", "session1\nsession2\n\nsession3\n", False, {"session1", "session2", "session3"}),
+            ("with_header", "session_id\nsession1\nsession2\nsession3\n", True, {"session1", "session2", "session3"}),
+        ]
+    )
+    def test_parses_session_ids_from_csv_file(
+        self, _name: str, csv_content: str, skip_header: bool, expected_ids: set[str]
+    ):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write("session1\n")
-            f.write("session2\n")
-            f.write("\n")
-            f.write("session3\n")
-            f.write("\n")
+            f.write(csv_content)
             csv_path = f.name
 
         try:
-            call_command(
+            args = [
                 "delete_session_recordings",
                 f"--team-id={self.team.id}",
                 f"--csv-file={csv_path}",
-            )
+            ]
+            if skip_header:
+                args.append("--skip-header")
+
+            call_command(*args)
 
             created_ids = set(
                 SessionRecording.objects.filter(team=self.team, deleted=True).values_list("session_id", flat=True)
             )
-            assert created_ids == {"session1", "session2", "session3"}
+            assert created_ids == expected_ids
         finally:
             os.unlink(csv_path)
 

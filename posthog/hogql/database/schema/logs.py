@@ -50,6 +50,7 @@ class LogAttributesTable(Table):
         "attribute_key": StringDatabaseField(name="attribute_key", nullable=False),
         "attribute_value": StringDatabaseField(name="attribute_value", nullable=False),
         "attribute_type": StringDatabaseField(name="attribute_type", nullable=False),
+        "attribute_count": IntegerDatabaseField(name="attribute_count", nullable=False),
         "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
     }

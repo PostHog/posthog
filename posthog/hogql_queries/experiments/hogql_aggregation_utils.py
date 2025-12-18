@@ -25,22 +25,26 @@ def is_aggregation_function(function_name: str) -> bool:
     return False
 
 
-def extract_aggregation_and_inner_expr(hogql_expr: Union[str, ast.Expr]) -> tuple[Optional[str], ast.Expr]:
+def extract_aggregation_and_inner_expr(
+    hogql_expr: Union[str, ast.Expr],
+) -> tuple[Optional[str], ast.Expr, Optional[list[ast.Expr]]]:
     """
-    Extract the aggregation function and inner expression from a HogQL expression.
+    Extract the aggregation function, inner expression, and parameters from a HogQL expression.
 
     Args:
         hogql_expr: Either a HogQL expression string or an already parsed AST expression
 
     Returns:
-        A tuple of (aggregation_function_name, inner_expression)
+        A tuple of (aggregation_function_name, inner_expression, params)
         - aggregation_function_name: The name of the aggregation function (e.g., "sum"), or None if not an aggregation
         - inner_expression: The inner expression AST node
+        - params: List of parameter expressions for parametric aggregations (e.g., [0.90] for quantile), or None
 
     Examples:
-        "sum(properties.revenue - properties.expense)" -> ("sum", <ArithmeticOperation node>)
-        "properties.revenue" -> (None, <Field node>)
-        "count()" -> ("count", <Constant value=1>)
+        "sum(properties.revenue - properties.expense)" -> ("sum", <ArithmeticOperation node>, None)
+        "quantile(0.90)(properties.margin)" -> ("quantile", <Field node>, [<Constant value=0.90>])
+        "properties.revenue" -> (None, <Field node>, None)
+        "count()" -> ("count", <Constant value=1>, None)
     """
     # Parse the expression if it's a string
     if isinstance(hogql_expr, str):
@@ -61,22 +65,35 @@ def extract_aggregation_and_inner_expr(hogql_expr: Union[str, ast.Expr]) -> tupl
             # For functions like count() with no arguments, we emit 1
             inner_expression = ast.Constant(value=1)
 
-        return aggregation_function, inner_expression
+        # Extract parameters for parametric aggregations (e.g., quantile(0.90))
+        params = expr.params if expr.params is not None else None
+
+        return aggregation_function, inner_expression, params
     else:
         # Not an aggregation function - return the whole expression as the inner part
-        return None, expr
+        return None, expr, None
 
 
-def build_aggregation_call(aggregation_function: str, inner_expr: ast.Expr, distinct: bool = False) -> ast.Call:
+def build_aggregation_call(
+    aggregation_function: str,
+    inner_expr: ast.Expr,
+    params: Optional[list[ast.Expr]] = None,
+    distinct: bool = False,
+) -> ast.Call:
     """
     Build an aggregation function call AST node.
 
     Args:
-        aggregation_function: The aggregation function name (e.g., "sum")
+        aggregation_function: The aggregation function name (e.g., "sum", "quantile")
         inner_expr: The inner expression to aggregate
+        params: Optional list of parameter expressions for parametric aggregations (e.g., [Constant(0.90)] for quantile)
         distinct: Whether to use DISTINCT (for functions that support it)
 
     Returns:
         An ast.Call node representing the aggregation
+
+    Examples:
+        build_aggregation_call("sum", Field(...)) -> Call(name="sum", args=[...])
+        build_aggregation_call("quantile", Field(...), params=[Constant(0.90)]) -> Call(name="quantile", args=[...], params=[0.90])
     """
-    return ast.Call(name=aggregation_function, args=[inner_expr], distinct=distinct)
+    return ast.Call(name=aggregation_function, args=[inner_expr], params=params, distinct=distinct)

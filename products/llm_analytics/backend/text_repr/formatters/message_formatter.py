@@ -10,7 +10,15 @@ import json
 import base64
 from typing import Any, TypedDict
 
-from .constants import DEFAULT_TRUNCATE_BUFFER, MAX_UNABLE_TO_PARSE_REPR_LENGTH, MAX_UNPARSED_DISPLAY_LENGTH
+from .constants import (
+    DEFAULT_TRUNCATE_BUFFER,
+    MAX_UNABLE_TO_PARSE_REPR_LENGTH,
+    MAX_UNPARSED_DISPLAY_LENGTH,
+    PRESERVE_HEADER_LINES,
+    SAMPLED_VIEW_HEADER,
+    SAMPLING_MAX_ITERATIONS,
+    SAMPLING_REDUCTION_FACTOR,
+)
 
 
 class FormatterOptions(TypedDict, total=False):
@@ -21,6 +29,7 @@ class FormatterOptions(TypedDict, total=False):
     include_markers: bool  # Use interactive markers vs plain text (default: True)
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
+    max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
 
 
 class ToolCall(TypedDict, total=False):
@@ -52,6 +61,86 @@ def add_line_numbers(text: str) -> str:
         numbered_lines.append(f"L{line_num}: {line}")
 
     return "\n".join(numbered_lines)
+
+
+def reduce_by_uniform_sampling(
+    text: str,
+    max_length: int,
+    preserve_header_lines: int = PRESERVE_HEADER_LINES,
+) -> tuple[str, bool]:
+    """
+    Reduce text to fit within max_length by uniformly sampling lines.
+
+    Keeps every Nth line to achieve the target size, preserving line numbers
+    so gaps in the sequence indicate omitted content. A header note explains
+    the sampling ratio.
+
+    Args:
+        text: Text with line numbers (L001:, L002:, etc.)
+        max_length: Maximum allowed length in characters
+        preserve_header_lines: Number of lines at the start to never drop
+
+    Returns:
+        Tuple of (text, was_sampled) - sampled text and whether sampling occurred
+    """
+    if len(text) <= max_length:
+        return text, False
+
+    lines = text.split("\n")
+    total_lines = len(lines)
+
+    if total_lines <= preserve_header_lines:
+        return text, False
+
+    header_lines = lines[:preserve_header_lines]
+    body_lines = lines[preserve_header_lines:]
+
+    if not body_lines:
+        return text, False
+
+    sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
+
+    header_text = "\n".join(header_lines)
+    header_size = len(header_text) + 1 + sample_header_template_size
+
+    available_for_body = max_length - header_size
+    if available_for_body <= 0:
+        return text, False
+
+    avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
+    target_body_lines = int(available_for_body / avg_line_length)
+
+    if target_body_lines >= len(body_lines):
+        return text, False
+
+    target_body_lines = max(target_body_lines, 1)
+
+    def sample_lines(target: int) -> tuple[list[str], str, str]:
+        step = len(body_lines) / target
+        sampled = []
+        for i in range(target):
+            idx = int(i * step)
+            if idx < len(body_lines):
+                sampled.append(body_lines[idx])
+        pct = (len(sampled) / len(body_lines)) * 100
+        hdr = SAMPLED_VIEW_HEADER.format(percent=pct, total=total_lines)
+        result_lines = header_lines[:2] + [hdr] + header_lines[2:] + sampled
+        return sampled, hdr, "\n".join(result_lines)
+
+    _, _, result = sample_lines(target_body_lines)
+
+    iteration = 0
+    while len(result) > max_length and iteration < SAMPLING_MAX_ITERATIONS:
+        reduction_factor = max_length / len(result) * SAMPLING_REDUCTION_FACTOR
+        target_body_lines = max(int(target_body_lines * reduction_factor), 1)
+        _, _, result = sample_lines(target_body_lines)
+        iteration += 1
+
+    # Hard truncate as final fallback to guarantee max_length contract
+    if len(result) > max_length:
+        result = result[:max_length]
+
+    return result, True
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:

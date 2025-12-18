@@ -37,7 +37,9 @@ export class RecipientPreferencesService {
         }
 
         if (!identifier) {
-            throw new Error(`No identifier found for message action ${action.id}`)
+            throw new Error(
+                `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
+            )
         }
 
         try {

@@ -18,7 +18,6 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    LifecycleQuery,
     MaxActionContext,
     MaxBillingContext,
     MaxBillingContextSettings,
@@ -164,18 +163,6 @@ Results:
 Query results: 42 events
 ```"""
         self.assertEqual(result, expected)
-
-    @patch("ee.hogai.context.context.AssistantQueryExecutor")
-    async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query = AsyncMock()
-
-        insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
-
-        result = await self.context_manager._arun_and_format_insight(insight, mock_query_runner)
-
-        self.assertEqual(result, None)
-        mock_query_runner.arun_and_format_query.assert_not_called()
 
     @patch("ee.hogai.context.context.AssistantQueryExecutor")
     @patch("ee.hogai.context.context.capture_exception")

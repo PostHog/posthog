@@ -70,6 +70,40 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         for expected_part in expected_parts:
             assert expected_part in formatted_str
 
+    @parameterized.expand(
+        [
+            ("dashboard", "456", "dashboard_id: '456'"),
+            ("cohort", "789", "cohort_id: '789'"),
+            ("insight", "123", "insight_id: '123'"),
+            ("action", "101", "action_id: '101'"),
+            ("feature_flag", "202", "feature_flag_id: '202'"),
+        ]
+    )
+    def test_get_formatted_entity_result_uses_entity_specific_id(self, entity_type, result_id, expected_id_format):
+        result = {"type": entity_type, "result_id": result_id, "extra_fields": {"name": f"Test {entity_type}"}}
+        formatted = self.toolkit._get_formatted_entity_result(result)
+        assert expected_id_format in formatted
+
+    def test_get_formatted_entity_result_excludes_query_for_insights(self):
+        result = {
+            "type": "insight",
+            "result_id": "123",
+            "extra_fields": {"name": "Test Insight", "query": {"kind": "TrendsQuery"}},
+        }
+        formatted = self.toolkit._get_formatted_entity_result(result)
+        assert "query" not in formatted
+        assert "TrendsQuery" not in formatted
+        assert "Test Insight" in formatted
+
+    def test_get_formatted_entity_result_does_not_exclude_fields_for_other_entities(self):
+        result = {
+            "type": "cohort",
+            "result_id": "456",
+            "extra_fields": {"name": "Test Cohort", "filters": {"properties": []}},
+        }
+        formatted = self.toolkit._get_formatted_entity_result(result)
+        assert "filters" in formatted
+
     def test_format_results_for_display_no_results(self):
         content = self.toolkit._format_results_for_display(
             query="test query", entity_types={"cohort", "dashboard"}, results=[], counts={}

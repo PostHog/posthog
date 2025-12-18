@@ -20,34 +20,9 @@ export { createPlaybackSpeedKey } from './PurePlayer'
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
     noBorder?: boolean
-    noInspector?: boolean
+    withSidebar?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
     accessToken?: string
-}
-
-function SessionRecordingPlayerInternal({
-    noMeta,
-    noBorder,
-    noInspector,
-    playerRef,
-}: {
-    noMeta: boolean
-    noBorder: boolean
-    noInspector: boolean
-    playerRef: React.RefObject<HTMLDivElement>
-}): JSX.Element {
-    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
-
-    return (
-        <div
-            className={clsx('SessionRecordingPlayerWrapper', {
-                'SessionRecordingPlayerWrapper--stacked-vertically': sidebarOpen && isVerticallyStacked,
-            })}
-        >
-            <PurePlayer noMeta={noMeta} noBorder={noBorder} playerRef={playerRef} />
-            {!noInspector && <PlayerSidebar />}
-        </div>
-    )
 }
 
 export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.Element {
@@ -58,7 +33,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noMeta = false,
         matchingEventsMatchType,
         noBorder = false,
-        noInspector = false,
+        withSidebar = true,
         autoPlay = true,
         mode = SessionRecordingPlayerMode.Standard,
         pinned,
@@ -76,7 +51,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         matchingEventsMatchType,
         sessionRecordingData,
         autoPlay,
-        noInspector,
+        withSidebar,
         mode,
         playerRef,
         pinned,
@@ -91,9 +66,34 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             <SessionRecordingPlayerInternal
                 noMeta={noMeta}
                 noBorder={noBorder}
-                noInspector={noInspector}
+                withSidebar={withSidebar}
                 playerRef={playerRef}
             />
         </BindLogic>
+    )
+}
+
+function SessionRecordingPlayerInternal({
+    noMeta,
+    noBorder,
+    withSidebar,
+    playerRef,
+}: {
+    noMeta: boolean
+    noBorder: boolean
+    withSidebar: boolean
+    playerRef: React.RefObject<HTMLDivElement>
+}): JSX.Element {
+    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+
+    return (
+        <div
+            className={clsx('SessionRecordingPlayerWrapper', {
+                'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
+            })}
+        >
+            <PurePlayer noMeta={noMeta} noBorder={noBorder} playerRef={playerRef} />
+            {withSidebar && <PlayerSidebar />}
+        </div>
     )
 }

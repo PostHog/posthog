@@ -116,7 +116,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     matchingEventsMatchType?: MatchingEventsMatchType
     onRecordingDeleted?: () => void
     autoPlay?: boolean
-    noInspector?: boolean
+    withSidebar?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean

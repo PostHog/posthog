@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
@@ -99,7 +99,12 @@ function PowerUsersTable(): JSX.Element {
     return (
         <>
             <div className="flex items-center gap-2">
-                <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
+                <Tooltip
+                    title={`Power ${customerLabel.plural} are the ${customerLabel.plural} that performed your activity event most frequently in the past 30 days.`}
+                    // TODO: Add docs link when released
+                >
+                    <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
+                </Tooltip>
                 <LemonButton size="small" noPadding targetBlank to={buttonTo} tooltip={tooltip} />
             </div>
             <Query

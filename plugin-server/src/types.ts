@@ -219,8 +219,6 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
-    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
-    INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
 export type LogsIngestionConsumerConfig = {
@@ -460,9 +458,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
-
-    // New: switchover flag for v2 session recording metadata
-    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -1457,8 +1452,3 @@ export interface HookPayload {
         }
     }
 }
-
-/**
- * Metadata switchover can be absent, enforced (boolean true), or after a provided date
- */
-export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

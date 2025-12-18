@@ -36,6 +36,7 @@ export default function ViewRecordingButton({
     inModal = false,
     checkIfViewed = false,
     matchingEvents,
+    hasRecording,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
     ViewRecordingProps & {
@@ -50,6 +51,7 @@ export default function ViewRecordingButton({
         timestamp,
         matchingEvents,
         inModal,
+        hasRecording,
     })
 
     const { recordingViewed, recordingViewedLoading } = useValues(
@@ -120,7 +122,7 @@ const recordingDisabledReason = (
                 not all recordings are captured.
             </>
         )
-    } else if (!hasRecording) {
+    } else if (hasRecording === false) {
         return 'No recording for this event'
     }
     return null

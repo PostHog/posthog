@@ -20,8 +20,9 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useMemo, useState } from 'react'
 
 import { IconArchive, IconPencil, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonTagType, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
@@ -75,9 +76,20 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
 
     const handleEditView = async (): Promise<void> => {
         if (data.type === 'view') {
-            const view = dataWarehouseSavedQueries.find((v) => v.name === data.name)
-            if (view?.query?.query) {
-                editView(view.query.query, view)
+            let view = dataWarehouseSavedQueries.find((v) => v.name === data.name)
+            if (view) {
+                // Fetch the full view with query if not already loaded
+                if (!view.query) {
+                    try {
+                        view = await api.dataWarehouseSavedQueries.get(view.id)
+                    } catch {
+                        lemonToast.error('Failed to load view details')
+                        return
+                    }
+                }
+                if (view?.query?.query) {
+                    editView(view.query.query, view)
+                }
             }
         }
     }

@@ -614,5 +614,47 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "logs-query": {
+        "description": "Search and query logs in the project. Supports filtering by severity levels (trace, debug, info, warn, error, fatal), service names, date range, and free text search. Returns log entries with their attributes, timestamps, and trace information. Supports pagination via cursor.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Search and query logs in the project.",
+        "title": "Query logs",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "logs-list-attributes": {
+        "description": "List available log attributes in the project. Use this to discover what attributes you can filter on when querying logs. Supports filtering by attribute type (log or resource) and searching by attribute name.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List available log attributes.",
+        "title": "List log attributes",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "logs-list-attribute-values": {
+        "description": "Get possible values for a specific log attribute. Use this to discover what values exist for a given attribute key, which helps when building log queries with filters.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Get values for a log attribute.",
+        "title": "List attribute values",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }

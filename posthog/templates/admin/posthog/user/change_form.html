@@ -46,11 +46,11 @@
 {% block object-tools-items %}
     {{ block.super }}
     {% if original.allow_impersonation == False %}
-        <li><a id="loginas-readonly-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user</a></li>
         <li><a id="loginas-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user (read/write)</a></li>
+        <li><a id="loginas-readonly-link" href="#" class="loginas-disabled" title="Disallowed by user">Log in as user</a></li>
     {% else %}
-        <li><a id="loginas-readonly-link" href="#">Log in as user</a></li>
         <li><a id="loginas-link" href="#">Log in as user (read/write)</a></li>
+        <li><a id="loginas-readonly-link" href="#">Log in as user</a></li>
     {% endif %}
 {% endblock %}
 
