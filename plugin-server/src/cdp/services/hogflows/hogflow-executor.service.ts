@@ -167,6 +167,7 @@ export class HogFlowExecutorService {
 
             // Here we could be continuing the hog function side of things?
             result = await this.executeCurrentAction(nextInvocation)
+            console.log({ action: result.invocation.state.currentAction?.id, finished: result.finished })
 
             if (result.finished) {
                 if (result.error) {
@@ -340,6 +341,7 @@ export class HogFlowExecutorService {
             }
 
             try {
+                console.log('Executing handler', { action: currentAction.name })
                 const handlerResult = await handler.execute({
                     invocation,
                     action: currentAction,
