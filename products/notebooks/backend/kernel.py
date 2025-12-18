@@ -19,6 +19,9 @@ import structlog
 from jupyter_client import KernelManager
 from jupyter_client.blocking import BlockingKernelClient
 
+from posthog.hogql import ast as hogql_ast
+from posthog.hogql.utils import deserialize_hx_ast
+
 from posthog.models import User
 
 from products.notebooks.backend.models import Notebook
@@ -30,6 +33,7 @@ import json
 import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import dataclasses
 from types import ModuleType
 
 from posthog.hogql.parser import parse_expr as _posthog_parse_expr, parse_select as _posthog_parse_select
@@ -56,6 +60,31 @@ def _posthog_is_exportable(value):
     return not callable(value) and not isinstance(value, ModuleType)
 
 
+def _posthog_user_namespace():
+    namespace = {}
+    namespace.update(globals())
+
+    _get_ipython = globals().get("get_ipython")
+    if callable(_get_ipython):
+        try:
+            ipython = _get_ipython()
+            if ipython is not None:
+                namespace.update(getattr(ipython, "user_ns", {}) or {})
+        except Exception:
+            pass
+
+    return namespace
+
+
+def _posthog_exportable_items():
+    for k, v in _posthog_user_namespace().items():
+        if k.startswith("_") or k in {"In", "Out"}:
+            continue
+        if not _posthog_is_exportable(v):
+            continue
+        yield k, v
+
+
 def _posthog_variable_snapshot(value):
     kind = "hogql_ast" if isinstance(value, _posthog_hogql_ast.AST) else ("json" if _posthog_is_jsonable(value) else "scalar")
     repr_value = repr(value)
@@ -72,6 +101,47 @@ def _posthog_variable_snapshot(value):
         "type": type(value).__name__,
         "module": getattr(type(value), "__module__", None),
         "kind": kind,
+    }
+
+def _posthog_ast_to_hx(value):
+    if isinstance(value, _posthog_hogql_ast.AST):
+        data = {"__hx_ast": value.__class__.__name__}
+        for field in dataclasses.fields(value):
+            if field.name in {"start", "end", "type"}:
+                continue
+            field_value = getattr(value, field.name)
+            if field_value is None:
+                continue
+            data[field.name] = _posthog_ast_field_to_hx(field_value)
+        return data
+    return value
+
+def _posthog_ast_field_to_hx(value):
+    if isinstance(value, _posthog_hogql_ast.AST):
+        return _posthog_ast_to_hx(value)
+    if isinstance(value, list):
+        return [_posthog_ast_field_to_hx(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _posthog_ast_field_to_hx(v) for k, v in value.items()}
+    return value
+
+def _posthog_placeholder_value(value):
+    if isinstance(value, _posthog_hogql_ast.AST):
+        return {"kind": "ast", "value": _posthog_ast_to_hx(value)}
+    if _posthog_is_jsonable(value):
+        return {"kind": "constant", "value": value}
+    return None
+
+
+def _posthog_capture_variables():
+    return {k: _posthog_variable_snapshot(v) for k, v in _posthog_exportable_items()}
+
+
+def _posthog_capture_hogql_placeholders():
+    return {
+        k: _placeholder
+        for k, v in _posthog_exportable_items()
+        if (_placeholder := _posthog_placeholder_value(v)) is not None
     }
 
 
@@ -152,7 +222,8 @@ def run(query):
     return _posthog_run_in_thread(query)
 """
 
-VARIABLE_CAPTURE_EXPRESSION = "{k: _posthog_variable_snapshot(v) for k, v in locals().items() if not k.startswith('_') and _posthog_is_exportable(v) and k not in {'In', 'Out'}}"
+VARIABLE_CAPTURE_EXPRESSION = "_posthog_capture_variables()"
+HOGQL_PLACEHOLDER_EXPRESSION = "_posthog_capture_hogql_placeholders()"
 
 
 @dataclass
@@ -440,6 +511,12 @@ class NotebookKernelService:
 
         return execution.status == "ok"
 
+    def get_hogql_placeholders(self, notebook: Notebook) -> dict[str, hogql_ast.Expr]:
+        handle = self._ensure_handle(notebook)
+        with handle.lock:
+            expression = self._evaluate_user_expression(handle, HOGQL_PLACEHOLDER_EXPRESSION)
+        return self._parse_hogql_placeholders(expression)
+
     def _serialize_value_for_kernel(self, value: Any) -> str | None:
         try:
             return json.dumps(value, cls=DjangoJSONEncoder)
@@ -487,6 +564,38 @@ class NotebookKernelService:
             )
 
         return sorted(variables, key=lambda variable: variable.name)
+
+    def _parse_hogql_placeholders(self, expression: dict[str, Any] | None) -> dict[str, hogql_ast.Expr]:
+        if not expression or expression.get("status") != "ok":
+            return {}
+
+        data = expression.get("data", {})
+        text_value = data.get("text/plain")
+        if not isinstance(text_value, str):
+            return {}
+
+        try:
+            parsed = ast.literal_eval(text_value)
+        except Exception:
+            logger.warning("notebook_kernel_placeholders_parse_failed")
+            return {}
+
+        placeholders: dict[str, hogql_ast.Expr] = {}
+        for name, raw in parsed.items():
+            if not isinstance(name, str) or not isinstance(raw, dict):
+                continue
+
+            if raw.get("kind") == "ast" and isinstance(raw.get("value"), dict):
+                try:
+                    placeholders[name] = deserialize_hx_ast(raw["value"])
+                except Exception:
+                    logger.warning("notebook_kernel_placeholder_deserialize_failed", variable_name=name)
+                continue
+
+            if raw.get("kind") == "constant":
+                placeholders[name] = hogql_ast.Constant(value=raw.get("value"))
+
+        return placeholders
 
     def _ensure_handle(self, notebook: Notebook) -> _KernelHandle:
         key = self._get_kernel_key(notebook)
@@ -620,6 +729,57 @@ class NotebookKernelService:
             handle.manager.shutdown_kernel(now=True)
         except Exception:
             logger.warning("notebook_kernel_shutdown_failed", kernel_id=handle.id)
+
+    def _evaluate_user_expression(
+        self, handle: _KernelHandle, expression: str, *, timeout: float | None = None
+    ) -> dict[str, Any] | None:
+        expression_key = "__posthog_expression__"
+        msg_id = handle.client.execute(
+            "",
+            silent=True,
+            store_history=False,
+            stop_on_error=False,
+            user_expressions={expression_key: expression},
+        )
+
+        status: str | None = None
+        try:
+            while True:
+                message = handle.client.get_iopub_msg(timeout=timeout or self._execution_timeout)
+
+                if message.get("parent_header", {}).get("msg_id") != msg_id:
+                    continue
+
+                msg_type = message["header"].get("msg_type")
+                content = message.get("content", {})
+
+                if msg_type == "status" and content.get("execution_state") == "idle":
+                    break
+
+                if msg_type == "error":
+                    status = "error"
+        except Empty:
+            status = "timeout"
+
+        reply_content: dict[str, Any] | None = None
+        try:
+            while True:
+                reply = handle.client.get_shell_msg(timeout=timeout or self._execution_timeout)
+                if reply.get("parent_header", {}).get("msg_id") == msg_id:
+                    reply_content = reply.get("content", {})
+                    status = reply_content.get("status", status)
+                    break
+        except Empty:
+            status = status or "timeout"
+
+        if status != "ok" or not reply_content:
+            return None
+
+        user_expressions = reply_content.get("user_expressions", {})
+        if not isinstance(user_expressions, dict):
+            return None
+
+        return user_expressions.get(expression_key)
 
 
 notebook_kernel_service = NotebookKernelService()

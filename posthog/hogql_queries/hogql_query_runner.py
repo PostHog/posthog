@@ -54,7 +54,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (
-            {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
+            {key: self._coerce_placeholder_value(value) for key, value in self.query.values.items()}
+            if self.query.values
+            else None
         )
         with self.timings.measure("parse_select"):
             if isinstance(self.query, HogQLQuery):
@@ -79,6 +81,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                     parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, var_values))
 
         return parsed_select
+
+    def _coerce_placeholder_value(self, value: Any) -> ast.Expr:
+        if isinstance(value, ast.Expr | ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag):
+            return value
+
+        if isinstance(value, dict) and ("__hx_ast" in value or "__hx_tag" in value):
+            return cast(ast.Expr, deserialize_hx_ast(value))
+
+        return ast.Constant(value=value)
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()

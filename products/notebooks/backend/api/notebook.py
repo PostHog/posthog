@@ -22,7 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.schema import QueryRequest
+from posthog.schema import HogQLASTQuery, HogQLQuery, QueryRequest
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
@@ -475,6 +475,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
             if client_query_id:
                 tag_queries(client_query_id=client_query_id)
+            self._inject_kernel_placeholders(notebook, query)
             query_dict = query.model_dump()
 
             result = process_query_model(
@@ -637,3 +638,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 raise ValidationError(
                     match.group(0) + ". Note: While in beta, not all column types may be fully supported"
                 )
+
+    def _inject_kernel_placeholders(self, notebook: Notebook, query: BaseModel) -> None:
+        if not isinstance(query, HogQLQuery | HogQLASTQuery):
+            return
+
+        placeholders = notebook_kernel_service.get_hogql_placeholders(notebook)
+        if not placeholders:
+            return
+
+        existing_values = query.values or {}
+        query.values = {**placeholders, **existing_values}

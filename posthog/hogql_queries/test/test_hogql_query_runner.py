@@ -141,6 +141,60 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
 
+    def test_hogql_query_values_allow_ast_nodes(self):
+        where_clause = ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value="clicky-3"),
+        )
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select count(event) from events where {where_clause}",
+                values={"where_clause": where_clause},
+            )
+        )
+        query = clear_locations(runner.to_query())
+        expected = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="clicky-3"),
+            ),
+        )
+        self.assertEqual(clear_locations(query), expected)
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], 1)
+
+    def test_hogql_query_values_allow_hx_ast_dict(self):
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select count(event) from events where {where_clause}",
+                values={
+                    "where_clause": {
+                        "__hx_ast": "CompareOperation",
+                        "left": {"__hx_ast": "Field", "chain": ["event"]},
+                        "op": "==",
+                        "right": {"__hx_ast": "Constant", "value": "clicky-3"},
+                    }
+                },
+            )
+        )
+        query = clear_locations(runner.to_query())
+        expected = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="clicky-3"),
+            ),
+        )
+        self.assertEqual(clear_locations(query), expected)
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], 1)
+
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
 
