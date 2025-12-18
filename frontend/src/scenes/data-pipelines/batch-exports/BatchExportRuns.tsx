@@ -156,7 +156,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         title: 'Rows exported',
                         key: 'rowsExported',
                         render: (_, run) => {
-                            if (!run.records_completed) {
+                            if (run.records_completed == null) {
                                 return ''
                             }
                             return humanFriendlyNumber(run.records_completed)
@@ -166,7 +166,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         title: 'Bytes exported',
                         key: 'bytesExported',
                         render: (_, run) => {
-                            if (!run.bytes_exported) {
+                            if (run.bytes_exported == null) {
                                 return ''
                             }
                             return humanizeBytes(run.bytes_exported)
