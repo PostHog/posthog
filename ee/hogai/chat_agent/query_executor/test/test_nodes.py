@@ -88,7 +88,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
         self.assertIn(
-            "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
+            "Here is the results table of the TrendsQuery created to answer your latest question:", msg.content
         )
         self.assertEqual(msg.type, "tool")
         self.assertEqual(msg.tool_call_id, "tool1")
@@ -144,7 +144,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_process_query_dict.assert_called_once()  # Query processing started
         msg = cast(AssistantToolCallMessage, new_state.messages[0])
         self.assertIn(
-            "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
+            "Here is the results table of the TrendsQuery created to answer your latest question:", msg.content
         )
         self.assertEqual(msg.type, "tool")
         self.assertEqual(msg.tool_call_id, "tool1")
@@ -302,7 +302,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_process_query_dict.assert_called_once()  # Query processing started
             msg = cast(AssistantMessage, new_state.messages[0])
             self.assertIn(
-                "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
+                "Here is the results table of the TrendsQuery created to answer your latest question:", msg.content
             )
             self.assertEqual(msg.type, "tool")
             self.assertIsNotNone(msg.id)
