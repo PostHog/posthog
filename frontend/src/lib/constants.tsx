@@ -174,6 +174,7 @@ export const FEATURE_FLAGS = {
     METALYTICS: 'metalytics', // owner: #team-platform-features, used to allow companies to see (meta) analytics on access to a specific page
     REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU: 'replay-exclude-from-hide-recordings-menu', // owner: #team-replay, used to exclude what other people are seeing in Replay
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: #team-platform-features, used to allow users to self-serve credits even when they don't qualify
+    SURVEYS_TOGGLE_HOSTED_CAPTCHA: 'surveys-toggle-hosted-captcha', // owner: #team-surveys, used to allow users to toggle invisible captcha for hosted surveys
     SHOW_UPGRADE_TO_MANAGED_ACCOUNT: 'show-upgrade-to-managed-account', // owner: #team-billing, used to give free accounts a way to force upgrade to managed account
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion, used to disable webhooks for certain companies
 
