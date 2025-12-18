@@ -47,6 +47,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { LivePageviews } from './LivePageviews'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -406,6 +407,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
         case ProductTab.HEALTH:
+        case ProductTab.LIVE:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
@@ -421,6 +423,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.HEALTH) {
         return <HealthStatusTab />
+    }
+
+    if (productTab === ProductTab.LIVE) {
+        return <LivePageviews />
     }
 
     return <Tiles />
@@ -524,6 +530,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
+                { key: ProductTab.LIVE, label: 'Live', link: '/web/live' },
                 ...healthTab(featureFlags),
             ]}
             sceneInset

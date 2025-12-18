@@ -2220,6 +2220,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
+            } else if (productTab === ProductTab.LIVE) {
+                basePath = '/web/live'
             }
 
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2273,9 +2275,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }: Record<string, any>
         ): void => {
             if (
-                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.HEALTH].includes(
-                    productTab
-                )
+                ![
+                    ProductTab.ANALYTICS,
+                    ProductTab.WEB_VITALS,
+                    ProductTab.PAGE_REPORTS,
+                    ProductTab.HEALTH,
+                    ProductTab.LIVE,
+                ].includes(productTab)
             ) {
                 return
             }

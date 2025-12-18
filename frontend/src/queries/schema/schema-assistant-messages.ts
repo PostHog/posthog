@@ -449,6 +449,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

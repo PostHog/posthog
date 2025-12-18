@@ -110,6 +110,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsHealth]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsLive]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
