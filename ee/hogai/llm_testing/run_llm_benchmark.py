@@ -17,6 +17,7 @@ from typing import Any
 import openai
 import tiktoken
 import anthropic
+from anthropic.types import ThinkingConfigEnabledParam
 from dotenv import load_dotenv
 from google import genai
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
@@ -38,7 +39,6 @@ MODELS = [
 
 TIMEOUT_SECONDS = 300  # 5 minutes
 SEMAPHORE_LIMIT = 20
-TEMPERATURE = 0
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
@@ -130,7 +130,8 @@ async def call_gemini(system_prompt: str, prompt: str, model: str) -> str:
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
-            temperature=TEMPERATURE,
+            temperature=1,  # Recommended by Gemini team for Gemini 3
+            thinking_config=genai.types.ThinkingConfig(thinking_level="high"),
         ),
     )
     return response.text
@@ -143,10 +144,11 @@ async def call_anthropic(system_prompt: str, prompt: str, model: str) -> str:
         model=model,
         system=system_prompt,
         messages=[{"role": "user", "content": prompt}],
-        temperature=TEMPERATURE,
+        temperature=1,
         max_tokens=16384,
+        thinking=ThinkingConfigEnabledParam(type="enabled", budget_tokens=8192),
     )
-    return response.content[0].text
+    return response.content[-1].text
 
 
 async def call_openai(system_prompt: str, prompt: str, model: str) -> str:
@@ -154,7 +156,7 @@ async def call_openai(system_prompt: str, prompt: str, model: str) -> str:
     client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
     response = await client.responses.create(
         model=model,
-        reasoning={"effort": "medium"},
+        reasoning={"effort": "high"},
         input=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},

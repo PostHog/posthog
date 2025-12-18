@@ -59,7 +59,7 @@ dependencies = [
     "geoip2==4.6.0",
     "google-ads==26.1.0",
     "google-cloud-bigquery==3.26",
-    "google-genai==1.46.0",
+    "google-genai==1.56.0",
     "granian[uvloop,reload,pname]==2.5.5",
     "gspread==6.2.1",
     "hogql-parser==1.2.12",
