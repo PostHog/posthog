@@ -25,10 +25,15 @@ logger = structlog.get_logger(__name__)
 
 HOGQL_BOOTSTRAP_CODE = """
 import json
+import logging
 from types import ModuleType
 
 from posthog.hogql.parser import parse_expr as _posthog_parse_expr, parse_select as _posthog_parse_select
 import posthog.hogql.ast as _posthog_hogql_ast
+
+logging.getLogger().setLevel(logging.ERROR)
+logging.getLogger("posthog").setLevel(logging.ERROR)
+logging.getLogger("django").setLevel(logging.ERROR)
 
 
 def _posthog_is_jsonable(value):
@@ -45,8 +50,17 @@ def _posthog_is_exportable(value):
 
 def _posthog_variable_snapshot(value):
     kind = "hogql_ast" if isinstance(value, _posthog_hogql_ast.AST) else ("json" if _posthog_is_jsonable(value) else "scalar")
+    repr_value = repr(value)
+    if kind == "hogql_ast":
+        try:
+            repr_value = value.to_hogql() if hasattr(value, "to_hogql") else str(value)
+            if not repr_value.startswith("sql("):
+                repr_value = f"sql({repr_value})"
+        except Exception:
+            # If printing fails (e.g. Django app registry not ready), fall back to a safe repr
+            repr_value = repr(value)
     return {
-        "repr": repr(value),
+        "repr": repr_value,
         "type": type(value).__name__,
         "module": getattr(type(value), "__module__", None),
         "kind": kind,
@@ -61,7 +75,7 @@ for _name, _value in vars(_posthog_hogql_ast).items():
         globals()[_name] = _value
 """
 
-VARIABLE_CAPTURE_EXPRESSION = "{k: _posthog_variable_snapshot(v) for k, v in locals().items() if not k.startswith('_') and _posthog_is_exportable(v)}"
+VARIABLE_CAPTURE_EXPRESSION = "{k: _posthog_variable_snapshot(v) for k, v in locals().items() if not k.startswith('_') and _posthog_is_exportable(v) and k not in {'In', 'Out'}}"
 
 
 @dataclass

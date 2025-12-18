@@ -3,7 +3,7 @@ import { ComponentProps, useCallback, useEffect, useMemo, useState } from 'react
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconPlayFilled, IconRefresh, IconStopFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Popover } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -54,21 +54,113 @@ const statusToTag = (
     return 'default'
 }
 
+const HIDDEN_VARIABLE_NAMES = new Set(['In', 'Out'])
+
+const usePythonExecution = (
+    code: string,
+    attributes: NotebookNodePythonAttributes,
+    updateAttributes: NotebookNodeProps<NotebookNodePythonAttributes>['updateAttributes']
+): {
+    runCode: (codeOverride?: string) => Promise<void>
+    restartKernel: () => Promise<void>
+    stopKernel: () => Promise<void>
+    running: boolean
+    localError: string | null
+    setLocalError: (error: string | null) => void
+} => {
+    const { shortId } = useValues(notebookLogic)
+    const [running, setRunning] = useState(false)
+    const [localError, setLocalError] = useState<string | null>(null)
+
+    const handleExecution = useCallback(
+        (response: NotebookKernelExecutionResponse, executedCode: string) => {
+            updateAttributes({
+                code: executedCode,
+                stdout: response.stdout,
+                stderr: response.stderr,
+                result: response.result || null,
+                variables: response.variables || [],
+                status: response.status,
+                executionCount: response.execution_count ?? null,
+                lastRunAt: response.completed_at,
+                errorName: response.error_name || null,
+                traceback: response.traceback || [],
+                kernel: response.kernel,
+            })
+        },
+        [updateAttributes]
+    )
+
+    const runCode = useCallback(
+        async (codeOverride?: string) => {
+            setRunning(true)
+            setLocalError(null)
+            const codeToRun = codeOverride ?? code ?? DEFAULT_CODE
+            try {
+                const response = await api.notebooks.executeKernel(shortId, {
+                    code: codeToRun,
+                    return_variables: true,
+                })
+                handleExecution(response, codeToRun)
+            } catch (error: any) {
+                setLocalError(error?.message ?? 'Unable to run code')
+            } finally {
+                setRunning(false)
+            }
+        },
+        [code, handleExecution, shortId]
+    )
+
+    const restartKernel = useCallback(async () => {
+        setLocalError(null)
+        try {
+            const status = await api.notebooks.restartKernel(shortId)
+            updateAttributes({ kernel: status })
+        } catch (error: any) {
+            setLocalError(error?.message ?? 'Unable to restart kernel')
+        }
+    }, [shortId, updateAttributes])
+
+    const stopKernel = useCallback(async () => {
+        setLocalError(null)
+        try {
+            await api.notebooks.stopKernel(shortId)
+            updateAttributes({ kernel: null })
+        } catch (error: any) {
+            setLocalError(error?.message ?? 'Unable to stop kernel')
+        }
+    }, [shortId, updateAttributes])
+
+    return { runCode, restartKernel, stopKernel, running, localError, setLocalError }
+}
+
 const NotebookNodePythonComponent = ({
     attributes,
+    updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
     const { editingNodeId } = useValues(notebookLogic)
-    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { setTitlePlaceholder, setExpanded, toggleEditing } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         setTitlePlaceholder('Python')
     }, [setTitlePlaceholder])
 
     const variables = attributes.variables || []
-    const hasVariables = variables.length > 0
+    const filteredVariables = useMemo(
+        () => variables.filter((variable) => !HIDDEN_VARIABLE_NAMES.has(variable.name)),
+        [variables]
+    )
+    const hasVariables = filteredVariables.length > 0
     const hasRun = attributes.executionCount !== null && attributes.executionCount !== undefined
     const isEditingThisNode = editingNodeId === attributes.nodeId
+
+    const { runCode, running, localError, setLocalError } = usePythonExecution(
+        attributes.code || DEFAULT_CODE,
+        attributes,
+        updateAttributes
+    )
+    const showCollapsedActions = !isEditingThisNode
 
     const resultText = useMemo(() => {
         if (!attributes.result) {
@@ -94,10 +186,41 @@ const NotebookNodePythonComponent = ({
 
     return (
         <div className="space-y-2">
-            {hasOutputs && !isEditingThisNode ? (
+            {showCollapsedActions ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            type="primary"
+                            size="xsmall"
+                            icon={<IconPlayFilled />}
+                            loading={running}
+                            onClick={() => runCode()}
+                        >
+                            Run
+                        </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => {
+                                setExpanded(true)
+                                toggleEditing(true)
+                            }}
+                        >
+                            Expand code
+                        </LemonButton>
+                    </div>
+                    <PythonRunMeta attributes={attributes} />
+                </div>
+            ) : hasOutputs ? (
                 <div className="flex justify-end">
                     <PythonRunMeta attributes={attributes} />
                 </div>
+            ) : null}
+
+            {localError ? (
+                <LemonBanner type="error" onClose={() => setLocalError(null)}>
+                    {localError}
+                </LemonBanner>
             ) : null}
 
             {hasOutputs ? (
@@ -132,13 +255,13 @@ const NotebookNodePythonComponent = ({
                     ) : null}
                     {hasVariables || hasRun ? (
                         <OutputBlock title="Variables">
-                            <VariablesOutput variables={variables} hasRun={hasRun} />
+                            <VariablesOutput variables={filteredVariables} hasRun={hasRun} />
                         </OutputBlock>
                     ) : null}
                 </div>
             ) : (
                 <LemonBanner type="info">
-                    Use Filters to edit and run your Python code. Results will appear here once the code runs.
+                    Use Expand code to edit and run your Python code. Results will appear here once the code runs.
                 </LemonBanner>
             )}
         </div>
@@ -168,6 +291,8 @@ const VariablesOutput = ({
     variables: NotebookKernelVariable[]
     hasRun: boolean
 }): JSX.Element => {
+    const [openVariable, setOpenVariable] = useState<string | null>(null)
+
     if (!variables.length) {
         return (
             <div className="text-xs text-muted-alt">
@@ -177,27 +302,49 @@ const VariablesOutput = ({
     }
 
     return (
-        <div className="space-y-1">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
             {variables.map((variable) => {
                 const kindMeta = VARIABLE_KIND_META[variable.kind] || VARIABLE_KIND_META.scalar
+                const isOpen = openVariable === variable.name
 
                 return (
-                    <div
+                    <Popover
                         key={variable.name}
-                        className="flex flex-col gap-1 rounded border border-border p-2"
-                        title={variable.module || undefined}
+                        visible={isOpen}
+                        onClickOutside={() => setOpenVariable(null)}
+                        overlay={
+                            <div className="space-y-2 max-w-[28rem]">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <code className="text-xs font-semibold leading-tight">{variable.name}</code>
+                                    <LemonTag type={kindMeta.tag} size="small">
+                                        {kindMeta.label}
+                                    </LemonTag>
+                                    <span className="text-xs text-muted-alt">{variable.type}</span>
+                                </div>
+                                <CodeSnippet language={Language.Text} wrap compact>
+                                    {variable.repr}
+                                </CodeSnippet>
+                            </div>
+                        }
+                        placement="bottom-start"
                     >
-                        <div className="flex flex-wrap items-center gap-2">
-                            <code className="text-xs font-semibold leading-tight">{variable.name}</code>
-                            <LemonTag type={kindMeta.tag} size="small">
-                                {kindMeta.label}
-                            </LemonTag>
-                            <span className="text-xs text-muted-alt">{variable.type}</span>
-                        </div>
-                        <div className="text-xs font-mono text-muted-alt whitespace-pre-wrap break-words leading-tight">
-                            {variable.repr}
-                        </div>
-                    </div>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            className="shrink-0"
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                setOpenVariable(isOpen ? null : variable.name)
+                            }}
+                        >
+                            <span className="flex items-center gap-1">
+                                <code className="text-xs font-semibold leading-tight">{variable.name}</code>
+                                <LemonTag type={kindMeta.tag} size="small">
+                                    {kindMeta.label}
+                                </LemonTag>
+                            </span>
+                        </LemonButton>
+                    </Popover>
                 )
             })}
         </div>
@@ -223,12 +370,14 @@ const NotebookNodePythonSettings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
-    const { shortId } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const [draftCode, setDraftCode] = useState(attributes.code || DEFAULT_CODE)
-    const [running, setRunning] = useState(false)
-    const [localError, setLocalError] = useState<string | null>(null)
+    const { runCode, restartKernel, stopKernel, running, localError, setLocalError } = usePythonExecution(
+        draftCode,
+        attributes,
+        updateAttributes
+    )
 
     useEffect(() => {
         setTitlePlaceholder('Python')
@@ -241,61 +390,6 @@ const NotebookNodePythonSettings = ({
     const persistCode = useDebouncedCallback((nextCode: string) => {
         updateAttributes({ code: nextCode })
     }, 300)
-
-    const handleExecution = useCallback(
-        (response: NotebookKernelExecutionResponse) => {
-            updateAttributes({
-                code: draftCode,
-                stdout: response.stdout,
-                stderr: response.stderr,
-                result: response.result || null,
-                variables: response.variables || [],
-                status: response.status,
-                executionCount: response.execution_count ?? null,
-                lastRunAt: response.completed_at,
-                errorName: response.error_name || null,
-                traceback: response.traceback || [],
-                kernel: response.kernel,
-            })
-        },
-        [draftCode, updateAttributes]
-    )
-
-    const runCode = useCallback(async () => {
-        setRunning(true)
-        setLocalError(null)
-        try {
-            const response = await api.notebooks.executeKernel(shortId, {
-                code: draftCode,
-                return_variables: true,
-            })
-            handleExecution(response)
-        } catch (error: any) {
-            setLocalError(error?.message ?? 'Unable to run code')
-        } finally {
-            setRunning(false)
-        }
-    }, [draftCode, handleExecution, shortId])
-
-    const restartKernel = useCallback(async () => {
-        setLocalError(null)
-        try {
-            const status = await api.notebooks.restartKernel(shortId)
-            updateAttributes({ kernel: status })
-        } catch (error: any) {
-            setLocalError(error?.message ?? 'Unable to restart kernel')
-        }
-    }, [shortId, updateAttributes])
-
-    const stopKernel = useCallback(async () => {
-        setLocalError(null)
-        try {
-            await api.notebooks.stopKernel(shortId)
-            updateAttributes({ kernel: null })
-        } catch (error: any) {
-            setLocalError(error?.message ?? 'Unable to stop kernel')
-        }
-    }, [shortId, updateAttributes])
 
     return (
         <div className="p-3 space-y-3">
@@ -325,7 +419,11 @@ const NotebookNodePythonSettings = ({
                 <PythonRunMeta attributes={attributes} />
             </div>
 
-            {localError ? <LemonBanner type="error">{localError}</LemonBanner> : null}
+            {localError ? (
+                <LemonBanner type="error" onClose={() => setLocalError(null)}>
+                    {localError}
+                </LemonBanner>
+            ) : null}
 
             <div className="space-y-2">
                 <CodeEditorInline
@@ -336,6 +434,7 @@ const NotebookNodePythonSettings = ({
                         setDraftCode(value)
                         persistCode(value)
                     }}
+                    onPressCmdEnter={() => runCode()}
                 />
             </div>
         </div>
