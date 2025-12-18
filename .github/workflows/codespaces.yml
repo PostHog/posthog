@@ -23,8 +23,8 @@ jobs:
         name: Build Codespaces image
         runs-on: ubuntu-24.04
         permissions:
-          contents: read
-          packages: write
+            contents: read
+            packages: write
 
         # Build on master and PRs with the label 'codespaces-build' only
         if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'codespaces-build')  }}
