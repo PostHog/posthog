@@ -605,9 +605,16 @@
             }
         }
     </style>
+    {% if enable_captcha %}
+    <link rel="preconnect" href="https://challenges.cloudflare.com">
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+    {% endif %}
 </head>
 
 <body>
+    {% if enable_captcha %}
+    <div id="ph-survey-turnstile-container" style="position: fixed; bottom: 0; right: 0; z-index: -1;"></div>
+    {% endif %}
     <div class="main-container">
         <div class="survey-card">
             <div class="survey-header">
@@ -628,6 +635,72 @@
     <!-- PostHog JavaScript -->
     {{ survey_data|json_script:"survey-data" }}
     {{ project_config|json_script:"project-config" }}
+    {% if enable_captcha %}
+    <script nonce="{{ request.csp_nonce }}">
+        const turnstileState = {
+            complete: false,
+            verified: false,
+            eventQueue: [],
+            originalCapture: null
+        };
+
+        function sendEvent(eventName, properties) {
+            const props = eventName.includes('survey')
+                ? { ...properties, $turnstile_verified: turnstileState.verified }
+                : properties;
+            turnstileState.originalCapture.call(window.posthog, eventName, props);
+        }
+
+        function flushEventQueue() {
+            if (!turnstileState.originalCapture || !turnstileState.complete) return;
+            while (turnstileState.eventQueue.length > 0) {
+                const event = turnstileState.eventQueue.shift();
+                sendEvent(event.eventName, event.properties);
+            }
+        }
+
+        function wrapPosthogCapture(posthogInstance) {
+            turnstileState.originalCapture = posthogInstance.capture.bind(posthogInstance);
+
+            posthogInstance.capture = function(eventName, properties) {
+                if (turnstileState.complete) {
+                    sendEvent(eventName, properties);
+                } else {
+                    turnstileState.eventQueue.push({ eventName, properties, timestamp: Date.now() });
+                }
+            };
+        }
+
+        function initTurnstile() {
+            if (!window.turnstile) {
+                setTimeout(initTurnstile, 50);
+                return;
+            }
+
+            setTimeout(function() {
+                if (!turnstileState.complete) {
+                    turnstileState.complete = true;
+                    flushEventQueue();
+                }
+            }, 5000);
+
+            turnstile.render('#ph-survey-turnstile-container', {
+                sitekey: '{{ turnstile_site_key }}',
+                callback: function() {
+                    turnstileState.complete = true;
+                    turnstileState.verified = true;
+                    flushEventQueue();
+                },
+                'error-callback': function() {
+                    turnstileState.complete = true;
+                    flushEventQueue();
+                }
+            });
+        }
+
+        initTurnstile();
+    </script>
+    {% endif %}
     <script nonce="{{ request.csp_nonce }}">
         // Project config from Django and helper functions
         const survey = JSON.parse(document.getElementById("survey-data").textContent);
@@ -973,12 +1046,11 @@
 
         posthog.init(projectConfig.token, {
             ...config,
-            surveys: {
-                prefillFromUrl: true,
-                autoSubmitIfComplete: true,
-                autoSubmitDelay: 800,
-            },
+            surveys: { prefillFromUrl: true },
             loaded: (instance) => {
+                if (typeof wrapPosthogCapture === 'function') {
+                    wrapPosthogCapture(instance);
+                }
                 instance.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
             }
         });
