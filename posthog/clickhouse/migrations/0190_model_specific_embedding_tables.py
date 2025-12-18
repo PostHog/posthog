@@ -89,6 +89,3 @@ operations.append(
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     )
 )
-
-# Note: The shared Kafka table is still created by the existing embedding.py setup
-# Each model's MV filters from that shared stream by model_name
