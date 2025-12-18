@@ -55,7 +55,7 @@ export const conversationsSettingsLogic = kea<conversationsSettingsLogicType>([
     selectors({
         conversationsDomains: [
             (s) => [s.currentTeam],
-            (currentTeam): string[] => currentTeam?.conversations_widget_domains || [],
+            (currentTeam): string[] => currentTeam?.conversations_settings?.widget_domains || [],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -77,11 +77,21 @@ export const conversationsSettingsLogic = kea<conversationsSettingsLogicType>([
                 newDomains.push(trimmedValue)
             }
 
-            actions.updateCurrentTeam({ conversations_widget_domains: newDomains })
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_domains: newDomains,
+                },
+            })
         },
         removeDomain: ({ index }) => {
             const newDomains = values.conversationsDomains.filter((_, i) => i !== index)
-            actions.updateCurrentTeam({ conversations_widget_domains: newDomains })
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_domains: newDomains,
+                },
+            })
         },
         startEditDomain: ({ index }) => {
             actions.setEditingDomainIndex(index)

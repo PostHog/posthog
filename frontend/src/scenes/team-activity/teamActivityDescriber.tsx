@@ -410,10 +410,31 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
 
     // Conversations config
     conversations_enabled: createBooleanToggleHandler('conversations'),
-    conversations_greeting_text: createSimpleValueHandler('conversations greeting text'),
-    conversations_color: createSimpleValueHandler('conversations widget color'),
-    conversations_public_token: createApiTokenHandler('conversations public token', 'set', 'reset'),
-    conversations_widget_domains: createArrayChangeHandler('conversations widget domains'),
+    conversations_settings: (change) => {
+        const descriptions: JSX.Element[] = []
+        const before = (change.before || {}) as Record<string, unknown>
+        const after = (change.after || {}) as Record<string, unknown>
+
+        if (before.widget_enabled !== after.widget_enabled) {
+            descriptions.push(<>{after.widget_enabled ? 'enabled' : 'disabled'} conversations widget</>)
+        }
+        if (before.widget_greeting_text !== after.widget_greeting_text) {
+            descriptions.push(<>updated conversations greeting text</>)
+        }
+        if (before.widget_color !== after.widget_color) {
+            descriptions.push(<>updated conversations widget color</>)
+        }
+        if (before.widget_public_token !== after.widget_public_token) {
+            descriptions.push(<>{before.widget_public_token ? 'reset' : 'set'} conversations public token</>)
+        }
+        if (JSON.stringify(before.widget_domains) !== JSON.stringify(after.widget_domains)) {
+            descriptions.push(<>updated conversations widget domains</>)
+        }
+
+        return descriptions.length > 0
+            ? { description: descriptions }
+            : { description: [<>updated conversations settings</>] }
+    },
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),

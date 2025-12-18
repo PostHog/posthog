@@ -2978,9 +2978,12 @@ async fn test_config_conversations_enabled() -> Result<()> {
 
     // Enable conversations on the team
     team.conversations_enabled = true;
-    team.conversations_greeting_text = Some("Hey, how can I help you today?".to_string());
-    team.conversations_color = Some("#1d4aff".to_string());
-    team.conversations_public_token = Some("test_public_token_123".to_string());
+    team.conversations_settings = Some(sqlx::types::Json(serde_json::json!({
+        "widget_enabled": true,
+        "widget_greeting_text": "Hey, how can I help you today?",
+        "widget_color": "#1d4aff",
+        "widget_public_token": "test_public_token_123"
+    })));
 
     // Update the team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -3098,8 +3101,11 @@ async fn test_config_conversations_returns_empty_domains() -> Result<()> {
 
     // Enable conversations with empty domains list
     team.conversations_enabled = true;
-    team.conversations_public_token = Some("test_token".to_string());
-    team.conversations_widget_domains = Some(vec![]);
+    team.conversations_settings = Some(sqlx::types::Json(serde_json::json!({
+        "widget_enabled": true,
+        "widget_public_token": "test_token",
+        "widget_domains": []
+    })));
 
     // Update the team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -3154,11 +3160,11 @@ async fn test_config_conversations_returns_domains_for_sdk_filtering() -> Result
 
     // Enable conversations with specific domains
     team.conversations_enabled = true;
-    team.conversations_public_token = Some("test_token".to_string());
-    team.conversations_widget_domains = Some(vec![
-        "https://example.com".to_string(),
-        "https://*.posthog.com".to_string(),
-    ]);
+    team.conversations_settings = Some(sqlx::types::Json(serde_json::json!({
+        "widget_enabled": true,
+        "widget_public_token": "test_token",
+        "widget_domains": ["https://example.com", "https://*.posthog.com"]
+    })));
 
     // Update the team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();

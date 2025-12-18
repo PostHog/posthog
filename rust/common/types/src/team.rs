@@ -62,10 +62,7 @@ pub struct Team {
     pub timezone: String,
     #[serde(default)]
     pub conversations_enabled: bool,
-    pub conversations_greeting_text: Option<String>,
-    pub conversations_color: Option<String>,
-    pub conversations_public_token: Option<String>,
-    pub conversations_widget_domains: Option<Vec<String>>,
+    pub conversations_settings: Option<Json<JsonValue>>,
 }
 
 fn default_timezone() -> String {
@@ -124,10 +121,7 @@ impl Team {
                     cookieless_server_hash_mode,
                     timezone,
                     conversations_enabled,
-                    conversations_greeting_text,
-                    conversations_color,
-                    conversations_public_token,
-                    conversations_widget_domains
+                    conversations_settings as "conversations_settings: _"
                 FROM posthog_team
                 WHERE id = $1
                 LIMIT 1
@@ -184,10 +178,7 @@ impl Team {
                     cookieless_server_hash_mode,
                     timezone,
                     conversations_enabled,
-                    conversations_greeting_text,
-                    conversations_color,
-                    conversations_public_token,
-                    conversations_widget_domains
+                    conversations_settings as "conversations_settings: _"
                 FROM posthog_team
                 WHERE api_token = $1
                 LIMIT 1

@@ -393,6 +393,14 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
 }
 
+export interface ConversationsSettings {
+    widget_enabled?: boolean
+    widget_greeting_text?: string
+    widget_color?: string
+    widget_public_token?: string | null
+    widget_domains?: string[] | null
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -622,10 +630,7 @@ export interface TeamType extends TeamBasicType {
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     conversations_enabled?: boolean
-    conversations_greeting_text?: string
-    conversations_color?: string
-    conversations_public_token?: string | null
-    conversations_widget_domains?: string[] | null
+    conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean
     web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
     autocapture_exceptions_errors_to_ignore: string[]

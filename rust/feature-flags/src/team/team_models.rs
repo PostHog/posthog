@@ -24,10 +24,7 @@ pub struct Team {
     pub heatmaps_opt_in: Option<bool>,
     #[serde(default)]
     pub conversations_enabled: bool,
-    pub conversations_greeting_text: Option<String>,
-    pub conversations_color: Option<String>,
-    pub conversations_public_token: Option<String>,
-    pub conversations_widget_domains: Option<Vec<String>>,
+    pub conversations_settings: Option<Json<serde_json::Value>>,
     pub capture_dead_clicks: Option<bool>,
     pub flags_persistence_default: Option<bool>,
     pub session_recording_sample_rate: Option<Decimal>, // numeric(3,2) in postgres, see https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html#rust_decimal

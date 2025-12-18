@@ -128,10 +128,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_dead_clicks",
             "flags_persistence_default",
             "conversations_enabled",
-            "conversations_greeting_text",
-            "conversations_color",
-            "conversations_public_token",
-            "conversations_widget_domains",
+            "conversations_settings",
         ]
         read_only_fields = fields
 
@@ -198,10 +195,7 @@ TEAM_CONFIG_FIELDS = (
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
-    "conversations_greeting_text",
-    "conversations_color",
-    "conversations_public_token",
-    "conversations_widget_domains",
+    "conversations_settings",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -612,10 +606,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
-    def validate_conversations_widget_domains(self, value: list[str | None] | None) -> list[str] | None:
+    def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
-        return [domain for domain in value if domain]
+        # Filter out None values from widget_domains if present
+        if "widget_domains" in value and value["widget_domains"] is not None:
+            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         if value is None:
@@ -758,17 +755,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
+        # Handle conversations_settings merging
+        if "conversations_settings" in validated_data:
+            existing_settings = instance.conversations_settings or {}
+            new_settings = validated_data["conversations_settings"] or {}
+            validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+
         # Auto-generate/clear conversations token based on conversations_enabled
         if "conversations_enabled" in validated_data:
+            current_settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
+            has_token = current_settings.get("widget_public_token")
             is_enabling = validated_data["conversations_enabled"] and not instance.conversations_enabled
             is_disabling = not validated_data["conversations_enabled"] and instance.conversations_enabled
 
-            if is_enabling and not instance.conversations_public_token:
+            if is_enabling and not has_token:
                 # Auto-generate token when enabling for the first time
-                validated_data["conversations_public_token"] = token_urlsafe(32)
+                settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
+                settings["widget_public_token"] = token_urlsafe(32)
+                validated_data["conversations_settings"] = settings
             elif is_disabling:
                 # Clear token when disabling
-                validated_data["conversations_public_token"] = None
+                settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
+                settings["widget_public_token"] = None
+                validated_data["conversations_settings"] = settings
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
             validated_data["modifiers"] = {

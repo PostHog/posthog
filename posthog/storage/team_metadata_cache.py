@@ -115,10 +115,7 @@ TEAM_METADATA_FIELDS = [
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
     "conversations_enabled",
-    "conversations_greeting_text",
-    "conversations_color",
-    "conversations_public_token",
-    "conversations_widget_domains",
+    "conversations_settings",
 ]
 
 

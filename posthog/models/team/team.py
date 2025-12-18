@@ -385,12 +385,7 @@ class Team(UUIDTClassicModel):
 
     # Conversations (support widget)
     conversations_enabled = models.BooleanField(default=False)
-    conversations_greeting_text = models.TextField(null=True, blank=True)
-    conversations_color = models.CharField(max_length=20, null=True, blank=True)
-    conversations_public_token = models.CharField(max_length=200, null=True, blank=True, unique=True)
-    conversations_widget_domains: ArrayField = ArrayField(
-        models.CharField(max_length=200, null=True), blank=True, null=True
-    )
+    conversations_settings = models.JSONField(null=True, blank=True)
     # Product tours
     product_tours_opt_in = models.BooleanField(null=True, blank=True)
 
@@ -793,8 +788,11 @@ class Team(UUIDTClassicModel):
         """Generate or regenerate the conversations public token for widget authentication."""
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        old_token = self.conversations_public_token
-        self.conversations_public_token = generate_random_token_project()
+        settings = self.conversations_settings or {}
+        old_token = settings.get("widget_public_token")
+        new_token = generate_random_token_project()
+        settings["widget_public_token"] = new_token
+        self.conversations_settings = settings
         self.save()
 
         log_activity(
@@ -811,9 +809,9 @@ class Team(UUIDTClassicModel):
                     Change(
                         type="Team",
                         action="created" if old_token is None else "changed",
-                        field="conversations_public_token",
+                        field="conversations_settings.widget_public_token",
                         before=mask_key_value(old_token) if old_token else None,
-                        after=mask_key_value(self.conversations_public_token),
+                        after=mask_key_value(new_token),
                     )
                 ],
             ),

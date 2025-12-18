@@ -190,7 +190,10 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_conversations_enabled_with_defaults(self):
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_public_token_123"
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
         self.team.save()
 
         # Force remote config refresh
@@ -212,9 +215,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_conversations_enabled_with_custom_config(self):
         self.team.conversations_enabled = True
-        self.team.conversations_greeting_text = "Welcome! How can we assist?"
-        self.team.conversations_color = "#ff5733"
-        self.team.conversations_public_token = "custom_token_456"
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! How can we assist?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token_456",
+        }
         self.team.save()
 
         # Force remote config refresh
@@ -236,9 +242,12 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_conversations_in_js_config(self):
         self.team.conversations_enabled = True
-        self.team.conversations_greeting_text = "Hi there!"
-        self.team.conversations_color = "#1d4aff"
-        self.team.conversations_public_token = "js_test_token"
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Hi there!",
+            "widget_color": "#1d4aff",
+            "widget_public_token": "js_test_token",
+        }
         self.team.save()
 
         # Force remote config refresh
@@ -258,8 +267,11 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_conversations_returns_empty_domains_when_none_set(self):
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token"
-        self.team.conversations_widget_domains = []
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_token",
+            "widget_domains": [],
+        }
         self.team.save()
 
         from posthog.tasks.remote_config import update_team_remote_config
@@ -275,8 +287,11 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
 
     def test_conversations_returns_domains_for_sdk_filtering(self):
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token"
-        self.team.conversations_widget_domains = ["https://example.com", "https://*.posthog.com"]
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_token",
+            "widget_domains": ["https://example.com", "https://*.posthog.com"],
+        }
         self.team.save()
 
         from posthog.tasks.remote_config import update_team_remote_config

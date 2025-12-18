@@ -261,13 +261,14 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Conversations
         if team.conversations_enabled:
+            conv_settings = team.conversations_settings or {}
             config["conversations"] = {
-                "enabled": True,
-                "greetingText": team.conversations_greeting_text or "Hey, how can I help you today?",
-                "color": team.conversations_color or "#1d4aff",
-                "token": team.conversations_public_token,
+                "enabled": conv_settings.get("widget_enabled", False),
+                "greetingText": conv_settings.get("widget_greeting_text") or "Hey, how can I help you today?",
+                "color": conv_settings.get("widget_color") or "#1d4aff",
+                "token": conv_settings.get("widget_public_token"),
                 # NOTE: domains is cached but stripped out at the api level depending on the caller
-                "domains": team.conversations_widget_domains or [],
+                "domains": conv_settings.get("widget_domains") or [],
             }
         else:
             config["conversations"] = False

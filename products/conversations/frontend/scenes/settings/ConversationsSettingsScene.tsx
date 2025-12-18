@@ -145,16 +145,22 @@ export function ConversationsSettingsScene(): JSX.Element {
                             </p>
                         </div>
                         <LemonSwitch
-                            checked={!!currentTeam?.conversations_enabled}
+                            checked={!!currentTeam?.conversations_settings?.widget_enabled}
                             onChange={(checked) => {
-                                updateCurrentTeam({ conversations_enabled: checked })
+                                updateCurrentTeam({
+                                    conversations_enabled: checked || !!currentTeam?.conversations_enabled,
+                                    conversations_settings: {
+                                        ...currentTeam?.conversations_settings,
+                                        widget_enabled: checked,
+                                    },
+                                })
                             }}
-                            label={currentTeam?.conversations_enabled ? 'Enabled' : 'Disabled'}
+                            label={currentTeam?.conversations_settings?.widget_enabled ? 'Enabled' : 'Disabled'}
                             loading={currentTeamLoading}
                         />
                     </div>
 
-                    {currentTeam?.conversations_enabled && (
+                    {currentTeam?.conversations_settings?.widget_enabled && (
                         <>
                             <div className="space-y-4 pt-4 border-t">
                                 <div className="space-y-1">
@@ -170,9 +176,14 @@ export function ConversationsSettingsScene(): JSX.Element {
                                             '#1abc9c',
                                             '#000000',
                                         ]}
-                                        selectedColor={currentTeam?.conversations_color || '#1d4aff'}
+                                        selectedColor={currentTeam?.conversations_settings?.widget_color || '#1d4aff'}
                                         onSelectColor={(color) => {
-                                            updateCurrentTeam({ conversations_color: color })
+                                            updateCurrentTeam({
+                                                conversations_settings: {
+                                                    ...currentTeam?.conversations_settings,
+                                                    widget_color: color,
+                                                },
+                                            })
                                         }}
                                         showCustomColor
                                     />
@@ -181,11 +192,17 @@ export function ConversationsSettingsScene(): JSX.Element {
                                     <label className="text-sm font-medium">Greeting message</label>
                                     <LemonInput
                                         value={
-                                            currentTeam?.conversations_greeting_text || 'Hey, how can I help you today?'
+                                            currentTeam?.conversations_settings?.widget_greeting_text ||
+                                            'Hey, how can I help you today?'
                                         }
                                         placeholder="Enter greeting message"
                                         onChange={(value) => {
-                                            updateCurrentTeam({ conversations_greeting_text: value })
+                                            updateCurrentTeam({
+                                                conversations_settings: {
+                                                    ...currentTeam?.conversations_settings,
+                                                    widget_greeting_text: value,
+                                                },
+                                            })
                                         }}
                                     />
                                 </div>
@@ -208,13 +225,13 @@ export function ConversationsSettingsScene(): JSX.Element {
                                 <div className="flex gap-2">
                                     <LemonInput
                                         value={
-                                            currentTeam?.conversations_public_token ||
+                                            currentTeam?.conversations_settings?.widget_public_token ||
                                             'Token will be auto-generated on save'
                                         }
                                         disabledReason="Read-only after generation"
                                         fullWidth
                                     />
-                                    {currentTeam?.conversations_public_token && (
+                                    {currentTeam?.conversations_settings?.widget_public_token && (
                                         <LemonButton type="secondary" onClick={generateNewToken}>
                                             Regenerate
                                         </LemonButton>

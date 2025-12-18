@@ -3989,7 +3989,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
         from posthog.models.team.team_caching import set_team_in_cache
 
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_public_token_123"
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
         self.team.save()
         set_team_in_cache(self.team.api_token, self.team)
 
@@ -4006,9 +4009,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         from posthog.models.team.team_caching import set_team_in_cache
 
         self.team.conversations_enabled = True
-        self.team.conversations_greeting_text = "Welcome! Need assistance?"
-        self.team.conversations_color = "#ff5733"
-        self.team.conversations_public_token = "custom_token_456"
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token_456",
+        }
         self.team.save()
         set_team_in_cache(self.team.api_token, self.team)
 
@@ -4025,8 +4031,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         from posthog.models.team.team_caching import set_team_in_cache
 
         self.team.conversations_enabled = True
-        self.team.conversations_greeting_text = ""
-        self.team.conversations_public_token = "test_token"
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "",
+            "widget_public_token": "test_token",
+        }
         self.team.save()
         set_team_in_cache(self.team.api_token, self.team)
 
@@ -4041,8 +4050,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         from posthog.models.team.team_caching import set_team_in_cache
 
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token"
-        self.team.conversations_widget_domains = []
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_token",
+            "widget_domains": [],
+        }
         self.team.save()
         set_team_in_cache(self.team.api_token, self.team)
 
@@ -4056,8 +4068,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         from posthog.models.team.team_caching import set_team_in_cache
 
         self.team.conversations_enabled = True
-        self.team.conversations_public_token = "test_token"
-        self.team.conversations_widget_domains = ["https://example.com", "https://*.posthog.com"]
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_token",
+            "widget_domains": ["https://example.com", "https://*.posthog.com"],
+        }
         self.team.save()
         set_team_in_cache(self.team.api_token, self.team)
 
