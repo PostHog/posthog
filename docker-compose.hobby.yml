@@ -334,7 +334,6 @@ services:
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             REDIS_URL: 'redis://redis:6379/'
             ISSUE_BUCKETS_REDIS_URL: 'redis://redis7:6379/'
-            ALLOW_INTERNAL_IPS: 'true'
             RUST_LOG: 'info'
         depends_on:
             kafka:
