@@ -3911,3 +3911,87 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Verify the breakdown filter is applied in the result
         self.assertIn("result", response_data)
         self.assertEqual(response_data["result"][0][0]["breakdown"], ["Chrome"])
+
+
+class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "posthog.errors.ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse"),
+            ("ExposedHogQLError", "posthog.hogql.errors.ExposedHogQLError", "Invalid HogQL syntax"),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_returns_400_for_exposed_errors(
+        self, _name: str, error_class_path: str, error_message: str, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        error_class = ExposedCHQueryError if "ExposedCHQueryError" in error_class_path else ExposedHogQLError
+        mock_calculate.side_effect = error_class(error_message)
+
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "ClickHouse trend error"),
+            ("ExposedHogQLError", "HogQL trend error"),
+        ]
+    )
+    @patch("posthog.api.insight.InsightViewSet.calculate_trends_hogql")
+    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    def test_trend_returns_400_for_exposed_errors(
+        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
+        mock_calculate.side_effect = error_class(error_message)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "$pageview"}])},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "ClickHouse funnel error"),
+            ("ExposedHogQLError", "HogQL funnel error"),
+        ]
+    )
+    @patch("posthog.api.insight.InsightViewSet.calculate_funnel_hogql")
+    @patch("posthog.api.insight.get_query_method", return_value="hogql")
+    def test_funnel_returns_400_for_exposed_errors(
+        self, error_type: str, error_message: str, _mock_query_method: mock.MagicMock, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        error_class = ExposedCHQueryError if error_type == "ExposedCHQueryError" else ExposedHogQLError
+        mock_calculate.side_effect = error_class(error_message)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/funnel/",
+            data={"events": json.dumps([{"id": "$pageview"}, {"id": "$pageleave"}])},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))

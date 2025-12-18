@@ -21,15 +21,7 @@ The user has provided the following dashboards.
 """.strip()
 
 ROOT_DASHBOARD_CONTEXT_PROMPT = """
-## Dashboard: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-### Dashboard insights:
-
-{{{insights}}}
+## {{{content}}}
 """.strip()
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """
@@ -39,21 +31,7 @@ The user has provided the following insights, which may be relevant to the quest
 """.strip()
 
 ROOT_INSIGHT_CONTEXT_PROMPT = """
-{{{heading}}} Insight: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-Query schema:
-```json
-{{{query_schema}}}
-```
-
-Results:
-```
-{{{query}}}
-```
+{{{heading}}} {{{insight_prompt}}}
 """.strip()
 
 CONTEXTUAL_TOOLS_REMINDER_PROMPT = """
@@ -64,6 +42,8 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 </system_reminder>
 """.strip()
 
+CONTEXT_INITIAL_MODE_PROMPT = "Your initial mode is"
+CONTEXT_MODE_SWITCH_PROMPT = "Your mode has been switched to"
 CONTEXT_MODE_PROMPT = """
-<system_reminder>Your initial mode is {{{mode}}}.</system_reminder>
+<system_reminder>{{{mode_prompt}}} {{{mode}}}.</system_reminder>
 """.strip()

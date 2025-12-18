@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p>Import a previously exported session replay zip file.</p>
+<p><strong>With this additional great power comes entirely another great responsibility.</strong></p>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div style="margin: 20px 0;">
+        <label for="import_file" style="display: block; margin-bottom: 5px; font-weight: bold;">Zip file:</label>
+        <input type="file" id="import_file" name="import_file" accept=".zip" required />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="reason" style="display: block; margin-bottom: 5px; font-weight: bold;">Reason:</label>
+        <input type="text" id="reason" name="reason" style="width: 400px; padding: 8px;" placeholder="e.g. Testing session replay locally" required />
+    </div>
+    <div style="margin-top: 20px;">
+        <input type="submit" class="default" value="Import replay data" style="padding: 10px 20px;" />
+        <a href="{% url 'admin:posthog_team_change' team.pk %}" style="margin-left: 10px;">Cancel</a>
+    </div>
+</form>
+{% endblock %}

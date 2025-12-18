@@ -21,6 +21,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -103,6 +104,7 @@ function buildToolbarParams(options?: {
     actionId?: number | null
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
+    toolbarFlagsKey?: string
 }): ToolbarParams {
     return {
         userIntent:
@@ -115,6 +117,7 @@ function buildToolbarParams(options?: {
         apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
+        ...(options?.toolbarFlagsKey ? { toolbarFlagsKey: options.toolbarFlagsKey } : {}),
     }
 }
 
@@ -126,6 +129,7 @@ export function appEditorUrl(
         experimentId?: ExperimentIdType
         userIntent?: ToolbarUserIntent
         generateOnly?: boolean
+        toolbarFlagsKey?: string
     }
 ): string {
     const params = buildToolbarParams(options) as Record<string, unknown>
@@ -240,14 +244,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     select properties.$current_url, count()
                     from events
                         where event = '$pageview'
-                        and timestamp >= now() - interval 3 day 
+                        and timestamp >= now() - interval 3 day
                         and timestamp <= now()
                         and properties.$current_url is not null
                         group by properties.$current_url
                         order by count() desc
                     limit 25`
 
-                const response = await api.queryHogQL(query)
+                const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
+                const response = await api.queryHogQL(query, {
+                    scene: currentScene,
+                    productKey: 'platform_and_support',
+                })
                 const result = response.results as [string, number][]
 
                 if (result && result.length === 0) {

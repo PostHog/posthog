@@ -4,13 +4,12 @@ import { router } from 'kea-router'
 import { IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 
@@ -25,7 +24,7 @@ export const SyncMoreNotice = (): JSX.Element | null => {
     }
 
     return (
-        <LemonBanner type="info" className="m-2 h-[265px] min-h-[auto] z-10">
+        <LemonBanner type="info" className="h-[265px] min-h-[auto] z-10">
             <div
                 data-attr="sql-editor-source-empty-state"
                 className="p-4 text-center flex flex-col justify-center items-center relative"

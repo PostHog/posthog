@@ -89,6 +89,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             : isGroupsQuery(query.source)
               ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
               : { type: 'team_columns' },
+        contextKey: query.contextKey,
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -99,6 +100,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 data-attr="events-table-column-selector"
                 icon={<IconTuning />}
                 onClick={showModal}
+                size="small"
             >
                 Configure columns
             </LemonButton>
@@ -135,7 +137,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
-                ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+                ...(isEventsQuery(query.source)
+                    ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+                    : []),
             ]
 
     const showPersistedColumnReorder =
@@ -199,7 +203,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </div>
                     <div className="HalfColumn">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                        <div className="h-[360px]">
+                        <div className="h-[min(480px,60vh)]">
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (
                                     <TaxonomicFilter
@@ -269,6 +273,11 @@ const SelectedColumn = ({
     if (column.startsWith('properties.')) {
         columnType = PropertyFilterType.Event
         columnKey = column.substring(11)
+    }
+    if (column.startsWith('session.')) {
+        columnType = PropertyFilterType.Session
+        filterGroupType = TaxonomicFilterGroupType.SessionProperties
+        columnKey = column.substring(8)
     }
 
     columnKey = trimQuotes(extractExpressionComment(columnKey))

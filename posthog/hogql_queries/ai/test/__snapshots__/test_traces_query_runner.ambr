@@ -22,7 +22,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_field_mapping.1
@@ -43,15 +44,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -76,7 +78,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter
@@ -102,7 +105,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.1
@@ -123,15 +127,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -156,7 +161,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.2
@@ -182,7 +188,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.3
@@ -203,15 +210,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -236,7 +244,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.4
@@ -262,7 +271,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.5
@@ -283,15 +293,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -316,7 +327,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.6
@@ -342,7 +354,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.7
@@ -363,15 +376,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -396,7 +410,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.8
@@ -422,7 +437,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination
@@ -448,7 +464,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.1
@@ -469,15 +486,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -502,7 +520,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.2
@@ -528,7 +547,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.3
@@ -549,15 +569,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -582,7 +603,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.4
@@ -608,7 +630,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.5
@@ -629,15 +652,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -662,7 +686,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group
@@ -688,7 +713,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.1
@@ -709,15 +735,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -742,7 +769,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.2
@@ -768,7 +796,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.3
@@ -789,15 +818,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -822,7 +852,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.4
@@ -848,7 +879,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group
@@ -874,7 +906,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.1
@@ -895,15 +928,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -928,7 +962,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.2
@@ -954,7 +989,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.3
@@ -975,15 +1011,16 @@
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS input_state,
          argMinIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')) AS output_state,
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name,
-         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count
+         countIf(or(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_error'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_is_error'), ''), 'null'), '^"|"$', ''), 'true'), 0))) AS error_count,
+         any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_support_impersonated'), ''), 'null'), '^"|"$', '')) AS is_support_trace
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -1008,7 +1045,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.4
@@ -1034,6 +1072,7 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

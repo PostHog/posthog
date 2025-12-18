@@ -22,7 +22,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "default_experiment_stats_method": "bayesian",
     "enforce_2fa": false,
     "id": "ABCD",
+    "is_active": true,
     "is_member_join_email_enabled": true,
+    "is_not_active_reason": null,
     "logo_media_id": null,
     "member_count": 2,
     "members_can_use_personal_api_keys": true,
@@ -148,6 +150,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "require_evaluation_environment_tags": false,
         "revenue_analytics_config": {
           "events": [
             {

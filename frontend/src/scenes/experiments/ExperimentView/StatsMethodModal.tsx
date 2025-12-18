@@ -46,7 +46,7 @@ export function StatsMethodModal(): JSX.Element {
             <div className="flex gap-4 mb-4">
                 <SelectableCard
                     title="Bayesian"
-                    description="This approach gives you a probability-based view of results, showing how likely one variant is to be better than another, based on the observed data."
+                    description="Gives you a clear win probability, showing how likely one variant is to be better than another. Great for product engineers new to experimentation."
                     selected={statsMethod === ExperimentStatsMethod.Bayesian}
                     onClick={() => {
                         setExperiment({
@@ -59,7 +59,7 @@ export function StatsMethodModal(): JSX.Element {
                 />
                 <SelectableCard
                     title="Frequentist"
-                    description="This approach uses statistical tests to determine whether observed differences are significant. It's based on p-values and is widely used in traditional A/B testing and scientific research."
+                    description="Uses p-values to determine statistical significance. Often preferred by data scientists and teams experienced with traditional A/B testing."
                     selected={statsMethod === ExperimentStatsMethod.Frequentist}
                     onClick={() => {
                         setExperiment({

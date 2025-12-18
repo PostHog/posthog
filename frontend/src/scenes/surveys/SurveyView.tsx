@@ -44,20 +44,21 @@ import {
     ActivityScope,
     PropertyFilterType,
     PropertyOperator,
+    Survey,
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
 
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
-        useActions(surveyLogic)
-    const { deleteSurvey } = useActions(surveysLogic)
+    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey } = useActions(surveyLogic)
+    const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -96,10 +97,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             <SceneDuplicate
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => {
+                                    // SurveyView is only rendered for existing surveys, so we can safely cast
+                                    const existingSurvey = survey as Survey
                                     if (hasMultipleProjects) {
-                                        setIsDuplicateToProjectModalOpen(true)
+                                        setSurveyToDuplicate(existingSurvey)
                                     } else {
-                                        duplicateSurvey()
+                                        duplicateSurvey(existingSurvey)
                                     }
                                 }}
                             />
@@ -321,7 +324,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             },
                         ]}
                     />
-                    {hasMultipleProjects && <DuplicateToProjectModal />}
+                    <DuplicateToProjectModal />
                 </SceneContent>
             )}
         </div>
@@ -356,11 +359,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         isAnyResultsLoading,
         processedSurveyStats,
         archivedResponseUuids,
+        isSurveyHeadlineEnabled,
     } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
         <div className="deprecated-space-y-4">
+            {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (

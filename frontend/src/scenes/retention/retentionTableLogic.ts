@@ -12,6 +12,7 @@ import { dateOptionPlurals } from './constants'
 import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 import { NO_BREAKDOWN_VALUE, ProcessedRetentionPayload, RetentionTableRow } from './types'
+import { formatRetentionCohortLabel } from './utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -77,31 +78,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                 const { period } = retentionFilter || {}
 
                 return filteredResults.map((currentResult: ProcessedRetentionPayload) => {
-                    const currentDate = currentResult.date
-
-                    let label // Prepare for some date gymnastics
-
-                    switch (period) {
-                        case 'Hour':
-                            label = currentDate.format('MMM D, h A')
-                            break
-                        case 'Month':
-                            label = currentDate.format('MMM YYYY')
-                            break
-                        case 'Week': {
-                            const startDate = currentDate
-                            const endDate = startDate.add(6, 'day') // To show last day of the week we add 6 days, not 7
-                            label = `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
-                            break
-                        }
-                        default:
-                            label = currentDate.format('MMM D')
-                    }
-
                     const cohortSize = currentResult.values?.[0] ? currentResult.values[0].count : 0
 
                     return {
-                        label,
+                        label: formatRetentionCohortLabel(currentResult, period),
                         cohortSize,
                         values: currentResult.values,
                         breakdown_value: currentResult.breakdown_value,

@@ -2160,3 +2160,37 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["active"])
+
+    def test_introspection_with_json_body(self):
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.client.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            content_type="application/json",
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid")
+
+    def test_introspection_with_missing_token_returns_inactive(self):
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        response = self.post(
+            "/oauth/introspect/",
+            {},
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])

@@ -24,6 +24,11 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
             )
 
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+
         steps:
             - uses: actions/checkout@v4
               with:
@@ -31,6 +36,7 @@ jobs:
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
                   fetch-depth: 0
+                  filter: blob:none
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -52,11 +58,23 @@ jobs:
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install python dependencies
               shell: bash
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.88.0
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -82,7 +100,6 @@ jobs:
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@v8
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')

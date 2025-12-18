@@ -56,7 +56,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         if not team.strict_caching_enabled or filter.breakdown or filter.display != TRENDS_LINEAR:
             return None
 
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
+        cache_key = generate_cache_key(team.pk, f"{filter.toJSON()}_{team.pk}")
         cached_result_package = get_safe_cache(cache_key)
         cached_result = (
             cached_result_package.get("result")

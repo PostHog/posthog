@@ -34,18 +34,19 @@ runs:
         - name: Fetch PR Labels
           shell: bash
           id: labels
+          env:
+              GITHUB_TOKEN: ${{ inputs.token }}
+              PR_NUMBER: ${{ steps.extract-pr.outputs.PR_NUMBER }}
+              REPOSITORY: ${{ github.repository }}
           run: |
-              PR_NUMBER=${{ steps.extract-pr.outputs.PR_NUMBER }}
               if [ -z "${PR_NUMBER}" ] || [ "${PR_NUMBER}" = "null" ]; then
                 echo labels="[]" >> $GITHUB_OUTPUT
                 exit 0
               fi
               LABELS=$(curl \
-                -H "Authorization: Bearer ${{ inputs.token }}" \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
                 -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/$PR_NUMBER/labels | jq -rc '[.[].name]')
+                https://api.github.com/repos/$REPOSITORY/issues/$PR_NUMBER/labels | jq -rc '[.[].name]')
               echo "Labels of PR #$PR_NUMBER: $LABELS"
 
               echo labels="$LABELS" >> $GITHUB_OUTPUT
-          env:
-              GITHUB_TOKEN: ${{ inputs.token }}

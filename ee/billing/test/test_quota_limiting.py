@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, FuzzyInt, _create_event
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -17,9 +18,9 @@ from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
-    TRUST_SCORE_KEYS,
     QuotaLimitingCaches,
     QuotaResource,
+    UsageCounters,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
     list_limited_team_attributes,
@@ -33,9 +34,10 @@ from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def zero_trust_scores():
-    return {k: 0 for k in TRUST_SCORE_KEYS.values()}
+    return {resource.value: 0 for resource in QuotaResource}
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestQuotaLimiting(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -51,6 +53,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limits/llm_events")
         self.redis_client.delete(f"@posthog/quota-limits/cdp_trigger_events")
+        self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
@@ -60,6 +63,7 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_exported")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/llm_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
         materialize("events", "$exception_values")
 
     @patch("posthoganalytics.capture")
@@ -95,7 +99,8 @@ class TestQuotaLimiting(BaseTest):
         time.sleep(1)
 
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-        patch_feature_enabled.assert_called_with(
+        # feature_enabled will be called for AI billing check and then for data retention flag
+        patch_feature_enabled.assert_any_call(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
             str(self.organization.id),
             groups={"organization": org_id},
@@ -152,12 +157,6 @@ class TestQuotaLimiting(BaseTest):
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-        patch_feature_enabled.assert_called_with(
-            QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            str(self.organization.id),
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-        )
         # Check out many times it was called
         assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
@@ -222,10 +221,11 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         time.sleep(1)
-        with self.assertNumQueries(FuzzyInt(3, 4)):
+        with self.assertNumQueries(FuzzyInt(3, 6)):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-        # Shouldn't be called due to lazy evaluation of the conditional
-        patch_feature_enabled.assert_not_called()
+        # feature_enabled will be called once for AI billing check
+        assert patch_feature_enabled.call_count == 1
+        patch_feature_enabled.assert_called_with("posthog-ai-billing-usage-report", "internal_billing_events")
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["exceptions"] == {}
@@ -385,8 +385,8 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
-                TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
+                "feature_flag_requests": 0,
+                QuotaResource.API_QUERIES.value: 0,
                 "survey_responses": 0,
                 "rows_exported": 0,
             }
@@ -463,8 +463,8 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
-                TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
+                "feature_flag_requests": 0,
+                QuotaResource.API_QUERIES.value: 0,
                 "survey_responses": 0,
             }
             self.organization.usage = create_usage_summary(
@@ -486,8 +486,8 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
-                TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
+                "feature_flag_requests": 0,
+                QuotaResource.API_QUERIES.value: 0,
                 "survey_responses": 0,
             }
             self.organization.usage = create_usage_summary(
@@ -527,8 +527,8 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
-                TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 0,
+                "feature_flag_requests": 0,
+                QuotaResource.API_QUERIES.value: 0,
                 "survey_responses": 0,
             }
             self.organization.usage = create_usage_summary(
@@ -672,6 +672,9 @@ class TestQuotaLimiting(BaseTest):
         previously_quota_limited_team_tokens_surveys = list_limited_team_attributes(
             QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
+        previously_quota_limited_team_tokens_ai_credits = list_limited_team_attributes(
+            QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
         assert (
             org_quota_limited_until(
                 self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
@@ -688,6 +691,7 @@ class TestQuotaLimiting(BaseTest):
             "api_queries_read_bytes": {"usage": 99, "limit": 100},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             "survey_responses": {"usage": 10, "limit": 100},
+            "ai_credits": {"usage": 10, "limit": 100},
         }
 
         # Not over quota
@@ -796,16 +800,34 @@ class TestQuotaLimiting(BaseTest):
             "quota_limited_until": 1612137599,
             "quota_limiting_suspended_until": None,
         }
+
+        # Not over quota
+        assert (
+            org_quota_limited_until(
+                self.organization, QuotaResource.AI_CREDITS, previously_quota_limited_team_tokens_ai_credits
+            )
+            is None
+        )
+
+        # Over quota
+        self.organization.usage["ai_credits"]["usage"] = 101
+        assert org_quota_limited_until(
+            self.organization, QuotaResource.AI_CREDITS, previously_quota_limited_team_tokens_ai_credits
+        ) == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
         with freeze_time("2021-01-25T00:00:00Z"):
             # Different trust scores so different grace periods
             self.organization.customer_trust_scores = {
-                TRUST_SCORE_KEYS[QuotaResource.EVENTS]: 7,
-                TRUST_SCORE_KEYS[QuotaResource.EXCEPTIONS]: 7,
-                TRUST_SCORE_KEYS[QuotaResource.RECORDINGS]: 3,
-                TRUST_SCORE_KEYS[QuotaResource.ROWS_SYNCED]: 10,
-                TRUST_SCORE_KEYS[QuotaResource.FEATURE_FLAG_REQUESTS]: 10,
-                TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
-                TRUST_SCORE_KEYS[QuotaResource.SURVEY_RESPONSES]: 7,
+                QuotaResource.EVENTS.value: 7,
+                QuotaResource.EXCEPTIONS.value: 7,
+                QuotaResource.RECORDINGS.value: 3,
+                QuotaResource.ROWS_SYNCED.value: 10,
+                QuotaResource.FEATURE_FLAG_REQUESTS.value: 10,
+                QuotaResource.API_QUERIES.value: 10,
+                QuotaResource.SURVEY_RESPONSES.value: 7,
+                QuotaResource.AI_CREDITS.value: 10,
             }
 
             # Update to be over quota on all resources
@@ -818,6 +840,7 @@ class TestQuotaLimiting(BaseTest):
                 "api_queries_read_bytes": {"usage": 101, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
                 "survey_responses": {"usage": 101, "limit": 100},
+                "ai_credits": {"usage": 101, "limit": 100},
             }
 
             # All resources over quota
@@ -857,6 +880,13 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": 1611705600,  # grace period 1 day
             }
+            # AI credits have NO grace period - immediately limit
+            assert org_quota_limited_until(
+                self.organization, QuotaResource.AI_CREDITS, previously_quota_limited_team_tokens_ai_credits
+            ) == {
+                "quota_limited_until": 1612137599,
+                "quota_limiting_suspended_until": None,
+            }
 
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None
@@ -875,6 +905,9 @@ class TestQuotaLimiting(BaseTest):
         previously_quota_limited_team_tokens_surveys = list_limited_team_attributes(
             QuotaResource.SURVEY_RESPONSES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
+        previously_quota_limited_team_tokens_ai_credits = list_limited_team_attributes(
+            QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
         assert (
             org_quota_limited_until(
                 self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
@@ -890,6 +923,7 @@ class TestQuotaLimiting(BaseTest):
             "feature_flag_requests": {"usage": 100, "limit": 90},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             "survey_responses": {"usage": 10, "limit": 100},
+            "ai_credits": {"usage": 100, "limit": 90},
         }
         self.organization.never_drop_data = True
 
@@ -923,6 +957,13 @@ class TestQuotaLimiting(BaseTest):
             )
             is None
         )
+        # AI credits ignore never_drop_data - should still be limited
+        assert org_quota_limited_until(
+            self.organization, QuotaResource.AI_CREDITS, previously_quota_limited_team_tokens_ai_credits
+        ) == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
 
         # reset for subsequent tests
         self.organization.never_drop_data = False
@@ -1016,9 +1057,9 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 10,
                 "recordings": 0,
                 "rows_synced": 7,
-                "feature_flags": 10,
-                TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
-                "surveys": 10,
+                "feature_flag_requests": 10,
+                QuotaResource.API_QUERIES.value: 10,
+                "survey_responses": 10,
             }
             self.organization.save()
 
@@ -1131,7 +1172,7 @@ class TestQuotaLimiting(BaseTest):
             )
 
             # Test medium trust score (7) - should still get 2 day suspension due to special case
-            self.organization.customer_trust_scores["feature_flags"] = 7
+            self.organization.customer_trust_scores["feature_flag_requests"] = 7
             self.organization.usage["feature_flag_requests"] = {"usage": 110, "limit": 100}
             self.organization.save()
             self.redis_client.delete(f"@posthog/quota-limiting-suspended/feature_flag_requests")
@@ -1154,7 +1195,7 @@ class TestQuotaLimiting(BaseTest):
 
             # Test medium-high trust score (10) - should get 3 day suspension
             with freeze_time("2021-01-25T00:00:00Z"):
-                self.organization.customer_trust_scores["feature_flags"] = 10
+                self.organization.customer_trust_scores["feature_flag_requests"] = 10
                 self.organization.usage["feature_flag_requests"] = {"usage": 110, "limit": 100}
                 self.organization.save()
                 self.redis_client.delete(f"@posthog/quota-limits/feature_flag_requests")
@@ -1169,7 +1210,7 @@ class TestQuotaLimiting(BaseTest):
                 )
 
             # Test never_drop_data organization is not limited
-            self.organization.customer_trust_scores["feature_flags"] = 0
+            self.organization.customer_trust_scores["feature_flag_requests"] = 0
             self.organization.never_drop_data = True
             self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
@@ -1203,7 +1244,7 @@ class TestQuotaLimiting(BaseTest):
             ]
 
             for trust_score, expected_timestamp in test_cases:
-                self.organization.customer_trust_scores = {"feature_flags": trust_score}
+                self.organization.customer_trust_scores = {"feature_flag_requests": trust_score}
                 self.organization.save()
 
                 # Clear any existing Redis state
@@ -1233,12 +1274,12 @@ class TestQuotaLimiting(BaseTest):
                 "api_queries_read_bytes": {"usage": 1100, "limit": 1000},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
-            trust_key = TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]
+            trust_key = QuotaResource.API_QUERIES.value
             self.organization.customer_trust_scores = {
                 "events": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
+                "feature_flag_requests": 0,
                 trust_key: 0,
             }
             self.organization.save()
@@ -1315,6 +1356,89 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
 
+    def test_ai_credits_quota_limiting(self):
+        """Test that AI credits have no grace period and immediately limit regardless of trust score."""
+        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+            self.organization.usage = {
+                "events": {"usage": 10, "limit": 100},
+                "recordings": {"usage": 10, "limit": 100},
+                "rows_synced": {"usage": 10, "limit": 100},
+                "feature_flag_requests": {"usage": 10, "limit": 100},
+                "ai_credits": {"usage": 1100, "limit": 1000},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            trust_key = QuotaResource.AI_CREDITS.value
+            org_id = str(self.organization.id)
+
+            # Test immediate limiting with trust score 0 - NO grace period
+            self.organization.customer_trust_scores = {
+                "events": 0,
+                "recordings": 0,
+                "rows_synced": 0,
+                "feature_flags": 0,
+                trust_key: 0,
+            }
+            self.organization.save()
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limits/ai_credits", 0, -1
+            )
+
+            # Test medium trust score (7) - should STILL immediately limit, NO grace period
+            self.organization.customer_trust_scores[trust_key] = 7
+            self.organization.usage["ai_credits"] = {"usage": 1100, "limit": 1000}
+            self.organization.save()
+            self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limits/ai_credits", 0, -1
+            )
+
+            # Test medium-high trust score (10) - should STILL immediately limit, NO grace period
+            self.organization.customer_trust_scores[trust_key] = 10
+            self.organization.usage["ai_credits"] = {"usage": 1100, "limit": 1000}
+            self.organization.save()
+            self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limits/ai_credits", 0, -1
+            )
+
+            # Test high trust score (15) - should STILL immediately limit, NO grace period
+            self.organization.customer_trust_scores[trust_key] = 15
+            self.organization.usage["ai_credits"] = {"usage": 1100, "limit": 1000}
+            self.organization.save()
+            self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limits/ai_credits", 0, -1
+            )
+
+            # Test that never_drop_data does NOT apply to AI credits - still gets limited
+            self.organization.customer_trust_scores[trust_key] = 0
+            self.organization.never_drop_data = True
+            self.organization.save()
+            self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["ai_credits"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["ai_credits"] == {}
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limits/ai_credits", 0, -1
+            )
+
     @patch("posthoganalytics.capture")
     @freeze_time("2021-01-25T00:00:00Z")
     def test_quota_limited_until_but_not_over_limit(self, mock_capture) -> None:
@@ -1376,7 +1500,7 @@ class TestQuotaLimiting(BaseTest):
                 "survey_responses": {"usage": 95, "limit": 100, "todays_usage": 10},  # 105 total, over limit of 100
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
-            self.organization.customer_trust_scores = {"surveys": 0}  # Low trust score
+            self.organization.customer_trust_scores = {"survey_responses": 0}  # Low trust score
             self.organization.save()
 
             # Run quota limiting update
@@ -1505,8 +1629,8 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
-                "api_queries": 0,
+                "feature_flag_requests": 0,
+                "api_queries_read_bytes": 0,
                 "survey_responses": 0,
                 "llm_events": 0,
             }
@@ -1592,8 +1716,8 @@ class TestQuotaLimiting(BaseTest):
                 "exceptions": 0,
                 "recordings": 0,
                 "rows_synced": 0,
-                "feature_flags": 0,
-                "api_queries": 0,
+                "feature_flag_requests": 0,
+                "api_queries_read_bytes": 0,
                 "survey_responses": 0,
                 "llm_events": 7,  # High trust score
             }
@@ -1626,3 +1750,29 @@ class TestQuotaLimiting(BaseTest):
             # Verify analytics events were captured
             events_captured = [call[1]["event"] for call in mock_capture.call_args_list if len(call) >= 2]
             assert "org_quota_limited_until" in events_captured  # Should have suspension and removal events
+
+    def test_usage_keys_stay_in_sync(self):
+        """
+        Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys (except for `period`).
+        """
+        from posthog.models.organization import OrganizationUsageInfo
+
+        # OrganizationUsageInfo is source of truth (excluding 'period``)
+        org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {"period"}
+
+        quota_resource_keys = {resource.value for resource in QuotaResource}
+        usage_counter_keys = set(UsageCounters.__annotations__.keys())
+
+        # Check QuotaResource matches OrganizationUsageInfo
+        missing_from_quota = org_usage_keys - quota_resource_keys
+        extra_in_quota = quota_resource_keys - org_usage_keys
+        assert not missing_from_quota, f"QuotaResource is missing keys from OrganizationUsageInfo: {missing_from_quota}"
+        assert not extra_in_quota, f"QuotaResource has extra keys not in OrganizationUsageInfo: {extra_in_quota}"
+
+        # Check UsageCounters matches OrganizationUsageInfo
+        missing_from_counters = org_usage_keys - usage_counter_keys
+        extra_in_counters = usage_counter_keys - org_usage_keys
+        assert (
+            not missing_from_counters
+        ), f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
+        assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"

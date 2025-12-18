@@ -53,6 +53,7 @@ export interface MaxUIContext {
     insights?: MaxInsightContext[]
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
+    form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
 }
 
 // Taxonomic filter options

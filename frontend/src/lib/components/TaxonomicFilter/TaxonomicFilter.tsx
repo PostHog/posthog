@@ -226,6 +226,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             }}
             inputRef={searchInputRef}
             onChange={_onChange}
+            autoFocus
         />
     )
 })

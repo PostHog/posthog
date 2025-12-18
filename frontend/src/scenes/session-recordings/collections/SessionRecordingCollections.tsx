@@ -240,7 +240,7 @@ export function SessionRecordingCollections(): JSX.Element {
                     onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
                         <LemonButton
                             data-attr="session-recording-playlist-pinned-filter"
@@ -263,6 +263,7 @@ export function SessionRecordingCollections(): JSX.Element {
                                 onSelect={(value) => {
                                     setSavedPlaylistsFilters({ collectionType: value })
                                 }}
+                                size="small"
                                 options={[
                                     {
                                         label: 'All',

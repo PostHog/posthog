@@ -10,6 +10,7 @@ from posthog.test.base import (
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
+    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -326,12 +327,18 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # just test that the backfill SQL can be run without error
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s AND timestamp >= '2024-03-01'"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+                where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
+                shard_index=1,
+                num_shards=2,
+            ),
             {"team_id": self.team.id},
         )
         sync_execute(
             RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
-                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+                where="team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'",
+                shard_index=1,
+                num_shards=2,
             ),
             {"team_id": self.team.id},
         )
@@ -613,6 +620,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             session_id=session_id,
             first_timestamp="2024-03-08",
             last_timestamp="2024-03-08",
+            ensure_analytics_event_in_session=False,
         )
 
         result_2 = self.select_by_session_id(session_id)
@@ -622,3 +630,82 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
             k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
         }
+
+    def test_event_names_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="custom_event",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["event_names"]) == {"$pageview", "$autocapture", "custom_event"}
+
+    def test_flag_keys_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "value1",
+                "$feature/flag_b": "value2",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "different_value",
+                "$feature/flag_c": "value3",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # Should have all unique flag keys (not values)
+        assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}
+
+    def test_get_number_of_umerged_parts(self):
+        # Just test that the query succeeds without errors and returns an int.
+        # We can't really guarantee anything about the number of parts on the test DB.
+        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
+        result = sync_execute(query)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0][0], int)
+        self.assertIsInstance(result[0][1], str)
+        self.assertIsInstance(result[0][2], str)

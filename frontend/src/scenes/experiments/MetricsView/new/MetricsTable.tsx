@@ -6,7 +6,7 @@ import {
     ExperimentTrendsQuery,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
 import { insertMetricIntoOrderingArray } from '../../utils'
@@ -32,7 +32,8 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics, setExperiment } = useActions(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics, setExperiment, updateMetricBreakdown, removeMetricBreakdown } =
+        useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
@@ -65,9 +66,13 @@ export function MetricsTable({
                     <col />
                     <col />
                     <col />
+                    <col />
                     <col className="min-w-[400px]" />
                 </colgroup>
-                <TableHeader axisRange={axisRange} />
+                <TableHeader
+                    axisRange={axisRange}
+                    statsMethod={experiment.stats_config?.method || ExperimentStatsMethod.Bayesian}
+                />
                 <tbody>
                     {metrics.map((metric, index) => {
                         const result = results[index]
@@ -109,6 +114,20 @@ export function MetricsTable({
                                     })
 
                                     updateExperimentMetrics()
+                                }}
+                                onBreakdownChange={(breakdown) => {
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    updateMetricBreakdown(metric.uuid, breakdown)
+                                }}
+                                onRemoveBreakdown={(index) => {
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    removeMetricBreakdown(metric.uuid, index)
                                 }}
                                 error={error}
                                 isLoading={isLoading}

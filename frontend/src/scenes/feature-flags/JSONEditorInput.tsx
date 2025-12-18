@@ -23,7 +23,7 @@ export function JSONEditorInput({
     value = '',
     readOnly = false,
 }: EditorProps): JSX.Element {
-    const valString = value?.toString() || ''
+    const valString = typeof value === 'object' ? JSON.stringify(value, null, 2) : value?.toString() || ''
     const _lineHeight = lineHeight
     const defaultLines = Math.max(defaultNumberOfLines, valString.split(/\r\n|\r|\n/).length) + 1
     const defaultHeight = _lineHeight * defaultLines
@@ -46,10 +46,10 @@ export function JSONEditorInput({
     return (
         <div className="JsonEditorInput" onFocus={onFocus} onBlur={onBlur}>
             <CodeEditor
-                className="border"
+                className="border input-like"
                 language="json"
                 height={height}
-                value={value?.toString()}
+                value={valString}
                 options={{
                     readOnly: readOnly,
                     lineHeight: _lineHeight,
@@ -82,7 +82,7 @@ export function JSONEditorInput({
                     onChange?.(val)
                 }}
             />
-            {!focused && !value?.toString() && placeholder && (
+            {!focused && !valString && placeholder && (
                 <div className="placeholder">
                     <div className="placeholderLabelContainer">{placeholder}</div>
                 </div>

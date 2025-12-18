@@ -12,10 +12,15 @@ from posthog.sync import database_sync_to_async
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
-from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tool import MaxSubtool
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
+
+EXCLUDE_FROM_DISPLAY: dict[str, set[str]] = {
+    "insight": {"query"},
+}
+"""Fields to exclude from display output per entity type (they're still used for search ranking)."""
 
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
@@ -153,20 +158,34 @@ class EntitySearchTool(MaxSubtool):
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
 
+    def _omit_none_values(self, obj):
+        """Recursively remove None values from dicts and sequences."""
+        if isinstance(obj, dict):
+            return {k: self._omit_none_values(v) for k, v in obj.items() if v is not None}
+        elif isinstance(obj, list | tuple):
+            return type(obj)(self._omit_none_values(item) for item in obj if item is not None)
+        else:
+            return obj
+
     def _get_formatted_entity_result(self, result: dict) -> str:
         entity_type = result["type"]
         result_id = result["result_id"]
         extra_fields = result.get("extra_fields", {})
 
+        # Filter out fields that shouldn't be displayed
+        exclude_fields = EXCLUDE_FROM_DISPLAY.get(entity_type, set())
+        display_extra_fields = {k: v for k, v in extra_fields.items() if k not in exclude_fields}
+
         result_dict = {
             "name": extra_fields.get("name", f"{entity_type.upper()} {result_id}"),
-            "id": result_id,
-            "extra_fields": extra_fields,
             "type": entity_type.title(),
+            f"{entity_type}_id": result_id,
             "url": self._build_url(entity_type, result_id),
+            "extra_fields": display_extra_fields,
         }
 
-        return yaml.dump(result_dict, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
+        cleaned_dict = self._omit_none_values(result_dict)
+        return yaml.dump(cleaned_dict, default_flow_style=False, allow_unicode=True, sort_keys=False, indent=1).strip()
 
     def _format_results_for_display(
         self, query: str, entity_types: set[str], results: list[dict], counts: dict[str, int | None]

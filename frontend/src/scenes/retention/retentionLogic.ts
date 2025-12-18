@@ -64,10 +64,6 @@ export const retentionLogic = kea<retentionLogicType>([
             // Reset selected interval when breakdown filter changes
             actions.updateInsightFilter({ selectedInterval: null })
         },
-        updateDateRange: () => {
-            // Reset selected interval when date range changes
-            actions.updateInsightFilter({ selectedInterval: null })
-        },
         updateLocalCustomBracket: async (_, breakpoint) => {
             await breakpoint(1000)
             const { localCustomBrackets, retentionFilter } = values

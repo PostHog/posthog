@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.utils.types.base import AssistantState
 
@@ -69,6 +69,40 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         formatted_str = "".join(formatted)
         for expected_part in expected_parts:
             assert expected_part in formatted_str
+
+    @parameterized.expand(
+        [
+            ("dashboard", "456", "dashboard_id: '456'"),
+            ("cohort", "789", "cohort_id: '789'"),
+            ("insight", "123", "insight_id: '123'"),
+            ("action", "101", "action_id: '101'"),
+            ("feature_flag", "202", "feature_flag_id: '202'"),
+        ]
+    )
+    def test_get_formatted_entity_result_uses_entity_specific_id(self, entity_type, result_id, expected_id_format):
+        result = {"type": entity_type, "result_id": result_id, "extra_fields": {"name": f"Test {entity_type}"}}
+        formatted = self.toolkit._get_formatted_entity_result(result)
+        assert expected_id_format in formatted
+
+    def test_get_formatted_entity_result_excludes_query_for_insights(self):
+        result = {
+            "type": "insight",
+            "result_id": "123",
+            "extra_fields": {"name": "Test Insight", "query": {"kind": "TrendsQuery"}},
+        }
+        formatted = self.toolkit._get_formatted_entity_result(result)
+        assert "query" not in formatted
+        assert "TrendsQuery" not in formatted
+        assert "Test Insight" in formatted
+
+    def test_get_formatted_entity_result_does_not_exclude_fields_for_other_entities(self):
+        result = {
+            "type": "cohort",
+            "result_id": "456",
+            "extra_fields": {"name": "Test Cohort", "filters": {"properties": []}},
+        }
+        formatted = self.toolkit._get_formatted_entity_result(result)
+        assert "filters" in formatted
 
     def test_format_results_for_display_no_results(self):
         content = self.toolkit._format_results_for_display(
@@ -174,3 +208,23 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         result = await self.toolkit.execute(query="test query", search_kind="invalid_type")  # type: ignore
 
         assert "Invalid entity kind: invalid_type. Will not perform search for it." in result
+
+    @parameterized.expand(
+        [
+            ({"a": 1, "b": None, "c": 3}, {"a": 1, "c": 3}),
+            ({"nested": {"x": 1, "y": None, "z": 2}}, {"nested": {"x": 1, "z": 2}}),
+            ({"list": [1, None, 3, None, 5]}, {"list": [1, 3, 5]}),
+            ({"tuple": (1, None, 3)}, {"tuple": (1, 3)}),
+            (
+                {"a": {"b": {"c": None, "d": 4}}, "e": [None, {"f": None, "g": 7}]},
+                {"a": {"b": {"d": 4}}, "e": [{"g": 7}]},
+            ),
+            ({"empty_dict": {}, "empty_list": []}, {"empty_dict": {}, "empty_list": []}),
+            ({"all_none": None}, {}),
+            ({}, {}),
+            ([], []),
+        ]
+    )
+    def test_omit_none_values(self, input_obj, expected_output):
+        result = self.toolkit._omit_none_values(input_obj)
+        assert result == expected_output

@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
 
-from ee.hogai.graph.base import AssistantNode
+from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 

@@ -60,7 +60,7 @@ const FOLDER_LOADING = [
         name: 'Loading...',
         icon: <Spinner />,
         type: 'loading-indicator',
-    },
+    } as TreeDataItem,
 ]
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -565,15 +565,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return recentTreeItems
                 }
                 if (loadingPaths[''] && projectTree.length === 0) {
-                    return [
-                        {
-                            id: `folder-loading/`,
-                            name: 'Loading...',
-                            icon: <Spinner />,
-                            type: 'loading-indicator',
-                        },
-                    ]
+                    return FOLDER_LOADING
                 }
+
                 return projectTree
             },
         ],

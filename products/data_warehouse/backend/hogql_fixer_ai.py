@@ -11,9 +11,9 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 

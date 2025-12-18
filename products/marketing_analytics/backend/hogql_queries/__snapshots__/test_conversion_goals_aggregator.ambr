@@ -3,76 +3,75 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', campaign) AS campaign,
-      source,
-      conversion_0
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS campaign,
+      conv.id AS id,
+      conv.source AS source,
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
+      sum(conv.conversion_0) AS conversion_0
   
   FROM
       (
   SELECT
-          campaign,
-          source,
-          sum(conversion_0) AS conversion_0
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          count() AS conversion_0
       
   FROM
           (
   SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              count() AS conversion_0
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
           
   FROM
               (
   SELECT
                   person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
               
   FROM
                   (
   SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
                   
   FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
+                      events
+                  
   WHERE
-                          or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
+                      or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
   GROUP BY
-                          events.person_id
-                      
+                      events.person_id
+                  
   HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source) AS conv
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
       
   GROUP BY
           campaign,
-          source)
+          id,
+          source) AS conv
+  
+  GROUP BY
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign),
+      conv.id,
+      conv.source
   
   LIMIT 100
   '''
@@ -81,76 +80,75 @@
   '''
   
   SELECT
-      campaign AS campaign,
-      source,
-      conversion_0
+      conv.campaign AS campaign,
+      conv.id AS id,
+      conv.source AS source,
+      conv.campaign AS match_key,
+      sum(conv.conversion_0) AS conversion_0
   
   FROM
       (
   SELECT
-          campaign,
-          source,
-          sum(conversion_0) AS conversion_0
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          count() AS conversion_0
       
   FROM
           (
   SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              count() AS conversion_0
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
           
   FROM
               (
   SELECT
                   person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
               
   FROM
                   (
   SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
                   
   FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
+                      events
+                  
   WHERE
-                          or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
+                      or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
   GROUP BY
-                          events.person_id
-                      
+                      events.person_id
+                  
   HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source) AS conv
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
       
   GROUP BY
           campaign,
-          source)
+          id,
+          source) AS conv
+  
+  GROUP BY
+      conv.campaign,
+      conv.id,
+      conv.source
   
   LIMIT 100
   '''
@@ -159,76 +157,75 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', campaign) AS campaign,
-      source,
-      conversion_0
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS campaign,
+      conv.id AS id,
+      conv.source AS source,
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
+      sum(conv.conversion_0) AS conversion_0
   
   FROM
       (
   SELECT
-          campaign,
-          source,
-          sum(conversion_0) AS conversion_0
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          count() AS conversion_0
       
   FROM
           (
   SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              count() AS conversion_0
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
           
   FROM
               (
   SELECT
                   person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
               
   FROM
                   (
   SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
                   
   FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
+                      events
+                  
   WHERE
-                          or(and(equals(events.event, 'conversion'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
+                      or(and(equals(events.event, 'conversion'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
   GROUP BY
-                          events.person_id
-                      
+                      events.person_id
+                  
   HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source) AS conv
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
       
   GROUP BY
           campaign,
-          source)
+          id,
+          source) AS conv
+  
+  GROUP BY
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign),
+      conv.id,
+      conv.source
   
   LIMIT 100
   '''
@@ -237,76 +234,75 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', campaign) AS campaign,
-      source,
-      conversion_0
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS campaign,
+      conv.id AS id,
+      conv.source AS source,
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
+      sum(conv.conversion_0) AS conversion_0
   
   FROM
       (
   SELECT
-          campaign,
-          source,
-          sum(conversion_0) AS conversion_0
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          count() AS conversion_0
       
   FROM
           (
   SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              count() AS conversion_0
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
           
   FROM
               (
   SELECT
                   person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
               
   FROM
                   (
   SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
                   
   FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
+                      events
+                  
   WHERE
-                          or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
+                      or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
   GROUP BY
-                          events.person_id
-                      
+                      events.person_id
+                  
   HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source) AS conv
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
       
   GROUP BY
           campaign,
-          source)
+          id,
+          source) AS conv
+  
+  GROUP BY
+      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign),
+      conv.id,
+      conv.source
   
   LIMIT 100
   '''
@@ -315,196 +311,199 @@
   '''
   
   SELECT
-      campaign AS campaign,
-      source,
-      conversion_0,
-      conversion_1,
-      conversion_2
+      conv.campaign AS campaign,
+      conv.id AS id,
+      conv.source AS source,
+      conv.campaign AS match_key,
+      sum(conv.conversion_0) AS conversion_0,
+      sum(conv.conversion_1) AS conversion_1,
+      sum(conv.conversion_2) AS conversion_2
   
   FROM
       (
   SELECT
-          campaign,
-          source,
-          sum(conversion_0) AS conversion_0,
-          sum(conversion_1) AS conversion_1,
-          sum(conversion_2) AS conversion_2
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          count() AS conversion_0,
+          0 AS conversion_1,
+          0 AS conversion_2
       
   FROM
           (
   SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              count() AS conversion_0,
-              0 AS conversion_1,
-              0 AS conversion_2
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
           
   FROM
               (
   SELECT
                   person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
               
   FROM
                   (
   SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
                   
   FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
-  WHERE
-                          or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
-  GROUP BY
-                          events.person_id
-                      
-  HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source
-          UNION ALL
-          
-  SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              0 AS conversion_0,
-              count() AS conversion_1,
-              0 AS conversion_2
-          
-  FROM
-              (
-  SELECT
-                  person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
-              
-  FROM
-                  (
-  SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events
                   
-  FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
   WHERE
-                          or(and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
-  GROUP BY
-                          events.person_id
-                      
-  HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source
-          UNION ALL
-          
-  SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              0 AS conversion_0,
-              0 AS conversion_1,
-              count() AS conversion_2
-          
-  FROM
-              (
-  SELECT
-                  person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
-              
-  FROM
-                  (
-  SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
                   
-  FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
-  WHERE
-                          or(and(equals(events.event, 'login'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
   GROUP BY
-                          events.person_id
-                      
+                      events.person_id
+                  
   HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source) AS conv
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
       
   GROUP BY
           campaign,
-          source)
+          id,
+          source
+      UNION ALL
+      
+  SELECT
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          0 AS conversion_0,
+          count() AS conversion_1,
+          0 AS conversion_2
+      
+  FROM
+          (
+  SELECT
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
+          
+  FROM
+              (
+  SELECT
+                  person_id,
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+              
+  FROM
+                  (
+  SELECT
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
+                  
+  FROM
+                      events
+                  
+  WHERE
+                      or(and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
+  GROUP BY
+                      events.person_id
+                  
+  HAVING
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+      
+  GROUP BY
+          campaign,
+          id,
+          source
+      UNION ALL
+      
+  SELECT
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          0 AS conversion_0,
+          0 AS conversion_1,
+          count() AS conversion_2
+      
+  FROM
+          (
+  SELECT
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
+          
+  FROM
+              (
+  SELECT
+                  person_id,
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+              
+  FROM
+                  (
+  SELECT
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
+                  
+  FROM
+                      events
+                  
+  WHERE
+                      or(and(equals(events.event, 'login'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
+  GROUP BY
+                      events.person_id
+                  
+  HAVING
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+      
+  GROUP BY
+          campaign,
+          id,
+          source) AS conv
+  
+  GROUP BY
+      conv.campaign,
+      conv.id,
+      conv.source
   
   LIMIT 100
   '''
@@ -513,135 +512,136 @@
   '''
   
   SELECT
-      campaign AS campaign,
-      source,
-      conversion_0,
-      conversion_1
+      conv.campaign AS campaign,
+      conv.id AS id,
+      conv.source AS source,
+      conv.campaign AS match_key,
+      sum(conv.conversion_0) AS conversion_0,
+      sum(conv.conversion_1) AS conversion_1
   
   FROM
       (
   SELECT
-          campaign,
-          source,
-          sum(conversion_0) AS conversion_0,
-          sum(conversion_1) AS conversion_1
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          count() AS conversion_0,
+          0 AS conversion_1
       
   FROM
           (
   SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              count() AS conversion_0,
-              0 AS conversion_1
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
           
   FROM
               (
   SELECT
                   person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
               
   FROM
                   (
   SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
                   
   FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
-  WHERE
-                          or(and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
-  GROUP BY
-                          events.person_id
-                      
-  HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source
-          UNION ALL
-          
-  SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
-              0 AS conversion_0,
-              count() AS conversion_1
-          
-  FROM
-              (
-  SELECT
-                  person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
-              
-  FROM
-                  (
-  SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      events
                   
-  FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
   WHERE
-                          or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
-                      
+                      or(and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
   GROUP BY
-                          events.person_id
-                      
+                      events.person_id
+                  
   HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              source) AS conv
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
       
   GROUP BY
           campaign,
-          source)
+          id,
+          source
+      UNION ALL
+      
+  SELECT
+          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+          if(notEmpty(campaign_id), campaign_id, '-') AS id,
+          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+          0 AS conversion_0,
+          count() AS conversion_1
+      
+  FROM
+          (
+  SELECT
+              person_id,
+              if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+              '-' AS campaign_id,
+              if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+              1 AS conversion_value
+          
+  FROM
+              (
+  SELECT
+                  person_id,
+                  conversion_timestamps[i] AS conversion_time,
+                  conversion_math_values[i] AS conversion_math_value,
+                  conversion_campaigns[i] AS conversion_campaign,
+                  conversion_sources[i] AS conversion_source,
+                  arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                  if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                  if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+              
+  FROM
+                  (
+  SELECT
+                      events.person_id,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                      arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                      arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                      arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
+                  
+  FROM
+                      events
+                  
+  WHERE
+                      or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01')), less(events.timestamp, toDateTime('2023-02-01'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01'), toIntervalSecond(7776000)))))
+                  
+  GROUP BY
+                      events.person_id
+                  
+  HAVING
+                      greater(length(conversion_timestamps), 0))
+              ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+      
+  GROUP BY
+          campaign,
+          id,
+          source) AS conv
+  
+  GROUP BY
+      conv.campaign,
+      conv.id,
+      conv.source
   
   LIMIT 100
   '''

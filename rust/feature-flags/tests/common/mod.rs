@@ -57,7 +57,6 @@ impl ServerHandle {
             // Create a minimal valid Team object
             let team = Team {
                 id: team_id,
-                project_id: Some(team_id as i64),
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
                 cookieless_server_hash_mode: Some(0),
@@ -74,7 +73,8 @@ impl ServerHandle {
         }
 
         tokio::spawn(async move {
-            let redis_reader_client = Arc::new(mock_client);
+            let redis_reader_client: Arc<dyn common_redis::Client + Send + Sync> =
+                Arc::new(mock_client);
             let redis_writer_client = redis_reader_client.clone();
 
             let (persons_reader, persons_writer, non_persons_reader, non_persons_writer) = if config
@@ -169,7 +169,7 @@ impl ServerHandle {
             let cohort_cache = Arc::new(
                 feature_flags::cohorts::cohort_cache_manager::CohortCacheManager::new(
                     non_persons_reader.clone(),
-                    Some(config.cache_max_cohort_entries),
+                    Some(config.cohort_cache_capacity_bytes),
                     Some(config.cache_ttl_seconds),
                 ),
             );
@@ -213,10 +213,8 @@ impl ServerHandle {
             });
 
             let app = feature_flags::router::router(
-                redis_reader_client.clone(),
-                redis_writer_client.clone(),
-                None::<Arc<MockRedisClient>>, // No dedicated flags Redis in tests
-                None::<Arc<MockRedisClient>>,
+                redis_writer_client.clone(), // Use writer client for both reads and writes in tests
+                None,                        // No dedicated flags Redis in tests
                 database_pools,
                 cohort_cache,
                 geoip_service,

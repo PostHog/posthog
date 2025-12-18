@@ -39,6 +39,10 @@ import queryInsight from './insights/query'
 import updateInsight from './insights/update'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
+import logsListAttributeValues from './logs/listAttributeValues'
+import logsListAttributes from './logs/listAttributes'
+// Logs
+import logsQuery from './logs/query'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -89,6 +93,11 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Error Tracking
     'list-errors': listErrors,
     'error-details': errorDetails,
+
+    // Logs
+    'logs-query': logsQuery,
+    'logs-list-attributes': logsListAttributes,
+    'logs-list-attribute-values': logsListAttributeValues,
 
     // Experiments
     'experiment-get-all': getAllExperiments,
@@ -158,19 +167,10 @@ export const getToolsFromContext = async (context: Context, features?: string[])
         }
     })
 
-    try {
-        const { scopes } = (await context.stateManager.getApiKey())!
+    const apiKey = await context.stateManager.getApiKey()
+    const scopes = apiKey?.scopes ?? []
 
-        const filteredTools = tools.filter((tool) => {
-            return hasScopes(scopes, tool.scopes)
-        })
-
-        return filteredTools
-    } catch {
-        // OAuth tokens don't support /api/personal_api_keys/@current endpoint yet
-        // Return empty tool set until backend OAuth support is added
-        return []
-    }
+    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
 }
 
 export type PostHogToolsOptions = {

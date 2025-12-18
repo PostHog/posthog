@@ -13,6 +13,7 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::ai_s3::BlobStorage;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
@@ -37,10 +38,10 @@ pub struct State {
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
-    pub capture_mode: CaptureMode,
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
+    pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
 }
 
 #[derive(Clone)]
@@ -79,6 +80,25 @@ async fn index() -> &'static str {
     "capture"
 }
 
+async fn readiness() -> axum::http::StatusCode {
+    use crate::metrics_middleware::ShutdownStatus;
+
+    let shutdown_status = crate::metrics_middleware::get_shutdown_status();
+    let is_running_or_unknown =
+        shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown;
+
+    if is_running_or_unknown && std::path::Path::new("/tmp/shutdown").exists() {
+        crate::metrics_middleware::set_shutdown_status(ShutdownStatus::Prestop);
+        tracing::info!("Shutdown status change: PRESTOP");
+    }
+
+    if is_running_or_unknown {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -93,6 +113,7 @@ pub fn router<
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
+    deploy_role: String,
     concurrency_limit: Option<usize>,
     event_size_limit: usize,
     enable_historical_rerouting: bool,
@@ -100,6 +121,7 @@ pub fn router<
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
+    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     request_timeout_seconds: Option<u64>,
 ) -> Router {
     let state = State {
@@ -113,10 +135,10 @@ pub fn router<
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
         ),
-        capture_mode: capture_mode.clone(),
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
+        ai_blob_storage,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -222,7 +244,7 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route("/_readiness", get(readiness))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let recordings_router = Router::new()
@@ -283,7 +305,7 @@ pub fn router<
     // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
     if metrics {
-        let recorder_handle = setup_metrics_recorder();
+        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router

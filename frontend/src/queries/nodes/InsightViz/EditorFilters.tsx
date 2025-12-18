@@ -23,6 +23,7 @@ import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
@@ -39,8 +40,16 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
-import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import {
+    DataVisualizationNode,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+} from '~/queries/schema/schema-general'
+import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -100,6 +109,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     if (!querySource) {
         return null
+    }
+
+    // Web Analytics insights use their custom filter UI
+    if (isWebAnalyticsInsightQuery(query)) {
+        return (
+            <WebAnalyticsEditorFilters
+                query={query as WebOverviewQuery | WebStatsTableQuery}
+                showing={showing}
+                embedded={embedded}
+            />
+        )
     }
 
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)
@@ -430,15 +450,22 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)
-                            let node: DataVisualizationNode | InsightVizNode
+                            if (!source) {
+                                return
+                            }
+
+                            let node: QuerySchema
                             if (isHogQLQuery(source)) {
                                 node = {
                                     kind: NodeKind.DataVisualizationNode,
                                     source,
                                 } satisfies DataVisualizationNode
-                            } else {
+                            } else if (isInsightQueryNode(source)) {
                                 node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            } else {
+                                node = source
                             }
+
                             handleInsightSuggested(node)
                             setQuery(node)
                         }}

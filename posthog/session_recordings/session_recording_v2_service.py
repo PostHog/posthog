@@ -10,8 +10,6 @@ from prometheus_client import Counter
 from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.storage import session_recording_v2_object_storage
-from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 logger = structlog.get_logger(__name__)
 
@@ -71,7 +69,9 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
             BLOCK_URL_CACHE_HIT_COUNTER.labels(cache_hit=False).inc()
 
     listed_blocks = SessionReplayEvents().list_blocks(
-        recording.session_id, recording.team, recording_start_time=recording.start_time, ttl_days=recording.ttl_days
+        recording.session_id,
+        recording.team,
+        recording_start_time=recording.start_time,
     )
 
     if listed_blocks is not None and not listed_blocks.is_empty() and cache_key is not None:
@@ -150,57 +150,3 @@ def build_block_list(
         return []
 
     return blocks
-
-
-def copy_to_lts(recording: SessionRecording) -> str | None:
-    """
-    Copy a session recording's blocks to LTS (Long Term Storage).
-
-    Returns the LTS path if successful, None if failed.
-    Raises BlockFetchError if unable to fetch blocks.
-    """
-    storage_client = session_recording_v2_object_storage.client()
-    if not storage_client.is_enabled() or not storage_client.is_lts_enabled():
-        logger.info(
-            "LTS storage not enabled, skipping copy",
-            session_id=recording.session_id,
-            team_id=recording.team_id,
-        )
-        return None
-
-    blocks = list_blocks(recording)
-    if not blocks:
-        logger.info(
-            "No v2 metadata found for recording or recording is incomplete, skipping copy to LTS",
-            session_id=recording.session_id,
-            team_id=recording.team_id,
-        )
-        return None
-
-    decompressed_blocks = []
-    for block in blocks:
-        try:
-            decompressed_block = storage_client.fetch_block(block.url)
-            decompressed_blocks.append(decompressed_block)
-        except BlockFetchError:
-            logger.exception(
-                "Failed to fetch block during LTS copy",
-                session_id=recording.session_id,
-                team_id=recording.team_id,
-                block_url=block.url,
-            )
-            raise
-
-    full_recording_data = "\n".join(decompressed_blocks)
-    target_key, error = storage_client.store_lts_recording(recording.session_id, full_recording_data)
-
-    if error:
-        logger.error(
-            "Failed to store recording in LTS",
-            session_id=recording.session_id,
-            team_id=recording.team_id,
-            error=error,
-        )
-        return None
-
-    return target_key

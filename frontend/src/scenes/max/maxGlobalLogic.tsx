@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,6 +19,16 @@ import { maxLogic, mergeConversationHistory } from './maxLogic'
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
     {
+        identifier: 'web_search',
+        name: TOOL_DEFINITIONS['web_search'].name,
+        description: TOOL_DEFINITIONS['web_search'].description,
+    },
+    {
+        identifier: 'session_summarization' as const,
+        name: TOOL_DEFINITIONS['session_summarization'].name,
+        description: TOOL_DEFINITIONS['session_summarization'].description,
+    },
+    {
         identifier: 'create_dashboard' as const,
         name: TOOL_DEFINITIONS['create_dashboard'].name,
         description: TOOL_DEFINITIONS['create_dashboard'].description,
@@ -29,14 +39,39 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         description: TOOL_DEFINITIONS['search'].description,
     },
     {
-        identifier: 'session_summarization' as const,
-        name: TOOL_DEFINITIONS['session_summarization'].name,
-        description: TOOL_DEFINITIONS['session_summarization'].description,
-    },
-    {
         identifier: 'create_and_query_insight' as const,
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
+    },
+    {
+        identifier: 'create_task' as const,
+        name: TOOL_DEFINITIONS['create_task'].name,
+        description: TOOL_DEFINITIONS['create_task'].description,
+    },
+    {
+        identifier: 'run_task' as const,
+        name: TOOL_DEFINITIONS['run_task'].name,
+        description: TOOL_DEFINITIONS['run_task'].description,
+    },
+    {
+        identifier: 'get_task_run' as const,
+        name: TOOL_DEFINITIONS['get_task_run'].name,
+        description: TOOL_DEFINITIONS['get_task_run'].description,
+    },
+    {
+        identifier: 'get_task_run_logs' as const,
+        name: TOOL_DEFINITIONS['get_task_run_logs'].name,
+        description: TOOL_DEFINITIONS['get_task_run_logs'].description,
+    },
+    {
+        identifier: 'list_tasks' as const,
+        name: TOOL_DEFINITIONS['list_tasks'].name,
+        description: TOOL_DEFINITIONS['list_tasks'].description,
+    },
+    {
+        identifier: 'list_task_runs' as const,
+        name: TOOL_DEFINITIONS['list_task_runs'].name,
+        description: TOOL_DEFINITIONS['list_task_runs'].description,
     },
 ]
 
@@ -130,7 +165,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 logic.mount() // we're never unmounting this
             }
             actions.openSidePanelMax()
-            logic.actions.askMax(prompt)
+            // HACK: Delay to ensure maxThreadLogic is mounted after the side panel opens - ugly, but works
+            window.setTimeout(() => logic!.actions.askMax(prompt), 100)
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
@@ -164,12 +200,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         availableStaticTools: [
             (s) => [s.featureFlags],
-            (featureFlags): ToolRegistration[] =>
-                STATIC_TOOLS.filter((tool) => {
+            (featureFlags): ToolRegistration[] => {
+                const staticTools = STATIC_TOOLS.filter((tool) => {
                     // Only register the static tools that either aren't flagged or have their flag enabled
                     const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
                     return !toolDefinition.flag || featureFlags[toolDefinition.flag]
-                }),
+                })
+                if (featureFlags[FEATURE_FLAGS.AGENT_MODES]) {
+                    staticTools.unshift({
+                        identifier: 'filter_session_recordings' as const,
+                        name: TOOL_DEFINITIONS['filter_session_recordings'].name,
+                        description: TOOL_DEFINITIONS['filter_session_recordings'].description,
+                    })
+                }
+                return staticTools
+            },
         ],
         toolMap: [
             (s) => [s.registeredToolMap, s.availableStaticTools],

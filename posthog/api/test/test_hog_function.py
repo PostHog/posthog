@@ -256,6 +256,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "mappings": None,
             "status": {"state": 0, "tokens": 0},
             "execution_order": None,
+            "batch_export_id": None,
         }
 
         id = response.json()["id"]
@@ -2165,3 +2166,73 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert "No template found for id 'nonexistent-template-id'" in response.json()["detail"]
         assert HogFunction.objects.count() == initial_count, "No HogFunction should be created on error"
+
+    def test_list_with_custom_limit_parameter(self):
+        """
+        Test that the limit parameter allows fetching more than the default 100 items.
+        This verifies the frontend fix that adds limit=300 to HogFunction list requests.
+        """
+        # Create 150 hog functions (more than the default page size of 100)
+        for i in range(150):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": f"Test Function {i:03d}",
+                    "hog": "return event",
+                    "type": "destination",
+                    "enabled": False,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, f"Failed to create function {i}: {response.json()}"
+
+        # Test 1: Without limit parameter (should return default 100 due to pagination)
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 100, "Without limit, should return default page size of 100"
+        assert response.json()["count"] == 150, "Total count should be 150"
+
+        # Test 2: With limit=50 (should return only 50)
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?limit=50")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 50, "With limit=50, should return 50 items"
+        assert response.json()["count"] == 150, "Total count should still be 150"
+
+        # Test 3: With limit=300 (should return all 150)
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?limit=300")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 150, "With limit=300, should return all 150 items"
+        assert response.json()["count"] == 150, "Total count should be 150"
+
+        # Test 4: Verify that pagination still works with offset
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?limit=50&offset=100")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
+        assert response.json()["count"] == 150, "Total count should still be 150"
+
+    @patch("posthog.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
+    def test_enable_backfills_blocked_without_feature_flag(self, mock_feature_enabled):
+        """Test that enable_backfills is blocked when the feature flag is disabled."""
+        # Create a hog function
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "Test Backfill Function",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        # Try to enable backfills without the feature flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+
+        # Should be denied
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "Backfilling Workflows is not enabled for this team."
+
+        # Verify feature flag was checked correctly
+        mock_feature_enabled.assert_called_once()
+        call_args = mock_feature_enabled.call_args
+        assert call_args[0][0] == "backfill-workflows-destination"

@@ -29,6 +29,8 @@ MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max limit for LLM traces
+MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -126,3 +128,6 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
+    use_hive_partitioning: Optional[int] = 0
+    read_overflow_mode: Optional[str] = None
+    max_bytes_to_read: Optional[int] = None

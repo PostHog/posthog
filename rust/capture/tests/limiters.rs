@@ -2,7 +2,6 @@
 mod integration_utils;
 use integration_utils::DEFAULT_CONFIG;
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -11,7 +10,6 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
-use common_types::RawEvent;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -19,7 +17,9 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::limiters::{is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter};
+use capture::limiters::{
+    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
+};
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -119,9 +119,9 @@ async fn setup_router_with_limits(
 
     // TODO: add more scoped limiters to test helper as needed in the future!
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::Exceptions, Box::new(is_exception_event))
-        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event))
-        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+        .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
+        .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let app = router(
         timesource,
@@ -132,6 +132,7 @@ async fn setup_router_with_limits(
         TokenDropper::default(),
         false, // metrics
         CaptureMode::Events,
+        String::from("capture"),
         None,        // concurrency_limit
         1024 * 1024, // event_size_limit
         false,       // enable_historical_rerouting
@@ -139,6 +140,7 @@ async fn setup_router_with_limits(
         false,       // is_mirror_deploy
         0.0,         // verbose_sample_percent
         26_214_400,  // ai_max_sum_of_parts_bytes (25MB)
+        None,        // ai_blob_storage
         Some(10),    // request_timeout_seconds
     );
 
@@ -182,37 +184,15 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
         .collect()
 }
 
-// only useful in ScopedLimiter predicate (event_matcher) tests
-fn gen_stub_events(names: &[&str]) -> Vec<RawEvent> {
-    let mut out = vec![];
-
-    for name in names {
-        out.push(RawEvent {
-            event: name.to_string(),
-            token: Some("test_token".to_string()),
-            distinct_id: Some(Value::String("test_distinct_id".to_string())),
-            uuid: None,
-            properties: HashMap::new(),
-            timestamp: None,
-            offset: None,
-            set: None,
-            set_once: None,
-        });
-    }
-
-    out
-}
-
 #[tokio::test]
 async fn test_exception_predicate() {
     let should_accept_names = vec!["$exception"];
-    let should_accept_events = gen_stub_events(&should_accept_names);
-    for event in should_accept_events {
-        assert!(
-            is_exception_event(&event),
-            "event {} should be accepted",
-            event.event
-        );
+    for name in should_accept_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
+        assert!(is_exception_event(info), "event {name} should be accepted");
     }
 
     let should_reject_names = vec![
@@ -224,12 +204,14 @@ async fn test_exception_predicate() {
         "exceptional_event",
         "$exceptable",
     ];
-    let should_reject_events = gen_stub_events(&should_reject_names);
-    for event in should_reject_events {
+    for name in should_reject_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
         assert!(
-            !is_exception_event(&event),
-            "event {} should not be accepted",
-            event.event
+            !is_exception_event(info),
+            "event {name} should not be accepted"
         );
     }
 }
@@ -245,13 +227,12 @@ async fn test_llm_predicate() {
         "$ai_metric",
         "$ai_feedback",
     ];
-    let should_accept_events = gen_stub_events(&should_accept_names);
-    for event in should_accept_events {
-        assert!(
-            is_llm_event(&event),
-            "event {} should be accepted",
-            event.event
-        );
+    for name in should_accept_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
+        assert!(is_llm_event(info), "event {name} should be accepted");
     }
 
     let should_reject_names = vec![
@@ -263,28 +244,28 @@ async fn test_llm_predicate() {
         "ai_span",
         "ai_generation",
     ];
-    let should_reject_events = gen_stub_events(&should_reject_names);
-    for event in should_reject_events {
-        assert!(
-            !is_llm_event(&event),
-            "event {} should not be accepted",
-            event.event
-        );
+    for name in should_reject_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
+        assert!(!is_llm_event(info), "event {name} should not be accepted");
     }
 }
 
 #[tokio::test]
 async fn test_survey_predicate() {
+    // Regular survey events (no product tour) should be accepted
     let should_accept_names = vec!["survey sent", "survey shown", "survey dismissed"];
-    let should_accept_events = gen_stub_events(&should_accept_names);
-    for event in should_accept_events {
-        assert!(
-            is_survey_event(&event),
-            "event {} should be accepted",
-            event.event
-        );
+    for name in should_accept_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
+        assert!(is_survey_event(info), "event {name} should be accepted");
     }
 
+    // Non-survey events should be rejected
     let should_reject_names = vec![
         "$ai_generation",
         "$exception",
@@ -297,12 +278,27 @@ async fn test_survey_predicate() {
         "survey_shown",
         "survey_dismissed",
     ];
-    let should_reject_events = gen_stub_events(&should_reject_names);
-    for event in should_reject_events {
+    for name in should_reject_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: false,
+        };
         assert!(
-            !is_survey_event(&event),
-            "event {} should not be accepted",
-            event.event
+            !is_survey_event(info),
+            "event {name} should not be accepted"
+        );
+    }
+
+    // Product tour survey events should be rejected (free, not billed)
+    let product_tour_survey_names = vec!["survey sent", "survey shown", "survey dismissed"];
+    for name in product_tour_survey_names {
+        let info = EventInfo {
+            name,
+            has_product_tour_id: true,
+        };
+        assert!(
+            !is_survey_event(info),
+            "product tour survey event {name} should not be limited"
         );
     }
 }
@@ -1165,7 +1161,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     cfg.capture_mode = CaptureMode::Events;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
+        .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
         timesource,
@@ -1176,6 +1172,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1183,6 +1180,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 
@@ -1241,7 +1239,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     cfg.capture_mode = CaptureMode::Events;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
+        .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
         timesource,
@@ -1252,6 +1250,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1259,6 +1258,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 
@@ -1321,7 +1321,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     cfg.capture_mode = CaptureMode::Events;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event));
+        .add_scoped_limiter(QuotaResource::Surveys, is_survey_event);
 
     let app = router(
         timesource,
@@ -1332,6 +1332,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1339,6 +1340,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 
@@ -1738,7 +1740,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     cfg.capture_mode = CaptureMode::Events;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let app = router(
         timesource,
@@ -1749,6 +1751,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1756,6 +1759,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 

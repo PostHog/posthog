@@ -107,9 +107,10 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
     };
 
     let res = client
-        .send_post("error_tracking/symbol_sets/bulk_start_upload", |req| {
-            req.json(&request)
-        })
+        .send_post(
+            client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
+            |req| req.json(&request),
+        )
         .context("Failed to start upload")?;
 
     Ok(res.json()?)
@@ -154,9 +155,10 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
     let request = BulkUploadFinishRequest { content_hashes };
 
     client
-        .send_post("error_tracking/symbol_sets/bulk_finish_upload", |req| {
-            req.json(&request)
-        })
+        .send_post(
+            client.project_url("error_tracking/symbol_sets/bulk_finish_upload")?,
+            |req| req.json(&request),
+        )
         .context("Failed to finish upload")?;
 
     Ok(())

@@ -59,8 +59,8 @@ class TestFormatEventsPrompt(BaseTest):
         return CachedTeamTaxonomyQueryResponse(
             cache_key="test_key",
             is_cached=True,
-            last_refresh=datetime.datetime(2023, 1, 1, 0, 0, 0),
-            next_allowed_client_refresh=datetime.datetime(2023, 1, 1, 1, 0, 0),
+            last_refresh=datetime.datetime(2023, 1, 1, 0, 0, 0, tzinfo=datetime.UTC),
+            next_allowed_client_refresh=datetime.datetime(2023, 1, 1, 1, 0, 0, tzinfo=datetime.UTC),
             timezone="UTC",
             results=results,
         )
@@ -135,9 +135,7 @@ class TestFormatEventsPrompt(BaseTest):
         self.assertEqual(set(event_names), set(expected_events))
 
         # Verify descriptions are present
-        descriptions = [
-            event.find("description").text for event in root.findall("event") if event.find("description") is not None
-        ]
+        descriptions = [desc.text for event in root.findall("event") if (desc := event.find("description")) is not None]
         self.assertGreater(len(descriptions), 0)
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
@@ -154,7 +152,7 @@ class TestFormatEventsPrompt(BaseTest):
         )  # Create 30 results total
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
@@ -176,7 +174,7 @@ class TestFormatEventsPrompt(BaseTest):
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
@@ -194,7 +192,7 @@ class TestFormatEventsPrompt(BaseTest):
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
@@ -274,7 +272,7 @@ class TestFormatEventsPrompt(BaseTest):
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
         result = format_events_xml(events_in_context, self.team)
 
         event_names = self._get_event_names_from_xml(result)
@@ -295,6 +293,7 @@ class TestFormatEventsPrompt(BaseTest):
 
         root = ET.fromstring(result)
         test_event = root.find(".//event[name='test_event']")
+        assert test_event is not None
         description = test_event.find("description")
 
         # Should not have a description tag
@@ -315,6 +314,7 @@ class TestFormatEventsPrompt(BaseTest):
 
         root = ET.fromstring(result)
         test_event = root.find(".//event[name='test_event']")
+        assert test_event is not None
         description = test_event.find("description")
         # Empty string descriptions should not create a description tag
         self.assertIsNone(description)
@@ -349,7 +349,7 @@ class TestFormatEventsPrompt(BaseTest):
         mock_runner.run.return_value = "not a cached response"
         mock_runner_class.return_value = mock_runner
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
 
         with self.assertRaises(ValueError, msg="Failed to generate events prompt."):
             format_events_xml(events_in_context, self.team)
@@ -364,7 +364,7 @@ class TestFormatEventsPrompt(BaseTest):
         )
         self._setup_mock_runner(mock_runner_class, taxonomy_items)
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
         result = format_events_xml(events_in_context, self.team)
 
         description = self._get_event_description(result, "$pageview")
@@ -397,7 +397,7 @@ class TestFormatEventsPrompt(BaseTest):
         """Test that TeamTaxonomyQueryRunner is called with correct parameters."""
         self._setup_mock_runner(mock_runner_class, [])
 
-        events_in_context = []
+        events_in_context: list[MaxEventContext] = []
         format_events_xml(events_in_context, self.team)
 
         # Verify TeamTaxonomyQueryRunner was called correctly

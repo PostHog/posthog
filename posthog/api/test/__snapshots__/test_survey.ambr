@@ -22,76 +22,6 @@
   GROUP BY survey_id
   '''
 # ---
-# name: TestResponsesCount.test_responses_count_excludes_archived_responses
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
-         count()
-  FROM events
-  WHERE team_id = 99999
-    AND event = 'survey sent'
-    AND timestamp >= '2024-04-26 14:40:09'
-    AND uuid IN
-      (SELECT argMax(uuid, timestamp)
-       FROM events
-       WHERE team_id = 99999
-         AND timestamp >= '2024-04-26 14:40:09'
-         AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
-                CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
-                END)
-  GROUP BY survey_id
-  '''
-# ---
-# name: TestResponsesCount.test_responses_count_excludes_archived_responses.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
-         count()
-  FROM events
-  WHERE team_id = 99999
-    AND event = 'survey sent'
-    AND timestamp >= '2024-04-26 14:40:09'
-    AND uuid IN
-      (SELECT argMax(uuid, timestamp)
-       FROM events
-       WHERE team_id = 99999
-         AND timestamp >= '2024-04-26 14:40:09'
-         AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
-                CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
-                END)
-  GROUP BY survey_id
-  '''
-# ---
-# name: TestResponsesCount.test_responses_count_excludes_archived_responses.2
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
-         count()
-  FROM events
-  WHERE team_id = 99999
-    AND event = 'survey sent'
-    AND timestamp >= '2024-04-26 14:40:09'
-    AND uuid IN
-      (SELECT argMax(uuid, timestamp)
-       FROM events
-       WHERE team_id = 99999
-         AND timestamp >= '2024-04-26 14:40:09'
-         AND event = 'survey sent'
-       GROUP BY JSONExtractString(properties, '$survey_id'),
-                CASE
-                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
-                    ELSE JSONExtractString(properties, '$survey_submission_id')
-                END)
-    AND uuid NOT IN ('2ffba37c-c5f2-4215-9b1b-f2d2d181fa38')
-  GROUP BY survey_id
-  '''
-# ---
 # name: TestResponsesCount.test_responses_count_only_after_first_survey_started
   '''
   /* user_id:0 request:_snapshot_ */
@@ -217,6 +147,7 @@
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."capture_dead_clicks",
@@ -233,6 +164,7 @@
          "posthog_team"."feature_flag_confirmation_enabled",
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -261,7 +193,8 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time"
+         "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21
@@ -301,6 +234,8 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."headline_summary",
+         "posthog_survey"."headline_response_count",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -322,6 +257,7 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
          "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."bucketing_identifier",
          "posthog_featureflag"."last_called_at",
          T5."id",
          T5."key",
@@ -344,6 +280,7 @@
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
          T5."evaluation_runtime",
+         T5."bucketing_identifier",
          T5."last_called_at",
          T6."id",
          T6."key",
@@ -366,6 +303,7 @@
          T6."is_remote_configuration",
          T6."has_encrypted_payloads",
          T6."evaluation_runtime",
+         T6."bucketing_identifier",
          T6."last_called_at"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
@@ -547,9 +485,11 @@
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"

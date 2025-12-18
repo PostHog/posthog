@@ -1,16 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconRewindPlay } from '@posthog/icons'
-
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { ActivityScoreLabel } from 'scenes/session-recordings/components/RecordingRow'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -19,7 +15,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { ProductKey, ReplayTabs, SessionRecordingType } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { SessionRecordingType } from '~/types'
 
 export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.Element {
     const { layout } = tile
@@ -55,7 +52,6 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                 buttonText: 'Learn more',
                 buttonTo: 'https://posthog.com/docs/user-guides/recordings',
             }
-    const to = items.length > 0 ? urls.replay(ReplayTabs.Home, replayFilters) : urls.replay()
     return (
         <>
             <div
@@ -109,14 +105,19 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                                     ),
                                 },
                                 {
-                                    title: '',
+                                    title: 'Recording',
                                     render: (_, recording: SessionRecordingType) => (
-                                        <LemonButton
-                                            size="xsmall"
-                                            targetBlank
-                                            to={urls.replaySingle(recording.id ?? '')}
-                                            icon={<IconRewindPlay />}
-                                        />
+                                        <div
+                                            onClick={() => {
+                                                addProductIntentForCrossSell({
+                                                    from: ProductKey.WEB_ANALYTICS,
+                                                    to: ProductKey.SESSION_REPLAY,
+                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                                })
+                                            }}
+                                        >
+                                            <ViewReplayButton recordingId={recording.id ?? ''} size="xsmall" />
+                                        </div>
                                     ),
                                 },
                             ]}
@@ -125,9 +126,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                     )}
                 </div>
                 <div className="flex flex-row-reverse my-2">
-                    <LemonButton
-                        to={to}
-                        icon={<IconOpenInNew />}
+                    <div
                         onClick={() => {
                             addProductIntentForCrossSell({
                                 from: ProductKey.WEB_ANALYTICS,
@@ -135,11 +134,9 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                                 intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
                             })
                         }}
-                        size="small"
-                        type="secondary"
                     >
-                        View all
-                    </LemonButton>
+                        <ViewReplayButton filters={replayFilters} size="small" type="secondary" label="View all" />
+                    </div>
                 </div>
             </div>
         </>

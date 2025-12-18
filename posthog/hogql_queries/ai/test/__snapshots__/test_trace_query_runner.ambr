@@ -18,12 +18,12 @@
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -46,7 +46,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestTraceQueryRunner.test_event_property_filters.1
@@ -68,12 +69,12 @@
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -96,7 +97,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestTraceQueryRunner.test_event_property_filters.2
@@ -118,12 +120,12 @@
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             toTimeZone(person.created_at, 'UTC') AS created_at,
@@ -146,7 +148,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestTraceQueryRunner.test_person_property_filters
@@ -168,12 +171,12 @@
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null'), '^"|"$', '') AS properties___bar,
@@ -197,7 +200,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestTraceQueryRunner.test_person_property_filters.1
@@ -219,12 +223,12 @@
          ifNull(argMinIf(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
   FROM events
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null'), '^"|"$', '') AS properties___bar,
@@ -248,6 +252,7 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---

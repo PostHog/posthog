@@ -812,7 +812,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         self.organization.customer_id = None
-        # For key values check: TRUST_SCORE_KEYS
+        # For key values check: QuotaResource values
         self.organization.customer_trust_scores = {
             "events": 0,
             "exceptions": 0,

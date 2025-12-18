@@ -9,7 +9,6 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -22,8 +21,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -138,6 +139,7 @@ function Surveys(): JSX.Element {
                     <SurveysTable />
                 </>
             )}
+            <DuplicateToProjectModal />
         </SceneContent>
     )
 }

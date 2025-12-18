@@ -6,7 +6,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
-import { errorTrackingIssueSceneConfigurationLogic } from '../../scenes/ErrorTrackingIssueV2Scene/errorTrackingIssueSceneConfigurationLogic'
+import { errorTrackingIssueSceneConfigurationLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneConfigurationLogic'
 import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownPreset, BreakdownsEvents } from './consts'

@@ -28,13 +28,14 @@ import { getLogicKey } from './utils'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
     const { groupKey, groupTypeIndex, personId, tabId } = attributes
-    const group = groupKey && groupTypeIndex ? { groupKey, groupTypeIndex } : undefined
+    const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
 
     const logic = llmAnalyticsLogic({ logicKey, personId, group })
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
     const { tracesQuery } = useValues(logic)
     const context = useTracesQueryContext()
+    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
 
     if (!expanded) {
         return null
@@ -45,7 +46,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
             <LLMAnalyticsSetupPrompt className="border-none">
                 <Query
                     uniqueKey={logicKey}
-                    attachTo={groupLogic}
+                    attachTo={attachTo}
                     query={{
                         ...tracesQuery,
                         embedded: true,

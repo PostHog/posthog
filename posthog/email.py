@@ -4,7 +4,10 @@ import sys
 import html
 import uuid
 from decimal import Decimal
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 from django.conf import settings
 from django.core import exceptions, mail
@@ -14,10 +17,11 @@ from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-import lxml
 import requests
-import toronado
+import css_inline
+import posthoganalytics
 from celery import shared_task
+from lxml import html as lxml_html
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
@@ -30,11 +34,11 @@ def inline_css(value: str) -> str:
     Returns an HTML document with inline CSS.
     Forked from getsentry/sentry
     """
-    tree = lxml.html.document_fromstring(value)
-    toronado.inline(tree)
+    inlined = css_inline.inline(value)
+    tree = lxml_html.document_fromstring(inlined)
     # CSS media query support is inconsistent when the DOCTYPE declaration is
     # missing, so we force it to HTML5 here.
-    return lxml.html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
+    return lxml_html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
 
 
 def is_http_email_service_available() -> bool:
@@ -138,10 +142,14 @@ def _send_via_http(
                 if record.sent_at:
                     continue
 
+                identifiers: dict[str, str] = {"email": dest["raw_email"]}
+                if dest.get("distinct_id"):
+                    identifiers["id"] = dest["distinct_id"]
+
                 payload = {
                     "transactional_message_id": get_customer_io_template_id(template_name),
                     "to": dest["raw_email"],
-                    "identifiers": {"email": dest["raw_email"]},
+                    "identifiers": identifiers,
                     "message_data": properties,
                 }
 
@@ -149,6 +157,19 @@ def _send_via_http(
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+
+                provider_response = response.json()
+
+                posthoganalytics.capture(
+                    distinct_id=dest.get("distinct_id") or dest["raw_email"],
+                    event="transactional email triggered",
+                    properties={
+                        "template_name": template_name,
+                        "campaign_key": campaign_key,
+                        "recipient_email": dest["raw_email"],
+                        **provider_response,
+                    },
+                )
 
                 record.sent_at = timezone.now()
                 record.save()
@@ -357,9 +378,23 @@ class EmailMessage:
         self.txt_body = ""
         self.headers = headers if headers else {}
 
-    def add_recipient(self, email: str, name: Optional[str] = None) -> None:
+    def add_recipient(self, email: str, name: Optional[str] = None, distinct_id: Optional[str] = None) -> None:
         sanitized_name = html.escape(name) if name else None
-        self.to.append({"recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email, "raw_email": email})
+        recipient_data = {
+            "recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email,
+            "raw_email": email,
+        }
+        if distinct_id:
+            recipient_data["distinct_id"] = distinct_id
+        self.to.append(recipient_data)
+
+    def add_user_recipient(self, user: "User", email_override: Optional[str] = None) -> None:
+        """
+        Add a user as a recipient, include their distinct_id for Customer.io reporting wenhooks.
+        Use this instead of add_recipient when you have a User object.
+        """
+        email = email_override or user.email
+        self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
     def send(self, send_async: bool = True) -> None:
         if not self.to:

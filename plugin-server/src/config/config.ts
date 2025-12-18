@@ -21,6 +21,9 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        CONTINUOUS_PROFILING_ENABLED: false,
+        PYROSCOPE_SERVER_ADDRESS: '',
+        PYROSCOPE_APPLICATION_NAME: '',
         INSTRUMENT_THREAD_PERFORMANCE: false,
         OTEL_EXPORTER_OTLP_ENDPOINT: isDevEnv() ? 'http://localhost:4317' : '',
         OTEL_SDK_DISABLED: isDevEnv() ? false : true,
@@ -131,12 +134,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: true,
-        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
-        OBJECT_STORAGE_REGION: 'us-east-1',
-        OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
-        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
@@ -213,7 +210,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
-        CDP_REDIS_HOST: '',
+        CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -228,13 +225,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
-
-        // Heap dump configuration
-        HEAP_DUMP_ENABLED: false,
-        HEAP_DUMP_S3_BUCKET: '',
-        HEAP_DUMP_S3_PREFIX: 'heap-dumps',
-        HEAP_DUMP_S3_ENDPOINT: '',
-        HEAP_DUMP_S3_REGION: '',
 
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
@@ -266,7 +256,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_CONSUMER_TESTING_TOPIC: '',
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
@@ -291,11 +280,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
-        // in both the PostHog cloud environment and development
-        // we want this metadata switchover to be in blob ingestion v2 mode
-        // hobby installs will set this metadata value to a datetime
-        // since they may be running v1 and being upgraded
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -327,6 +311,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
         // Trim target is the customer-facing limit (512kb)
         PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
+        // When true, all property changes trigger person updates (disables filtering)
+        PERSON_PROPERTIES_UPDATE_ALL: false,
         // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
         // Topic for async person merge processing
@@ -335,19 +321,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
-        // Enable person table cutover migration
-        PERSON_TABLE_CUTOVER_ENABLED: false,
-        // New person table name for cutover migration
-        PERSON_NEW_TABLE_NAME: 'posthog_person_new',
-        // Person ID offset threshold - person IDs >= this value route to new table
-        // Default is max safe integer to ensure cutover doesn't activate accidentally
-        PERSON_NEW_TABLE_ID_OFFSET: Number.MAX_SAFE_INTEGER,
 
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_DUAL_WRITE_ENABLED: false,
         PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        PERSONS_PREFETCH_ENABLED: false,
         GROUPS_DUAL_WRITE_ENABLED: false,
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
@@ -369,6 +349,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
+        LOGS_REDIS_HOST: '127.0.0.1',
+        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PASSWORD: '',
+        LOGS_REDIS_TLS: isProdEnv() ? true : false,
+        LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_LIMITER_DISABLED_FOR_TEAMS: '',
+        LOGS_LIMITER_BUCKET_SIZE_KB: 10000, // 10MB burst
+        LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000, // 1MB/second refill rate
+        LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
     }
 }
 

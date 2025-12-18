@@ -53,6 +53,7 @@ export function NewDashboardModal(): JSX.Element {
                                 onChange={setTemplateFilter}
                                 value={templateFilter}
                                 fullWidth={true}
+                                autoFocus
                             />
                         </div>
                     </div>

@@ -2,11 +2,10 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, prop
 import { router } from 'kea-router'
 import { RefObject } from 'react'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'

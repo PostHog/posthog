@@ -6,6 +6,8 @@ import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 from django.conf import settings
+from django.core.management.commands.flush import Command as FlushCommand
+from django.db import connections
 
 from infi.clickhouse_orm import Database
 
@@ -91,7 +93,6 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
@@ -111,7 +112,6 @@ def reset_clickhouse_tables():
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -147,14 +147,16 @@ def reset_clickhouse_tables():
 
 
 def run_persons_sqlx_migrations():
-    """Run sqlx migrations for persons tables in test database.
+    """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
     This creates posthog_person_new and related tables needed for dual-table
     person model migration. Mirrors production migrations in rust/persons_migrations/.
+    Uses a separate database to mirror production setup where persons live in their own DB.
     """
-    # Build database URL from Django test database settings
+    # Build database URL for test_posthog_persons (separate from main test_posthog)
     db_config = settings.DATABASES["default"]
-    db_name = db_config["NAME"]
+    # Use separate persons database name to mirror production
+    persons_db_name = db_config["NAME"] + "_persons"
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -162,7 +164,7 @@ def run_persons_sqlx_migrations():
 
     # URL encode password to handle special characters
     password_part = f":{quote_plus(db_password)}" if db_password else ""
-    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
+    database_url = f"postgres://{db_user}{password_part}@{db_host}:{db_port}/{persons_db_name}"
 
     # Get path to migrations (relative to this file)
     # conftest.py is at posthog/conftest.py, go up one level to repo root
@@ -171,7 +173,19 @@ def run_persons_sqlx_migrations():
 
     env = {**os.environ, "DATABASE_URL": database_url}
 
-    # Create database if it doesn't exist (idempotent)
+    # Drop and recreate database to ensure clean state
+    try:
+        subprocess.run(
+            ["sqlx", "database", "drop", "-y"],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError:
+        # Database might not exist, which is fine
+        pass
+
+    # Create fresh database
     try:
         subprocess.run(
             ["sqlx", "database", "create"],
@@ -203,9 +217,20 @@ def run_persons_sqlx_migrations():
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
-    # Drop FK constraints that reference posthog_person to allow dual-table migration
+    # Configure persons database now that we know the actual test database name
     from django.db import connection
 
+    # Get the actual test database name (with test_ prefix added by pytest-django)
+    test_db_name = connection.settings_dict["NAME"]
+    test_persons_db_name = test_db_name + "_persons"
+
+    # Update the persons database NAME to use the correct test database name
+    # The database configuration already exists from settings, we just need to update the NAME
+    settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
+    settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
+
+    # Drop Person-related tables from default database and all FK constraints
+    # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
@@ -229,6 +254,23 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
                         END LOOP;
                     END IF;
                 END $$;
+            """)
+
+            # Drop all persons-related tables from default database
+            # These will exist in the persons_db_writer database via sqlx migrations
+            # Drop in correct order: dependent tables first, then referenced tables
+            cursor.execute("""
+                DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
+                DROP TABLE IF EXISTS posthog_featureflaghashkeyoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_group CASCADE;
+                DROP TABLE IF EXISTS posthog_grouptypemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_persondistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personlessdistinctid CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_pendingpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_flatpersonoverride CASCADE;
+                DROP TABLE IF EXISTS posthog_personoverridemapping CASCADE;
+                DROP TABLE IF EXISTS posthog_person CASCADE;
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
@@ -262,6 +304,42 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
             reset_clickhouse_tables()
     else:
         database.drop_database()
+
+
+@pytest.fixture(autouse=True)
+def patch_flush_command_for_persons_db(monkeypatch):
+    """
+    Patch Django's flush command to handle persons database properly.
+
+    Persons database doesn't have Django's built-in tables (contenttypes, permissions, etc.),
+    so we need to skip emitting post_migrate signals that would try to create them.
+
+    This is needed for non-Django test classes (pytest, temporal, async tests).
+    Django test classes handle this in _fixture_teardown in test/base.py.
+    """
+    original_handle = FlushCommand.handle
+
+    def patched_handle(self, **options):
+        database = options.get("database")
+
+        if database in ("persons_db_writer", "persons_db_reader"):
+            # Manually truncate persons database tables without emitting signals
+            conn = connections[database]
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                    AND tablename NOT LIKE 'pg_%'
+                    AND tablename NOT LIKE '_sqlx_%'
+                    AND tablename NOT LIKE '_persons_migrations'
+                """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+        else:
+            return original_handle(self, **options)
+
+    monkeypatch.setattr(FlushCommand, "handle", patched_handle)
 
 
 @pytest.fixture
@@ -327,13 +405,32 @@ def mock_email_mfa_verifier(request, mocker):
     )
 
 
-def pytest_sessionstart():
+def pytest_configure(config):
     """
-    A bit of a hack to get django/py-test to do table truncation between test runs for the Persons tables that are
-    no longer managed by django
+    Configure pytest-django to allow access to persons databases by default.
+    This is needed for tests that don't inherit from PostHogTestCase.
+    Most tests inherit from PostHogTestCase which already sets databases correctly,
+    but this ensures any remaining TestCase/TransactionTestCase also have access.
     """
-    from django.apps import apps
+    from django.test import TestCase, TransactionTestCase
 
-    unmanaged_models = [m for m in apps.get_models() if not m._meta.managed]
-    for m in unmanaged_models:
-        m._meta.managed = True
+    # Set default databases for Django test classes
+    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+
+def _runs_on_internal_pr() -> bool:
+    """
+    Returns True when tests are running for an internal PR or on master,
+    and False for fork PRs.
+    Defaults to True, so local runs are unaffected.
+    """
+    value = os.getenv("RUNS_ON_INTERNAL_PR")
+    if value is None:
+        return True
+    return value.lower() in {"1", "true"}
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")

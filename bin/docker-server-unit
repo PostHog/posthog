@@ -16,8 +16,17 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     echo "🚀 Starting with Granian ASGI server (opt-in via USE_GRANIAN=true)..."
 
     # Granian configuration
+    # Match Unit's 4 workers for equivalent sync view concurrency.
+    # With Django ASGI + sync views (thread_sensitive=True), each worker
+    # handles 1 sync request at a time - only workers give concurrency.
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
-    export GRANIAN_THREADS=2
+    export GRANIAN_THREADS=${GRANIAN_THREADS:-1}
+
+    # HTTP/1 keep-alive: disable to improve SO_REUSEPORT load distribution
+    KEEPALIVE_FLAG=""
+    if [ "${GRANIAN_HTTP1_KEEP_ALIVE:-true}" = "false" ]; then
+        KEEPALIVE_FLAG="--no-http1-keep-alive"
+    fi
 
     # Start metrics HTTP server in background on port 8001
     python ./bin/granian_metrics.py &
@@ -31,7 +40,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         posthog.asgi:application \
         --workers $GRANIAN_WORKERS \
         --runtime-threads $GRANIAN_THREADS \
-        --runtime-mode mt \
+        $KEEPALIVE_FLAG \
         --loop uvloop \
         --host 0.0.0.0 \
         --port 8000 \
@@ -48,7 +57,8 @@ else
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
     envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
 
-    # We need to run as --user root so that nginx unit can proxy the control socket for stats
+    # We need to run as root so that nginx unit can proxy the control socket for stats
     # However each application is run as "nobody"
+    # nosemgrep: trailofbits.generic.container-user-root.container-user-root
     exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
 fi

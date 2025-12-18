@@ -57,6 +57,7 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
+    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -70,9 +71,11 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'business-model'
     | 'data-theme'
     | 'correlation-analysis'
-    | 'crm-usage-metrics'
+    | 'customer-analytics-usage-metrics'
+    | 'customer-analytics-dashboard-events'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
@@ -146,6 +149,7 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'changelog'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
     | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
@@ -157,6 +161,7 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
     | 'organization-ip-anonymization-default'
+    | 'allow-impersonation'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

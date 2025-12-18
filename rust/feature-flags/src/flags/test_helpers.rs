@@ -11,7 +11,7 @@ use crate::{
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
 };
 use common_redis::Client as RedisClient;
-use common_types::ProjectId;
+use common_types::TeamId;
 
 pub fn create_simple_property_filter(
     key: &str,
@@ -66,6 +66,7 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
+        bucketing_identifier: None,
     }
 }
 
@@ -75,21 +76,21 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
 /// useful for setting up test data and verifying cache updates.
 pub async fn update_flags_in_redis(
     client: Arc<dyn RedisClient + Send + Sync>,
-    project_id: ProjectId,
+    team_id: TeamId,
     flags: &FeatureFlagList,
     ttl_seconds: Option<u64>,
 ) -> Result<(), FlagError> {
     let payload = serde_json::to_string(&flags.flags).map_err(|e| {
         tracing::error!(
-            "Failed to serialize {} flags for project {}: {}",
+            "Failed to serialize {} flags for team {}: {}",
             flags.flags.len(),
-            project_id,
+            team_id,
             e
         );
         FlagError::RedisDataParsingError
     })?;
 
-    let cache_key = format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}");
+    let cache_key = format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}");
 
     match ttl_seconds {
         Some(ttl) => {
@@ -102,7 +103,7 @@ pub async fn update_flags_in_redis(
             client.setex(cache_key, payload, ttl).await.map_err(|e| {
                 tracing::error!(
                     "Failed to update Redis cache with TTL for project {}: {}",
-                    project_id,
+                    team_id,
                     e
                 );
                 FlagError::CacheUpdateError
@@ -117,7 +118,7 @@ pub async fn update_flags_in_redis(
             client.set(cache_key, payload).await.map_err(|e| {
                 tracing::error!(
                     "Failed to update Redis cache for project {}: {}",
-                    project_id,
+                    team_id,
                     e
                 );
                 FlagError::CacheUpdateError
@@ -134,22 +135,22 @@ pub async fn update_flags_in_redis(
 /// useful for testing cache behavior and verifying cache contents.
 pub async fn get_flags_from_redis(
     client: Arc<dyn RedisClient + Send + Sync>,
-    project_id: ProjectId,
+    team_id: TeamId,
 ) -> Result<FeatureFlagList, FlagError> {
     tracing::debug!(
         "Attempting to read flags from Redis at key '{}{}'",
         TEAM_FLAGS_CACHE_PREFIX,
-        project_id
+        team_id
     );
 
     let serialized_flags = client
-        .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"))
+        .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}"))
         .await?;
 
     let flags_list: Vec<FeatureFlag> = serde_json::from_str(&serialized_flags).map_err(|e| {
         tracing::error!(
-            "failed to parse data to flags list for project {}: {}",
-            project_id,
+            "failed to parse data to flags list for team {}: {}",
+            team_id,
             e
         );
         FlagError::RedisDataParsingError
@@ -159,7 +160,7 @@ pub async fn get_flags_from_redis(
         "Successfully read {} flags from Redis at key '{}{}'",
         flags_list.len(),
         TEAM_FLAGS_CACHE_PREFIX,
-        project_id
+        team_id
     );
 
     Ok(FeatureFlagList { flags: flags_list })

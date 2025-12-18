@@ -2,16 +2,15 @@ from typing import cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelTimeToConvertResults, StepOrderValue
+from posthog.schema import FunnelTimeToConvertResults
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.constants import FUNNEL_TO_STEP
-from posthog.hogql_queries.insights.funnels import FunnelTimeToConvert, FunnelUDF
+from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 
 
 class FunnelTimeToConvertUDF(FunnelBase):
@@ -21,9 +20,7 @@ class FunnelTimeToConvertUDF(FunnelBase):
     ):
         super().__init__(context)
 
-        self.funnel_order: FunnelUDF = get_funnel_order_class(self.context.funnelsFilter, use_udf=True)(
-            context=self.context
-        )
+        self.funnel_order: FunnelUDF = FunnelUDF(context=self.context)
 
     def _format_results(self, results: list) -> FunnelTimeToConvertResults:
         return FunnelTimeToConvertResults(
@@ -33,9 +30,6 @@ class FunnelTimeToConvertUDF(FunnelBase):
 
     def get_query(self) -> ast.SelectQuery:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
-        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-            # Currently don't support unordered in UDFs
-            return FunnelTimeToConvert(self.context).get_query()
 
         # Conversion from which step should be calculated
         from_step = funnelsFilter.funnelFromStep or 0

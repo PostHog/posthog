@@ -7,6 +7,7 @@ import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
 import { ListHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,7 +25,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CohortType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -86,6 +88,7 @@ export function Cohorts(): JSX.Element {
         {
             width: 0,
             render: function RenderActions(_, cohort) {
+                const cohortId = typeof cohort.id === 'number' ? cohort.id : null
                 return (
                     <More
                         overlay={
@@ -93,26 +96,26 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton to={urls.cohort(cohort.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                properties: [
+                                {cohortId && (
+                                    <ViewReplayButton
+                                        filters={{
+                                            filter_group: {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
                                                     {
+                                                        type: PropertyFilterType.Cohort,
                                                         key: 'id',
-                                                        label: cohort.name,
-                                                        type: 'cohort',
-                                                        value: cohort.id,
+                                                        operator: PropertyOperator.In,
+                                                        value: cohortId,
                                                     },
                                                 ],
                                             },
-                                        }).url
-                                    }
-                                    fullWidth
-                                    targetBlank
-                                >
-                                    View session recordings
-                                </LemonButton>
+                                        }}
+                                        fullWidth
+                                        label="View session recordings"
+                                        data-attr="cohort-view-recordings"
+                                    />
+                                )}
                                 <LemonButton
                                     onClick={() =>
                                         exportCohortPersons(cohort.id, [

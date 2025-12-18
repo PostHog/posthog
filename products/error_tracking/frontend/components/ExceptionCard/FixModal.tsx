@@ -3,13 +3,10 @@ import posthog from 'posthog-js'
 
 import { LemonButton, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { useStacktraceDisplay } from '../../hooks/use-stacktrace-display'
 import { fixModalLogic } from './fixModalLogic'
 
 interface FixModalProps {
@@ -19,16 +16,12 @@ interface FixModalProps {
 }
 
 export function FixModal({ isOpen, onClose, issueId }: FixModalProps): JSX.Element {
-    const { exceptionList } = useValues(errorPropertiesLogic)
-    const { stackFrameRecords } = useValues(stackFrameLogic)
     const { mode } = useValues(fixModalLogic)
     const { setMode } = useActions(fixModalLogic)
+    const { stacktraceText } = useStacktraceDisplay()
 
     const generatePrompt = (): string => {
         const issueUrl = window.location.origin + urls.errorTrackingIssue(issueId)
-        const stacktraceText = exceptionList
-            .map((exception) => generateExceptionText(exception, stackFrameRecords))
-            .join('\n\n')
 
         if (mode === 'explain') {
             return `Please help me understand this error in depth. Here's the stack trace:
@@ -54,7 +47,7 @@ The final output should be:
 PostHog issue: ${issueUrl}
 `
         }
-        return `Please help me fix this error. Here's the stack trace:
+        return `Please help me fix the root cause of this error. Here's the stack trace:
 
 \`\`\`
 ${stacktraceText}
@@ -124,23 +117,4 @@ PostHog issue: ${issueUrl}
             </div>
         </LemonModal>
     )
-}
-
-function generateExceptionText(exception: ErrorTrackingException, stackFrameRecords: Record<string, any>): string {
-    let result = formatExceptionDisplay(exception)
-
-    const frames = exception.stacktrace?.frames || []
-
-    for (const frame of frames) {
-        const inAppMarker = frame.in_app ? ' [IN-APP]' : ''
-        const resolvedName = formatResolvedName(frame)
-        result += `\n${inAppMarker}  File "${frame.source || 'Unknown Source'}"${frame.line ? `, line: ${frame.line}` : ''}${resolvedName ? `, in: ${resolvedName}` : ''}`
-
-        const frameRecord = stackFrameRecords[frame.raw_id]
-        if (frameRecord?.context?.line?.line) {
-            result += `\n    ${frameRecord.context.line.line}`
-        }
-    }
-
-    return result
 }

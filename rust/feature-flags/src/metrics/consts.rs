@@ -10,6 +10,8 @@ pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
+pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
+pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
 pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
 pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_total";
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
@@ -26,8 +28,6 @@ pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_t
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
 pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";
-pub const FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME: &str =
-    "flags_local_property_override_match_time";
 pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_properties_db_fetch_time";
 pub const FLAG_GROUP_DB_FETCH_TIME: &str = "flags_groups_db_fetch_time"; // this is how long it takes to fetch the group type mappings from the DB
 pub const FLAG_GROUP_CACHE_FETCH_TIME: &str = "flags_groups_cache_fetch_time"; // this is how long it takes to fetch the group type mappings from the cache
@@ -48,7 +48,6 @@ pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 // New diagnostic metrics for pool exhaustion investigation
 pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
 pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
-pub const FLAG_CONNECTION_QUEUE_DEPTH_GAUGE: &str = "flags_connection_queue_depth";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
 
@@ -61,8 +60,6 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
-pub const FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER: &str =
-    "flags_filter_deserialization_error_total";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

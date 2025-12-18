@@ -35,9 +35,7 @@ export function TaxonomicBreakdownButton({ disabledReason, size }: TaxonomicBrea
                         : 'https://posthog.com/docs/product-analytics/trends/breakdowns'
                 }
             >
-                {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
-                    ? 'Add cohort'
-                    : 'Add breakdown'}
+                {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers ? 'Cohort' : 'Breakdown'}
             </LemonButton>
         </TaxonomicBreakdownPopover>
     )

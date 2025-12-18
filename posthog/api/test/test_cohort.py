@@ -682,7 +682,14 @@ Jane Smith,user456,jane@example.com
         )
 
         self.assertEqual(response.status_code, 201)
-        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response_data = response.json()
+        cohort = Cohort.objects.get(pk=response_data["id"])
+
+        # Verify the response contains a valid count (not a CombinedExpression or None)
+        self.assertIn("count", response_data)
+        self.assertIsInstance(response_data["count"], int)
+        self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
@@ -1523,6 +1530,86 @@ email@example.org,
                     },
                     "created_at": mock.ANY,
                 }
+            ],
+        )
+
+    def test_update_static_cohort_activity_log(self):
+        """
+        Test that updating a static cohort with people does not load all people into memory.
+        Previously, updating cohorts called to_dict() which loaded all people, causing timeouts
+        and database connection errors for large cohorts.
+        """
+        num_people = 10
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my large cohort", "is_static": True, "_create_static_person_ids": person_uuids},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        # Update the cohort - this should not load all people into memory
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            {"name": "renamed large cohort", "description": "A cohort with many people"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        # Verify the activity log was created with changes tracked
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": [
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "my large cohort",
+                                "after": "renamed large cohort",
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "description",
+                                "before": "",
+                                "after": "A cohort with many people",
+                            },
+                        ],
+                        "name": "renamed large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
             ],
         )
 
@@ -2566,6 +2653,41 @@ email@example.org,
         self.assertEqual(new_cohort.is_static, True)
         new_cohort.refresh_from_db()
         self.assertEqual(new_cohort.count, 2)
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    def test_duplicating_static_cohort_sets_is_calculating(self, mock_insert_cohort):
+        """Test that is_calculating is set to True when duplicating static cohort via async task"""
+        p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        p2 = _create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        flush_persons_and_events()
+
+        # Create static cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort A",
+            is_static=True,
+        )
+        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.pk)
+
+        # Duplicate static cohort as static
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+
+        # Verify is_calculating is True immediately (before async task completes)
+        self.assertTrue(
+            new_cohort.is_calculating, "is_calculating should be True while async duplication is in progress"
+        )
+
+        # Verify the async task was called with correct parameters
+        mock_insert_cohort.assert_called_once()
+        call_args = mock_insert_cohort.call_args
+        self.assertEqual(call_args[0][0], new_cohort_id)  # cohort_id
+        self.assertEqual(call_args[0][1]["from_cohort_id"], cohort.pk)  # filter_data contains source cohort
+        self.assertEqual(call_args[0][2], self.team.pk)  # team_id
 
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
@@ -4001,6 +4123,128 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         cohort = Cohort.objects.get(id=cohort1_id)
         self.assertTrue(cohort.deleted)
+
+    def test_cohort_last_error_message_from_calculation_history(self):
+        """Test that API returns friendly error message from failed calculation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="ClickHouse query timeout after 1200 seconds",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.json()["last_error_message"])
+        self.assertIn("taking too long", response.json()["last_error_message"].lower())
+
+    def test_cohort_last_error_message_in_list_view(self):
+        """Test that list view includes last_error_message via annotation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in response.json()["results"] if c["id"] == cohort.id)
+        self.assertIsNotNone(cohort_data["last_error_message"])
+        self.assertIn("too much memory", cohort_data["last_error_message"].lower())
+
+    def test_cohort_last_error_message_none_when_successful(self):
+        """Test that successful cohorts return None for last_error_message"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            count=100,
+            error=None,
+            error_code=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["last_error_message"])
+
+    def test_cohort_last_error_message_uses_most_recent_failure(self):
+        """Test that only the most recent failed calculation's error is returned"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        # Older failure - timeout
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=2),
+            finished_at=timezone.now() - timedelta(hours=2),
+            error="Timeout",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        # Newer failure - memory limit (should be returned)
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(hours=1),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("too much memory", response.json()["last_error_message"].lower())
 
 
 class TestCalculateCohortCommand(APIBaseTest):

@@ -311,7 +311,7 @@ function SessionSummaryKeyActions({
     segmentName?: string | null
     onSeekToTime: (time: number) => void
 }): JSX.Element {
-    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+    const timeToSeekTo = (ms: number): number => Math.max(ms - 4000, 0)
     return (
         <>
             {keyActions.events?.map((event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
@@ -329,7 +329,7 @@ function SessionSummaryKeyActions({
                             if (!isValidTimestamp(event.milliseconds_since_start)) {
                                 return
                             }
-                            onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
+                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start))
                         }}
                     >
                         <div className="flex flex-row gap-2">
@@ -415,9 +415,9 @@ function SessionSummaryTitle(): JSX.Element {
     return (
         <h3 className="text-lg font-semibold mt-2 flex items-center gap-2">
             <IconAIText />
-            AI Replay Research
-            <LemonTag type="completion" size="medium">
-                ALPHA
+            AI summary
+            <LemonTag type="warning" size="medium">
+                BETA
             </LemonTag>
         </h3>
     )
@@ -440,7 +440,7 @@ function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: Sessi
     return (
         <LemonBanner type={sessionSummary?.session_outcome?.success ? 'success' : 'error'} className="mb-4">
             <div className="text-sm font-normal">
-                <div>{sessionSummary?.session_outcome?.description}</div>
+                <strong>Session outcome:</strong> {sessionSummary?.session_outcome?.description}
             </div>
         </LemonBanner>
     )

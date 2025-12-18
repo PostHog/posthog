@@ -188,7 +188,7 @@ export function AppShortcutMenu(): JSX.Element | null {
     }
 
     const paletteContent = (
-        <div className="fixed inset-0 z-top flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
+        <div className="fixed inset-0 z-[var(--z-shortcut-menu)] flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
             <div
                 className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-[calc(100vh-(var(--spacing)*6))] overflow-x-hidden overflow-y-auto backdrop-blur-sm"
                 id="app-shortcut-menu"
@@ -229,13 +229,27 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                             {getShortcutIcon(shortcut)}
                                                             {shortcut.intent}
                                                         </span>
-                                                        <span className="ml-auto">
-                                                            <KeyboardShortcut
-                                                                {...Object.fromEntries(
-                                                                    shortcut.keybind.map((key) => [key, true])
-                                                                )}
-                                                                className="text-xs"
-                                                            />
+                                                        <span className="ml-auto flex items-center gap-1">
+                                                            {(shortcut.keybind as string[][]).map(
+                                                                (keybindOption, index) => (
+                                                                    <React.Fragment key={index}>
+                                                                        {index > 0 && (
+                                                                            <span className="text-xs opacity-75">
+                                                                                or
+                                                                            </span>
+                                                                        )}
+                                                                        <KeyboardShortcut
+                                                                            {...Object.fromEntries(
+                                                                                keybindOption.map((key: string) => [
+                                                                                    key,
+                                                                                    true,
+                                                                                ])
+                                                                            )}
+                                                                            className="text-xs"
+                                                                        />
+                                                                    </React.Fragment>
+                                                                )
+                                                            )}
                                                         </span>
                                                     </ButtonPrimitive>
                                                 </Combobox.Item>
@@ -249,7 +263,6 @@ export function AppShortcutMenu(): JSX.Element | null {
                     <Combobox.Search
                         placeholder="Search actions... escape to close"
                         autoFocus
-                        className="animate-input-focus-pulse"
                         wrapperClassName="sticky bottom-0"
                     />
                 </Combobox>

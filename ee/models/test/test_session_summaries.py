@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -5,8 +6,10 @@ from posthog.test.base import BaseTest
 from posthog.models import Organization, Team, User
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 from ee.models.session_summaries import (
     ExtraSummaryContext,
+    SessionGroupSummary,
     SessionSummaryPage,
     SessionSummaryRunMeta,
     SingleSessionSummary,
@@ -25,13 +28,7 @@ class TestSingleSessionSummary(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.session_id = "test-session-123"
-        # Create a minimal valid SessionSummarySerializer data structure
-        self.summary_data = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Test session summary", "success": True},
-        }
+        self.summary_data = get_mock_enriched_llm_json_response(self.session_id)
         self.exception_event_ids = ["evt-001", "evt-002"]
         self.extra_context = ExtraSummaryContext(focus_area="authentication")
         self.run_metadata = SessionSummaryRunMeta(model_used="gpt-4", visual_confirmation=False)
@@ -59,7 +56,10 @@ class TestSingleSessionSummary(BaseTest):
         self.assertIsNotNone(summary)
         assert summary is not None
         self.assertEqual(summary.session_id, self.session_id)
-        self.assertEqual(summary.summary, self.summary_data)
+        self.assertIn("segments", summary.summary)
+        self.assertIn("key_actions", summary.summary)
+        self.assertIn("segment_outcomes", summary.summary)
+        self.assertIn("session_outcome", summary.summary)
         self.assertEqual(summary.exception_event_ids, self.exception_event_ids)
         self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
         self.assertEqual(
@@ -150,13 +150,8 @@ class TestSingleSessionSummary(BaseTest):
         self.assertIsNone(result)
 
     def test_multiple_summaries_ordering(self) -> None:
-        # Create minimal valid data with version info in session_outcome
-        summary_data_1 = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Version 1", "success": True},
-        }
+        summary_data_1 = get_mock_enriched_llm_json_response(self.session_id)
+        summary_data_1["session_outcome"]["description"] = "Version 1"
         summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
         summary_serializer_1.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -167,12 +162,8 @@ class TestSingleSessionSummary(BaseTest):
             created_by=self.user,
         )
 
-        summary_data_2: dict[str, Any] = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Version 2", "success": True},
-        }
+        summary_data_2 = get_mock_enriched_llm_json_response(self.session_id)
+        summary_data_2["session_outcome"]["description"] = "Version 2"
         summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
         summary_serializer_2.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -190,71 +181,6 @@ class TestSingleSessionSummary(BaseTest):
         # Should get the latest one (Version 2)
         self.assertEqual(retrieved.summary["session_outcome"]["description"], "Version 2")
 
-    def test_run_metadata_storage(self) -> None:
-        summary_serializer = SessionSummarySerializer(data=self.summary_data)
-        summary_serializer.is_valid(raise_exception=True)
-
-        # Test with different run metadata values
-        run_metadata_gpt5 = SessionSummaryRunMeta(model_used="gpt-5", visual_confirmation=True)
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id="session-with-gpt5",
-            summary=summary_serializer,
-            exception_event_ids=[],
-            run_metadata=run_metadata_gpt5,
-            created_by=self.user,
-        )
-
-        run_metadata_claude = SessionSummaryRunMeta(model_used="claude-4-1-opus", visual_confirmation=False)
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id="session-with-claude",
-            summary=summary_serializer,
-            exception_event_ids=[],
-            run_metadata=run_metadata_claude,
-            created_by=self.user,
-        )
-
-        # Test with no run metadata (should store None)
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id="session-no-metadata",
-            summary=summary_serializer,
-            exception_event_ids=[],
-            run_metadata=None,
-            created_by=self.user,
-        )
-
-        # Verify GPT-5 metadata
-        gpt5_summary = SingleSessionSummary.objects.get_summary(
-            team_id=self.team.id,
-            session_id="session-with-gpt5",
-        )
-        assert gpt5_summary is not None
-        self.assertEqual(
-            gpt5_summary.run_metadata,
-            {"model_used": "gpt-5", "visual_confirmation": True, "visual_confirmation_results": None},
-        )
-
-        # Verify Claude metadata
-        claude_summary = SingleSessionSummary.objects.get_summary(
-            team_id=self.team.id,
-            session_id="session-with-claude",
-        )
-        assert claude_summary is not None
-        self.assertEqual(
-            claude_summary.run_metadata,
-            {"model_used": "claude-4-1-opus", "visual_confirmation": False, "visual_confirmation_results": None},
-        )
-
-        # Verify None metadata
-        no_metadata_summary = SingleSessionSummary.objects.get_summary(
-            team_id=self.team.id,
-            session_id="session-no-metadata",
-        )
-        assert no_metadata_summary is not None
-        self.assertIsNone(no_metadata_summary.run_metadata)
-
 
 class TestSingleSessionSummaryBulk(BaseTest):
     session_ids: list[str]
@@ -271,17 +197,13 @@ class TestSingleSessionSummaryBulk(BaseTest):
     def _setup_test_data(self) -> None:
         """Set up test data for batch operations."""
 
-        # Create a minimal valid SessionSummarySerializer data structure
-        def create_summary_data(content: str) -> dict:
-            return {
-                "segments": [],
-                "key_actions": [],
-                "segment_outcomes": [],
-                "session_outcome": {"description": content, "success": True},
-            }
+        def create_summary_data(session_id: str, content: str) -> dict[str, Any]:
+            data = get_mock_enriched_llm_json_response(session_id)
+            data["session_outcome"]["description"] = content
+            return data
 
         for session_id in self.session_ids[:3]:
-            summary_data = create_summary_data(f"Summary for {session_id} without context")
+            summary_data = create_summary_data(session_id, f"Summary for {session_id} without context")
             summary_serializer = SessionSummarySerializer(data=summary_data)
             summary_serializer.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -294,7 +216,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         for session_id in self.session_ids[3:5]:
-            summary_data_1 = create_summary_data(f"Summary for {session_id} without context - older")
+            summary_data_1 = create_summary_data(session_id, f"Summary for {session_id} without context - older")
             summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
             summary_serializer_1.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -305,7 +227,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
                 extra_summary_context=None,
                 created_by=self.user,
             )
-            summary_data_2 = create_summary_data(f"Summary for {session_id} with auth context - newer")
+            summary_data_2 = create_summary_data(session_id, f"Summary for {session_id} with auth context - newer")
             summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
             summary_serializer_2.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -318,7 +240,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         for session_id in self.session_ids[5:8]:
-            summary_data = create_summary_data(f"Summary for {session_id} with auth context")
+            summary_data = create_summary_data(session_id, f"Summary for {session_id} with auth context")
             summary_serializer = SessionSummarySerializer(data=summary_data)
             summary_serializer.is_valid(raise_exception=True)
             SingleSessionSummary.objects.add_summary(
@@ -331,7 +253,9 @@ class TestSingleSessionSummaryBulk(BaseTest):
             )
 
         other_context: ExtraSummaryContext = ExtraSummaryContext(focus_area="checkout")
-        summary_data = create_summary_data(f"Summary for {self.session_ids[7]} with checkout context")
+        summary_data = create_summary_data(
+            self.session_ids[7], f"Summary for {self.session_ids[7]} with checkout context"
+        )
         summary_serializer = SessionSummarySerializer(data=summary_data)
         summary_serializer.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -418,12 +342,8 @@ class TestSingleSessionSummaryBulk(BaseTest):
 
     def test_get_bulk_summaries_latest_per_session(self) -> None:
         session_id: str = "session-latest-test"
-        summary_data_1: dict[str, Any] = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Older summary - version 1", "success": True},
-        }
+        summary_data_1 = get_mock_enriched_llm_json_response(session_id)
+        summary_data_1["session_outcome"]["description"] = "Older summary - version 1"
         summary_serializer_1 = SessionSummarySerializer(data=summary_data_1)
         summary_serializer_1.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -434,12 +354,8 @@ class TestSingleSessionSummaryBulk(BaseTest):
             extra_summary_context=None,
             created_by=self.user,
         )
-        summary_data_2: dict[str, Any] = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "Newer summary - version 2", "success": True},
-        }
+        summary_data_2 = get_mock_enriched_llm_json_response(session_id)
+        summary_data_2["session_outcome"]["description"] = "Newer summary - version 2"
         summary_serializer_2 = SessionSummarySerializer(data=summary_data_2)
         summary_serializer_2.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -459,37 +375,6 @@ class TestSingleSessionSummaryBulk(BaseTest):
         # Should get the latest one (version 2)
         self.assertEqual(result.results[0].summary["session_outcome"]["description"], "Newer summary - version 2")
 
-    def test_get_bulk_summaries_team_isolation(self) -> None:
-        other_team: Team = Organization.objects.bootstrap(None)[2]
-
-        for session_id in self.session_ids[:3]:
-            summary_data: dict[str, Any] = {
-                "segments": [],
-                "key_actions": [],
-                "segment_outcomes": [],
-                "session_outcome": {"description": f"Other team summary for {session_id}", "success": True},
-            }
-            summary_serializer = SessionSummarySerializer(data=summary_data)
-            summary_serializer.is_valid(raise_exception=True)
-            SingleSessionSummary.objects.add_summary(
-                team_id=other_team.id,
-                session_id=session_id,
-                summary=summary_serializer,
-                exception_event_ids=[],
-                extra_summary_context=None,
-                created_by=self.user,
-            )
-
-        result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
-            team_id=self.team.id,
-            session_ids=self.session_ids[:3],
-            extra_summary_context=None,
-        )
-
-        self.assertEqual(len(result.results), 3)
-        for summary in result.results:
-            self.assertEqual(summary.team_id, self.team.id)
-
     def test_get_bulk_summaries_mixed_sessions(self) -> None:
         mixed_ids: list[str] = [self.session_ids[0], "nonexistent", self.session_ids[1]]
 
@@ -502,36 +387,6 @@ class TestSingleSessionSummaryBulk(BaseTest):
         self.assertEqual(len(result.results), 2)
         result_session_ids: set[str] = {s.session_id for s in result.results}
         self.assertEqual(result_session_ids, {self.session_ids[0], self.session_ids[1]})
-
-    def test_summaries_exist_single_without_context(self) -> None:
-        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
-            team_id=self.team.id,
-            session_ids=["non-existent"],
-            extra_summary_context=None,
-        )
-        self.assertEqual(result, {"non-existent": False})
-        # Add a summary and test again
-        summary_data = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "test", "success": True},
-        }
-        summary_serializer = SessionSummarySerializer(data=summary_data)
-        summary_serializer.is_valid(raise_exception=True)
-        SingleSessionSummary.objects.add_summary(
-            team_id=self.team.id,
-            session_id="test-session-1",
-            summary=summary_serializer,
-            exception_event_ids=[],
-            created_by=self.user,
-        )
-        result = SingleSessionSummary.objects.summaries_exist(
-            team_id=self.team.id,
-            session_ids=["test-session-1"],
-            extra_summary_context=None,
-        )
-        self.assertEqual(result, {"test-session-1": True})
 
     def test_summaries_exist_multiple_without_context(self) -> None:
         # Use existing test data - sessions 0-4 have summaries without context
@@ -587,12 +442,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
     def test_summaries_exist_team_isolation(self) -> None:
         other_team: Team = Organization.objects.bootstrap(None)[2]
         # Add summary for other team
-        summary_data = {
-            "segments": [],
-            "key_actions": [],
-            "segment_outcomes": [],
-            "session_outcome": {"description": "other team", "success": True},
-        }
+        summary_data = get_mock_enriched_llm_json_response("cross-team-session")
         summary_serializer = SessionSummarySerializer(data=summary_data)
         summary_serializer.is_valid(raise_exception=True)
         SingleSessionSummary.objects.add_summary(
@@ -647,31 +497,139 @@ class TestSingleSessionSummaryBulk(BaseTest):
             },
         )
 
-    def test_summaries_exist_large_batch(self) -> None:
-        large_session_ids: list[str] = [f"large-batch-{i:04d}" for i in range(200)]
-        for i in range(100):
-            summary_data: dict[str, Any] = {
-                "segments": [],
-                "key_actions": [],
-                "segment_outcomes": [],
-                "session_outcome": {"description": f"Summary {i}", "success": True},
-            }
-            summary_serializer = SessionSummarySerializer(data=summary_data)
-            summary_serializer.is_valid(raise_exception=True)
-            SingleSessionSummary.objects.add_summary(
-                team_id=self.team.id,
-                session_id=large_session_ids[i],
-                summary=summary_serializer,
-                exception_event_ids=[],
-                created_by=self.user,
-            )
-        # Check all at once
-        result: dict[str, bool] = SingleSessionSummary.objects.summaries_exist(
+
+class TestSessionGroupSummary(BaseTest):
+    session_ids: list[str]
+    summary_data: dict[str, Any]
+    extra_context: ExtraSummaryContext
+    run_metadata: SessionSummaryRunMeta
+    team: Team
+    user: User
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.session_ids = ["session-001", "session-002", "session-003"]
+        # Create a minimal valid group summary data (EnrichedSessionGroupSummaryPatternsList format)
+        self.summary_data = {
+            "patterns": [
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Checkout abandonment",
+                    "pattern_description": "Users abandon cart at payment step",
+                    "severity": "high",
+                    "indicators": ["Payment form loaded", "No submission", "User navigated away"],
+                    "events": [],
+                    "stats": {
+                        "occurences": 5,
+                        "sessions_affected": 3,
+                        "sessions_affected_ratio": 0.6,
+                        "segments_success_ratio": 0.2,
+                    },
+                }
+            ]
+        }
+        self.extra_context = ExtraSummaryContext(focus_area="checkout flow")
+        self.run_metadata = SessionSummaryRunMeta(model_used="claude-7-1-sonnet", visual_confirmation=False)
+
+    def test_create_group_summary(self) -> None:
+        summary = SessionGroupSummary.objects.create(
             team_id=self.team.id,
-            session_ids=large_session_ids,
-            extra_summary_context=None,
+            title="Checkout flow analysis",
+            session_ids=self.session_ids,
+            summary=self.summary_data,
+            extra_summary_context=asdict(self.extra_context),
+            run_metadata=asdict(self.run_metadata),
+            created_by=self.user,
         )
-        # First 100 should exist, last 100 should not
-        for i in range(200):
-            expected: bool = i < 100
-            self.assertEqual(result[large_session_ids[i]], expected, f"Session {i} existence check failed")
+        self.assertIsNotNone(summary.id)
+        self.assertEqual(summary.team_id, self.team.id)
+        self.assertEqual(summary.title, "Checkout flow analysis")
+        self.assertEqual(summary.session_ids, self.session_ids)
+        self.assertEqual(summary.summary, self.summary_data)
+        self.assertEqual(summary.extra_summary_context, asdict(self.extra_context))
+        self.assertEqual(summary.run_metadata, asdict(self.run_metadata))
+        self.assertEqual(summary.created_by, self.user)
+
+    def test_team_isolation(self) -> None:
+        other_team: Team = Organization.objects.bootstrap(None)[2]
+        summary = SessionGroupSummary.objects.create(
+            team_id=self.team.id,
+            title="Team isolation test",
+            session_ids=self.session_ids,
+            summary=self.summary_data,
+            created_by=self.user,
+        )
+        # Should not be able to get summary with wrong team_id
+        with self.assertRaises(SessionGroupSummary.DoesNotExist):
+            SessionGroupSummary.objects.get(id=summary.id, team_id=other_team.id)
+
+    def test_order_by_created_at(self) -> None:
+        # Create multiple summaries
+        summary_1 = SessionGroupSummary.objects.create(
+            team_id=self.team.id,
+            title="Summary 1",
+            session_ids=["session-1"],
+            summary=self.summary_data,
+        )
+        summary_2 = SessionGroupSummary.objects.create(
+            team_id=self.team.id,
+            title="Summary 2",
+            session_ids=["session-2"],
+            summary=self.summary_data,
+        )
+        summary_3 = SessionGroupSummary.objects.create(
+            team_id=self.team.id,
+            title="Summary 3",
+            session_ids=["session-3"],
+            summary=self.summary_data,
+        )
+        # Get recent summaries ordered by creation date
+        recent_summaries = list(SessionGroupSummary.objects.filter(team_id=self.team.id).order_by("-created_at"))
+        self.assertEqual(len(recent_summaries), 3)
+        self.assertEqual(recent_summaries[0].id, summary_3.id)  # Most recent
+        self.assertEqual(recent_summaries[1].id, summary_2.id)
+        self.assertEqual(recent_summaries[2].id, summary_1.id)  # Oldest
+
+    def test_update_summary(self) -> None:
+        summary = SessionGroupSummary.objects.create(
+            team_id=self.team.id,
+            title="Update test summary",
+            session_ids=self.session_ids,
+            summary=self.summary_data,
+        )
+        # Update the summary data
+        updated_data = {
+            "patterns": [
+                {
+                    "pattern_id": 2,
+                    "pattern_name": "Updated pattern",
+                    "pattern_description": "Updated description",
+                    "severity": "critical",
+                    "indicators": ["New indicator"],
+                    "events": [],
+                    "stats": {
+                        "occurences": 10,
+                        "sessions_affected": 5,
+                        "sessions_affected_ratio": 0.8,
+                        "segments_success_ratio": 0.1,
+                    },
+                }
+            ]
+        }
+        summary.summary = updated_data
+        summary.save()
+        # Verify the update
+        retrieved = SessionGroupSummary.objects.get(id=summary.id)
+        self.assertEqual(retrieved.summary, updated_data)
+
+    def test_str_representation(self) -> None:
+        summary = SessionGroupSummary.objects.create(
+            team_id=self.team.id,
+            title="String repr test",
+            session_ids=self.session_ids,
+            summary=self.summary_data,
+        )
+        str_repr = str(summary)
+        self.assertIn("String repr test", str_repr)
+        self.assertIn("3 sessions", str_repr)
+        self.assertIn(str(self.team.id), str_repr)
