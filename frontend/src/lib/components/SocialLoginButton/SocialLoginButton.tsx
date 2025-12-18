@@ -61,13 +61,13 @@ export function SocialLoginButton({
 
     return (
         <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
-            <LemonButton
-                size="medium"
-                icon={<SocialLoginIcon provider={provider} />}
-                active={isLastUsed}
-                className="py-1 relative"
-            >
-                <span className="text-text-3000">{SSO_PROVIDER_NAMES[provider]}</span>
+            <div className="relative">
+                <LemonButton
+                    size="large"
+                    icon={<SocialLoginIcon provider={provider} />}
+                    active={isLastUsed}
+                    tooltip={SSO_PROVIDER_NAMES[provider]}
+                />
                 {isLastUsed && (
                     <LemonTag
                         type="muted"
@@ -77,7 +77,7 @@ export function SocialLoginButton({
                         Last used
                     </LemonTag>
                 )}
-            </LemonButton>
+            </div>
         </SocialLoginLink>
     )
 }
@@ -91,29 +91,28 @@ export function PasskeyLoginButton({ isLastUsed }: PasskeyLoginButtonProps): JSX
     const { isLoading } = useValues(passkeyLogic)
 
     return (
-        <LemonButton
-            size="medium"
-            icon={<IconKey />}
-            active={isLastUsed}
-            className="py-1 relative"
-            htmlType="button"
-            onClick={() => {
-                beginPasskeyLogin()
-            }}
-            loading={isLoading}
-            data-attr="passkey-login"
-        >
-            <span className="text-text-3000">Passkey</span>
-            {isLastUsed && (
-                <LemonTag
-                    type="muted"
-                    size="small"
-                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                >
-                    Last used
-                </LemonTag>
-            )}
-        </LemonButton>
+        <div className="relative">
+            <LemonButton
+                size="large"
+                icon={<IconKey />}
+                active={isLastUsed}
+                className={clsx(!isLastUsed && 'bg-mark')}
+                tooltip="Passkey"
+                htmlType="button"
+                onClick={() => {
+                    beginPasskeyLogin()
+                }}
+                loading={isLoading}
+                data-attr="passkey-login"
+            />
+            <LemonTag
+                type="muted"
+                size="small"
+                className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+            >
+                {isLastUsed ? 'Last used' : 'New'}
+            </LemonTag>
+        </div>
     )
 }
 
@@ -147,6 +146,9 @@ export function SocialLoginButtons({
     }
 
     const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
+    const socialProviders = socialAuthAvailable
+        ? Object.keys(preflight.available_social_auth_providers).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+        : []
 
     return (
         <>
@@ -155,18 +157,15 @@ export function SocialLoginButtons({
             <div className={clsx(className, 'text-center deprecated-space-y-4')}>
                 {title && <h3>{title}</h3>}
                 {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
-                <div className="flex gap-2 justify-center flex-wrap">
-                    {socialAuthAvailable &&
-                        Object.keys(preflight.available_social_auth_providers)
-                            .sort((a, b) => order.indexOf(a) - order.indexOf(b))
-                            .map((provider) => (
-                                <SocialLoginButton
-                                    key={provider}
-                                    provider={provider as SSOProvider}
-                                    isLastUsed={lastUsedProvider === provider}
-                                    {...props}
-                                />
-                            ))}
+                <div className="flex gap-4 justify-center flex-wrap">
+                    {socialProviders.map((provider) => (
+                        <SocialLoginButton
+                            key={provider}
+                            provider={provider as SSOProvider}
+                            isLastUsed={lastUsedProvider === provider}
+                            {...props}
+                        />
+                    ))}
                     {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} />}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
