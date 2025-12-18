@@ -4527,6 +4527,32 @@ export enum MarketingAnalyticsHelperForColumnNames {
     CostPer = 'Cost per',
 }
 
+/** Category for conversion goals (lifecycle stages) */
+export enum ConversionGoalCategory {
+    Acquisition = 'acquisition',
+    Activation = 'activation',
+    Monetization = 'monetization',
+    Expansion = 'expansion',
+    Referral = 'referral',
+    Retention = 'retention',
+    Churn = 'churn',
+    Reactivation = 'reactivation',
+}
+
+/** Unified conversion goal stored in Team settings */
+export interface ConversionGoal {
+    /** Unique identifier */
+    id: string
+    /** Display name */
+    name: string
+    /** Optional description */
+    description?: string
+    /** Category (acquisition, activation, retention, referral, revenue) */
+    category?: ConversionGoalCategory
+    /** Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.) */
+    filter: EventsNode | ActionsNode | DataWarehouseNode
+}
+
 export interface SourceFieldSSHTunnelConfig {
     type: 'ssh-tunnel'
     label: string

@@ -1,9 +1,94 @@
 from posthog.test.base import BaseTest
 
+from django.core.exceptions import ValidationError
+
+from parameterized import parameterized
+
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+
+
+class TestTeamConversionGoals(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "event goal",
+                {
+                    "id": "goal-1",
+                    "name": "Purchase",
+                    "filter": {"kind": "EventsNode", "event": "$purchase"},
+                },
+            ),
+            (
+                "action goal",
+                {
+                    "id": "goal-2",
+                    "name": "Signup Action",
+                    "filter": {"kind": "ActionsNode", "id": 123},
+                },
+            ),
+            (
+                "data warehouse goal",
+                {
+                    "id": "goal-3",
+                    "name": "Stripe Charges",
+                    "filter": {
+                        "kind": "DataWarehouseNode",
+                        "table_name": "stripe_charges",
+                        "timestamp_field": "created_at",
+                        "distinct_id_field": "customer_email",
+                        "id_field": "id",
+                    },
+                },
+            ),
+            (
+                "event goal with math sum",
+                {
+                    "id": "goal-4",
+                    "name": "Revenue",
+                    "filter": {
+                        "kind": "EventsNode",
+                        "event": "purchase",
+                        "math": "sum",
+                        "math_property": "revenue",
+                    },
+                },
+            ),
+            (
+                "goal with category",
+                {
+                    "id": "goal-5",
+                    "name": "Purchase",
+                    "filter": {"kind": "EventsNode", "event": "purchase"},
+                    "category": "monetization",
+                },
+            ),
+        ]
+    )
+    def test_conversion_goals_valid(self, _name: str, goal: dict):
+        self.team.conversion_goals = [goal]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        goals = self.team.conversion_goals
+        assert len(goals) == 1
+        assert goals[0].id == goal["id"]
+        assert goals[0].name == goal["name"]
+
+    def test_conversion_goals_empty_by_default(self):
+        assert self.team.conversion_goals == []
+
+    def test_conversion_goals_missing_required_field_raises(self):
+        with self.assertRaises(ValidationError):
+            self.team.conversion_goals = [
+                {
+                    "id": "goal-1",
+                    "name": "Bad Goal",
+                    # missing filter
+                }
+            ]
 
 
 class TestTeam(BaseTest):
