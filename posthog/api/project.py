@@ -84,6 +84,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             return value
         return [domain for domain in value if domain]
 
+    def validate_conversations_widget_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
+
     class Meta:
         model = Project
         fields = (
@@ -146,6 +151,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token_backup",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
+            "conversations_widget_domains",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -216,6 +222,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token_backup",
             "receive_org_level_activity_logs",
             "business_model",
+            "conversations_widget_domains",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:

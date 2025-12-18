@@ -98,6 +98,8 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
                 if not on_permitted_recording_domain(domains, request=request):
                     config["sessionRecording"] = False
 
+    # Keep domains in conversations config for SDK-side filtering (don't check server-side)
+
     # Remove site apps JS
     config.pop("siteAppsJS", None)
     return config
@@ -256,6 +258,19 @@ class RemoteConfig(UUIDTModel):
                 config["sessionRecording"] = False
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
+
+        # MARK: Conversations
+        if team.conversations_enabled:
+            config["conversations"] = {
+                "enabled": True,
+                "greetingText": team.conversations_greeting_text or "Hey, how can I help you today?",
+                "color": team.conversations_color or "#1d4aff",
+                "token": team.conversations_public_token,
+                # NOTE: domains is cached but stripped out at the api level depending on the caller
+                "domains": team.conversations_widget_domains or [],
+            }
+        else:
+            config["conversations"] = False
 
         surveys_opt_in = get_surveys_opt_in(team)
 

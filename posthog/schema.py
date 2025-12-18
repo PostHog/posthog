@@ -2662,6 +2662,7 @@ class ProductKey(StrEnum):
     ANNOTATIONS = "annotations"
     COHORTS = "cohorts"
     COMMENTS = "comments"
+    CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"

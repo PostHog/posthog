@@ -1,1 +1,1 @@
-0947_insightviewed_null_unique_index
+0948_add_conversations_settings_to_team

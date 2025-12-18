@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from functools import cached_property
+from secrets import token_urlsafe
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
@@ -126,6 +127,11 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "conversations_enabled",
+            "conversations_greeting_text",
+            "conversations_color",
+            "conversations_public_token",
+            "conversations_widget_domains",
         ]
         read_only_fields = fields
 
@@ -191,6 +197,11 @@ TEAM_CONFIG_FIELDS = (
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
     "business_model",
+    "conversations_enabled",
+    "conversations_greeting_text",
+    "conversations_color",
+    "conversations_public_token",
+    "conversations_widget_domains",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -363,6 +374,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "conversations_public_token",
         )
 
     def to_representation(self, instance):
@@ -600,6 +612,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_conversations_widget_domains(self, value: list[str | None] | None) -> list[str] | None:
+        if value is None:
+            return value
+        return [domain for domain in value if domain]
+
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         if value is None:
             return value
@@ -741,6 +758,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
+        # Auto-generate/clear conversations token based on conversations_enabled
+        if "conversations_enabled" in validated_data:
+            is_enabling = validated_data["conversations_enabled"] and not instance.conversations_enabled
+            is_disabling = not validated_data["conversations_enabled"] and instance.conversations_enabled
+
+            if is_enabling and not instance.conversations_public_token:
+                # Auto-generate token when enabling for the first time
+                validated_data["conversations_public_token"] = token_urlsafe(32)
+            elif is_disabling:
+                # Clear token when disabling
+                validated_data["conversations_public_token"] = None
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
             validated_data["modifiers"] = {
@@ -1074,6 +1102,20 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Generate or regenerate the conversations public token for widget authentication."""
+        team = self.get_object()
+        team.generate_conversations_public_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)

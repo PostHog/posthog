@@ -60,6 +60,12 @@ pub struct Team {
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
+    #[serde(default)]
+    pub conversations_enabled: bool,
+    pub conversations_greeting_text: Option<String>,
+    pub conversations_color: Option<String>,
+    pub conversations_public_token: Option<String>,
+    pub conversations_widget_domains: Option<Vec<String>>,
 }
 
 fn default_timezone() -> String {
@@ -116,7 +122,12 @@ impl Team {
                     session_recording_trigger_match_type_config,
                     recording_domains,
                     cookieless_server_hash_mode,
-                    timezone
+                    timezone,
+                    conversations_enabled,
+                    conversations_greeting_text,
+                    conversations_color,
+                    conversations_public_token,
+                    conversations_widget_domains
                 FROM posthog_team
                 WHERE id = $1
                 LIMIT 1
@@ -171,7 +182,12 @@ impl Team {
                     session_recording_trigger_match_type_config,
                     recording_domains,
                     cookieless_server_hash_mode,
-                    timezone
+                    timezone,
+                    conversations_enabled,
+                    conversations_greeting_text,
+                    conversations_color,
+                    conversations_public_token,
+                    conversations_widget_domains
                 FROM posthog_team
                 WHERE api_token = $1
                 LIMIT 1

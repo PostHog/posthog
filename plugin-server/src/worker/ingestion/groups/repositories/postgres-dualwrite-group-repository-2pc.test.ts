@@ -157,6 +157,7 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
             event_properties: [],
             event_properties_with_usage: [],
             event_properties_numerical: [],
+            conversations_enabled: false,
         })
     }
 

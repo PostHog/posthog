@@ -118,6 +118,19 @@ async fn apply_config_fields(
         Some(vec![])
     };
 
+    // Handle conversations widget config (domains returned for SDK-side filtering)
+    response.config.conversations = if team.conversations_enabled {
+        Some(serde_json::json!({
+            "enabled": true,
+            "greetingText": team.conversations_greeting_text.as_deref().unwrap_or("Hey, how can I help you today?"),
+            "color": team.conversations_color.as_deref().unwrap_or("#1d4aff"),
+            "token": team.conversations_public_token.as_deref(),
+            "domains": team.conversations_widget_domains.as_deref().unwrap_or(&[])
+        }))
+    } else {
+        Some(serde_json::json!(false))
+    };
+
     // Handle error tracking configuration
     response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
         // Try to get suppression rules, but don't fail if database is unavailable
@@ -257,6 +270,11 @@ mod tests {
             inject_web_apps: None,
             surveys_opt_in: None,
             heatmaps_opt_in: None,
+            conversations_enabled: false,
+            conversations_greeting_text: None,
+            conversations_color: None,
+            conversations_public_token: None,
+            conversations_widget_domains: None,
             capture_dead_clicks: None,
             flags_persistence_default: None,
             session_recording_sample_rate: None,
