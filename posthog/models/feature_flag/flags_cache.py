@@ -8,6 +8,8 @@ and group type mappings), this cache provides just the raw flag data.
 The cache is automatically invalidated when:
 - FeatureFlag models are created, updated, or deleted
 - Team models are created or deleted (to ensure flag caches are cleaned up)
+- FeatureFlagEvaluationTag models are created or deleted
+- Tag models are updated (since tag names are cached in evaluation_tags)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
@@ -43,6 +45,7 @@ from posthog.models.feature_flag.feature_flag import (
     get_feature_flags,
     serialize_feature_flags,
 )
+from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
@@ -525,3 +528,31 @@ def evaluation_tag_changed_flags_cache(sender, instance: "FeatureFlagEvaluationT
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
+
+
+@receiver(post_save, sender=Tag)
+def tag_changed_flags_cache(sender, instance: "Tag", created: bool, **kwargs):
+    """
+    Invalidate flags cache when a tag is renamed.
+
+    Tag names are cached in evaluation_tags, so if a tag used by any flag
+    is renamed, we need to refresh those teams' caches.
+    Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if created:
+        return  # New tags can't be used by any flags yet
+
+    # In practice, update_fields is rarely specified when saving Tags,
+    # but this check follows the pattern used elsewhere in the codebase.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "name" not in update_fields:
+        return
+
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    from posthog.tasks.feature_flags import update_team_service_flags_cache
+
+    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
+        # Capture team_id in closure to avoid late binding issues
+        transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))  # type: ignore[misc]
