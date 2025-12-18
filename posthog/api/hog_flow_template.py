@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from django.db.models import QuerySet
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -16,15 +16,6 @@ from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
 logger = structlog.get_logger(__name__)
-
-
-def _get_default_inputs_for_template(template: HogFunctionTemplate) -> dict:
-    """Get default inputs for a template"""
-    default_inputs = {}
-    for schema_item in template.inputs_schema or []:
-        if schema_item.get("default") is not None:
-            default_inputs[schema_item["key"]] = {"value": schema_item["default"]}
-    return default_inputs
 
 
 class HogFlowTemplateActionSerializer(serializers.Serializer):
@@ -160,29 +151,6 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         data.pop("created_at", None)
         data.pop("updated_at", None)
 
-        # Reset function action inputs to defaults from templates
-        for action in actions:
-            action_type = action.get("type", "")
-            config = action.get("config", {})
-
-            # Check if this is a function action or trigger function
-            is_function_action = "function" in action_type
-            is_trigger_function = action_type == "trigger" and config.get("type") in [
-                "webhook",
-                "manual",
-                "tracking_pixel",
-                "schedule",
-            ]
-
-            if is_function_action or is_trigger_function:
-                template_id = config.get("template_id")
-                if template_id:
-                    template = HogFunctionTemplate.get_template(template_id)
-                    if template:
-                        # Reset inputs to defaults from the template
-                        default_inputs = _get_default_inputs_for_template(template)
-                        config["inputs"] = default_inputs
-
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlowTemplate:
@@ -202,11 +170,17 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
     app_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list":
-            queryset = queryset.order_by("-updated_at")
+    def dangerously_get_queryset(self):
+        # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
+        # Return global templates OR templates that match the current team
+        query_condition = Q(team_id=self.team_id) | Q(scope=HogFlowTemplate.Scope.GLOBAL)
 
-        return queryset
+        qs = HogFlowTemplate.objects.filter(query_condition)
+
+        if self.action == "list":
+            qs = qs.order_by("-updated_at")
+
+        return qs
 
     def perform_create(self, serializer):
         if not posthoganalytics.feature_enabled(
