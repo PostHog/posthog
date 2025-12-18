@@ -406,7 +406,12 @@ class HogFunctionViewSet(
     app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+        if self.action == "list":
+            # Use full serializer (including inputs, mappings, etc.) when ?full=true
+            if self.request.GET.get("full") == "true":
+                return HogFunctionSerializer
+            return HogFunctionMinimalSerializer
+        return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
