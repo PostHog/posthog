@@ -156,6 +156,7 @@ def export_asset_direct(
         )
         exported_asset.exception = None
         exported_asset.exception_type = None
+        exported_asset.save(update_fields=["exception", "exception_type"])
     except Exception as e:
         is_retriable = isinstance(e, EXCEPTIONS_TO_RETRY)
         is_user_error = isinstance(e, USER_QUERY_ERRORS)
@@ -192,7 +193,6 @@ def export_asset_direct(
         if is_retriable:
             raise
 
-        # Store exception message and type separately for classification
         exported_asset.exception = str(e)
         exported_asset.exception_type = type(e).__name__
         exported_asset.save()

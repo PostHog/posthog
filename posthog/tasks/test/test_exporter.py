@@ -26,7 +26,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("", False),
         ]
     )
-    def test_is_user_query_error_type(self, exception_type, expected):
+    def test_is_user_query_error_type(self, exception_type: str | None, expected: bool) -> None:
         assert is_user_query_error_type(exception_type) == expected
 
 
