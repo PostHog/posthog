@@ -1,5 +1,8 @@
 import json
+<<<<<<< HEAD
 import uuid
+=======
+>>>>>>> cfe2462f6c (improve code quality)
 from typing import Any, cast
 
 from django.contrib.auth import authenticate, login
