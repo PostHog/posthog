@@ -112,6 +112,9 @@ async def deliver_subscription_report_async(
 
     logger.info("deliver_subscription_report_async.generating_assets", subscription_id=subscription_id)
     insights, assets = await generate_assets_async(subscription)
+    logger.info(
+        "deliver_subscription_report_async.assets_generated", subscription_id=subscription_id, asset_count=len(assets)
+    )
 
     # Only count system failures in metrics, not user config errors
     failed_assets = [a for a in assets if _has_asset_failed(a)]
