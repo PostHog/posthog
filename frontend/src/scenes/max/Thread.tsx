@@ -66,16 +66,15 @@ import {
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
-    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
-import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
+import { TicketPrompt } from './TicketPrompt'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -83,11 +82,13 @@ import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
+import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
-    castAssistantQuery,
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -96,15 +97,32 @@ import {
     isHumanMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
+    isNotebookArtifactContent,
     isNotebookUpdateMessage,
     isVisualizationArtifactContent,
+    visualizationTypeToQuery,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
+// Helper function to check if a message is an error or failure
+function isErrorMessage(message: ThreadMessage): boolean {
+    return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
+
+    const ticketPromptData = useMemo(
+        () => getTicketPromptData(threadGrouped, streamingActive),
+        [threadGrouped, streamingActive]
+    )
+
+    const ticketSummaryData = useMemo(
+        () => getTicketSummaryData(threadGrouped, streamingActive),
+        [threadGrouped, streamingActive]
+    )
 
     return (
         <div
@@ -113,7 +131,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading ? (
+            {conversationLoading && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -126,28 +144,78 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             ) : threadGrouped.length > 0 ? (
                 <>
                     {threadGrouped.map((message, index) => {
+                        // Hide failed AI messages when retrying
+                        if (threadLoading && isErrorMessage(message)) {
+                            return null
+                        }
+
+                        // Hide old failed attempts - only show the most recent error
+                        if (isErrorMessage(message)) {
+                            const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                            if (hasNewerError) {
+                                return null
+                            }
+                        }
+
+                        // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
+                        // This specific pattern only occurs when "Try again" is clicked after a failure
+                        if (message.type === 'human' && 'content' in message && index >= 2) {
+                            const prevMessage = threadGrouped[index - 1]
+                            const prevPrevMessage = threadGrouped[index - 2]
+
+                            const isRetryPattern =
+                                isErrorMessage(prevMessage) &&
+                                prevPrevMessage.type === 'human' &&
+                                'content' in prevPrevMessage &&
+                                prevPrevMessage.content === message.content
+
+                            if (isRetryPattern) {
+                                return null
+                            }
+                        }
+
                         const nextMessage = threadGrouped[index + 1]
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                        // Hiding rating buttons after /feedback command output
+                        // Hiding rating buttons after /feedback and /ticket command outputs
                         const prevMessage = threadGrouped[index - 1]
-                        const isFeedbackCommandResponse =
+                        const isSlashCommandResponse =
                             message.type !== 'human' &&
                             prevMessage?.type === 'human' &&
                             'content' in prevMessage &&
-                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
+                            (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
+                                prevMessage.content.startsWith(SlashCommandName.SlashTicket))
+
+                        // Also hide for ticket confirmation messages
+                        const isTicketConfirmation = isTicketConfirmationMessage(message)
+
+                        // Check if this message is a ticket summary that needs the ticket creation button
+                        const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
 
                         return (
-                            <Message
-                                key={`${conversationId}-${index}`}
-                                message={message}
-                                nextMessage={nextMessage}
-                                isLastInGroup={isLastInGroup}
-                                isFinal={index === threadGrouped.length - 1}
-                                streamingActive={streamingActive}
-                                isFeedbackCommandResponse={isFeedbackCommandResponse}
-                            />
+                            <React.Fragment key={`${conversationId}-${index}`}>
+                                <Message
+                                    message={message}
+                                    nextMessage={nextMessage}
+                                    isLastInGroup={isLastInGroup}
+                                    isFinal={index === threadGrouped.length - 1}
+                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
+                                />
+                                {conversationId &&
+                                    isTicketSummaryMessage &&
+                                    (ticketSummaryData.discarded ? (
+                                        <p className="m-0 ml-1 mt-1 text-xs text-muted italic">
+                                            Ticket creation discarded
+                                        </p>
+                                    ) : (
+                                        <TicketPrompt
+                                            conversationId={conversationId}
+                                            traceId={traceId}
+                                            summary={ticketSummaryData.summary}
+                                        />
+                                    ))}
+                            </React.Fragment>
                         )
                     })}
                     {conversationId && isPromptVisible && !streamingActive && (
@@ -165,6 +233,13 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         <MessageTemplate type="ai">
                             <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
                         </MessageTemplate>
+                    )}
+                    {conversationId && ticketPromptData.needed && (
+                        <TicketPrompt
+                            conversationId={conversationId}
+                            traceId={traceId}
+                            initialText={ticketPromptData.initialText}
+                        />
                     )}
                 </>
             ) : (
@@ -212,17 +287,10 @@ interface MessageProps {
     nextMessage?: ThreadMessage
     isLastInGroup: boolean
     isFinal: boolean
-    streamingActive: boolean
-    isFeedbackCommandResponse?: boolean
+    isSlashCommandResponse?: boolean
 }
 
-function Message({
-    message,
-    nextMessage,
-    isLastInGroup,
-    isFinal,
-    isFeedbackCommandResponse,
-}: MessageProps): JSX.Element {
+function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -284,23 +352,44 @@ function Message({
                             (message.tool_calls && message.tool_calls.length > 0)
                         )
 
-                        let thinkingElement = null
-                        const thinkingContent = getThinkingMessageFromResponse(message)
-                        if (thinkingContent) {
+                        let thinkingElements = null
+                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
+                            // 1. The thread has finished streaming (thinking might be at the end), OR
                             // 1. The message has content or tool_calls, OR
                             // 2. The message is not the last in group (there are subsequent messages)
                             // Otherwise, keep expanded to show active thinking progress
                             const isThinkingComplete = hasContent || !isLastInGroup || !threadLoading
-                            thinkingElement = (
-                                <ReasoningAnswer
-                                    key={`${key}-thinking`}
-                                    content={thinkingContent}
-                                    id={message.id || key}
-                                    completed={isThinkingComplete}
-                                    showCompletionIcon={false}
-                                    animate={!inStorybookTestRunner() && message.id === 'loader'} // Avoiding flaky snapshots in Storybook
-                                />
+                            thinkingElements = thinkingBlocks.map((block, index) =>
+                                block.type === 'server_tool_use' ? (
+                                    <ToolCallsAnswer
+                                        key={`thinking-${index}`}
+                                        toolCalls={[
+                                            {
+                                                type: 'tool_call',
+                                                id: block.id,
+                                                name: block.name,
+                                                args: block.input,
+                                                status: block.results
+                                                    ? ExecutionStatus.Completed
+                                                    : ExecutionStatus.InProgress,
+                                                updates: block.results
+                                                    ? block.results.map((result) => `[${result.title}](${result.url})`)
+                                                    : [],
+                                            },
+                                        ]}
+                                        registeredToolMap={registeredToolMap}
+                                    />
+                                ) : (
+                                    <ReasoningAnswer
+                                        key={`thinking-${index}`}
+                                        content={block.thinking}
+                                        id={message.id || key}
+                                        completed={isThinkingComplete}
+                                        showCompletionIcon={false}
+                                    />
+                                )
                             )
                         }
 
@@ -387,7 +476,7 @@ function Message({
                                     <SuccessActions
                                         key={`${key}-actions`}
                                         retriable={retriable}
-                                        hideRatingAndRetry={isFeedbackCommandResponse}
+                                        hideRatingAndRetry={isSlashCommandResponse}
                                         content={message.content}
                                     />
                                 )
@@ -398,7 +487,7 @@ function Message({
 
                         return (
                             <div key={key} className="flex flex-col gap-1.5 w-full">
-                                {thinkingElement}
+                                {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
                                 {multiQuestionFormElement}
@@ -429,21 +518,24 @@ function Message({
                             />
                         )
                     } else if (isArtifactMessage(message)) {
-                        if (!isVisualizationArtifactContent(message.content)) {
-                            return null
+                        if (isVisualizationArtifactContent(message.content)) {
+                            return (
+                                <VisualizationArtifactAnswer
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                    isEditingInsight={editInsightToolRegistered}
+                                    activeTabId={activeTabId}
+                                    activeSceneId={activeSceneId}
+                                />
+                            )
+                        } else if (isNotebookArtifactContent(message.content)) {
+                            return (
+                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                            )
                         }
-
-                        return (
-                            <VisualizationArtifactAnswer
-                                key={key}
-                                message={message}
-                                content={message.content}
-                                status={message.status}
-                                isEditingInsight={editInsightToolRegistered}
-                                activeTabId={activeTabId}
-                                activeSceneId={activeSceneId}
-                            />
-                        )
+                        return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isNotebookUpdateMessage(message)) {
@@ -476,7 +568,6 @@ function MessageGroupSkeleton({
 }): JSX.Element {
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageContainer>
     )
@@ -698,7 +789,10 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     return (
         <div className="flex flex-col text-xs">
             <div
-                className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
+                className={clsx(
+                    'flex items-center select-none',
+                    !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer'
+                )}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
@@ -783,6 +877,10 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 }
 
 function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (content.at(0) === '[' && content.at(-1) === ')') {
+        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search results, _not_ an action
+        return content
+    }
     if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
         return content + '...'
     } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
@@ -814,7 +912,7 @@ function AssistantActionComponent({
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
+    const showChevron = !!substeps.length
     // Initialize with the same logic as the effect to prevent flickering
     const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
@@ -828,7 +926,7 @@ function AssistantActionComponent({
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex',
+                    'transition-all duration-500 flex select-none',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showChevron ? 'cursor-default' : 'cursor-pointer'
@@ -853,8 +951,6 @@ function AssistantActionComponent({
                             <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
-                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                     {showChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
@@ -864,6 +960,8 @@ function AssistantActionComponent({
                             </button>
                         </div>
                     )}
+                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                 </div>
             </div>
             {isExpanded && substeps && substeps.length > 0 && (
@@ -878,13 +976,7 @@ function AssistantActionComponent({
                         const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
 
                         return (
-                            <div
-                                key={substepIndex}
-                                className="animate-fade-in"
-                                style={{
-                                    animationDelay: `${substepIndex * 50}ms`,
-                                }}
-                            >
+                            <div key={substepIndex} className="animate-fade-in">
                                 <MarkdownMessage
                                     id={id}
                                     className={clsx(
@@ -966,38 +1058,9 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
-                        let description = `Executing ${toolCall.name}`
-                        let widget: JSX.Element | null = null
-                        if (definition) {
-                            if (definition.displayFormatter) {
-                                const displayFormatterResult = definition.displayFormatter(toolCall, {
-                                    registeredToolMap,
-                                })
-                                if (typeof displayFormatterResult === 'string') {
-                                    description = displayFormatterResult
-                                } else {
-                                    description = displayFormatterResult[0]
-                                    switch (displayFormatterResult[1]?.widget) {
-                                        case 'recordings':
-                                            widget = (
-                                                <RecordingsWidget
-                                                    toolCallId={toolCall.id}
-                                                    filters={displayFormatterResult[1].args}
-                                                />
-                                            )
-                                            break
-                                        default:
-                                            break
-                                    }
-                                }
-                            }
-                            if (commentary) {
-                                description = commentary
-                            }
-                        }
+                        const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
                             <AssistantActionComponent
                                 key={toolCall.id}
@@ -1034,14 +1097,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             )}
         </>
     )
-}
-
-const visualizationTypeToQuery = (visualization: VisualizationItem): InsightVizNode | DataVisualizationNode | null => {
-    const source = castAssistantQuery(visualization.answer)
-    if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
-    }
-    return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
 }
 
 const Visualization = React.memo(function Visualization({
@@ -1389,4 +1444,35 @@ function SuccessActions({
             )}
         </>
     )
+}
+
+export const getToolCallDescriptionAndWidget = (
+    toolCall: EnhancedToolCall,
+    registeredToolMap: Record<string, ToolRegistration>
+): [string, JSX.Element | null] => {
+    const commentary = toolCall.args.commentary as string
+    const definition = getToolDefinitionFromToolCall(toolCall)
+    let description = `${toolCall.status === ExecutionStatus.InProgress ? 'Executing' : 'Executed'} ${toolCall.name}`
+    let widget: JSX.Element | null = null
+    if (definition) {
+        if (definition.displayFormatter) {
+            const displayFormatterResult = definition.displayFormatter(toolCall, { registeredToolMap })
+            if (typeof displayFormatterResult === 'string') {
+                description = displayFormatterResult
+            } else {
+                description = displayFormatterResult[0]
+                switch (displayFormatterResult[1]?.widget) {
+                    case 'recordings':
+                        widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    default:
+                        break
+                }
+            }
+        }
+        if (commentary) {
+            description = commentary
+        }
+    }
+    return [description, widget]
 }

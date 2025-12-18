@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-11 10:03:47 UTC
+// Generated at: 2025-12-18 10:03:41 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,14 +9,12 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'amazon-nova'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'atlas-cloud-bf16'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
-    | 'avian-fp8'
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
@@ -46,6 +44,7 @@ export type CanonicalProvider =
     | 'fireworks-fp16'
     | 'fireworks-fp8'
     | 'friendli'
+    | 'gmicloud-bf16'
     | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'gmicloud-int4'
@@ -71,6 +70,8 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'mistral'
     | 'modelrun'
+    | 'modelrun-fp4'
+    | 'modelrun-fp8'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-int4'
@@ -89,6 +90,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita-bf16'
     | 'novita-fp16'
+    | 'novita-fp4'
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
@@ -126,5 +128,6 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xai-fast'
+    | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

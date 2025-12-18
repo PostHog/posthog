@@ -7,6 +7,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
     [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
+    [Scene.MaterializedColumns]: () => import('./data-management/MaterializedColumns/MaterializedColumns'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BatchExport]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
     [Scene.BillingAuthorizationStatus]: () => import('./billing/AuthorizationStatus'),
@@ -111,4 +112,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsHealth]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
+    [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
 }

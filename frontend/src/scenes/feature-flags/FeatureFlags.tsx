@@ -22,6 +22,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -378,11 +379,7 @@ export function OverViewTab({
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <div className="flex justify-start gap-1">
-                        {featureFlag.performed_rollback ? (
-                            <LemonTag type="warning" className="uppercase">
-                                Rolled Back
-                            </LemonTag>
-                        ) : featureFlag.active ? (
+                        {featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>
@@ -482,9 +479,7 @@ export function OverViewTab({
                     {featureFlagsLoading ? (
                         <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
                     ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                            count === 1 ? '' : 's'
-                        }`
+                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
                     ) : null}
                 </span>
             </div>

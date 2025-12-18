@@ -336,6 +336,7 @@ export function LineGraph_({
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isBar, isStacked])
 
     // Add scrollend event on main element to hide tooltips when scrolling
@@ -671,7 +672,11 @@ export function LineGraph_({
                         formatter: (value: number, context) => {
                             if (value !== 0 && inSurveyView && showValuesOnSeries) {
                                 const dataset = context.dataset as any
-                                const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
+                                // Use totalResponses if provided (for per-respondent %), otherwise sum of values
+                                const total =
+                                    dataset.totalResponses ??
+                                    dataset.data?.reduce((sum: number, val: number) => sum + val, 0) ??
+                                    1
                                 const percentage = ((value / total) * 100).toFixed(1)
                                 return `${value} (${percentage}%)`
                             }

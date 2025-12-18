@@ -10,6 +10,7 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -49,6 +50,7 @@ import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
+import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
@@ -468,6 +470,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <CreateSurveyButton value={value} />
                     </div>
                 )
             },
@@ -883,7 +886,13 @@ export const WebQuery = ({
                         query={query}
                         key={uniqueKey}
                         readOnly={true}
-                        context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                        context={{
+                            ...webAnalyticsDataTableQueryContext,
+                            insightProps,
+                            emptyStateHeading: '',
+                            emptyStateDetail: FrustrationMetricsEmptyState,
+                            emptyStateIcon: <></>,
+                        }}
                     />
                 </div>
             )
@@ -969,3 +978,18 @@ export const WebQuery = ({
         />
     )
 }
+
+const FrustrationMetricsEmptyState = (
+    <>
+        <div className="w-full p-8 justify-center rounded mt-2 mb-4">
+            <div className="flex items-center gap-8 w-full justify-center">
+                <div>
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
+                        <StarHog />
+                    </div>
+                    <p>No frustrating pages found! Keep up the great work!</p>
+                </div>
+            </div>
+        </div>
+    </>
+)
