@@ -35,8 +35,11 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task', 'taskLoading']],
-        actions: [taskLogic(props), ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask']],
+        values: [taskLogic(props), ['task']],
+        actions: [
+            taskLogic(props),
+            ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
+        ],
     })),
 
     actions({

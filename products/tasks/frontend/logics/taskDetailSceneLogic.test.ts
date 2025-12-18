@@ -72,7 +72,10 @@ describe('taskDetailSceneLogic', () => {
             await expectLogic(logicA).toFinishAllListeners()
             await expectLogic(logicB).toFinishAllListeners()
 
-            const taskAResult = { ...createMockTask('task-A'), latest_run: createMockRun('run-A', TaskRunStatus.QUEUED) }
+            const taskAResult = {
+                ...createMockTask('task-A'),
+                latest_run: createMockRun('run-A', TaskRunStatus.QUEUED),
+            }
             logicA.actions.runTaskSuccess(taskAResult)
             await expectLogic(logicA).toFinishAllListeners()
             await expectLogic(logicB).toFinishAllListeners()

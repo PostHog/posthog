@@ -41,8 +41,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     reducers({
         tasks: {
-            updateTask: (state, { task }) =>
-                state.map((t) => (t.id === task.id ? task : t)),
+            updateTask: (state, { task }) => state.map((t) => (t.id === task.id ? task : t)),
         },
     }),
 
