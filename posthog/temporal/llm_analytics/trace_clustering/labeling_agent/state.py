@@ -31,23 +31,20 @@ class ClusterTraceData(TypedDict):
 class ClusterLabelingState(TypedDict):
     """State for the cluster labeling agent graph.
 
-    This state is passed through the LangGraph and updated by nodes.
+    Used with create_react_agent. The messages field uses add_messages reducer
+    for proper message history management.
     """
 
-    # Input data (set at start, immutable during run)
+    # LangGraph message history (required by create_react_agent)
+    messages: Annotated[list, add_messages]
+
+    # Input data (set at start, read by tools via InjectedState)
     team_id: int
     cluster_data: dict[int, ClusterTraceData]  # cluster_id -> cluster info with traces
     all_trace_summaries: dict[str, TraceSummary]  # trace_id -> full summary
 
-    # Working state (mutated by agent via tools)
+    # Working state (mutated by tools via InjectedState)
     current_labels: dict[int, ClusterLabel | None]  # cluster_id -> label or None
-
-    # LangGraph message history
-    messages: Annotated[list, add_messages]
-
-    # Control flow
-    iterations: int
-    max_iterations: int
 
 
 class ClusterOverview(TypedDict):

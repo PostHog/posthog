@@ -1,49 +1,44 @@
 # Cluster Labeling Agent
 
-A LangGraph-based agent that generates distinctive, high-quality labels for trace clusters. The agent iteratively explores clusters using tools and creates titles and descriptions that differentiate each cluster from the others.
+A LangGraph-based agent that generates distinctive, high-quality labels for trace clusters. Uses the `create_react_agent` prebuilt pattern for a clean, minimal implementation.
 
 ## Architecture
+
+The agent uses LangGraph's `create_react_agent` which implements the standard ReAct (Reasoning + Acting) loop:
 
 ```mermaid
 graph TB
     START((Start)) --> AGENT[Agent Node]
 
-    AGENT --> |tool calls| TOOLS[Tools Node]
-    AGENT --> |finalize_labels| FINALIZE[Finalize Node]
-    AGENT --> |no tool calls| FINALIZE
+    AGENT --> |tool calls| TOOLS[Tool Node]
+    AGENT --> |no tool calls| END((End))
 
     TOOLS --> AGENT
 
-    FINALIZE --> END((End))
-
-    subgraph "Agent Node"
-        LLM[Claude Sonnet 4]
-        LLM --> |with tools bound| RESPONSE[Response]
-    end
-
-    subgraph "Tools Node"
-        T1[get_clusters_overview]
-        T2[get_cluster_trace_titles]
-        T3[get_trace_details]
-        T4[get_current_labels]
-        T5[set_cluster_label]
-        T6[finalize_labels]
+    subgraph "create_react_agent"
+        AGENT
+        TOOLS
     end
 
     style AGENT fill:#ffe0b2
     style TOOLS fill:#e1f5ff
-    style FINALIZE fill:#c8e6c9
 ```
+
+The prebuilt agent handles:
+
+- LLM invocation with tools bound
+- Tool execution via `ToolNode`
+- Routing between agent and tools via `tools_condition`
+- Message history management
 
 ## File Structure
 
 ```text
 labeling_agent/
 ├── __init__.py      # Exports run_labeling_agent
-├── graph.py         # StateGraph assembly and run_labeling_agent entry point
+├── graph.py         # create_react_agent setup and run_labeling_agent entry point
 ├── state.py         # ClusterLabelingState TypedDict and helper types
-├── nodes.py         # Graph node functions (agent_node, tools_node, finalize_node)
-├── tools.py         # Tool definitions and execute_tool dispatcher
+├── tools.py         # Tool definitions using InjectedState pattern
 ├── prompts.py       # CLUSTER_LABELING_SYSTEM_PROMPT
 └── README.md        # This file
 ```
@@ -51,92 +46,74 @@ labeling_agent/
 ## State Schema
 
 ```python
-class ClusterTraceData(TypedDict):
-    """All trace data for a cluster."""
-    cluster_id: int
-    size: int
-    centroid_x: float
-    centroid_y: float
-    traces: dict[str, TraceMetadata]  # trace_id -> metadata
-
 class ClusterLabelingState(TypedDict):
-    # Input data (immutable during run)
+    # LangGraph message history (required by create_react_agent)
+    messages: Annotated[list, add_messages]
+
+    # Input data (set at start, read by tools via InjectedState)
     team_id: int
     cluster_data: dict[int, ClusterTraceData]      # cluster_id -> cluster info with traces
     all_trace_summaries: dict[str, TraceSummary]   # trace_id -> full summary
 
-    # Working state (mutated by agent)
+    # Working state (mutated by tools via InjectedState)
     current_labels: dict[int, ClusterLabel | None] # cluster_id -> label or None
-    messages: Annotated[list, add_messages]        # LangGraph message history
-
-    # Control flow
-    iterations: int
-    max_iterations: int  # Default: 50
 ```
 
 ## Tools
 
-| Tool                       | Purpose                         | Input                                | Output                                                  |
-| -------------------------- | ------------------------------- | ------------------------------------ | ------------------------------------------------------- |
-| `get_clusters_overview`    | High-level view of all clusters | None                                 | List of {cluster_id, size, centroid_x, centroid_y}      |
-| `get_cluster_trace_titles` | Scan trace titles in a cluster  | `cluster_id`, `limit` (default 30)   | List of {trace_id, title, rank, distance, x, y}         |
-| `get_trace_details`        | Full trace summaries            | `trace_ids` (list)                   | List of {trace_id, title, flow_diagram, bullets, notes} |
-| `get_current_labels`       | Review all labels set so far    | None                                 | Dict of {cluster_id: {title, description} or null}      |
-| `set_cluster_label`        | Set/update a cluster's label    | `cluster_id`, `title`, `description` | Confirmation message                                    |
-| `finalize_labels`          | Signal completion               | None                                 | Triggers transition to finalize node                    |
+Tools use the `InjectedState` pattern to access and mutate graph state directly:
 
-### Tool Details
+```python
+from langgraph.prebuilt import InjectedState
 
-**`get_cluster_trace_titles`** returns lightweight data for quick scanning:
+@tool
+def set_cluster_label(
+    state: Annotated[dict, InjectedState],  # Injected, not exposed to LLM
+    cluster_id: int,
+    title: str,
+    description: str,
+) -> str:
+    """Set or update the label for a specific cluster."""
+    state["current_labels"][cluster_id] = ClusterLabel(title=title, description=description)
+    return f"Label set for cluster {cluster_id}: '{title}'"
+```
 
-- `rank`: Distance rank (1 = closest to centroid, higher = further)
-- `distance_to_centroid`: Euclidean distance for understanding cluster tightness
-- `x, y`: 2D UMAP coordinates for spatial awareness
-
-**`get_trace_details`** returns full summaries for deeper analysis:
-
-- `title`: Trace title
-- `flow_diagram`: ASCII flow diagram of the trace
-- `bullets`: Key observations as bullet points
-- `interesting_notes`: Notable patterns or anomalies
-
-**`get_current_labels`** enables the agent to:
-
-- Track progress (which clusters still need labels)
-- Review all labels together for distinctiveness
-- Identify if labels are too similar and need refinement
-
-## Graph Flow
-
-1. **Agent Node**: Invokes Claude with tools bound, returns tool calls or text
-2. **Router**: Routes to `tools` if tool calls present (except `finalize_labels`), otherwise to `finalize`
-3. **Tools Node**: Executes tool calls, updates state for `set_cluster_label`
-4. **Finalize Node**: Validates labels, fills defaults for any missing clusters
+| Tool                              | Purpose                              | Key Arguments                        |
+| --------------------------------- | ------------------------------------ | ------------------------------------ |
+| `get_clusters_overview`           | High-level view of all clusters      | None                                 |
+| `get_all_clusters_with_sample_titles` | All clusters with sample titles  | `titles_per_cluster` (default 10)    |
+| `get_cluster_trace_titles`        | Scan trace titles in a cluster       | `cluster_id`, `limit` (default 30)   |
+| `get_trace_details`               | Full trace summaries                 | `trace_ids` (list)                   |
+| `get_current_labels`              | Review all labels set so far         | None                                 |
+| `set_cluster_label`               | Set/update a cluster's label         | `cluster_id`, `title`, `description` |
+| `bulk_set_labels`                 | Set labels for multiple clusters     | `labels` (list of dicts)             |
+| `finalize_labels`                 | Signal completion                    | None                                 |
 
 ## Agent Strategy
 
-The system prompt guides the agent to:
+The system prompt guides the agent through a two-phase approach:
 
-1. **Start with overview**: Call `get_clusters_overview()` to see all clusters
-2. **Scan each cluster**: Use `get_cluster_trace_titles()` to understand trace distribution
-3. **Examine strategically**: Use `get_trace_details()` for:
-   - Top-ranked traces (most representative)
-   - Edge traces (might reveal sub-patterns)
-   - Interesting titles that stand out
-4. **Generate labels**: Create distinctive title + description for each cluster
-5. **Compare and refine**: Use `get_current_labels()` to ensure labels differentiate clusters
-6. **Finalize**: Call `finalize_labels()` when all clusters have good labels
+**Phase 1 - Initial Labeling:**
+
+1. Call `get_all_clusters_with_sample_titles()` for a global overview
+2. Use `bulk_set_labels()` to quickly label all clusters based on patterns
+
+**Phase 2 - Refinement:**
+
+1. Review labels with `get_current_labels()`
+2. For ambiguous clusters, use `get_cluster_trace_titles()` or `get_trace_details()`
+3. Update labels with `set_cluster_label()` as needed
+4. Call `finalize_labels()` when satisfied
 
 ## Configuration
 
 From `constants.py`:
 
-| Constant                         | Value                      | Description                                       |
-| -------------------------------- | -------------------------- | ------------------------------------------------- |
-| `LABELING_AGENT_MODEL`           | `claude-sonnet-4-20250514` | Claude Sonnet 4 model for reasoning               |
-| `LABELING_AGENT_MAX_ITERATIONS`  | 50                         | Max iterations before forced finalization         |
-| `LABELING_AGENT_RECURSION_LIMIT` | 150                        | LangGraph recursion limit (> 2 \* max_iterations) |
-| `LABELING_AGENT_TIMEOUT`         | 600.0                      | Full agent run timeout (seconds)                  |
+| Constant                         | Value                      | Description                           |
+| -------------------------------- | -------------------------- | ------------------------------------- |
+| `LABELING_AGENT_MODEL`           | `claude-sonnet-4-20250514` | Claude model for reasoning            |
+| `LABELING_AGENT_RECURSION_LIMIT` | 150                        | Max graph steps before forced stop    |
+| `LABELING_AGENT_TIMEOUT`         | 600.0                      | LLM request timeout (seconds)         |
 
 ## Usage
 
@@ -168,7 +145,6 @@ labels = run_labeling_agent(
         "trace_1": {"title": "...", "flow_diagram": "...", "bullets": "...", "interesting_notes": "...", "trace_timestamp": "..."},
         # ...
     },
-    max_iterations=50,
 )
 
 # Returns: {0: ClusterLabel(title="...", description="..."), -1: ClusterLabel(...)}
@@ -176,17 +152,16 @@ labels = run_labeling_agent(
 
 ## Error Handling
 
-- **Max iterations reached**: Agent is forced to finalize with current labels
-- **LLM errors**: Agent finalizes gracefully with current labels
-- **Tool errors**: Error message returned to agent, can retry or continue
-- **Missing labels**: Finalize node fills in defaults ("Cluster N" or "Outliers")
+- **Recursion limit reached**: Agent stops and returns current labels
+- **LLM errors**: Caught and logged, returns current labels with defaults filled
+- **Missing labels**: `_fill_missing_labels()` provides defaults ("Cluster N" or "Outliers")
 
-## Logging
+## Key Design Decisions
 
-The agent logs key events for observability:
+1. **`create_react_agent` over manual `StateGraph`**: Eliminates boilerplate for agent loop, tool routing, and message handling
 
-- `cluster_labeling_agent_starting`: Agent initialization with cluster count
-- `cluster_labeling_agent_iteration_start`: Each iteration with progress
-- `cluster_labeling_agent_iteration_complete`: Tool calls made
-- `cluster_labeling_label_set`: When a label is assigned
-- `cluster_labeling_agent_finalized`: Final label count and iterations
+2. **`InjectedState` for tools**: Tools directly access/mutate state without separate execution functions
+
+3. **`recursion_limit` over iteration counting**: Cleaner control flow, no custom iteration tracking needed
+
+4. **Bulk operations**: `get_all_clusters_with_sample_titles` and `bulk_set_labels` reduce round-trips for initial labeling
