@@ -122,6 +122,20 @@ class BatchCheckRequestSerializer(serializers.Serializer):
         default=SummarizationMode.MINIMAL.value,
         help_text="Summary detail level to check for",
     )
+    provider = serializers.ChoiceField(
+        choices=[p.value for p in SummarizationProvider],
+        default=None,
+        required=False,
+        allow_null=True,
+        help_text="LLM provider to check for (defaults to 'openai')",
+    )
+    model = serializers.CharField(
+        default=None,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="LLM model to check for (defaults based on provider)",
+    )
 
 
 class CachedSummarySerializer(serializers.Serializer):
@@ -161,15 +175,26 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
                 "AI data processing must be approved by your organization before using summarization"
             )
 
-    def _get_cache_key(self, summarize_type: str, entity_id: str, mode: str) -> str:
+    def _get_cache_key(
+        self,
+        summarize_type: str,
+        entity_id: str,
+        mode: str,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> str:
         """Generate cache key for summary results.
 
         Args:
             summarize_type: 'trace' or 'event'
             entity_id: Unique identifier for the entity being summarized
             mode: Summary detail level ('minimal' or 'detailed')
+            provider: LLM provider (defaults to 'openai')
+            model: LLM model (defaults based on provider)
         """
-        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}"
+        provider_key = provider or "default"
+        model_key = model or "default"
+        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}:{provider_key}:{model_key}"
 
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
@@ -368,7 +393,7 @@ The response includes the summary text and optional metadata.
 
             entity_id, entity_data = self._extract_entity_id(summarize_type, data)
 
-            cache_key = self._get_cache_key(summarize_type, entity_id, mode)
+            cache_key = self._get_cache_key(summarize_type, entity_id, mode, provider, model)
             if not force_refresh:
                 cached_result = cache.get(cache_key)
                 if cached_result is not None:
@@ -474,10 +499,15 @@ with their titles.
 
         trace_ids = serializer.validated_data["trace_ids"]
         mode = serializer.validated_data["mode"]
+        provider = serializer.validated_data.get("provider")
+        model = serializer.validated_data.get("model")
+        # Treat empty string as None for model
+        if model == "":
+            model = None
 
         summaries = []
         for trace_id in trace_ids:
-            cache_key = self._get_cache_key("trace", trace_id, mode)
+            cache_key = self._get_cache_key("trace", trace_id, mode, provider, model)
             cached_result = cache.get(cache_key)
             if cached_result is not None:
                 summary_data = cached_result.get("summary", {})
