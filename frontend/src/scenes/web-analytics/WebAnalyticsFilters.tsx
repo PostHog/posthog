@@ -125,7 +125,6 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                 }
             />
         </>
-
     )
 }
 

@@ -16,7 +16,7 @@ export const WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES = [
     '$pathname',
     'metadata.loggedIn',
     'metadata.backend',
-] as const
+]
 
 export const WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES = [
     '$entry_pathname',
@@ -27,7 +27,7 @@ export const WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES = [
     '$entry_utm_term',
     '$entry_utm_content',
     '$channel_type',
-] as const
+]
 
 export const WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST = {
     [TaxonomicFilterGroupType.EventProperties]: WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES,

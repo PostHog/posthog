@@ -486,13 +486,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
 
                     if (filter.type === PropertyFilterType.Event) {
-                        return !(WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES as readonly string[]).includes(
-                            filter.key
-                        )
+                        return !WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES.includes(filter.key)
                     } else if (filter.type === PropertyFilterType.Session) {
-                        return !(WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES as readonly string[]).includes(
-                            filter.key
-                        )
+                        return !WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES.includes(filter.key)
                     } else if (filter.type === PropertyFilterType.Person) {
                         return true
                     }
