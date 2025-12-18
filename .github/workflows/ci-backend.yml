@@ -442,6 +442,8 @@ jobs:
                       echo "To fix, run locally:  hogli build:openapi"
                       echo "Then commit the updated generated files."
                       echo ""
+                      echo "More info: https://posthog.com/handbook/engineering/type-system"
+                      echo ""
                       echo "Questions? #team-devex on Slack"
                       exit 1
                   fi
