@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useReducer } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 import { IconRefresh } from '@posthog/icons'
@@ -47,6 +48,19 @@ export function DashboardReloadAction(): JSX.Element {
     usePageVisibilityCb((pageIsVisible) => {
         setPageVisibility(pageIsVisible)
     })
+
+    // Force a re-render when nextAllowedDashboardRefresh is reached, since the blockRefresh
+    // selector uses now() which isn't reactive - it only recomputes on dependency changes
+    const [, forceUpdate] = useReducer((x: number) => x + 1, 0)
+    useEffect(() => {
+        if (nextAllowedDashboardRefresh) {
+            const msUntilRefreshAllowed = dayjs(nextAllowedDashboardRefresh).diff(dayjs())
+            if (msUntilRefreshAllowed > 0) {
+                const timeoutId = setTimeout(forceUpdate, msUntilRefreshAllowed + 100)
+                return () => clearTimeout(timeoutId)
+            }
+        }
+    }, [nextAllowedDashboardRefresh])
 
     const options = INTERVAL_OPTIONS.map((option) => {
         return {
