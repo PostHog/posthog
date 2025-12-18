@@ -155,16 +155,47 @@ class TestDuckLakeStorageConfigProduction:
             },
         )()
         monkeypatch.setattr("posthog.ducklake.storage._get_django_settings", lambda: mock_settings)
+        monkeypatch.setattr(
+            "posthog.ducklake.storage._get_boto3_credentials",
+            lambda: ("ASIAACCESSKEY", "secretkey123", "sessiontoken456"),
+        )
 
         config = DuckLakeStorageConfig.from_runtime()
         sql = config.to_duckdb_secret_sql()
 
         assert "TYPE S3" in sql
-        assert "PROVIDER CREDENTIAL_CHAIN" in sql
+        assert "KEY_ID 'ASIAACCESSKEY'" in sql
+        assert "SECRET 'secretkey123'" in sql
+        assert "SESSION_TOKEN 'sessiontoken456'" in sql
         assert "REGION 'eu-central-1'" in sql
-        assert "KEY_ID '" not in sql
-        assert "SECRET '" not in sql
+        assert "PROVIDER CREDENTIAL_CHAIN" not in sql
         assert "ENDPOINT '" not in sql
+
+    def test_to_duckdb_secret_sql_production_no_session_token(self, monkeypatch):
+        monkeypatch.setenv("DUCKLAKE_BUCKET_REGION", "us-east-1")
+
+        mock_settings = type(
+            "Settings",
+            (),
+            {
+                "USE_LOCAL_SETUP": False,
+                "OBJECT_STORAGE_ENDPOINT": "",
+            },
+        )()
+        monkeypatch.setattr("posthog.ducklake.storage._get_django_settings", lambda: mock_settings)
+        monkeypatch.setattr(
+            "posthog.ducklake.storage._get_boto3_credentials",
+            lambda: ("AKIAACCESSKEY", "secretkey789", None),
+        )
+
+        config = DuckLakeStorageConfig.from_runtime()
+        sql = config.to_duckdb_secret_sql()
+
+        assert "TYPE S3" in sql
+        assert "KEY_ID 'AKIAACCESSKEY'" in sql
+        assert "SECRET 'secretkey789'" in sql
+        assert "SESSION_TOKEN" not in sql
+        assert "REGION 'us-east-1'" in sql
 
     def test_to_deltalake_options_production_irsa(self, monkeypatch):
         monkeypatch.setenv("DUCKLAKE_BUCKET_REGION", "us-west-2")

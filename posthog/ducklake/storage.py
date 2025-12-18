@@ -41,6 +41,29 @@ def _get_django_settings():
         return None
 
 
+def _get_boto3_credentials() -> tuple[str, str, str | None]:
+    """Fetch AWS credentials via boto3.
+
+    This is a workaround for DuckDB's CREDENTIAL_CHAIN not supporting
+    IRSA (Web Identity Token) authentication. boto3 properly supports IRSA,
+    so we use it to fetch credentials and pass them explicitly to DuckDB.
+
+    See: https://github.com/duckdb/duckdb-aws/issues/31
+
+    Returns:
+        Tuple of (access_key, secret_key, session_token).
+        session_token may be None for static credentials.
+    """
+    import boto3
+
+    session = boto3.Session()
+    credentials = session.get_credentials()
+    if credentials is None:
+        raise RuntimeError("No AWS credentials available via boto3")
+    frozen = credentials.get_frozen_credentials()
+    return frozen.access_key, frozen.secret_key, frozen.token
+
+
 def normalize_endpoint(endpoint: str) -> tuple[str, bool]:
     """Normalize object storage endpoint URL.
 
@@ -146,13 +169,20 @@ class DuckLakeStorageConfig:
             SQL statement to create the S3 secret.
         """
         if not self.is_local:
-            return f"""
-                CREATE OR REPLACE SECRET {secret_name} (
-                    TYPE S3,
-                    PROVIDER CREDENTIAL_CHAIN,
-                    REGION '{ducklake_escape(self.region)}'
-                )
-            """
+            # Workaround: DuckDB's CREDENTIAL_CHAIN doesn't support IRSA (Web Identity Token).
+            # Fetch credentials via boto3 which properly supports IRSA.
+            # See: https://github.com/duckdb/duckdb-aws/issues/31
+            access_key, secret_key, session_token = _get_boto3_credentials()
+            secret_parts = [
+                "TYPE S3",
+                f"KEY_ID '{ducklake_escape(access_key)}'",
+                f"SECRET '{ducklake_escape(secret_key)}'",
+            ]
+            if session_token:
+                secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
+            if self.region:
+                secret_parts.append(f"REGION '{ducklake_escape(self.region)}'")
+            return f"CREATE OR REPLACE SECRET {secret_name} ({', '.join(secret_parts)})"
 
         secret_parts = ["TYPE S3"]
         if self.access_key:
