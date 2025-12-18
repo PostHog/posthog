@@ -180,6 +180,23 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description:
             'Search PostHog data for documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, surveys, and other.',
         icon: <IconSearch />,
+        displayFormatter: function readDataDisplayFormatter(
+            toolCall: EnhancedToolCall,
+            context: DisplayFormatterContext
+        ) {
+            if (this.subtools && 'kind' in toolCall.args && typeof toolCall.args.kind === 'string') {
+                const { displayFormatter } = this.subtools[toolCall.args.kind]
+                if (displayFormatter) {
+                    return displayFormatter(toolCall, context)
+                }
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Searched data'
+            }
+
+            return 'Searching data...'
+        },
         subtools: {
             docs: {
                 name: 'Search docs',
@@ -201,6 +218,17 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                         return 'Searched insights'
                     }
                     return 'Searching insights...'
+                },
+            },
+            dashboards: {
+                name: 'Search dashboards',
+                description: 'Search dashboards for answers',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched dashboards'
+                    }
+                    return 'Searching dashboards...'
                 },
             },
         },
@@ -314,6 +342,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                         return isExecuting() ? 'Analyzed an insight' : 'Retrieved an insight'
                     }
                     return isExecuting() ? 'Analyzing an insight...' : 'Retrieving an insight...'
+                },
+            },
+            dashboard: {
+                name: 'Retrieve a dashboard',
+                description: 'Retrieve a dashboard data',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    function isExecuting(): boolean {
+                        return !!(
+                            isObject(toolCall.args?.query) &&
+                            toolCall.args?.query &&
+                            'execute' in toolCall.args?.query &&
+                            toolCall.args?.query.execute
+                        )
+                    }
+
+                    if (toolCall.status === 'completed') {
+                        return isExecuting() ? 'Analyzed a dashboard' : 'Retrieved a dashboard'
+                    }
+                    return isExecuting() ? 'Analyzing a dashboard...' : 'Retrieving a dashboard...'
                 },
             },
         },

@@ -365,8 +365,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     query=query,
                     name=insight_name,
                     description=insight.description,
-                    insight_id=insight.short_id,
-                    insight_model_id=insight.id,
+                    short_id=insight.short_id,
+                    db_id=insight.id,
                 )
             )
 

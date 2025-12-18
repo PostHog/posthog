@@ -1452,7 +1452,7 @@ export const getToolCallDescriptionAndWidget = (
 ): [string, JSX.Element | null] => {
     const commentary = toolCall.args.commentary as string
     const definition = getToolDefinitionFromToolCall(toolCall)
-    let description = `Executing ${toolCall.name}`
+    let description = `${toolCall.status === ExecutionStatus.InProgress ? 'Executing' : 'Executed'} ${toolCall.name}`
     let widget: JSX.Element | null = null
     if (definition) {
         if (definition.displayFormatter) {

@@ -53,9 +53,7 @@ class DashboardContext:
             description: Dashboard description
             dashboard_id: Dashboard ID
             dashboard_filters: Dashboard-level filters to apply to all insights
-            filters_override: Dashboard-level filter overrides to apply to all insights
-            variables_override: Dashboard-level variable overrides to apply to all insights
-            max_concurrent_queries: Max concurrent insight queries
+            max_concurrent_queries: Max concurrent insight queries (default: 5)
         """
         self.team = team
         self.name = name

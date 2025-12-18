@@ -13,6 +13,8 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from posthog.models import Dashboard, DashboardTile, Insight
+
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
 from ee.hogai.artifacts.manager import StateArtifactResult
@@ -366,7 +368,6 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_dashboard_schema_only(self):
         """Test reading a dashboard without executing it returns the schema."""
-        from posthog.models import Dashboard
 
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
@@ -394,6 +395,57 @@ class TestReadDataTool(BaseTest):
         assert str(dashboard.id) in result
         assert "A test dashboard description" in result
         assert artifact is None
+
+    async def test_read_dashboard_includes_insight_short_id_and_db_id(self):
+        """Test that dashboard insights include short_id and db_id fields."""
+
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+        )
+
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Test Insight",
+            description="Test description",
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "$pageview"}]},
+        )
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight,
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        with patch("ee.hogai.tools.read_data.tool.DashboardContext") as MockDashboardContext:
+            mock_instance = MagicMock()
+            mock_instance.format_schema = AsyncMock(return_value="Formatted schema")
+            MockDashboardContext.return_value = mock_instance
+
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+            await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
+
+            # Verify DashboardContext was instantiated with correct arguments
+            MockDashboardContext.assert_called_once()
+            call_kwargs = MockDashboardContext.call_args.kwargs
+
+            # Verify insights_data contains correct short_id and db_id
+            insights_data = call_kwargs["insights_data"]
+            assert len(insights_data) == 1
+            insight_ctx = insights_data[0]
+
+            assert insight_ctx.short_id == insight.short_id
+            assert insight_ctx.db_id == insight.id
 
     async def test_list_tables_returns_core_tables_with_schema(self):
         """Test that data_warehouse_schema returns core PostHog tables with their field schemas."""
