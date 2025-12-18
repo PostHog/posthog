@@ -42,7 +42,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         autoPlay: false,
         mode: SessionRecordingPlayerMode.Notebook,
         noBorder: true,
-        noInspector: noInspector,
+        withSidebar: !noInspector,
     }
 
     const { expanded } = useValues(notebookNodeLogic)

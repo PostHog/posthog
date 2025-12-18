@@ -281,6 +281,26 @@ impl ContextLine {
             line: sanitize_string(constrained),
         }
     }
+
+    pub fn new_rel(baseline: u32, offset: i32, line: impl ToString) -> Self {
+        let line = line.to_string();
+        // We limit context line length to 300 chars
+        let mut constrained: String = line.to_string().chars().take(300).collect();
+        if line.len() > constrained.len() {
+            constrained.push_str("...✂️");
+        }
+
+        let number = if offset >= 0 {
+            baseline.saturating_add(offset as u32)
+        } else {
+            baseline.saturating_sub((-offset) as u32)
+        };
+
+        Self {
+            number,
+            line: sanitize_string(constrained),
+        }
+    }
 }
 
 impl std::fmt::Display for Frame {

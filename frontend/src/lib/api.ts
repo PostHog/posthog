@@ -3103,6 +3103,9 @@ const api = {
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
         },
+        async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
+            return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
+        },
     },
 
     links: {
@@ -4618,20 +4621,6 @@ const api = {
                 variables_override: queryOptions?.variablesOverride,
             },
         })
-    },
-
-    async SHAMEFULLY_UNTAGGED_queryHogQL<T = any[]>(
-        query: HogQLQueryString,
-        queryOptions?: {
-            requestOptions?: ApiMethodOptions
-            clientQueryId?: string
-            refresh?: RefreshType
-            filtersOverride?: DashboardFilter | null
-            variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
-        }
-    ): Promise<HogQLQueryResponse<T>> {
-        return this.queryHogQL(query, {}, queryOptions)
     },
 
     async queryHogQL<T = any[]>(

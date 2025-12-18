@@ -175,6 +175,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
+        finalizeStreamingMessages: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
@@ -221,6 +222,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ...state.slice(index + 1),
                 ],
                 setThread: (_, { thread }) => thread,
+                // Remove streaming messages on failure so server state becomes source of truth
+                finalizeStreamingMessages: (state) => state.filter((msg) => msg.status !== 'loading'),
             },
         ],
 
@@ -517,10 +520,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (releaseException) {
-                        if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                            actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                        } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                            actions.addMessage(relevantErrorMessage)
+                        // Remove streaming messages and reload from server (source of truth)
+                        actions.finalizeStreamingMessages()
+                        actions.addMessage(relevantErrorMessage)
+                        if (values.conversation?.id) {
+                            actions.loadConversation(values.conversation.id)
                         }
                     }
                 }

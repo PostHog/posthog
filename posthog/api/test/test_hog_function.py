@@ -256,6 +256,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "mappings": None,
             "status": {"state": 0, "tokens": 0},
             "execution_order": None,
+            "batch_export_id": None,
         }
 
         id = response.json()["id"]
@@ -2207,3 +2208,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
         assert response.json()["count"] == 150, "Total count should still be 150"
+
+    @patch("posthog.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
+    def test_enable_backfills_blocked_without_feature_flag(self, mock_feature_enabled):
+        """Test that enable_backfills is blocked when the feature flag is disabled."""
+        # Create a hog function
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "Test Backfill Function",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        # Try to enable backfills without the feature flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+
+        # Should be denied
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "Backfilling Workflows is not enabled for this team."
+
+        # Verify feature flag was checked correctly
+        mock_feature_enabled.assert_called_once()
+        call_args = mock_feature_enabled.call_args
+        assert call_args[0][0] == "backfill-workflows-destination"

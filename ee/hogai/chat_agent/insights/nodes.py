@@ -20,7 +20,7 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 
-from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
