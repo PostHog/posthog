@@ -520,12 +520,6 @@ export const surveyLogic = kea<surveyLogicType>([
         setDataCollectionType: (dataCollectionType: DataCollectionType) => ({
             dataCollectionType,
         }),
-        setStartType: (startType: SurveyStartType) => ({
-            startType,
-        }),
-        setEndType: (endType: SurveyEndType) => ({
-            endType,
-        }),
         resetBranchingForQuestion: (questionIndex) => ({ questionIndex }),
         deleteBranchingLogic: true,
         archiveSurvey: true,
@@ -669,18 +663,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 refreshTreeItem('survey', props.id)
                 return response
             },
-            // launchSurvey: async () => {
-            //     const startDate = dayjs()
-            //     const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
-            //     actions.addProductIntent({
-            //         product_type: ProductKey.SURVEYS,
-            //         intent_context: ProductIntentContext.SURVEY_LAUNCHED,
-            //         metadata: {
-            //             survey_id: response.id,
-            //         },
-            //     })
-            //     return response
-            // },
+            launchSurvey: async () => {
+                const startDate = dayjs()
+                const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
+            },
             stopSurvey: async () => {
                 const response = await api.surveys.update(
                     props.id,
@@ -1079,18 +1073,6 @@ export const surveyLogic = kea<surveyLogicType>([
             'until_stopped' as DataCollectionType,
             {
                 setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
-            },
-        ],
-        startType: [
-            'manual' as SurveyScheduleType,
-            {
-                setStartType: (_, { startType }) => startType,
-            },
-        ],
-        endType: [
-            'manual' as SurveyScheduleType,
-            {
-                setEndType: (_, { endType }) => endType,
             },
         ],
         propertyFilters: [
