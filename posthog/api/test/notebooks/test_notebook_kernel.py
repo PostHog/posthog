@@ -41,7 +41,12 @@ class TestNotebookKernels(APIBaseTest):
 
         assert payload["status"] == "ok"
         assert payload["result"]["text/plain"] == "5"
-        assert payload["variables"]["value"] == "5"
+
+        variables = {variable["name"]: variable for variable in payload["variables"]}
+
+        assert variables["value"]["repr"] == "5"
+        assert variables["value"]["kind"] in ["json", "scalar"]
+        assert "parse_expr" not in variables
         assert payload["kernel"]["alive"] is True
 
     def test_kernel_initializes_hogql_helpers(self):
@@ -49,7 +54,12 @@ class TestNotebookKernels(APIBaseTest):
 
         execute = self.client.post(
             f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/execute",
-            data={"code": "parsed = str(parse_expr('1 + 1'))\nparsed"},
+            data={
+                "code": "parsed = str(parse_expr('1 + 1'))\n"
+                "select = str(parse_select('select 1'))\n"
+                "manual = ArithmeticOperation(left=Constant(value=1), right=Constant(value=2), op=ArithmeticOperationOp.Add)\n"
+                "parsed",
+            },
             format="json",
         )
 
@@ -59,7 +69,13 @@ class TestNotebookKernels(APIBaseTest):
 
         assert payload["status"] == "ok"
         assert payload["result"]["text/plain"] == "sql(plus(1, 1))"
-        assert payload["variables"]["parsed"] == "sql(plus(1, 1))"
+
+        variables = {variable["name"]: variable for variable in payload["variables"]}
+
+        assert variables["parsed"]["repr"] == "sql(plus(1, 1))"
+        assert variables["parsed"]["kind"] == "hogql_ast"
+        assert variables["select"]["kind"] == "hogql_ast"
+        assert variables["manual"]["kind"] == "hogql_ast"
 
     def test_kernel_can_be_stopped_and_restarted(self):
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)

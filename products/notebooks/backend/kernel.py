@@ -9,7 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from queue import Empty
-from typing import Any
+from typing import Any, Literal
 
 from django.utils import timezone
 
@@ -22,9 +22,44 @@ from products.notebooks.backend.models import Notebook
 logger = structlog.get_logger(__name__)
 
 HOGQL_BOOTSTRAP_CODE = """
-from posthog.hogql.parser import parse_expr as _posthog_parse_expr
+import json
+from types import ModuleType
+
+from posthog.hogql.parser import parse_expr as _posthog_parse_expr, parse_select as _posthog_parse_select
+import posthog.hogql.ast as _posthog_hogql_ast
+
+
+def _posthog_is_jsonable(value):
+    try:
+        json.dumps(value)
+        return True
+    except Exception:
+        return False
+
+
+def _posthog_is_exportable(value):
+    return not callable(value) and not isinstance(value, ModuleType)
+
+
+def _posthog_variable_snapshot(value):
+    kind = "hogql_ast" if isinstance(value, _posthog_hogql_ast.AST) else ("json" if _posthog_is_jsonable(value) else "scalar")
+    return {
+        "repr": repr(value),
+        "type": type(value).__name__,
+        "module": getattr(type(value), "__module__", None),
+        "kind": kind,
+    }
+
+
 globals()["parse_expr"] = _posthog_parse_expr
+globals()["parse_select"] = _posthog_parse_select
+globals()["hogql_ast"] = _posthog_hogql_ast
+for _name, _value in vars(_posthog_hogql_ast).items():
+    if isinstance(_value, type) and getattr(_value, "__module__", "").startswith(_posthog_hogql_ast.__name__):
+        globals()[_name] = _value
 """
+
+VARIABLE_CAPTURE_EXPRESSION = "{k: _posthog_variable_snapshot(v) for k, v in locals().items() if not k.startswith('_') and _posthog_is_exportable(v)}"
 
 
 @dataclass
@@ -53,7 +88,7 @@ class KernelExecutionResult:
     stdout: str
     stderr: str
     result: dict[str, Any] | None
-    variables: dict[str, str]
+    variables: list[KernelVariable]
     execution_count: int | None
     error_name: str | None
     traceback: list[str]
@@ -67,13 +102,31 @@ class KernelExecutionResult:
             "stdout": self.stdout,
             "stderr": self.stderr,
             "result": self.result,
-            "variables": self.variables,
+            "variables": [variable.as_dict() for variable in self.variables],
             "execution_count": self.execution_count,
             "error_name": self.error_name,
             "traceback": self.traceback,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "kernel": self.kernel.as_dict(),
+        }
+
+
+@dataclass
+class KernelVariable:
+    name: str
+    repr: str
+    type: str
+    module: str | None
+    kind: Literal["hogql_ast", "json", "scalar"]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "repr": self.repr,
+            "type": self.type,
+            "module": self.module,
+            "kind": self.kind,
         }
 
 
@@ -183,7 +236,7 @@ class NotebookKernelService:
             stderr: list[str] = []
             traceback: list[str] = []
             result: dict[str, Any] | None = None
-            variables: dict[str, str] = {}
+            variables: list[KernelVariable] = []
             status = "ok"
             execution_count: int | None = None
             error_name: str | None = None
@@ -192,11 +245,7 @@ class NotebookKernelService:
             msg_id = handle.client.execute(
                 code,
                 stop_on_error=False,
-                user_expressions={
-                    expression_key: "{k: repr(v) for k, v in locals().items() if not k.startswith('_')}",
-                }
-                if capture_variables
-                else None,
+                user_expressions={expression_key: VARIABLE_CAPTURE_EXPRESSION} if capture_variables else None,
             )
 
             try:
@@ -269,23 +318,43 @@ class NotebookKernelService:
                 kernel=handle.status,
             )
 
-    def _parse_variables(self, user_expressions: dict[str, Any], expression_key: str) -> dict[str, str]:
+    def _parse_variables(self, user_expressions: dict[str, Any], expression_key: str) -> list[KernelVariable]:
         expression = user_expressions.get(expression_key)
         if not expression or expression.get("status") != "ok":
-            return {}
+            return []
 
         data = expression.get("data", {})
         text_value = data.get("text/plain")
         if not isinstance(text_value, str):
-            return {}
+            return []
 
         try:
             parsed = ast.literal_eval(text_value)
         except Exception:
             logger.warning("notebook_kernel_variables_parse_failed")
-            return {}
+            return []
 
-        return {k: str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else {}
+        if not isinstance(parsed, dict):
+            return []
+
+        variables: list[KernelVariable] = []
+        for name, raw in parsed.items():
+            if not isinstance(raw, dict):
+                continue
+
+            kind = raw.get("kind") if raw.get("kind") in {"hogql_ast", "json", "scalar"} else "scalar"
+
+            variables.append(
+                KernelVariable(
+                    name=str(name),
+                    repr=str(raw.get("repr", "")),
+                    type=str(raw.get("type", "")),
+                    module=str(raw.get("module")) if raw.get("module") is not None else None,
+                    kind=kind,
+                )
+            )
+
+        return sorted(variables, key=lambda variable: variable.name)
 
     def _ensure_handle(self, notebook: Notebook) -> _KernelHandle:
         key = self._get_kernel_key(notebook)

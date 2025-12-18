@@ -75,12 +75,20 @@ export type NotebookKernelStatus = {
     alive: boolean
 }
 
+export type NotebookKernelVariable = {
+    name: string
+    repr: string
+    type: string
+    module?: string | null
+    kind: 'hogql_ast' | 'json' | 'scalar'
+}
+
 export type NotebookKernelExecutionResponse = {
     status: 'ok' | 'error' | 'timeout'
     stdout: string
     stderr: string
     result?: Record<string, any> | null
-    variables?: Record<string, string>
+    variables?: NotebookKernelVariable[]
     execution_count?: number | null
     error_name?: string | null
     traceback?: string[]
