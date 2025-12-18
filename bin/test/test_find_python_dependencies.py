@@ -5,7 +5,9 @@ Tests for find_python_dependencies.py
 
 import unittest
 
-from find_python_dependencies import (
+from parameterized import parameterized
+
+from bin.find_python_dependencies import (
     LOCAL_PACKAGES,
     REPO_ROOT,
     build_import_graph,
@@ -13,7 +15,6 @@ from find_python_dependencies import (
     find_all_dependency_files,
     module_to_file,
 )
-from parameterized import parameterized
 
 
 class TestFindPythonDependencies(unittest.TestCase):
