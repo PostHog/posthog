@@ -6,6 +6,7 @@ caches, ensuring that the cached authentication system has fresh data.
 """
 
 import logging
+from collections.abc import Iterable
 
 from django.conf import settings
 
@@ -25,7 +26,7 @@ CACHE_WARMING_BATCH_SIZE = getattr(settings, "CACHE_WARMING_BATCH_SIZE", 50)
 CACHE_WARMING_PAGE_SIZE = getattr(settings, "CACHE_WARMING_PAGE_SIZE", 1000)  # Teams per database page
 
 
-def _warm_team_caches(team_api_tokens: list[str], reason: str, log_context: dict) -> int:
+def _warm_team_caches(team_api_tokens: Iterable[str], reason: str, log_context: dict) -> int:
     """
     Warm caches for a list of teams.
 
