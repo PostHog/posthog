@@ -4098,7 +4098,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
             None,
             BreakdownFilter(
                 breakdown="$session_duration", breakdown_type=BreakdownType.SESSION, breakdown_histogram_bin_count=4
@@ -4108,7 +4108,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
             None,
             BreakdownFilter(
                 breakdowns=[
