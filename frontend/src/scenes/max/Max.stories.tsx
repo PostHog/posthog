@@ -25,9 +25,9 @@ import {
     AssistantMessageType,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
+    NotebookArtifactContent,
     NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
 import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator, RetentionPeriod } from '~/types'
