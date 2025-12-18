@@ -1118,6 +1118,155 @@ export class PostgresPersonRepository
         return results
     }
 
+    /**
+     * Batch update multiple persons with version assertion (ASSERT_VERSION mode).
+     * Only updates rows where the version matches the expected version.
+     * This prevents race conditions where concurrent updates overwrite each other.
+     *
+     * Returns results indexed by person UUID:
+     * - success: true if the update succeeded (version matched)
+     * - version: the new version if successful
+     * - kafkaMessage: the Kafka message to send if successful
+     * - error: error details if the update failed (version mismatch or other error)
+     */
+    async updatePersonsBatchAssertVersion(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
+        const results = new Map<
+            string,
+            { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }
+        >()
+
+        if (personUpdates.length === 0) {
+            return results
+        }
+
+        // Prepare arrays for UNNEST - one array per column we're updating/filtering on
+        const uuids: string[] = []
+        const teamIds: number[] = []
+        const versions: number[] = []
+        const properties: string[] = []
+        const propertiesLastUpdatedAt: string[] = []
+        const propertiesLastOperation: string[] = []
+        const isIdentified: boolean[] = []
+        const createdAt: string[] = []
+
+        for (const update of personUpdates) {
+            uuids.push(update.uuid)
+            teamIds.push(update.team_id)
+            versions.push(update.version)
+
+            // Calculate final properties by applying set and unset operations
+            const finalProperties = { ...update.properties }
+            Object.entries(update.properties_to_set).forEach(([key, value]) => {
+                finalProperties[key] = value
+            })
+            update.properties_to_unset.forEach((key) => {
+                delete finalProperties[key]
+            })
+
+            properties.push(sanitizeJsonbValue(finalProperties))
+            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
+            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
+            isIdentified.push(update.is_identified)
+            createdAt.push(update.created_at.toISO()!)
+        }
+
+        try {
+            // Use UNNEST with version assertion in WHERE clause
+            // Only updates rows where the version matches the expected version
+            const { rows } = await this.postgres.query<RawPerson>(
+                PostgresUse.PERSONS_WRITE,
+                `
+                UPDATE posthog_person AS p SET
+                    properties = batch.new_properties::jsonb,
+                    properties_last_updated_at = batch.new_properties_last_updated_at::jsonb,
+                    properties_last_operation = batch.new_properties_last_operation::jsonb,
+                    is_identified = batch.new_is_identified,
+                    created_at = batch.new_created_at::timestamp with time zone,
+                    version = COALESCE(p.version, 0)::numeric + 1
+                FROM UNNEST(
+                    $1::uuid[],
+                    $2::integer[],
+                    $3::integer[],
+                    $4::text[],
+                    $5::text[],
+                    $6::text[],
+                    $7::boolean[],
+                    $8::text[]
+                ) AS batch(batch_uuid, batch_team_id, expected_version, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at)
+                WHERE p.uuid = batch.batch_uuid
+                  AND p.team_id = batch.batch_team_id
+                  AND p.version = batch.expected_version
+                RETURNING p.*
+                `,
+                [
+                    uuids,
+                    teamIds,
+                    versions,
+                    properties,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    isIdentified,
+                    createdAt,
+                ],
+                'updatePersonsBatchAssertVersion'
+            )
+
+            // Build a map of uuid -> updated person for quick lookup
+            const updatedPersonsByUuid = new Map<string, InternalPerson>()
+            for (const row of rows) {
+                const person = this.toPerson(row)
+                updatedPersonsByUuid.set(person.uuid, person)
+            }
+
+            // Process results for each input update
+            for (const update of personUpdates) {
+                const updatedPerson = updatedPersonsByUuid.get(update.uuid)
+                if (updatedPerson) {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: updatedPerson.version,
+                        kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
+                    })
+                } else {
+                    // Version mismatch - the person's version changed since we read it
+                    results.set(update.uuid, {
+                        success: false,
+                        error: new NoRowsUpdatedError(
+                            `Person with uuid="${update.uuid}" version mismatch (expected ${update.version})`
+                        ),
+                    })
+                }
+            }
+        } catch (error) {
+            // If the batch update fails due to properties size constraint, mark all as failed
+            // The caller can fall back to individual updates to isolate the problematic person
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                for (const update of personUpdates) {
+                    results.set(update.uuid, {
+                        success: false,
+                        error: new PersonPropertiesSizeViolationError(
+                            `Batch update failed due to properties size constraint`,
+                            update.team_id,
+                            update.id
+                        ),
+                    })
+                }
+            } else {
+                // For other errors, mark all as failed with the original error
+                for (const update of personUpdates) {
+                    results.set(update.uuid, {
+                        success: false,
+                        error: error instanceof Error ? error : new Error(String(error)),
+                    })
+                }
+            }
+        }
+
+        return results
+    }
+
     async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],

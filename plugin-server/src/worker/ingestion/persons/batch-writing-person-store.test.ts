@@ -112,6 +112,18 @@ describe('BatchWritingPersonStore', () => {
                 }
                 return Promise.resolve(results)
             }),
+            updatePersonsBatchAssertVersion: jest.fn().mockImplementation((updates) => {
+                // Return a map with success for each update
+                const results = new Map()
+                for (const update of updates) {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: update.version + 1,
+                        kafkaMessage: { topic: 'test', messages: [] },
+                    })
+                }
+                return Promise.resolve(results)
+            }),
             deletePerson: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
@@ -335,23 +347,33 @@ describe('BatchWritingPersonStore', () => {
 
     it('should fallback to direct update when optimistic update fails', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+        const testMockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStore = assertVersionStore
 
-        // Mock optimistic update to fail (version mismatch)
-        mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
+        // Mock batch optimistic update to always fail (version mismatch)
+        testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+            const results = new Map()
+            for (const update of updates) {
+                results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+            }
+            return Promise.resolve(results)
+        })
+
+        // Mock fetchPersonsByDistinctIds to return the person with same version (so retries continue to fail)
+        testMockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([{ ...person, distinct_id: 'test' }])
 
         // Add a person update to cache
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
 
-        // Flush should retry optimistically then fallback to direct update
+        // Flush should retry optimistically then fallback to individual updatePersonAssertVersion
         await personStore.flush()
 
-        expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
-        expect(mockRepo.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
-        expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback
+        expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalled()
+        expect(testMockRepo.fetchPersonsByDistinctIds).toHaveBeenCalled() // Called during conflict resolution (batch refresh)
+        expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalled() // Individual fallback
     })
 
     it('should merge multiple updates for same person', async () => {
@@ -460,44 +482,67 @@ describe('BatchWritingPersonStore', () => {
         const personStore = assertVersionStore
         let callCount = 0
 
-        // Mock to fail first few times, then succeed
-        testMockRepo.updatePersonAssertVersion = jest.fn().mockImplementation(() => {
+        // Mock batch to fail first few times, then succeed
+        testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
             callCount++
-            if (callCount < 3) {
-                return Promise.resolve([undefined, []]) // version mismatch
+            const results = new Map()
+            for (const update of updates) {
+                if (callCount < 3) {
+                    results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+                } else {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: 5,
+                        kafkaMessage: { topic: 'test', messages: [] },
+                    })
+                }
             }
-            return Promise.resolve([5, []]) // success on 3rd try
+            return Promise.resolve(results)
         })
+
+        // Mock fetchPersonsByDistinctIds to return the person (so retries can continue)
+        testMockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([{ ...person, distinct_id: 'test' }])
 
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
         await personStore.flush()
 
-        expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(3)
-        expect(testMockRepo.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
+        expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(3)
+        expect(testMockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(2) // Called for each conflict (batch refresh)
         expect(testMockRepo.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
     })
 
     it('should fallback to direct update after max retries', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+        const testMockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStore = assertVersionStore
 
-        // Mock to always fail optimistic updates
-        mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
+        // Mock batch to always fail optimistic updates
+        testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+            const results = new Map()
+            for (const update of updates) {
+                results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+            }
+            return Promise.resolve(results)
+        })
+
+        // Mock fetchPersonsByDistinctIds to return the person (so retries can continue)
+        testMockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([{ ...person, distinct_id: 'test' }])
 
         await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'new_value' }, [], {}, 'test')
         await personStore.flush()
 
-        // Should try optimistic update multiple times based on config (1 initial + 5 retries = 6 total)
-        expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(6) // default max retries
-        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
+        // Should try batch optimistic update multiple times based on config (1 initial + 5 retries = 6 total)
+        expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(6) // default max retries
+        expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // individual fallback
     })
 
     it('should merge properties during conflict resolution', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+        const testMockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStore = assertVersionStore
@@ -507,8 +552,16 @@ describe('BatchWritingPersonStore', () => {
             properties: { existing_prop: 'existing_value', shared_prop: 'old_value' },
         }
 
-        mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []]) // Always fail, but we don't care about the version
-        mockRepo.fetchPerson = jest.fn().mockResolvedValue(latestPerson)
+        // Mock batch to always fail optimistic updates
+        testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+            const results = new Map()
+            for (const update of updates) {
+                results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+            }
+            return Promise.resolve(results)
+        })
+        // Mock fetchPersonsByDistinctIds to return the latest person (used by batch refresh)
+        testMockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([{ ...latestPerson, distinct_id: 'test' }])
 
         // Update with new properties
         await personStore.updatePersonWithPropertiesDiffForUpdate(
@@ -521,19 +574,20 @@ describe('BatchWritingPersonStore', () => {
 
         await personStore.flush()
 
-        // Verify the direct update was called with merged properties
-        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+        // Verify the individual fallback was called with the refreshed version and our properties_to_set
+        // The merge happens in updatePersonAssertVersion (in the repository)
+        expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalledWith(
             expect.objectContaining({
-                version: 3, // Should use latest version
-            }),
-            expect.objectContaining({
+                version: 3, // Should use latest version from fetchPersonsByDistinctIds
                 properties: {
                     existing_prop: 'existing_value',
-                    new_prop: 'new_value',
-                    shared_prop: 'new_value',
+                    shared_prop: 'old_value', // DB snapshot
                 },
-            }),
-            'updatePersonNoAssert'
+                properties_to_set: {
+                    new_prop: 'new_value',
+                    shared_prop: 'new_value', // Our pending change
+                },
+            })
         )
     })
 
@@ -746,12 +800,24 @@ describe('BatchWritingPersonStore', () => {
         })
 
         describe('flush with ASSERT_VERSION mode', () => {
-            it('should call updatePersonAssertVersion with retries', async () => {
-                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+            it('should call updatePersonsBatchAssertVersion with success', async () => {
+                const testMockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
                     dbWriteMode: 'ASSERT_VERSION',
                 })
 
-                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []]) // success
+                // Mock batch update to succeed
+                testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, {
+                            success: true,
+                            version: 5,
+                            kafkaMessage: { topic: 'test', messages: [] },
+                        })
+                    }
+                    return Promise.resolve(results)
+                })
 
                 await personStore.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -762,19 +828,31 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStore.flush()
 
-                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1)
-                expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+                expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(1)
+                expect(testMockRepo.updatePerson).not.toHaveBeenCalled()
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
             it('should retry on version conflicts and eventually fallback', async () => {
-                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                const testMockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
                     dbWriteMode: 'ASSERT_VERSION',
                     maxOptimisticUpdateRetries: 2,
                 })
 
-                // Mock to always fail optimistic updates
-                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
+                // Mock batch to always fail optimistic updates
+                testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock fetchPersonsByDistinctIds to return the person (so retries can continue)
+                testMockRepo.fetchPersonsByDistinctIds = jest
+                    .fn()
+                    .mockResolvedValue([{ ...person, distinct_id: 'test' }])
 
                 await personStore.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -785,16 +863,33 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStore.flush()
 
-                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
-                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
+                expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
+                expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // individual fallback
             })
 
-            it('should handle MessageSizeTooLarge in ASSERT_VERSION mode', async () => {
-                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+            it('should handle MessageSizeTooLarge in individual fallback', async () => {
+                const testMockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
                     dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 1, // Just 1 retry to quickly fall back
                 })
 
-                mockRepo.updatePersonAssertVersion = jest
+                // Mock batch to always fail (version mismatch)
+                testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock fetchPersonsByDistinctIds to return the person (so retries can continue)
+                testMockRepo.fetchPersonsByDistinctIds = jest
+                    .fn()
+                    .mockResolvedValue([{ ...person, distinct_id: 'test' }])
+
+                // Mock individual updatePersonAssertVersion fallback to throw MessageSizeTooLarge
+                testMockRepo.updatePersonAssertVersion = jest
                     .fn()
                     .mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
@@ -807,7 +902,8 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStore.flush()
 
-                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
+                expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalled()
+                expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalled() // Individual fallback was attempted
                 expect(captureIngestionWarning).toHaveBeenCalledWith(
                     db.kafkaProducer,
                     teamId,
@@ -817,7 +913,399 @@ describe('BatchWritingPersonStore', () => {
                         distinctId: 'test',
                     }
                 )
-                expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
+            })
+        })
+
+        describe('flushBatchAssertVersion', () => {
+            const createPersonWithId = (id: string, uuid: string, version: number = 1) => ({
+                ...person,
+                id,
+                uuid,
+                version,
+            })
+
+            it('should handle normal scenario with no conflicts', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+                const person2 = createPersonWithId('2', 'uuid-2', 1)
+                const person3 = createPersonWithId('3', 'uuid-3', 1)
+
+                // Mock batch update to succeed for all
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, {
+                            success: true,
+                            version: update.version + 1,
+                            kafkaMessage: { topic: 'test', messages: [] },
+                        })
+                    }
+                    return Promise.resolve(results)
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { prop2: 'value2' }, [], {}, 'dist2')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person3, { prop3: 'value3' }, [], {}, 'dist3')
+
+                await personStore.flush()
+
+                // Should call batch update once with all 3 persons
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledWith(
+                    expect.arrayContaining([
+                        expect.objectContaining({ uuid: 'uuid-1' }),
+                        expect.objectContaining({ uuid: 'uuid-2' }),
+                        expect.objectContaining({ uuid: 'uuid-3' }),
+                    ])
+                )
+                // Should not fall back to individual updates
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should handle partial success with version conflicts and retry', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 3,
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+                const person2 = createPersonWithId('2', 'uuid-2', 1)
+                const person3 = createPersonWithId('3', 'uuid-3', 1)
+
+                let callCount = 0
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    callCount++
+                    const results = new Map()
+
+                    for (const update of updates) {
+                        if (update.uuid === 'uuid-2' && callCount === 1) {
+                            // Person 2 fails on first attempt (version conflict)
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new Error('Version mismatch'),
+                            })
+                        } else {
+                            // All others succeed
+                            results.set(update.uuid, {
+                                success: true,
+                                version: update.version + 1,
+                                kafkaMessage: { topic: 'test', messages: [] },
+                            })
+                        }
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock fetchPersonsByDistinctIds for refresh
+                mockRepo.fetchPersonsByDistinctIds = jest
+                    .fn()
+                    .mockResolvedValue([{ ...person2, version: 2, distinct_id: 'dist2', team_id: teamId }])
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { prop2: 'value2' }, [], {}, 'dist2')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person3, { prop3: 'value3' }, [], {}, 'dist3')
+
+                await personStore.flush()
+
+                // First call with all 3, second call with only person2 (refreshed)
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(2)
+                // First call should have 3 persons
+                expect(mockRepo.updatePersonsBatchAssertVersion.mock.calls[0][0]).toHaveLength(3)
+                // Second call should only have person2 (the one that failed)
+                expect(mockRepo.updatePersonsBatchAssertVersion.mock.calls[1][0]).toHaveLength(1)
+                expect(mockRepo.updatePersonsBatchAssertVersion.mock.calls[1][0][0].uuid).toBe('uuid-2')
+                // Should not fall back to individual updates since batch retry succeeded
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should fall back to individual updates after max batch retries', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 2,
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+                const person2 = createPersonWithId('2', 'uuid-2', 1)
+
+                // Batch always fails for person2
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        if (update.uuid === 'uuid-2') {
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new Error('Version mismatch'),
+                            })
+                        } else {
+                            results.set(update.uuid, {
+                                success: true,
+                                version: update.version + 1,
+                                kafkaMessage: { topic: 'test', messages: [] },
+                            })
+                        }
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock fetchPersonsByDistinctIds for refresh (returns same person, simulating persistent conflict)
+                mockRepo.fetchPersonsByDistinctIds = jest
+                    .fn()
+                    .mockResolvedValue([{ ...person2, version: 2, distinct_id: 'dist2', team_id: teamId }])
+
+                // Mock individual fallback to succeed
+                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([3, []])
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { prop2: 'value2' }, [], {}, 'dist2')
+
+                await personStore.flush()
+
+                // Should have tried batch 3 times (1 initial + 2 retries)
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(3)
+                // Should fall back to individual update for the persistently failing person
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
+            })
+
+            it('should immediately fall back to individual updates on properties size violation', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+                const person2 = createPersonWithId('2', 'uuid-2', 1)
+
+                // Import the error class
+                const { PersonPropertiesSizeViolationError } = require('./repositories/person-repository')
+
+                // Batch fails with properties size violation (affects whole batch)
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, {
+                            success: false,
+                            error: new PersonPropertiesSizeViolationError('Size exceeded', update.team_id, update.id),
+                        })
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock individual updates - person1 succeeds, person2 fails with size violation
+                mockRepo.updatePersonAssertVersion = jest.fn().mockImplementation((update) => {
+                    if (update.uuid === 'uuid-2') {
+                        throw new PersonPropertiesSizeViolationError('Size exceeded', update.team_id, update.id)
+                    }
+                    return Promise.resolve([update.version + 1, []])
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person2,
+                    { largeProp: 'x'.repeat(1000) },
+                    [],
+                    {},
+                    'dist2'
+                )
+
+                await personStore.flush()
+
+                // Should only try batch once, then immediately fall back
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(1)
+                // Should try individual updates for both persons
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
+            })
+
+            it('should handle mixed success on partial fallback', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 1,
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+                const person2 = createPersonWithId('2', 'uuid-2', 1)
+                const person3 = createPersonWithId('3', 'uuid-3', 1)
+
+                // First batch: person1 succeeds, person2 and person3 fail
+                // Second batch (retry): person2 succeeds, person3 still fails
+                let batchCallCount = 0
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    batchCallCount++
+                    const results = new Map()
+
+                    for (const update of updates) {
+                        if (batchCallCount === 1) {
+                            // First call: only person1 succeeds
+                            if (update.uuid === 'uuid-1') {
+                                results.set(update.uuid, {
+                                    success: true,
+                                    version: update.version + 1,
+                                    kafkaMessage: { topic: 'test', messages: [] },
+                                })
+                            } else {
+                                results.set(update.uuid, {
+                                    success: false,
+                                    error: new Error('Version mismatch'),
+                                })
+                            }
+                        } else {
+                            // Retry: person2 succeeds, person3 fails
+                            if (update.uuid === 'uuid-2') {
+                                results.set(update.uuid, {
+                                    success: true,
+                                    version: update.version + 1,
+                                    kafkaMessage: { topic: 'test', messages: [] },
+                                })
+                            } else {
+                                results.set(update.uuid, {
+                                    success: false,
+                                    error: new Error('Version mismatch'),
+                                })
+                            }
+                        }
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock refresh to return updated persons
+                mockRepo.fetchPersonsByDistinctIds = jest.fn().mockImplementation((teamPersons) => {
+                    return Promise.resolve(
+                        teamPersons
+                            .map((tp: { teamId: number; distinctId: string }) => {
+                                if (tp.distinctId === 'dist2') {
+                                    return { ...person2, version: 2, distinct_id: 'dist2', team_id: teamId }
+                                }
+                                if (tp.distinctId === 'dist3') {
+                                    return { ...person3, version: 2, distinct_id: 'dist3', team_id: teamId }
+                                }
+                                return null
+                            })
+                            .filter(Boolean)
+                    )
+                })
+
+                // Mock individual fallback for person3
+                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([3, []])
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { prop2: 'value2' }, [], {}, 'dist2')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person3, { prop3: 'value3' }, [], {}, 'dist3')
+
+                await personStore.flush()
+
+                // Batch called twice
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(2)
+                // First call should have 3 persons
+                expect(mockRepo.updatePersonsBatchAssertVersion.mock.calls[0][0]).toHaveLength(3)
+                // Second call should have 2 persons (person2 and person3, since person1 succeeded)
+                expect(mockRepo.updatePersonsBatchAssertVersion.mock.calls[1][0]).toHaveLength(2)
+                // Individual fallback should be called for person3
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
+            })
+
+            it('should never retry successfully updated persons', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 5,
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+                const person2 = createPersonWithId('2', 'uuid-2', 1)
+
+                const successfullyUpdatedUuids: string[] = []
+
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+
+                    for (const update of updates) {
+                        // Check we're not retrying already successful updates
+                        if (successfullyUpdatedUuids.includes(update.uuid)) {
+                            throw new Error(`Person ${update.uuid} was already updated - should not be retried!`)
+                        }
+
+                        if (update.uuid === 'uuid-1') {
+                            // Person1 always succeeds
+                            successfullyUpdatedUuids.push(update.uuid)
+                            results.set(update.uuid, {
+                                success: true,
+                                version: update.version + 1,
+                                kafkaMessage: { topic: 'test', messages: [] },
+                            })
+                        } else {
+                            // Person2 always fails
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new Error('Version mismatch'),
+                            })
+                        }
+                    }
+                    return Promise.resolve(results)
+                })
+
+                mockRepo.fetchPersonsByDistinctIds = jest
+                    .fn()
+                    .mockResolvedValue([{ ...person2, version: 2, distinct_id: 'dist2', team_id: teamId }])
+
+                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([3, []])
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { prop2: 'value2' }, [], {}, 'dist2')
+
+                await personStore.flush()
+
+                // Person1 should only appear in the first batch call
+                const firstBatchUuids = mockRepo.updatePersonsBatchAssertVersion.mock.calls[0][0].map(
+                    (u: any) => u.uuid
+                )
+                expect(firstBatchUuids).toContain('uuid-1')
+
+                // Subsequent batch calls should NOT contain person1
+                for (let i = 1; i < mockRepo.updatePersonsBatchAssertVersion.mock.calls.length; i++) {
+                    const batchUuids = mockRepo.updatePersonsBatchAssertVersion.mock.calls[i][0].map((u: any) => u.uuid)
+                    expect(batchUuids).not.toContain('uuid-1')
+                }
+            })
+
+            it('should handle person merged during retry', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 2,
+                })
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1)
+
+                // Batch always fails
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, {
+                            success: false,
+                            error: new Error('Version mismatch'),
+                        })
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Person no longer exists (was merged/deleted)
+                mockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([])
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+
+                await personStore.flush()
+
+                // Should try batch once, then try to refresh, find no person, and stop
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(1)
+                expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+                // Should NOT fall back to individual updates since person doesn't exist
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })
 
@@ -838,8 +1326,18 @@ describe('BatchWritingPersonStore', () => {
 
                 const person2 = { ...person, id: '2', uuid: '2' }
 
-                // Mock successful updates
-                assertVersionMockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []])
+                // Mock successful batch updates for ASSERT_VERSION mode
+                assertVersionMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        results.set(update.uuid, {
+                            success: true,
+                            version: 5,
+                            kafkaMessage: { topic: 'test', messages: [] },
+                        })
+                    }
+                    return Promise.resolve(results)
+                })
 
                 await Promise.all([
                     noAssertBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -861,15 +1359,15 @@ describe('BatchWritingPersonStore', () => {
                 await Promise.all([noAssertBatch.flush(), assertVersionBatch.flush()])
 
                 expect(noAssertMockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1) // NO_ASSERT mode uses batch
-                expect(assertVersionMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode
+                expect(assertVersionMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode uses batch
             })
         })
     })
 
     it('should handle concurrent updates with ASSERT_VERSION mode and preserve both properties', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const mockRepo = createMockRepository()
-        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+        const testMockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStore = assertVersionStore
@@ -895,15 +1393,29 @@ describe('BatchWritingPersonStore', () => {
             },
         }
 
-        // Mock optimistic update to fail on first try, succeed on retry
-        // Completely replace the mock from beforeEach
-        mockRepo.updatePersonAssertVersion = jest
-            .fn()
-            .mockResolvedValueOnce([undefined, []]) // First call fails (version mismatch)
-            .mockResolvedValueOnce([3, []]) // Second call succeeds with new version
+        let callCount = 0
+        // Mock batch optimistic update to fail on first try, succeed on retry
+        testMockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+            callCount++
+            const results = new Map()
+            for (const update of updates) {
+                if (callCount === 1) {
+                    results.set(update.uuid, { success: false, error: new Error('Version mismatch') })
+                } else {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: 3,
+                        kafkaMessage: { topic: 'test', messages: [] },
+                    })
+                }
+            }
+            return Promise.resolve(results)
+        })
 
-        // Mock fetchPerson to return the updated person when called during conflict resolution
-        mockRepo.fetchPerson = jest.fn().mockResolvedValue(updatedByOtherPod)
+        // Mock fetchPersonsByDistinctIds to return the updated person when called during conflict resolution
+        testMockRepo.fetchPersonsByDistinctIds = jest
+            .fn()
+            .mockResolvedValue([{ ...updatedByOtherPod, distinct_id: 'test' }])
 
         // Process an event that will override one of the properties
         // We pass the initial person directly, so no initial fetch is needed
@@ -918,25 +1430,30 @@ describe('BatchWritingPersonStore', () => {
         // Flush should trigger optimistic update, fail, then merge and retry
         await personStore.flush()
 
-        // Verify the optimistic update was attempted (should be called twice: once initially, once on retry)
-        expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(2)
+        // Verify the batch optimistic update was attempted (should be called twice: once initially, once on retry)
+        expect(testMockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(2)
 
-        // Verify fetchPerson was called once during conflict resolution
-        expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
+        // Verify fetchPerson was called once during conflict resolution (via fetchPersonsByDistinctIds)
+        expect(testMockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
 
         // Since the second retry succeeds, there should be no fallback to updatePerson
-        expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+        expect(testMockRepo.updatePerson).not.toHaveBeenCalled()
 
-        // Verify the second call to updatePersonAssertVersion had the merged properties
-        expect(mockRepo.updatePersonAssertVersion).toHaveBeenLastCalledWith(
+        // Verify the second call to updatePersonsBatchAssertVersion had the correct data
+        // Note: `properties` is the DB snapshot from fetchPersonsByDistinctIds
+        // `properties_to_set` contains our pending changes
+        // The repository merges them before sending to SQL
+        const secondCallArgs = testMockRepo.updatePersonsBatchAssertVersion.mock.calls[1][0]
+        expect(secondCallArgs).toHaveLength(1)
+        expect(secondCallArgs[0]).toEqual(
             expect.objectContaining({
                 version: 2, // Should use the latest version from the database (updatedByOtherPod has version 2)
                 properties: {
-                    existing_prop1: 'updated_by_other_pod', // Preserved from other pod's update
-                    existing_prop2: 'updated_by_this_pod', // Updated by this pod
+                    existing_prop1: 'updated_by_other_pod', // DB snapshot from other pod
+                    existing_prop2: 'initial_value2', // DB snapshot - our change is in properties_to_set
                 },
                 properties_to_set: {
-                    existing_prop2: 'updated_by_this_pod', // Only the changed property should be in properties_to_set
+                    existing_prop2: 'updated_by_this_pod', // Our pending change - merged in repository
                 },
                 properties_to_unset: [], // No properties to unset
             })
