@@ -1,4 +1,5 @@
 from collections import defaultdict, namedtuple
+from copy import deepcopy
 from datetime import datetime
 from numbers import Number
 from typing import Literal, Optional, Union, cast
@@ -624,8 +625,23 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         return list(dict.fromkeys(hashes))
 
     def _create_merged_property(self, template: Property, unique_hashes: list[str], is_or_group: bool) -> Property:
-        """Create a merged property from a template with multiple condition hashes."""
-        merged_prop = template.copy() if hasattr(template, "copy") else Property(**template.to_dict())
+        """
+        Create a merged property from a template with multiple condition hashes.
+
+        Args:
+            template: Property to use as template for the merged property
+            unique_hashes: List of condition hashes to merge (must be non-empty)
+            is_or_group: Whether this merge is for OR semantics (True) or AND semantics (False)
+
+        Raises:
+            ValueError: If unique_hashes is empty
+        """
+        if not unique_hashes:
+            raise ValueError(
+                f"Cannot create merged property with empty unique_hashes. " f"Template property: {template}"
+            )
+
+        merged_prop = deepcopy(template)
         merged_prop._merged_condition_hashes = unique_hashes  # type: ignore[union-attr]
         merged_prop._is_or_group = is_or_group  # type: ignore[union-attr]
         return merged_prop
@@ -740,10 +756,12 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         Example:
         OR:
           - AND: [email icontains @gmail.com, email is_not user2@gmail.com]
-          - OR: [email icontains yahoo.com]  # single property
+            ↑ Can't merge: multi-value group with different operators (icontains vs is_not)
+          - OR: [email icontains yahoo.com]  # single property, can merge
           - OR: [email icontains @protonmail.com, email icontains @live.com]  # already merged
 
-        Result: Last two groups merge into one with 3 hashes (yahoo + protonmail + live).
+        Result: Last two OR groups merge into one with 3 hashes (yahoo + protonmail + live).
+        The AND group stays separate because it has multiple values and mixed operators.
         """
         if prop_group.type != PropertyOperatorType.OR:
             return prop_group
@@ -795,7 +813,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             elif len(unique_hashes) == 1:
                 # Single hash after dedup: wrap back in group to preserve structure
                 template = first_property_by_key[key]
-                single_prop = template.copy() if hasattr(template, "copy") else Property(**template.to_dict())
+                single_prop = deepcopy(template)
                 # Safely remove merged attributes if they exist
                 for attr in ["_merged_condition_hashes", "_is_or_group"]:
                     if hasattr(single_prop, attr):
@@ -1013,7 +1031,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         # Check if this property was merged in preprocessing
         merged_hashes = getattr(prop, "_merged_condition_hashes", None)
 
-        if merged_hashes:
+        if merged_hashes is not None:
+            # Validate that merged_hashes is not empty to prevent invalid SQL generation
+            if not merged_hashes:
+                cohort_id = self.cohort.id if self.cohort else "unknown"
+                raise ValueError(
+                    f"BUG: Realtime cohort (cohort_id={cohort_id}) has merged property with empty condition hashes. "
+                    f"This would generate invalid SQL with empty IN clause. Property: {prop}"
+                )
+
             # Check if this is from an OR group (OR semantics) or AND group (AND semantics)
             is_or_group = getattr(prop, "_is_or_group", False)
 

@@ -552,7 +552,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                             "operator": "exact",
                             "conditionHash": "different_operator_hash",
                         },
-                        # Same operator but different value type - should NOT merge
+                        # Different operator (negated version) - should NOT merge
                         {
                             "key": "email",
                             "type": "person",
@@ -577,7 +577,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                             ],
                             "negation": False,
                             "operator": "not_icontains",
-                            "conditionHash": "not_icontains_hash",
+                            "conditionHash": "271b98d7d31ca2ce",
                         },
                         # Different key - should NOT merge
                         {
@@ -1115,3 +1115,69 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
             hogql_query.query_str("clickhouse")
 
         self.assertIn("conditionhash", str(context.exception).lower())
+
+    def test_merged_property_with_empty_hashes_raises_error(self) -> None:
+        """
+        Test that attempting to query a merged property with empty hashes raises a clear error.
+
+        This tests the defensive validation in get_person_condition that prevents
+        generating invalid SQL with empty IN clauses.
+        """
+        from posthog.models.property import Property
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Empty Hashes", filters={"properties": {"type": "AND", "values": []}}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        # Create a property with empty _merged_condition_hashes (simulating a bug)
+        prop = Property(
+            key="email",
+            type="person",
+            value="@gmail.com",
+            negation=False,
+            operator="icontains",
+            conditionHash="test_hash",
+        )
+        # Simulate a bug where _merged_condition_hashes is set to empty list
+        prop._merged_condition_hashes = []  # type: ignore[attr-defined]
+        prop._is_or_group = True  # type: ignore[attr-defined]
+
+        # Should raise ValueError about empty condition hashes
+        with self.assertRaises(ValueError) as context:
+            hogql_query.get_person_condition(prop)
+
+        error_msg = str(context.exception).lower()
+        self.assertIn("empty condition hashes", error_msg)
+        self.assertIn("invalid sql", error_msg)
+
+    def test_create_merged_property_with_empty_hashes_raises_error(self) -> None:
+        """
+        Test that _create_merged_property raises an error when called with empty unique_hashes.
+
+        This ensures the method is defensive and validates its inputs.
+        """
+        from posthog.models.property import Property
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test Create Merged Property", filters={"properties": {"type": "AND", "values": []}}
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        template = Property(
+            key="email",
+            type="person",
+            value="@gmail.com",
+            negation=False,
+            operator="icontains",
+            conditionHash="test_hash",
+        )
+
+        # Should raise ValueError when unique_hashes is empty
+        with self.assertRaises(ValueError) as context:
+            hogql_query._create_merged_property(template, [], is_or_group=True)
+
+        error_msg = str(context.exception).lower()
+        self.assertIn("empty unique_hashes", error_msg)
