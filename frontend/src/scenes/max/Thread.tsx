@@ -75,6 +75,7 @@ import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { TicketPrompt } from './TicketPrompt'
+import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
@@ -208,14 +209,15 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
                             return (
                                 <React.Fragment key={`${conversationId}-${index}`}>
-                                    <Message
-                                        message={message}
-                                        nextMessage={nextMessage}
-                                        isLastInGroup={isLastInGroup}
-                                        isFinal={index === threadGrouped.length - 1}
-                                        isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
-                                        messageTraceId={messageTraceId}
-                                    />
+                                    <TraceIdProvider value={messageTraceId}>
+                                        <Message
+                                            message={message}
+                                            nextMessage={nextMessage}
+                                            isLastInGroup={isLastInGroup}
+                                            isFinal={index === threadGrouped.length - 1}
+                                            isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
+                                        />
+                                    </TraceIdProvider>
                                     {conversationId &&
                                         isTicketSummaryMessage &&
                                         (ticketSummaryData.discarded ? (
@@ -303,17 +305,9 @@ interface MessageProps {
     isLastInGroup: boolean
     isFinal: boolean
     isSlashCommandResponse?: boolean
-    messageTraceId?: string | null
 }
 
-function Message({
-    message,
-    nextMessage,
-    isLastInGroup,
-    isFinal,
-    isSlashCommandResponse,
-    messageTraceId,
-}: MessageProps): JSX.Element {
+function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -436,7 +430,6 @@ function Message({
                                 message={message}
                                 withActions={ifActionInTheMiddle}
                                 interactable={ifActionInTheMiddle}
-                                messageTraceId={messageTraceId}
                             />
                         ) : null
 
@@ -502,7 +495,6 @@ function Message({
                                         retriable={retriable}
                                         hideRatingAndRetry={isSlashCommandResponse}
                                         content={message.content}
-                                        messageTraceId={messageTraceId}
                                     />
                                 )
                             }
@@ -540,7 +532,6 @@ function Message({
                                 message={message}
                                 interactable={!isSharedThread && isLastInGroup}
                                 isFinalGroup={isFinal}
-                                messageTraceId={messageTraceId}
                             />
                         )
                     } else if (isArtifactMessage(message)) {
@@ -604,11 +595,10 @@ interface TextAnswerProps {
     interactable?: boolean
     isFinalGroup?: boolean
     withActions?: boolean
-    messageTraceId?: string | null
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, interactable, isFinalGroup, withActions = true, messageTraceId },
+    { message, interactable, isFinalGroup, withActions = true },
     ref
 ) {
     const retriable = !!(interactable && isFinalGroup)
@@ -638,9 +628,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
-                  return (
-                      <SuccessActions retriable={retriable} content={message.content} messageTraceId={messageTraceId} />
-                  )
+                  return <SuccessActions retriable={retriable} content={message.content} />
               }
 
               return null
@@ -1351,12 +1339,10 @@ function SuccessActions({
     retriable,
     hideRatingAndRetry,
     content,
-    messageTraceId,
 }: {
     retriable: boolean
     hideRatingAndRetry?: boolean
     content?: string | null
-    messageTraceId?: string | null
 }): JSX.Element {
     const { traceId: logicTraceId } = useValues(maxThreadLogic)
     const { ratingForTraceId } = useValues(maxMessageRatingsLogic)
@@ -1364,9 +1350,10 @@ function SuccessActions({
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
     const { isDev, preflight } = useValues(preflightLogic)
+    const contextTraceId = useTraceId()
 
-    // Use the message's trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
-    const traceId = messageTraceId || logicTraceId
+    // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
+    const traceId = contextTraceId || logicTraceId
 
     const rating = ratingForTraceId(traceId)
     const [feedback, setFeedback] = useState<string>('')
