@@ -93,7 +93,6 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
@@ -113,7 +112,6 @@ def reset_clickhouse_tables():
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -419,3 +417,20 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+
+def _runs_on_internal_pr() -> bool:
+    """
+    Returns True when tests are running for an internal PR or on master,
+    and False for fork PRs.
+    Defaults to True, so local runs are unaffected.
+    """
+    value = os.getenv("RUNS_ON_INTERNAL_PR")
+    if value is None:
+        return True
+    return value.lower() in {"1", "true"}
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")

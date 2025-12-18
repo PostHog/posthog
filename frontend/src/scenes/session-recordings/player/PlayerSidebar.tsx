@@ -46,7 +46,7 @@ export function PlayerSidebar(): JSX.Element {
     ]
 
     // Show AI summary tab in the second position if the flag is enabled
-    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]) {
+    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]) {
         sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
     }
 
@@ -71,9 +71,10 @@ export function PlayerSidebar(): JSX.Element {
                 placement={sidebarOpen && isVerticallyStacked ? 'top' : 'left'}
                 containerRef={ref}
                 closeThreshold={100}
+                offset="0.25rem"
             />
             {sidebarOpen && (
-                <>
+                <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex bg-surface-primary pt-[1px]">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
@@ -119,7 +120,7 @@ export function PlayerSidebar(): JSX.Element {
                         </div>
                     </div>
                     <PlayerSidebarTab />
-                </>
+                </div>
             )}
         </div>
     )

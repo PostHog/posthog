@@ -13,6 +13,7 @@ import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLo
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
@@ -33,6 +34,7 @@ export type MenuState =
     | 'debugger'
     | 'experiments'
     | 'web-vitals'
+    | 'product-tours'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -65,6 +67,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['remoteWebVitalsLoading'],
         ],
         actions: [
+            toolbarConfigLogic,
+            ['logout'],
             actionsTabLogic,
             [
                 'showButtonActions',
@@ -77,6 +81,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
+            productToursLogic,
+            ['showButtonProductTours', 'hideButtonProductTours'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -110,6 +116,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         maybeSendNavigationMessage: true,
         togglePiiMasking: (enabled?: boolean) => ({ enabled }),
         setPiiMaskingColor: (color: string) => ({ color }),
+        startGracefulExit: true,
+        completeGracefulExit: true,
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -220,6 +228,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
             { persist: true },
             {
                 setPiiMaskingColor: (_, { color }) => color,
+            },
+        ],
+        isExiting: [
+            false,
+            {
+                startGracefulExit: () => true,
+                completeGracefulExit: () => false,
             },
         ],
     })),
@@ -404,6 +419,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
+            actions.hideButtonProductTours()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
@@ -419,6 +435,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
+            } else if (visibleMenu === 'product-tours') {
+                actions.showButtonProductTours()
             }
         },
 
@@ -556,6 +574,13 @@ export const toolbarLogic = kea<toolbarLogicType>([
             if (styleElement && values.piiMaskingEnabled) {
                 styleElement.textContent = generatePiiMaskingCSS(color, values.posthog)
             }
+        },
+        startGracefulExit: () => {
+            actions.setVisibleMenu('none')
+            actions.toggleMinimized(true)
+        },
+        completeGracefulExit: () => {
+            actions.logout()
         },
     })),
     afterMount(({ actions, values, cache }) => {

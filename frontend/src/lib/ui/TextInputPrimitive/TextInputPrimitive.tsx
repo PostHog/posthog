@@ -9,7 +9,7 @@ export const textInputVariants = cva({
     base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary hover:border-secondary focus-visible:border-secondary',
+            default: 'border-primary bg-surface-primary',
             invisible: 'border-transparent bg-transparent hover:border-transparent',
         },
         size: {
@@ -26,16 +26,16 @@ export const textInputVariants = cva({
             true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
             false: '',
         },
-        showFocusPulse: {
-            true: 'animate-input-focus-pulse',
-            false: 'shadow-none',
+        hideFocus: {
+            true: 'shadow-none',
+            false: '',
         },
     },
     defaultVariants: {
         variant: 'default',
         size: 'default',
         error: false,
-        showFocusPulse: true,
+        hideFocus: false,
     },
     compoundVariants: [
         // Paddings
@@ -100,6 +100,7 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
         className,
         suffix,
         showFocusPulse = true,
+        hideFocus = false,
         ...rest
     } = props
 
@@ -135,11 +136,10 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                 textInputVariants({
                     variant,
                     size,
+                    hideFocus,
                 }),
-                className,
-                {
-                    'animate-input-focus-pulse': autoFocus && showFocusPulse,
-                }
+                'input-like',
+                className
             )}
         >
             <input
@@ -150,7 +150,6 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                         size,
                         variant: 'invisible',
                         hasSuffix: suffix ? true : false,
-                        showFocusPulse: false,
                     }),
                     'flex-1'
                 )}

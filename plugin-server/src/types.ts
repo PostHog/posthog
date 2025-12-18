@@ -72,9 +72,10 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
+    cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
-    cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
@@ -195,12 +196,6 @@ export type CdpConfig = {
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
 
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -224,8 +219,6 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
-    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
-    INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
 export type LogsIngestionConsumerConfig = {
@@ -256,6 +249,9 @@ export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
+    CONTINUOUS_PROFILING_ENABLED: boolean
+    PYROSCOPE_SERVER_ADDRESS: string
+    PYROSCOPE_APPLICATION_NAME: string
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
@@ -290,6 +286,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
     PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
+    PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
     GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
     GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
@@ -462,9 +459,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
-    // New: switchover flag for v2 session recording metadata
-    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
-
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -483,13 +477,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
-
-    // Heap dump configuration
-    HEAP_DUMP_ENABLED: boolean
-    HEAP_DUMP_S3_BUCKET: string
-    HEAP_DUMP_S3_PREFIX: string
-    HEAP_DUMP_S3_ENDPOINT: string
-    HEAP_DUMP_S3_REGION: string
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean
@@ -555,13 +542,14 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
+    cdpDataWarehouseEvents?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
-    cdpBehaviouralEvents?: boolean
+    cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -881,6 +869,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
+    captured_at?: ClickHouseTimestamp | null
     properties?: string
     elements_chain: string
     person_created_at?: ClickHouseTimestamp
@@ -1463,8 +1452,3 @@ export interface HookPayload {
         }
     }
 }
-
-/**
- * Metadata switchover can be absent, enforced (boolean true), or after a provided date
- */
-export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

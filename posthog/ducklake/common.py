@@ -57,36 +57,6 @@ def escape(value: str) -> str:
     return value.replace("'", "''")
 
 
-def configure_connection(
-    conn: duckdb.DuckDBPyConnection,
-    config: dict[str, str] | None = None,
-    *,
-    install_extension: bool = False,
-    use_core_nightly: bool = False,
-) -> None:
-    """Configure DuckDB connection with DuckLake extension and S3 settings.
-
-    Args:
-        conn: DuckDB connection
-        config: Configuration dict (uses get_config() if None)
-        install_extension: Whether to install the DuckLake extension
-        use_core_nightly: Whether to install from core_nightly (for production)
-    """
-    if config is None:
-        config = get_config()
-
-    if install_extension:
-        if use_core_nightly:
-            conn.sql("INSTALL ducklake FROM core_nightly")
-        else:
-            conn.sql("INSTALL ducklake")
-    conn.sql("LOAD ducklake")
-
-    # Configure S3 access - supports both IRSA (production) and explicit credentials (dev)
-    bucket_region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
-    conn.sql(f"SET s3_region = '{escape(bucket_region)}'")
-
-
 def attach_catalog(
     conn: duckdb.DuckDBPyConnection,
     config: dict[str, str] | None = None,
@@ -190,7 +160,6 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
     conn = duckdb.connect()
     try:
         ensure_ducklake_catalog(config)
-        configure_connection(conn, config, install_extension=True)
         try:
             attach_catalog(conn, config, alias=alias)
             attached = True
@@ -207,7 +176,6 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
 
 __all__ = [
     "attach_catalog",
-    "configure_connection",
     "escape",
     "get_config",
     "get_ducklake_connection_string",

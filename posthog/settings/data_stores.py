@@ -278,11 +278,6 @@ with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
 
-API_QUERIES_ON_ONLINE_CLUSTER = set[int]([])
-with suppress(Exception):
-    as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
-    API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
-
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -486,3 +481,5 @@ PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0
 PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
     "PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM", default=set[int]([]), type_cast=str_to_int_set
 )
+
+CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)

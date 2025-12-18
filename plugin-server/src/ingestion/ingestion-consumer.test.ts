@@ -79,6 +79,9 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 uuid: Buffer.from(event.uuid || ''),
             },
+            {
+                now: Buffer.from(event.now || ''),
+            },
         ],
     }
 }
@@ -127,8 +130,11 @@ describe('IngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
+    const createIngestionConsumer = async (
+        hub: Hub,
+        overrides?: ConstructorParameters<typeof IngestionConsumer>[1]
+    ) => {
+        const ingester = new IngestionConsumer(hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -188,9 +194,9 @@ describe('IngestionConsumer', () => {
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer, personsStore) => {
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
             const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
-            return original.createEventPipelineRunnerV1Step(hub, hogTransformer, personsStore)
+            return original.createEventPipelineRunnerV1Step(...args)
         })
 
         ingester = await createIngestionConsumer(hub)
@@ -310,11 +316,14 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                // Create a new consumer that consumes from the overflow topic
+                const overflowIngester = await createIngestionConsumer(hub, {
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                })
+                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-                await ingester.handleKafkaBatch(overflowMessages)
+                await overflowIngester.handleKafkaBatch(overflowMessages)
 
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
@@ -322,6 +331,8 @@ describe('IngestionConsumer', () => {
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                 ).toHaveLength(1)
+
+                await overflowIngester.stop()
             })
 
             describe('force overflow', () => {
@@ -1165,13 +1176,14 @@ describe('IngestionConsumer', () => {
         it(
             'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
             async () => {
-                // Set hogwatcher enabled (100% sample rate)
+                // Create a new ingester with the sample rate we want to test
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+                const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
+                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is present
@@ -1181,7 +1193,7 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                await localIngester.handleKafkaBatch(messages)
 
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
                 expect(fetchAndCacheSpy).toHaveBeenCalled()
@@ -1199,6 +1211,8 @@ describe('IngestionConsumer', () => {
                 const functionResult = results.find((r) => r.invocation.functionId === transformationFunction.id)
                 expect(functionResult).toBeDefined()
                 expect(functionResult?.finished).toBe(true)
+
+                await localIngester.stop()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -1206,12 +1220,13 @@ describe('IngestionConsumer', () => {
         it(
             'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
             async () => {
-                // Set hogwatcher disabled (0% sample rate)
+                // Create a new ingester with the sample rate we want to test
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+                const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({
@@ -1220,11 +1235,13 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                await localIngester.handleKafkaBatch(messages)
 
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
                 expect(fetchAndCacheSpy).not.toHaveBeenCalled()
                 expect(clearStatesSpy).not.toHaveBeenCalled()
+
+                await localIngester.stop()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -1359,38 +1376,5 @@ describe('IngestionConsumer', () => {
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
-    })
-
-    describe('testing topic', () => {
-        it('should emit to the testing topic', async () => {
-            hub.INGESTION_CONSUMER_TESTING_TOPIC = 'testing_topic'
-            ingester = await createIngestionConsumer(hub)
-
-            const messages = createKafkaMessages([createEvent()])
-            await ingester.handleKafkaBatch(messages)
-
-            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
-                [
-                  {
-                    "headers": {
-                      "distinct_id": "user-1",
-                      "event": "$pageview",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
-                    "topic": "testing_topic",
-                    "value": {
-                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-                      "distinct_id": "user-1",
-                      "ip": "127.0.0.1",
-                      "now": "2025-01-01T00:00:00.000Z",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                  },
-                ]
-            `)
-        })
     })
 })

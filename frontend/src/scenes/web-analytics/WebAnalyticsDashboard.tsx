@@ -2,12 +2,11 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
-import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -16,11 +15,13 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -49,10 +50,6 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
-import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
-import { MarketingAnalyticsSourceStatusBanner } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
-import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -90,23 +87,6 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     )
 }
 
-const MarketingTiles = (props: { tiles?: QueryTile[]; compact?: boolean }): JSX.Element => {
-    const { tiles, compact = false } = props
-
-    return (
-        <div
-            className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
-                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
-            )}
-        >
-            {tiles?.map((tile, i) => (
-                <QueryTileItem key={i} tile={tile} />
-            ))}
-        </div>
-    )
-}
-
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
@@ -133,7 +113,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 Open as new insight
             </LemonButton>
         ) : null,
-        tile.canOpenModal ? (
+        tile.canOpenModal !== false ? (
             <LemonButton
                 key="open-modal-button"
                 onClick={() => openModal(tile.tileId)}
@@ -308,7 +288,7 @@ export const WebTabs = ({
                 Open as new Insight
             </LemonButton>
         ) : null,
-        activeTab?.canOpenModal ? (
+        activeTab?.canOpenModal !== false ? (
             <LemonButton
                 key="open-modal-button"
                 onClick={() => openModal(tileId, activeTabId)}
@@ -425,8 +405,6 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
     switch (productTab) {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
-        case ProductTab.MARKETING:
-            return <MarketingAnalyticsFilters tabs={tabs} />
         case ProductTab.HEALTH:
             return null
         default:
@@ -441,92 +419,11 @@ const MainContent = (): JSX.Element => {
         return <PageReports />
     }
 
-    if (productTab === ProductTab.MARKETING) {
-        return <MarketingDashboard />
-    }
-
     if (productTab === ProductTab.HEALTH) {
         return <HealthStatusTab />
     }
 
     return <Tiles />
-}
-
-const MarketingDashboard = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
-    const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
-
-    const feedbackBanner = (
-        <LemonBanner
-            type="info"
-            dismissKey="marketing-analytics-beta-banner"
-            className="mb-2 mt-4"
-            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
-        >
-            Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
-            directly to us!
-        </LemonBanner>
-    )
-
-    let component: JSX.Element | null = null
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
-        // fallback in case the user is able to access the page but the feature flag is not enabled
-        component = (
-            <LemonBanner type="info">
-                You can enable marketing analytics in the feature preview settings{' '}
-                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-            </LemonBanner>
-        )
-    } else if (loading) {
-        component = <LemonSkeleton />
-    } else if (validExternalTables.length === 0 && validNativeSources.length === 0) {
-        // if the user has no sources configured, show a warning instead of an empty state
-        component = (
-            <ProductIntroduction
-                productName="Marketing Analytics"
-                productKey={ProductKey.MARKETING_ANALYTICS}
-                thingName="marketing integration"
-                titleOverride="Add your first marketing integration"
-                description="To enable marketing analytics, you need to integrate your marketing data sources. You can do this in the settings by adding a native (like Google Ads) or non-native (from a bucket like S3) source."
-                action={() => window.open(urls.settings('environment-marketing-analytics'), '_blank')}
-                isEmpty={true}
-                docsURL="https://posthog.com/docs/web-analytics/marketing-analytics"
-                customHog={FilmCameraHog}
-            />
-        )
-    } else {
-        // if the user has sources configured and the feature flag is enabled, show the marketing tiles
-        component = <MarketingTiles tiles={marketingTiles} />
-    }
-
-    return (
-        <>
-            {feedbackBanner}
-            <MarketingAnalyticsSourceStatusBanner />
-            {component}
-        </>
-    )
-}
-
-const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
-        return []
-    }
-    return [
-        {
-            key: ProductTab.MARKETING,
-            label: (
-                <div className="flex items-center gap-1">
-                    Marketing
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            link: '/web/marketing',
-        },
-    ]
 }
 
 const HealthTabLabel = (): JSX.Element => {
@@ -558,11 +455,32 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
+const WebAnalyticsSurveyModal = (): JSX.Element | null => {
+    const { surveyModalPath } = useValues(webAnalyticsLogic)
+    const { closeSurveyModal } = useActions(webAnalyticsLogic)
+
+    if (!surveyModalPath) {
+        return null
+    }
+
+    return (
+        <QuickSurveyModal
+            context={{ type: QuickSurveyType.WEB_PATH, path: surveyModalPath }}
+            isOpen={!!surveyModalPath}
+            onCancel={closeSurveyModal}
+            showFollowupToggle={true}
+            modalTitle={`Survey users on ${surveyModalPath}`}
+            info={`Shown to users who spend more than 15 seconds on URLs containing ${surveyModalPath}, once per unique user`}
+        />
+    )
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
+                <WebAnalyticsSurveyModal />
                 <VersionCheckerBanner />
                 <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
@@ -606,21 +524,22 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
-                ...marketingTab(featureFlags),
                 ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
             rightSlot={
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconShare fontSize="16" />}
-                    tooltip="Share"
-                    tooltipPlacement="top"
-                    onClick={handleShare}
-                    data-attr="web-analytics-share-button"
-                />
+                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconLink fontSize="16" />}
+                        tooltip="Share"
+                        tooltipPlacement="top"
+                        onClick={handleShare}
+                        data-attr="web-analytics-share-button"
+                    />
+                )
             }
         />
     )

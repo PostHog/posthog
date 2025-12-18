@@ -6,7 +6,7 @@ import { sanitizeForUTF8 } from '~/utils/strings'
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
-import { CdpInternalEvent } from './schema'
+import { CdpDataWarehouseEvent, CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
 // ID of functions that are hidden from normal users and used by us for special testing
@@ -65,6 +65,12 @@ export function convertToHogFunctionInvocationGlobals(
         ? event.timestamp
         : clickHouseTimestampToISO(event.timestamp)
 
+    const eventCapturedAt = event.captured_at
+        ? DateTime.fromISO(event.captured_at).isValid
+            ? event.captured_at
+            : clickHouseTimestampToISO(event.captured_at)
+        : null
+
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -78,9 +84,38 @@ export function convertToHogFunctionInvocationGlobals(
             distinct_id: event.distinct_id,
             properties,
             timestamp: eventTimestamp,
+            captured_at: eventCapturedAt,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,
+    }
+
+    return context
+}
+
+export function convertDataWarehouseEventToHogFunctionInvocationGlobals(
+    event: CdpDataWarehouseEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const data = event.properties
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: 'data-warehouse-table-uuid-do-not-use',
+            event: 'data-warehouse-table-event-do-not-use',
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
+            properties: data,
+            timestamp: DateTime.now().toISO(),
+            url: '',
+        },
     }
 
     return context
@@ -132,6 +167,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
             distinct_id: data.event.distinct_id,
             properties: properties,
             timestamp: data.event.timestamp,
+            captured_at: null, // Not applicable for internal events
             url: data.event.url ?? '',
         },
         person,

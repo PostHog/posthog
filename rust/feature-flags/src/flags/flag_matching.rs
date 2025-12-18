@@ -11,14 +11,16 @@ use crate::flags::flag_matching_utils::{
     fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
     set_feature_flag_hash_key_overrides, should_write_hash_key_override,
 };
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
+use crate::flags::flag_models::{
+    BucketingIdentifier, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup,
+};
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
+    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
@@ -161,6 +163,8 @@ struct GroupEvaluationData {
 pub struct FeatureFlagMatcher {
     /// Unique identifier for the user/entity being evaluated
     pub distinct_id: String,
+    /// Optional device identifier for device-level bucketing
+    pub device_id: Option<String>,
     /// Team ID for scoping flag evaluations
     pub team_id: TeamId,
     /// Router for database connections across persons/non-persons pools
@@ -182,8 +186,10 @@ pub struct FeatureFlagMatcher {
 }
 
 impl FeatureFlagMatcher {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
+        device_id: Option<String>,
         team_id: TeamId,
         router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
@@ -192,6 +198,7 @@ impl FeatureFlagMatcher {
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
+            device_id,
             team_id,
             router,
             cohort_cache,
@@ -225,17 +232,15 @@ impl FeatureFlagMatcher {
         flag_keys: Option<Vec<String>>,
     ) -> FlagsResponse {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
-        let flags_have_experience_continuity_enabled = feature_flags
-            .flags
-            .iter()
-            .any(|flag| flag.ensure_experience_continuity.unwrap_or(false));
+        let flags_need_hash_key_override = feature_flags.flags.iter().any(|flag| {
+            flag.ensure_experience_continuity.unwrap_or(false)
+                && flag.get_group_type_index().is_none()
+                && flag.get_bucketing_identifier() == BucketingIdentifier::DistinctId
+        });
 
         // Process any hash key overrides
         let (hash_key_overrides, flag_hash_key_override_error) = self
-            .process_hash_key_override_if_needed(
-                flags_have_experience_continuity_enabled,
-                hash_key_override,
-            )
+            .process_hash_key_override_if_needed(flags_need_hash_key_override, hash_key_override)
             .await;
 
         let overrides = FlagEvaluationOverrides {
@@ -1194,6 +1199,24 @@ impl FeatureFlagMatcher {
             Ok(group_key)
         } else {
             // Person-based flag
+            use crate::flags::flag_models::BucketingIdentifier;
+
+            // Check if flag is configured for device_id bucketing
+            if feature_flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if let Some(device_id) = &self.device_id {
+                    if !device_id.is_empty() {
+                        return Ok(device_id.clone());
+                    }
+                }
+                // If device_id bucketing is set but no device_id provided,
+                // fall through to hash_key_overrides or distinct_id
+                tracing::warn!(
+                    flag_key = %feature_flag.key,
+                    team_id = %feature_flag.team_id,
+                    "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                );
+            }
+
             // Use hash key overrides for experience continuity
             if let Some(hash_key_override) = hash_key_overrides
                 .as_ref()
@@ -1463,6 +1486,7 @@ impl FeatureFlagMatcher {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
+                common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];

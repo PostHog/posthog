@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     context::AppContext,
     emit::Emitter,
-    error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error},
+    error::{extract_retry_after_from_error, get_user_message, is_rate_limited_error, UserError},
     job::backoff::format_backoff_messages,
     parse::{format::ParserFn, Parsed},
     source::DataSource,
@@ -54,9 +54,10 @@ fn decide_on_error(
             display_msg,
         }
     } else {
+        // Use the full error chain for developer-facing message
         let error_msg = match current_date_range {
-            Some(dr) => format!("{user_message} (Date range: {dr})"),
-            None => user_message.to_string(),
+            Some(dr) => format!("{err:#} (Date range: {dr})"),
+            None => format!("{err:#}"),
         };
         let display_msg = match current_date_range {
             Some(dr) => format!("{user_message} (Date range: {dr})"),
@@ -228,7 +229,7 @@ impl Job {
                     current_date_range.as_deref(),
                     policy,
                     current_attempt,
-                    user_facing_error_message,
+                    &user_facing_error_message,
                 ) {
                     ErrorHandlingDecision::Backoff {
                         delay,
@@ -380,9 +381,16 @@ impl Job {
 
         info!("Fetched part chunk {:?}", next_part);
         let m_tf = self.transform.clone();
+        let key_for_error = key.clone();
         // This is computationally expensive, so we run it in a blocking task
         let parsed = tokio::task::spawn_blocking(move || (m_tf)(next_chunk))
             .await?
+            .map_err(|e| {
+                let inner_msg = get_user_message(&e);
+                e.context(UserError::new(format!(
+                    "Parsing data in file '{key_for_error}' failed: {inner_msg}"
+                )))
+            })
             .context(format!("Processing part chunk {next_part:?}"))?;
 
         info!(
@@ -691,7 +699,7 @@ mod tests {
                 error_msg,
                 display_msg,
             } => {
-                assert_eq!(error_msg, "Remote server error");
+                assert!(error_msg.contains("500 Internal Server Error"));
                 assert_eq!(display_msg, "Remote server error");
             }
             _ => panic!("expected pause"),
@@ -812,5 +820,52 @@ mod tests {
         assert!(!should_pause_due_to_max_attempts(2, 3));
         assert!(should_pause_due_to_max_attempts(3, 3));
         assert!(should_pause_due_to_max_attempts(4, 3));
+    }
+
+    #[test]
+    fn test_decide_on_error_separates_developer_and_user_messages() {
+        let root_error =
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid byte sequence");
+        let error = anyhow::Error::from(root_error)
+            .context("Failed to parse JSON")
+            .context("Processing chunk");
+
+        let decision = decide_on_error(
+            &error,
+            Some("2023-01-01 to 2023-01-02"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "User-friendly error message",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Pause {
+                error_msg,
+                display_msg,
+            } => {
+                assert!(
+                    error_msg.contains("Processing chunk"),
+                    "Developer message should contain outer context: {error_msg}"
+                );
+                assert!(
+                    error_msg.contains("Failed to parse JSON"),
+                    "Developer message should contain inner context: {error_msg}"
+                );
+                assert!(
+                    error_msg.contains("invalid byte sequence"),
+                    "Developer message should contain root cause: {error_msg}"
+                );
+
+                assert_eq!(
+                    display_msg,
+                    "User-friendly error message (Date range: 2023-01-01 to 2023-01-02)"
+                );
+            }
+            _ => panic!("Expected Pause decision"),
+        }
     }
 }

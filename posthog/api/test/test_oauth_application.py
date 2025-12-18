@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -6,6 +7,7 @@ from rest_framework.test import APIClient
 from posthog.models.oauth import OAuthApplication
 
 
+@pytest.mark.requires_secrets
 class TestOAuthApplicationMetadataView(APIBaseTest):
     public_fields = ["name", "client_id"]
 

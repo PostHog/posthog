@@ -999,7 +999,7 @@ async def test_run_workflow_timeout_exceeded(
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
         unittest.mock.patch(
-            "posthog.temporal.data_modeling.run_workflow.pause_saved_query_schedule"
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
         ) as mock_pause_saved_query_schedule,
     ):
         mock_hogql_table.side_effect = Exception(
