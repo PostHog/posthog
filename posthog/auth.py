@@ -46,8 +46,6 @@ def get_webauthn_rp_origin() -> str:
     if parsed.port and parsed.port not in (80, 443):
         return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
     return f"{parsed.scheme}://{parsed.hostname}"
-
-
 class WebAuthnAuthenticationResponse(TypedDict):
     """WebAuthn authentication response data structure."""
 
@@ -627,6 +625,7 @@ class WebauthnBackend(BaseBackend):
         Args:
             request: The HTTP request object
             credential_id: The base64url-encoded credential ID (rawId)
+            challenge: The base64url-encoded challenge
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:
