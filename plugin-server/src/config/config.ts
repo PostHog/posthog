@@ -154,7 +154,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
-        LAZY_LOADER_MAX_SIZE: 100_000, // Maximum entries per cache before LRU eviction
+        LAZY_LOADER_MAX_SIZE: 50_000,
         CAPTURE_INTERNAL_URL: isProdEnv()
             ? 'http://capture.posthog.svc.cluster.local:3000/capture'
             : 'http://localhost:8010/capture',
