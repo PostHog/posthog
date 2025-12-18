@@ -129,7 +129,11 @@ def _verify_and_fix_batch(
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
 
     # Batch-read cached values using MGET (single Redis round trip)
-    cache_batch_data = config.hypercache.batch_get_from_cache(teams)
+    try:
+        cache_batch_data = config.hypercache.batch_get_from_cache(teams)
+    except Exception as e:
+        logger.warning("Batch cache read failed, falling back to individual lookups", error=str(e))
+        cache_batch_data = {}
 
     # Batch-check expiry tracking
     expiry_status = batch_check_expiry_tracking(teams, config)

@@ -467,6 +467,36 @@ class TestVerifyAndFixBatch(BaseTest):
         mock_config.hypercache.set_cache_value.assert_not_called()
         assert result.cache_miss_fixed == 1
 
+    def test_batch_get_from_cache_error_falls_back_to_empty_dict(self):
+        """Test that batch_get_from_cache errors fall back to empty dict (individual lookups)."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.side_effect = Exception("Redis connection failed")
+        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
+
+        result = VerificationResult()
+        received_cache_batch_data = []
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            received_cache_batch_data.append(cache_batch_data)
+            return {"status": "match", "issue": None}
+
+        with patch(
+            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={str(self.team.id): True}
+        ):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # verify_fn should receive empty dict when batch_get_from_cache fails
+        assert received_cache_batch_data[0] == {}
+        assert result.total == 1
+        assert result.errors == 0  # Should not count as error, just fallback
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixAllTeams(BaseTest):
