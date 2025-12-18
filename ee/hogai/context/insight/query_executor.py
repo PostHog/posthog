@@ -44,7 +44,7 @@ from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.chat_agent.query_executor.format import (
+from ee.hogai.context.insight.format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
@@ -482,7 +482,12 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
     raise NotImplementedError(f"Unsupported query type: {type(query)}")
 
 
-async def execute_and_format_query(team: Team, query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> str:
+async def execute_and_format_query(
+    team: Team,
+    query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+    execution_mode: Optional[ExecutionMode] = None,
+    insight_id: Optional[int] = None,
+) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
 
@@ -495,14 +500,15 @@ async def execute_and_format_query(team: Team, query_model: AnyPydanticModelQuer
     Args:
         team: The team to execute the query on.
         query: The query to execute.
-
+        execution_mode: The execution mode to use.
+        insight_id: The insight ID to use.
     Returns:
         The formatted query results.
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime)
-    results, used_fallback = await query_runner.arun_and_format_query(query)
+    results, used_fallback = await query_runner.arun_and_format_query(query, execution_mode, insight_id)
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 
