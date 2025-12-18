@@ -383,20 +383,11 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
         - Client only needs to evaluate simplified property-based filters
     """
 
-    # Exclude survey-linked flags from local evaluation since they use operators
-    # (like is_not_set) that are not supported by local evaluation. When a flag
-    # can't be evaluated locally, SDKs fall back to server-side evaluation,
-    # causing unexpected network requests. See GitHub issue #43631.
-    survey_flag_ids = {
-        flag_id
-        for row in Survey.objects.filter(team_id=team.id).values_list(
-            "targeting_flag_id",
-            "internal_targeting_flag_id",
-            "internal_response_sampling_flag_id",
-        )
-        for flag_id in row
-        if flag_id is not None
-    }
+    # Exclude survey-linked flags from local evaluation. See GitHub issue #43631.
+    survey_flag_ids = Survey.get_internal_flag_ids(
+        team_id=team.id,
+        using=DATABASE_FOR_LOCAL_EVALUATION,
+    )
 
     feature_flags = (
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)

@@ -488,3 +488,91 @@ class TestSurveyFlagExclusion(BaseTest):
         # Flag should still be excluded since the survey still exists
         flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
         assert survey_flag.key not in [f.key for f in flags]
+
+    def test_survey_flag_reassignment_updates_exclusions(self):
+        """When a survey changes which flags it uses, both old and new flags should update correctly."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=flag_a,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+        assert flag_a.key not in flag_keys
+        assert flag_b.key in flag_keys
+
+        survey.targeting_flag = flag_b
+        survey.save()
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+        assert flag_a.key in flag_keys
+        assert flag_b.key not in flag_keys
+
+    def test_multiple_surveys_sharing_same_flag(self):
+        """When multiple surveys use the same flag, it should be excluded once."""
+        shared_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="shared-targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        for i in range(3):
+            Survey.objects.create(
+                team=self.team,
+                name=f"Survey {i}",
+                type="popover",
+                targeting_flag=shared_flag,
+            )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+
+        assert shared_flag.key not in flag_keys
+
+    def test_survey_with_partial_flag_assignment(self):
+        """Survey with some flags set and others None should only exclude the set flags."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="sampling-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        regular_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=flag_a,
+            internal_targeting_flag=None,
+            internal_response_sampling_flag=flag_b,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+
+        assert flag_a.key not in flag_keys
+        assert flag_b.key not in flag_keys
+        assert regular_flag.key in flag_keys
