@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-17 20:02:06 UTC
+// Generated at: 2025-12-18 10:03:41 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -15,7 +15,6 @@ export type CanonicalProvider =
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
-    | 'avian-fp8'
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'

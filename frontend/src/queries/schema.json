@@ -11391,6 +11391,11 @@
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
                 },
+                "debug": {
+                    "default": false,
+                    "description": "Whether to include debug information (such as the executed HogQL) in the response.",
+                    "type": "boolean"
+                },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
                     "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."

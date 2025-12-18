@@ -64,12 +64,7 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
-import {
-    LogAttributeSchema,
-    LogAttributeValueSchema,
-    LogsListAttributesResponseSchema,
-    LogsQueryResponseSchema,
-} from '../schema/logs.js'
+import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
 import type {
     CreateSurveyInput,
     GetSurveySpecificStatsInput,

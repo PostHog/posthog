@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { UrlTriggerConfig } from 'lib/components/Triggers/types'
+import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
