@@ -552,6 +552,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 serializer.validated_data["code"],
                 capture_variables=serializer.validated_data.get("return_variables", True),
                 timeout=serializer.validated_data.get("timeout"),
+                user=self._current_user(),
             )
         except RuntimeError as err:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
