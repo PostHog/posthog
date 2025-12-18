@@ -2,6 +2,9 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 
+from django.apps import apps
+from django.conf import settings
+
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedError
 
@@ -52,7 +55,26 @@ class AST:
     def __str__(self):
         if isinstance(self, Type):
             return super().__str__()
-        return f"sql({self.to_hogql()})"
+        hogql_string = self._safe_hogql_string()
+        if hogql_string is None:
+            return super().__repr__()
+        return f"sql({hogql_string})"
+
+    def _safe_hogql_string(self) -> str | None:
+        if not settings.configured or not apps.ready:
+            return None
+
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.printer import print_prepared_ast
+
+        try:
+            return print_prepared_ast(
+                node=self,
+                context=HogQLContext(enable_select_queries=True, limit_top_select=False),
+                dialect="hogql",
+            )
+        except Exception:
+            return None
 
 
 _T_AST = TypeVar("_T_AST", bound=AST)
