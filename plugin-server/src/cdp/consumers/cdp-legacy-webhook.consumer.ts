@@ -34,6 +34,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     protected name = 'CdpLegacyWebhookConsumer'
     protected promiseScheduler = new PromiseScheduler()
     protected kafkaConsumer: KafkaConsumer
+    protected actionManager: ActionManager
     protected actionMatcher: ActionMatcher
 
     constructor(hub: Hub) {
@@ -44,7 +45,8 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
             topic: hub.CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC,
         })
 
-        this.actionMatcher = new ActionMatcher(new ActionManager(hub.postgres, hub.pubSub))
+        this.actionManager = new ActionManager(hub.postgres, hub.pubSub)
+        this.actionMatcher = new ActionMatcher(this.actionManager)
 
         logger.info('🔁', `CdpLegacyWebhookConsumer setup`)
     }
@@ -170,7 +172,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
-        await this.hub.actionManager.start()
+        await this.actionManager.start()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -187,7 +189,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
-        await this.hub.actionManager.stop()
+        await this.actionManager.stop()
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }
