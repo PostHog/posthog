@@ -295,12 +295,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 if (orderBy === 'latest') {
                     return {
                         date_from: dayjs(lastTimestamp).toISOString(),
-                        date_to: dayjs(firstTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).add(1, 'millisecond').toISOString(),
                     }
                 }
                 return {
                     date_from: dayjs(firstTimestamp).toISOString(),
-                    date_to: dayjs(lastTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).add(1, 'millisecond').toISOString(),
                 }
             },
         ],

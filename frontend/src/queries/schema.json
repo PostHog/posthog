@@ -11045,6 +11045,12 @@
                 },
                 {
                     "$ref": "#/definitions/SessionReplayBlock"
+                },
+                {
+                    "$ref": "#/definitions/LoadingBlock"
+                },
+                {
+                    "$ref": "#/definitions/ErrorBlock"
                 }
             ]
         },
@@ -11474,6 +11480,25 @@
         "EntityType": {
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
+        },
+        "ErrorBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "Optional artifact ID if the error is related to a specific artifact",
+                    "type": ["string", "null"]
+                },
+                "message": {
+                    "description": "Error message to display",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "error",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "message"],
+            "type": "object"
         },
         "ErrorTrackingBreakdownsQuery": {
             "additionalProperties": false,
@@ -17806,6 +17831,21 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "LoadingBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "The artifact ID that is being loaded",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "loading",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
+            "type": "object"
+        },
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -20546,13 +20586,24 @@
         "NotebookArtifactContent": {
             "additionalProperties": false,
             "properties": {
+                "blocks": {
+                    "description": "Structured blocks for the notebook content",
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                },
                 "content_type": {
                     "const": "notebook",
                     "description": "Notebook",
                     "type": "string"
+                },
+                "title": {
+                    "description": "Title for the notebook",
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["content_type"],
+            "required": ["content_type", "blocks"],
             "type": "object"
         },
         "NotebookInfo": {
@@ -31017,15 +31068,48 @@
         "VisualizationBlock": {
             "additionalProperties": false,
             "properties": {
-                "artifact_id": {
-                    "type": "string"
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                        }
+                    ],
+                    "description": "The query to render (same as VisualizationArtifactContent.query)"
+                },
+                "title": {
+                    "description": "Optional title for the visualization",
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "const": "visualization",
                     "type": "string"
                 }
             },
-            "required": ["type", "artifact_id"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VisualizationItem": {
