@@ -244,7 +244,7 @@ class TestMaxToolAccessDeniedError(BaseTest):
 class ToolWithAccessControlTool(MaxTool):
     """Test tool with access control requirements."""
 
-    name: str = "read_taxonomy"  # Re-use existing schema name
+    name: str = "create_feature_flag"
     description: str = "A test tool with access control"
     args_schema: type[BaseModel] = DummyToolInput
 
@@ -330,19 +330,17 @@ class TestToolAccessControlDeclarations(BaseTest):
     # Tools that are explicitly exempt from access control.
     # Add a comment explaining WHY the tool doesn't need access control.
     TOOLS_WITHOUT_ACCESS_CONTROL: set[str] = {
-        # Tools that don't modify protected resources
+        # Tools that don't view or modify protected resources
         "search",
         "read_taxonomy",
         "create_form",
         "todo_write",
         "switch_mode",
+        "session_summarization",
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         # TODO: Add access control to these tools
-        "create_experiment",
-        "edit_current_dashboard",
-        "create_dashboard",
-        "create_survey",
+        "task",
         "create_task",
         "run_task",
         "get_task_run",
@@ -354,20 +352,9 @@ class TestToolAccessControlDeclarations(BaseTest):
         "create_hog_function_inputs",
         "create_hog_transformation_function",
         "create_hog_function_filters",
-        "session_summarization",
-        "filter_session_recordings",
-        "summarize_sessions",
-        "search_session_recordings",
         "execute_sql",
         "generate_hogql_query",
-        "filter_error_tracking_issues",
-        "find_error_tracking_impactful_issue_event_list",
-        "error_tracking_explain_issue",
-        "filter_revenue_analytics",
-        "filter_web_analytics",
-        "analyze_survey_responses",
         "analyze_user_interviews",
-        "experiment_results_summary",
     }
 
     def test_all_tools_have_access_control_or_are_exempt(self):

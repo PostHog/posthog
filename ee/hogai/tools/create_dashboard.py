@@ -34,6 +34,9 @@ class CreateDashboardTool(MaxTool):
     args_schema: type[BaseModel] = CreateDashboardToolArgs
     show_tool_call_message: bool = False
 
+    def get_required_access(self):
+        return [("dashboard", "editor")]
+
     async def _arun_impl(
         self, search_insights_queries: list[InsightQuery], dashboard_name: str
     ) -> tuple[str, ToolMessagesArtifact | None]:
