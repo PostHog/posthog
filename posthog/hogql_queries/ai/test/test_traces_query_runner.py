@@ -1604,6 +1604,28 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(runner.paginator.limit, 50)
 
     @freeze_time("2025-01-16T00:00:00Z")
+    def test_export_returns_more_than_default_limit(self):
+        """Test that export context returns more than 100 traces (the old hardcoded default)."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Create 110 traces (more than the old hardcoded 100 limit)
+        for i in range(110):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i % 24, i % 60),
+            )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(),
+            limit_context=LimitContext.EXPORT,
+        ).calculate()
+
+        self.assertEqual(len(response.results), 110)
+
+    @freeze_time("2025-01-16T00:00:00Z")
     def test_random_order(self):
         """Test that randomOrder parameter returns traces in random order instead of timestamp DESC."""
         _create_person(distinct_ids=["person1"], team=self.team)

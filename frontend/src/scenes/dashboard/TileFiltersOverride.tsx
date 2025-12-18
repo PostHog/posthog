@@ -23,7 +23,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.DATE_PICKER_EXPLICIT_DATE_TOGGLE]
+    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
 
     return (
         <div className="space-y-4 tile-filters-override">

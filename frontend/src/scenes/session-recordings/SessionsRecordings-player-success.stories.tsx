@@ -1,5 +1,7 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { combineUrl } from 'kea-router'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { combineUrl, router } from 'kea-router'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -7,11 +9,21 @@ import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { FEATURE_FLAGS } from '~/lib/constants'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { getAvailableProductFeatures } from '~/mocks/features'
+import { MockSignature } from '~/mocks/utils'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, SessionRecordingPlaylistType } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
 import { recordings } from './__mocks__/recordings'
+
+const generateManyRecordings = (count: number): Record<string, any>[] =>
+    Array.from({ length: count }, (_, i) => ({
+        ...recordings[i % recordings.length],
+        id: `generated-recording-${i}`,
+    }))
 
 const playlist = (playlistId: string): SessionRecordingPlaylistType => {
     return {
@@ -80,17 +92,18 @@ const sceneUrl = (url: string, searchParams: Record<string, any> = {}): string =
 const meta: Meta = {
     component: App,
     title: 'Replay/Tabs/Home/Success',
-    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
         pageUrl: urls.replay(),
     },
     decorators: [
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
@@ -115,7 +128,7 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob') {
+                    if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     }
                     // with no source requested should return sources
@@ -124,10 +137,10 @@ const meta: Meta = {
                         {
                             sources: [
                                 {
-                                    source: 'blob',
+                                    source: 'blob_v2',
                                     start_timestamp: '2023-08-11T12:03:36.097000Z',
                                     end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
+                                    blob_key: '0',
                                 },
                             ],
                         },
@@ -144,7 +157,7 @@ const meta: Meta = {
             patch: {
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
                     const playlistId = req.params.playlist_id as string
-                    const body = req.json() as Partial<SessionRecordingPlaylistType>
+                    const body = req.body as Partial<SessionRecordingPlaylistType>
                     return [200, { ...playlist(playlistId), ...body }]
                 },
             },
@@ -160,13 +173,23 @@ const meta: Meta = {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
-                    if (
-                        body.query.kind === 'HogQLQuery' &&
-                        body.query.query.startsWith(
-                            'SELECT properties.$session_id as session_id, any(properties) as properties'
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes('$session_id as session_id')) {
+                        return res(
+                            ctx.json({
+                                results: recordings.map((r) => [
+                                    r.id,
+                                    'NG',
+                                    'Chrome',
+                                    'Desktop',
+                                    'Mac OS X',
+                                    'Mac OS X',
+                                    'google.com',
+                                    null,
+                                    null,
+                                    'https://example.com',
+                                ]),
+                            })
                         )
-                    ) {
-                        return res(ctx.json({ results: [['session_id_one', '{}']] }))
                     }
 
                     if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
@@ -197,4 +220,96 @@ export const RecordingsPlayListWithPinnedRecordings: Story = {
 
 export const SecondRecordingInList: Story = {
     parameters: { pageUrl: sceneUrl(urls.replay(), { sessionRecordingId: recordings[1].id }) },
+}
+
+export const RecentRecordingsEmpty: Story = {
+    parameters: {
+        pageUrl: sceneUrl(urls.replay()),
+        waitForSelector: undefined,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/session_recordings': () => [
+                    200,
+                    { has_next: false, results: [], version: '1' },
+                ],
+                '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
+                'api/projects/:team/notebooks': { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                '/api/environments/:team_id/query': () => [200, { results: [] }],
+            },
+        }),
+    ],
+}
+
+export const RecentRecordingsWide: Story = {
+    parameters: {
+        pageUrl: sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }),
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+        },
+    },
+}
+RecentRecordingsWide.tags = ['test-skip']
+
+export const RecentRecordingsNarrow: Story = {
+    parameters: {
+        pageUrl: sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }),
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+        },
+    },
+}
+RecentRecordingsNarrow.tags = ['test-skip']
+
+const userSeenReplayIntroMock = (): MockSignature => [
+    200,
+    {
+        ...MOCK_DEFAULT_USER,
+        has_seen_product_intro_for: { [ProductKey.SESSION_REPLAY]: true },
+        organization: { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
+    },
+]
+
+const manyRecordingsMock: MockSignature = (req) => {
+    const version = req.url.searchParams.get('version')
+    return [200, { has_next: false, results: generateManyRecordings(25), version }]
+}
+
+const filtersExpandedStory = (extraMocks: Record<string, any> = {}): StoryFn => {
+    const Story: StoryFn = () => {
+        useStorybookMocks({
+            get: {
+                '/api/users/@me/': userSeenReplayIntroMock,
+                ...extraMocks,
+            },
+        })
+        router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
+        return <App />
+    }
+    return Story
+}
+
+export const FiltersExpanded: StoryFn = filtersExpandedStory()
+FiltersExpanded.parameters = {
+    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+}
+
+export const FiltersExpandedLotsOfResults: StoryFn = filtersExpandedStory({
+    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+})
+FiltersExpandedLotsOfResults.parameters = {
+    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+}
+
+export const FiltersExpandedLotsOfResultsNarrow: StoryFn = filtersExpandedStory({
+    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+})
+FiltersExpandedLotsOfResultsNarrow.parameters = {
+    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+    testOptions: {
+        viewport: { width: 568, height: 1024 },
+    },
 }

@@ -45,6 +45,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -129,6 +130,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LLMPrompt,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -151,6 +153,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProductTour,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -198,7 +201,7 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import { HogFlow, HogFlowAction } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -993,13 +996,20 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
 
-    public featureFlagDeleteScheduledChange(
+    public featureFlagScheduledChange(
         teamId: TeamType['id'],
         scheduledChangeId: ScheduledChangeType['id']
     ): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('scheduled_changes')
             .addPathComponent(`${scheduledChangeId}`)
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.featureFlagScheduledChange(teamId, scheduledChangeId)
     }
 
     // # Features
@@ -1063,6 +1073,15 @@ export class ApiRequest {
             return this.survey(id, teamId).addPathComponent('activity')
         }
         return this.surveys(teamId).addPathComponent('activity')
+    }
+
+    // Product tours
+    public productTours(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('product_tours')
+    }
+
+    public productTour(id: ProductTour['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.productTours(teamId).addPathComponent(id)
     }
 
     // Error tracking
@@ -1635,6 +1654,14 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
+    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
+    }
+
+    public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
+    }
+
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -1866,6 +1893,13 @@ const api = {
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
         },
+        async updateScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id'],
+            data: Partial<ScheduledChangeType>
+        ): Promise<ScheduledChangeType> {
+            return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
+        },
         async getStatus(
             teamId: TeamType['id'],
             featureFlagId: FeatureFlagType['id']
@@ -1889,6 +1923,7 @@ const api = {
             type__startswith,
             createdAtGt,
             createdAtLt,
+            searchNameOnly,
         }: {
             parent?: string
             path?: string
@@ -1903,6 +1938,7 @@ const api = {
             type__startswith?: string
             createdAtGt?: string
             createdAtLt?: string
+            searchNameOnly?: boolean
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -1920,6 +1956,7 @@ const api = {
                     type__startswith,
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
+                    search_name_only: searchNameOnly,
                 })
                 .get()
         },
@@ -2232,7 +2269,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[]; hasMore: boolean }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -3373,17 +3410,9 @@ const api = {
 
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {},
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            if (params.source) {
-                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
-            }
-            return await new ApiRequest()
-                .recording(recordingId)
-                .withAction('snapshots')
-                .withQueryString(params)
-                .get({ headers })
+            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
         },
 
         async getSnapshots(
@@ -3497,7 +3526,10 @@ const api = {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
         },
 
-        async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+        async bulkDeleteRecordings(
+            session_recording_ids: SessionRecordingType['id'][],
+            date_from?: string | null
+        ): Promise<{
             success: boolean
             deleted_count: number
             total_requested: number
@@ -3505,7 +3537,7 @@ const api = {
             return await new ApiRequest()
                 .recordings()
                 .withAction('bulk_delete')
-                .create({ data: { session_recording_ids } })
+                .create({ data: { session_recording_ids, ...(date_from ? { date_from } : {}) } })
         },
 
         async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
@@ -3776,13 +3808,10 @@ const api = {
             async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
                 return await new ApiRequest().taskRun(taskId, runId).get()
             },
-            async getLogs(taskId: Task['id'], runId: TaskRun['id'], noCache: boolean = false): Promise<string> {
+            async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
                 if (run.log_url) {
-                    const url = noCache
-                        ? `${run.log_url}${run.log_url.includes('?') ? '&' : '?'}t=${Date.now()}`
-                        : run.log_url // TRICKY: We add a timestamp to bypass the browser cache
-                    const response = await fetch(url, {
+                    const response = await fetch(run.log_url, {
                         cache: 'no-store',
                         headers: {
                             'Cache-Control': 'no-cache',
@@ -3913,6 +3942,24 @@ const api = {
         },
         async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
             return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
+        },
+    },
+
+    productTours: {
+        async list(): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest().productTours().get()
+        },
+        async get(tourId: ProductTour['id']): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).get()
+        },
+        async create(data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTours().create({ data })
+        },
+        async update(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).update({ data })
+        },
+        async delete(tourId: ProductTour['id']): Promise<void> {
+            await new ApiRequest().productTour(tourId).delete()
         },
     },
 
@@ -4531,6 +4578,14 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
+        async getBatchTriggerBlastRadius(
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+        ): Promise<{
+            users_affected: number
+            total_users: number
+        }> {
+            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+        },
     },
 
     queryURL: (): string => {
@@ -4565,7 +4620,7 @@ const api = {
         })
     },
 
-    async queryHogQL<T = any[]>(
+    async SHAMEFULLY_UNTAGGED_queryHogQL<T = any[]>(
         query: HogQLQueryString,
         queryOptions?: {
             requestOptions?: ApiMethodOptions
@@ -4573,13 +4628,29 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
+        }
+    ): Promise<HogQLQueryResponse<T>> {
+        return this.queryHogQL(query, {}, queryOptions)
+    },
+
+    async queryHogQL<T = any[]>(
+        query: HogQLQueryString,
+        tags: QueryLogTags,
+        queryOptions?: {
+            requestOptions?: ApiMethodOptions
+            clientQueryId?: string
+            refresh?: RefreshType
+            filtersOverride?: DashboardFilter | null
+            variablesOverride?: Record<string, HogQLVariable> | null
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
+            tags,
         })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
@@ -4626,6 +4697,13 @@ const api = {
 
         get(conversationId: string): Promise<ConversationDetail> {
             return new ApiRequest().conversation(conversationId).get()
+        },
+
+        appendMessage(conversationId: string, content: string): Promise<{ id: string }> {
+            return new ApiRequest()
+                .conversation(conversationId)
+                .withAction('append_message')
+                .create({ data: { content } })
         },
     },
 
@@ -4694,6 +4772,29 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    llmPrompts: {
+        list(params?: {
+            search?: string
+            order_by?: string
+            offset?: number
+            limit?: number
+        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
+            return new ApiRequest().llmPrompts().withQueryString(params).get()
+        },
+
+        get(promptId: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompts().create({ data })
+        },
+
+        async update(promptId: string, data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompt(promptId).update({ data })
         },
     },
 

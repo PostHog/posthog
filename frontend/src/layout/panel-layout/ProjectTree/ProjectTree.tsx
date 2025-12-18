@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
@@ -29,6 +29,7 @@ import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -58,6 +59,7 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
+const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -68,6 +70,38 @@ const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: stri
         'You use this product on another project so we think you might like it here.',
     [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
     [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
+}
+
+// Show active state for items that are active in the URL
+const isItemActive = (item: TreeDataItem): boolean => {
+    if (!item.record?.href) {
+        return false
+    }
+
+    const currentPath = removeProjectIdIfPresent(window.location.pathname)
+    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+
+    if (currentPath === itemHref) {
+        return true
+    }
+
+    // Current path is a sub-path of item (e.g., /insights/new under /insights)
+    if (currentPath.startsWith(itemHref + '/')) {
+        return true
+    }
+
+    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
+    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
+        return true
+    }
+    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
+        return true
+    }
+    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
+        return true
+    }
+
+    return false
 }
 
 export function ProjectTree({
@@ -118,15 +152,13 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
-    const { setPanelTreeRef, resetPanelLayout, showLayoutPanel, setActivePanelIdentifier } =
-        useActions(panelLayoutLogic)
+    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
-
-    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
 
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
     const { seed } = useActions(customProductsLogic)
@@ -139,7 +171,12 @@ export function ProjectTree({
         CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
+    const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
+        `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
+        []
+    )
 
+    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -202,28 +239,13 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
+                            <br />
+                            <br />
                             {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <>
-                                    <br />
-                                    <br />
-                                    <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                    </span>
-                                </>
+                                <span className="cursor-pointer underline" onClick={seed}>
+                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                </span>
                             )}
-                            <br />
-                            <br />
-                            You can also see all products in the{' '}
-                            <span
-                                className="cursor-pointer underline"
-                                onClick={() => {
-                                    showLayoutPanel(true)
-                                    setActivePanelIdentifier('Products')
-                                }}
-                            >
-                                All apps
-                            </span>{' '}
-                            section.
                         </div>
                     ),
                 })
@@ -250,37 +272,14 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
-    // Show active state for items that are active in the URL
-    function isItemActive(item: TreeDataItem): boolean {
-        if (!item.record?.href) {
-            return false
-        }
-
-        const currentPath = removeProjectIdIfPresent(window.location.pathname)
-        const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
-
-        if (currentPath === itemHref) {
-            return true
-        }
-
-        // Current path is a sub-path of item (e.g., /insights/new under /insights)
-        if (currentPath.startsWith(itemHref + '/')) {
-            return true
-        }
-
-        // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
-        if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-            return true
-        }
-        if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
-            return true
-        }
-        if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
-            return true
-        }
-
-        return false
-    }
+    const handleMouseEnterIndicator = useCallback(
+        (itemId: string): void => {
+            if (!seenCustomProducts.includes(itemId)) {
+                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 250)
+            }
+        },
+        [seenCustomProducts, setSeenCustomProducts]
+    )
 
     const tree = (
         <LemonTree
@@ -549,11 +548,31 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (root === 'products://' || root === 'data://' || root === 'persons://') {
+                if (
+                    root === 'products://' ||
+                    root === 'data://' ||
+                    root === 'persons://' ||
+                    root === 'custom-products://'
+                ) {
                     const key = item.record?.sceneKey
+                    const reason = item.record?.reason as UserProductListReason | undefined
+                    const reasonText = item.record?.reason_text as string | null | undefined
+
+                    const suggestedProductBaseTooltipText =
+                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
+                    const tooltipText = suggestedProductBaseTooltipText ? (
+                        <>
+                            {suggestedProductBaseTooltipText}
+                            <br />
+                            Right-click to remove from sidebar.
+                            <br />
+                            <br />
+                        </>
+                    ) : undefined
 
                     return (
                         <>
+                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -633,20 +652,25 @@ export function ProjectTree({
                 const createdAt = item.record?.created_at
                 const reason = item.record?.reason as UserProductListReason | undefined
                 const reasonText = item.record?.reason_text as string | null | undefined
-                const parsedReason = reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
+                const itemId = item.id
 
                 // This indicator is shown if we detect we're looking at a custom product
                 // that's been recently added to the user's sidebar.
                 // We extract the `reasonText` from the item or come up with some default
                 // ones for some specific reasons that have a reasonable default.
+                // We exclude USED_ON_SEPARATE_TEAM as those are not particularly useful to highlight.
+                // We also hide the indicator once the user has hovered over the item.
                 const showIndicator =
                     root === 'custom-products://' &&
                     createdAt &&
                     dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    parsedReason
+                    reason &&
+                    reason !== UserProductListReason.USED_ON_SEPARATE_TEAM &&
+                    (reasonText || USER_PRODUCT_LIST_REASON_DEFAULTS[reason]) &&
+                    !seenCustomProducts.includes(itemId)
 
                 return (
-                    <Tooltip title={parsedReason} delayMs={0} placement="top-start">
+                    <>
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <ProfilePicture
                                 user={item.record?.user as UserBasicType | undefined}
@@ -654,13 +678,13 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <div className="relative">
+                        <div className="relative" onMouseEnter={() => handleMouseEnterIndicator(itemId)}>
                             <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                             {showIndicator && (
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
                             )}
                         </div>
-                    </Tooltip>
+                    </>
                 )
             }}
             renderItem={(item) => {

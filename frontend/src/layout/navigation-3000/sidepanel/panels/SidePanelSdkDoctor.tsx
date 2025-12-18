@@ -5,6 +5,7 @@ import { IconInfo, IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
@@ -108,16 +109,54 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                     {record.isOutdated ? (
                         <Tooltip
                             placement="right"
-                            title={`Upgrade recommended ${record.daysSinceRelease ? `(${Math.floor(record.daysSinceRelease / 7)} weeks old)` : ''}`}
+                            title={
+                                record.releaseDate
+                                    ? `Released ${dayjs(record.releaseDate).fromNow()}. Upgrade recommended.`
+                                    : 'Upgrade recommended'
+                            }
                         >
-                            <LemonTag type="danger" className="shrink-0">
+                            <LemonTag type="danger" className="shrink-0 cursor-help">
                                 Outdated
                             </LemonTag>
                         </Tooltip>
+                    ) : record.latestVersion && record.version === record.latestVersion ? (
+                        <Tooltip
+                            placement="right"
+                            title={
+                                <>
+                                    You have the latest available.
+                                    <br />
+                                    Click 'Releases ↗' above to check for any since.
+                                </>
+                            }
+                        >
+                            <LemonTag type="success" className="shrink-0 cursor-help">
+                                Current
+                            </LemonTag>
+                        </Tooltip>
                     ) : (
-                        <LemonTag type="success" className="shrink-0">
-                            {record.latestVersion && record.version === record.latestVersion ? 'Current' : 'Recent'}
-                        </LemonTag>
+                        <Tooltip
+                            placement="right"
+                            title={
+                                record.releaseDate ? (
+                                    <>
+                                        Released {dayjs(record.releaseDate).fromNow()}.
+                                        <br />
+                                        Upgrading is a good idea, but it's not urgent yet.
+                                    </>
+                                ) : (
+                                    "Upgrading is a good idea, but it's not urgent yet"
+                                )
+                            }
+                        >
+                            <LemonTag
+                                type="warning"
+                                className="shrink-0 cursor-help"
+                                style={{ color: 'var(--warning-dark)', borderColor: 'var(--warning-dark)' }}
+                            >
+                                Recent
+                            </LemonTag>
+                        </Tooltip>
                     )}
                 </div>
             )
@@ -290,29 +329,18 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
         <div className="flex flex-col mb-4 p-2">
             <div className="flex flex-row justify-between items-center gap-2 mb-4">
                 <div>
-                    <div className="flex flex-row items-center gap-2">
-                        <h3 className="mb-0">{sdkName}</h3>
-                        <span className="inline-flex gap-1">
-                            <LemonTag type={sdk.isOutdated ? 'danger' : 'success'}>
-                                {sdk.isOutdated ? 'Outdated' : 'Up to date'}
-                            </LemonTag>
-
-                            {sdk.isOld && (
-                                <Tooltip
-                                    title={
-                                        sdk.allReleases[0]!.daysSinceRelease
-                                            ? `This SDK is ${Math.floor(sdk.allReleases[0]!.daysSinceRelease / 7)} weeks old`
-                                            : 'This SDK is old and we suggest upgrading'
-                                    }
-                                    delayMs={0}
-                                    placement="right"
-                                >
-                                    <LemonTag type="warning">Old</LemonTag>
-                                </Tooltip>
-                            )}
-                        </span>
-                    </div>
-                    <small>Latest version available: {sdk.currentVersion}</small>
+                    <h3 className="mb-0">{sdkName}</h3>
+                    <Tooltip
+                        title={
+                            <>
+                                Version number cached daily near midnight UTC.
+                                <br />
+                                Click 'Releases ↗' to check for any since.
+                            </>
+                        }
+                    >
+                        <small className="cursor-help">Latest version available: {sdk.currentVersion}</small>
+                    </Tooltip>
                 </div>
 
                 <div className="flex flex-row gap-2">

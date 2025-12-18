@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -49,6 +48,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -96,8 +96,6 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { AnalysisTab } from './FeatureFlagAnalysisTab'
-import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -171,6 +169,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             existingSurvey: hasVariantSurvey,
         })
 
+        void addProductIntentForCrossSell({
+            from: ProductKey.FEATURE_FLAGS,
+            to: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+        })
+
         if (hasVariantSurvey) {
             setActiveTab(FeatureFlagsTab.FEEDBACK)
         } else {
@@ -239,10 +243,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <SceneSection title="Insights that use this feature flag">
                                     <RecentFeatureFlagInsights />
                                 </SceneSection>
-
-                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                    <FeatureFlagAutoRollback readOnly />
-                                )}
                             </>
                         )}
 
@@ -271,26 +271,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Schedule',
             key: FeatureFlagsTab.SCHEDULE,
             content: <FeatureFlagSchedule />,
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Analysis</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="warning">
-                        {' '}
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.Analysis,
-            content: (
-                <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                    <AnalysisTab featureFlag={featureFlag} />
-                </PostHogFeature>
-            ),
         })
     }
 
@@ -667,9 +647,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </div>
                                     {advancedSettingsExpanded && (
                                         <>
-                                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                                <FeatureFlagAutoRollback />
-                                            )}
                                             <div className="border rounded bg-surface-primary">
                                                 <h3 className="p-2 mb-0">Permissions</h3>
                                                 <LemonDivider className="my-0" />
@@ -858,15 +835,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                                 }}
                                 actions={
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => editFeatureFlag(true)}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    </>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={featureFlag.user_access_level}
+                                    >
+                                        {({ disabledReason }) => (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                disabledReason={disabledReason}
+                                                onClick={() => editFeatureFlag(true)}
+                                            >
+                                                Edit
+                                            </LemonButton>
+                                        )}
+                                    </AccessControlAction>
                                 }
                             />
                             <LemonTabs
@@ -1548,6 +1532,9 @@ function FeatureFlagRollout({
                                     onRemoveVariant={removeVariant}
                                     onDistributeEqually={distributeVariantsEqually}
                                     canEditVariant={canEditVariant}
+                                    hasExperiment={hasExperiment ?? false}
+                                    experimentId={experiment?.id}
+                                    experimentName={experiment?.name}
                                     isDraftExperiment={isDraftExperiment}
                                     onVariantChange={(index, field, value) => {
                                         const currentVariants = [...variants]

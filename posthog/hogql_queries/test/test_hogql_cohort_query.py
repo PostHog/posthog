@@ -213,6 +213,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                             "value": "@posthog.com",
                             "negation": False,
                             "operator": "icontains",
+                            "conditionHash": "test123abc456",
+                            "bytecode": ["_H", 1, 32, "email", 32, "@posthog.com", 2, "icontains", 2],
                         }
                     ],
                 }
@@ -226,10 +228,10 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
         query_str = hogql_query.query_str("clickhouse")
 
-        # Should query persons table for person properties
-        self.assertIn("persons", query_str)
-        # Should have the email filter
-        self.assertIn("email", query_str.lower())
+        # Should query precalculated_person_properties table for person properties
+        self.assertIn("precalculated_person_properties", query_str)
+        # Should have condition hash filter
+        self.assertIn("condition", query_str)
 
     def test_behavioral_performed_event_pageview(self) -> None:
         """

@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from typing import Optional
 
 TableName = str
 PropertySourceColumnName = str
@@ -14,6 +15,7 @@ class PropertyGroupDefinition:
     codec: str = "ZSTD(1)"
     is_materialized: bool = True
     column_type_name: str = "map"
+    column_name: Optional[str] = None
     hidden: bool = (
         False  # whether or not this column should be returned when searching for groups containing a property key
     )
@@ -25,7 +27,7 @@ class PropertyGroupDefinition:
             return self.key_filter_function(property_key)
 
     def get_column_name(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
-        return f"{source_column}_{self.column_type_name}_{group_name}"
+        return self.column_name if self.column_name else f"{source_column}_{self.column_type_name}_{group_name}"
 
     def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
         column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
@@ -176,6 +178,7 @@ event_property_group_definitions = {
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
             column_type_name="group",
         ),
+        # Please make sure that changing the ai property group won't affect the performance of the LLM Analytics Usage Report task.
         "ai": PropertyGroupDefinition(
             "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
             lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
@@ -227,7 +230,16 @@ property_groups = PropertyGroupManager(
                     column_type_name="map",
                     is_materialized=False,
                 ),
-            }
+            },
+            "resource_attributes": {
+                "all": PropertyGroupDefinition(
+                    "true",
+                    lambda key: True,
+                    column_type_name="map",
+                    is_materialized=False,
+                    column_name="resource_attributes",
+                ),
+            },
         },
     }
 )

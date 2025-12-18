@@ -31,9 +31,17 @@ jobs:
                   cache: 'pnpm'
 
             - name: Update Browserslist database and create PR if applies
+              id: update-browserlist
               uses: c2corg/browserslist-update-action@a76abb476199caea5399f9e28ff3f16e491ec566 # v2
               with:
                   github_token: ${{ secrets.POSTHOG_BOT_PAT }} # This token has permission to open PRs
                   commit_message: 'build: update Browserslist db'
                   title: 'build: update Browserslist db'
-                  labels: 'dependencies, automerge'
+                  labels: 'dependencies'
+
+            - name: Enable automerge
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ steps.update-browserlist.outputs.pr_number }}
+              run: |
+                  gh pr merge "$PR_NUMBER" --auto --merge

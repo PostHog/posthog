@@ -499,6 +499,51 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
             secret_input_3: { value: 'super secret', bytecode: ['_h', 32, 'super secret'] },
         },
     },
+    simple_fetch_data_warehouse_table: {
+        inputs_schema: [
+            { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+            { key: 'body', type: 'json', label: 'JSON body', secret: false, required: true },
+            {
+                key: 'method',
+                type: 'choice',
+                label: 'HTTP Method',
+                secret: false,
+                choices: [
+                    { label: 'POST', value: 'POST' },
+                    { label: 'PUT', value: 'PUT' },
+                    { label: 'PATCH', value: 'PATCH' },
+                    { label: 'GET', value: 'GET' },
+                ],
+                required: true,
+            },
+            { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+        ],
+        inputs: {
+            url: {
+                value: 'https://example.com/posthog-webhook',
+                bytecode: ['_h', 32, 'https://example.com/posthog-webhook'],
+            },
+            method: { value: 'POST' },
+            headers: {
+                order: 3,
+                value: {
+                    'Content-Type': 'application/json',
+                },
+                bytecode: {
+                    'Content-Type': ['_H', 1, 32, 'application/json'],
+                },
+            },
+            body: {
+                order: 2,
+                value: {
+                    event: '{event}',
+                },
+                bytecode: {
+                    event: ['_H', 1, 32, 'event', 1, 1],
+                },
+            },
+        },
+    },
     none: {
         inputs_schema: [],
         inputs: {},
@@ -727,6 +772,7 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
             filter_test_accounts: false,
         },
     },
+    no_filters_data_warehouse_table: { filters: { source: 'data-warehouse-table', bytecode: ['_h', 29] } },
 }
 
 export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>> = {

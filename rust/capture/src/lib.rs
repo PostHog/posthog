@@ -1,8 +1,10 @@
 pub mod ai_endpoint;
 pub mod api;
 pub mod config;
+pub mod events;
 pub mod limiters;
 pub mod metrics_middleware;
+pub mod payload;
 pub mod prometheus;
 pub mod router;
 pub mod server;

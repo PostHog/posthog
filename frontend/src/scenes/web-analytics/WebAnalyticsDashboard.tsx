@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -15,11 +15,13 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -111,7 +113,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 Open as new insight
             </LemonButton>
         ) : null,
-        tile.canOpenModal ? (
+        tile.canOpenModal !== false ? (
             <LemonButton
                 key="open-modal-button"
                 onClick={() => openModal(tile.tileId)}
@@ -286,7 +288,7 @@ export const WebTabs = ({
                 Open as new Insight
             </LemonButton>
         ) : null,
-        activeTab?.canOpenModal ? (
+        activeTab?.canOpenModal !== false ? (
             <LemonButton
                 key="open-modal-button"
                 onClick={() => openModal(tileId, activeTabId)}
@@ -453,11 +455,32 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
+const WebAnalyticsSurveyModal = (): JSX.Element | null => {
+    const { surveyModalPath } = useValues(webAnalyticsLogic)
+    const { closeSurveyModal } = useActions(webAnalyticsLogic)
+
+    if (!surveyModalPath) {
+        return null
+    }
+
+    return (
+        <QuickSurveyModal
+            context={{ type: QuickSurveyType.WEB_PATH, path: surveyModalPath }}
+            isOpen={!!surveyModalPath}
+            onCancel={closeSurveyModal}
+            showFollowupToggle={true}
+            modalTitle={`Survey users on ${surveyModalPath}`}
+            info={`Shown to users who spend more than 15 seconds on URLs containing ${surveyModalPath}, once per unique user`}
+        />
+    )
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
+                <WebAnalyticsSurveyModal />
                 <VersionCheckerBanner />
                 <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
@@ -506,15 +529,17 @@ const WebAnalyticsTabs = (): JSX.Element => {
             sceneInset
             className="-mt-4"
             rightSlot={
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconShare fontSize="16" />}
-                    tooltip="Share"
-                    tooltipPlacement="top"
-                    onClick={handleShare}
-                    data-attr="web-analytics-share-button"
-                />
+                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconLink fontSize="16" />}
+                        tooltip="Share"
+                        tooltipPlacement="top"
+                        onClick={handleShare}
+                        data-attr="web-analytics-share-button"
+                    />
+                )
             }
         />
     )

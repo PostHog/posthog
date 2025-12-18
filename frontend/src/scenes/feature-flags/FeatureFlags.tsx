@@ -22,6 +22,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -343,10 +344,30 @@ export function OverViewTab({
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
-                return typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
-                    <LemonTag type="highlight">{releaseText}</LemonTag>
-                ) : (
-                    releaseText
+                const variants = featureFlag.filters?.multivariate?.variants
+                const isMultivariate = variants && variants.length > 0
+
+                return (
+                    <div className="space-y-1">
+                        <div>
+                            {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
+                                <LemonTag type="highlight">{releaseText}</LemonTag>
+                            ) : (
+                                releaseText
+                            )}
+                        </div>
+                        {isMultivariate && (
+                            <div className="flex flex-wrap gap-1">
+                                {variants.map((variant) => (
+                                    <span key={variant.key}>
+                                        <LemonTag type="muted" size="small">
+                                            {variant.key}: {variant.rollout_percentage}%
+                                        </LemonTag>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )
             },
         },
@@ -358,11 +379,7 @@ export function OverViewTab({
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <div className="flex justify-start gap-1">
-                        {featureFlag.performed_rollback ? (
-                            <LemonTag type="warning" className="uppercase">
-                                Rolled Back
-                            </LemonTag>
-                        ) : featureFlag.active ? (
+                        {featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>
@@ -462,9 +479,7 @@ export function OverViewTab({
                     {featureFlagsLoading ? (
                         <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
                     ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                            count === 1 ? '' : 's'
-                        }`
+                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
                     ) : null}
                 </span>
             </div>
@@ -608,7 +623,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} compact />
                 </div>
             )
         } else if (rollout_percentage !== null) {

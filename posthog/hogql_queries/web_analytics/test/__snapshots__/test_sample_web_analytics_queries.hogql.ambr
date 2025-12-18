@@ -250,6 +250,7 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
+  HAVING or(greater(`context.columns.rage_clicks`, tuple(0, 0)), greater(`context.columns.dead_clicks`, tuple(0, 0)), greater(`context.columns.errors`, tuple(0, 0)))
   ORDER BY `context.columns.errors` DESC,
            `context.columns.rage_clicks` DESC,
            `context.columns.dead_clicks` DESC
@@ -883,7 +884,7 @@
      FROM
        (SELECT count() AS total,
                toStartOfDay(timestamp) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))), equals(event, '$pageview'), notILike(toString(person.properties.email), '%@posthog.com%'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -903,7 +904,7 @@
      FROM
        (SELECT count(DISTINCT e.$session_id) AS total,
                toStartOfDay(timestamp) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))), equals(event, '$pageview'), notILike(toString(person.properties.email), '%@posthog.com%'))
         GROUP BY day_start)
      GROUP BY day_start
@@ -923,7 +924,7 @@
      FROM
        (SELECT count(DISTINCT e.person_id) AS total,
                toStartOfDay(timestamp) AS day_start
-        FROM events AS e SAMPLE 1
+        FROM events AS e
         WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))), equals(event, '$pageview'), notILike(toString(person.properties.email), '%@posthog.com%'))
         GROUP BY day_start)
      GROUP BY day_start

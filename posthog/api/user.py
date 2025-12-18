@@ -121,6 +121,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
+            "allow_impersonation",
             "toolbar_mode",
             "has_password",
             "id",
@@ -433,6 +434,7 @@ class UserViewSet(
         "set_current_organization",
         "allow_sidebar_suggestions",
         "shortcut_position",
+        "has_seen_product_intro_for",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]

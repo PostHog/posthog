@@ -10,7 +10,8 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { autoCaptureEventToDescription, isExternalLink } from 'lib/utils'
+
+import { autoCaptureEventToDescription, isURL } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
@@ -41,6 +42,8 @@ import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyO
 import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
+
+const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 'session_end']
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
@@ -188,7 +191,7 @@ export function renderColumn(
         ) : (
             content
         )
-    } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
+    } else if (DATETIME_KEYS.includes(key)) {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
@@ -410,8 +413,13 @@ export function renderColumn(
         }
     }
 
-    if (typeof value === 'string' && isExternalLink(value)) {
-        return <Link to={value} target="_blank">{value}</Link>
+
+    if (typeof value === 'string' && isURL(value)) {
+        return (
+            <Link to={value} target="_blank" targetBlankIcon>
+                {value}
+            </Link>
+        )
     }
 
     return String(value)

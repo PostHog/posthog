@@ -78,6 +78,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsEvaluation: () => import('../../products/llm_analytics/frontend/evaluations/LLMAnalyticsEvaluation'),
     LLMAnalyticsEvaluationTemplates: () =>
         import('../../products/llm_analytics/frontend/evaluations/EvaluationTemplates'),
+    LLMAnalyticsPrompt: () => import('../../products/llm_analytics/frontend/prompts/LLMPromptScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
@@ -133,6 +134,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
+    '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
+    '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+    '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
@@ -340,6 +344,12 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
+    LLMAnalyticsPrompt: {
+        projectBased: true,
+        name: 'LLM analytics prompt',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/llm-analytics/installation',
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -517,6 +527,9 @@ export const productUrls = {
     llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
     llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
+    llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
+    llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
+    llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
@@ -586,6 +599,8 @@ export const productUrls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
     alerts: (): string => `/insights?tab=alerts`,
+    productTours: (): string => '/product_tours',
+    productTour: (id: string): string => `/product_tours/${id}`,
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -722,6 +737,13 @@ export const fileSystemTypes = {
         iconType: 'notebook',
         href: (ref: string) => urls.notebook(ref),
         filterKey: 'notebook',
+    },
+    product_tour: {
+        name: 'Product tour',
+        iconType: 'product_tour',
+        href: (ref: string) => urls.productTour(ref),
+        iconColor: ['var(--color-product-surveys-light)'],
+        filterKey: 'product_tour',
     },
     revenue: {
         name: 'Revenue',
@@ -912,6 +934,13 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new'), iconType: 'notebook' },
     {
+        path: `Product tour`,
+        type: 'product_tour',
+        href: urls.productTour('new'),
+        iconType: 'product_tour',
+        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+    },
+    {
         path: `Survey`,
         type: 'survey',
         href: urls.survey('new'),
@@ -1061,6 +1090,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsEvaluations',
             'LLMAnalyticsEvaluation',
             'LLMAnalyticsEvaluationTemplates',
+            'LLMAnalyticsPrompt',
         ],
     },
     {
@@ -1129,6 +1159,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-product-analytics-light)'],
         sceneKey: 'SavedInsights',
         sceneKeys: ['SavedInsights', 'Insight'],
+    },
+    {
+        path: 'Product tours',
+        category: 'Behavior',
+        type: 'product_tour',
+        href: urls.productTours(),
+        iconType: 'product_tour',
+        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+        sceneKey: 'ProductTours',
+        sceneKeys: ['ProductTour', 'ProductTours'],
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: 'Revenue analytics',

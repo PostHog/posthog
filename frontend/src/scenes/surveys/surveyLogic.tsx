@@ -10,7 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean, pluralize } from 'lib/utils'
+import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -85,7 +85,7 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyVersionWarning, getSurveyVersionWarnings } from './surveyVersionRequirements'
+import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -197,23 +197,6 @@ export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adapti
 export interface SurveyDateRange {
     date_from: string | null
     date_to: string | null
-}
-
-function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
-    return {
-        ...survey,
-        questions: survey.questions.map((question) => ({
-            ...question,
-            id: undefined,
-        })),
-        id: NEW_SURVEY.id,
-        name: `${survey.name} (duplicated at ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
-        archived: false,
-        start_date: null,
-        end_date: null,
-        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
-        linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
-    }
 }
 
 function isEmptyOrUndefined(value: any): boolean {
@@ -555,7 +538,6 @@ export const surveyLogic = kea<surveyLogicType>([
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
-        setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
         setShowArchivedResponses: (show: boolean) => ({ show }),
         archiveResponse: (responseUuid: string) => ({ responseUuid }),
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
@@ -712,65 +694,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 return response
             },
         },
-        duplicatedSurvey: {
-            duplicateSurvey: async () => {
-                const { survey } = values
-                const payload = duplicateExistingSurvey(survey)
-                try {
-                    const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
-
-                    lemonToast.success('Survey duplicated.', {
-                        toastId: `survey-duplicated-${createdSurvey.id}`,
-                        button: {
-                            label: 'View Survey',
-                            action: () => {
-                                router.actions.push(urls.survey(createdSurvey.id))
-                            },
-                        },
-                    })
-
-                    actions.setIsDuplicateToProjectModalOpen(false)
-                    actions.reportSurveyCreated(createdSurvey, true)
-                    actions.addProductIntent({
-                        product_type: ProductKey.SURVEYS,
-                        intent_context: ProductIntentContext.SURVEY_DUPLICATED,
-                        metadata: {
-                            survey_id: createdSurvey.id,
-                        },
-                    })
-                    return survey
-                } catch (error) {
-                    posthog.captureException(error, {
-                        action: 'duplicate-survey',
-                        survey: payload,
-                    })
-                    lemonToast.error('Error while duplicating survey. Please try again.')
-                    return null
-                }
-            },
-        },
-        duplicatedToProjectSurvey: {
-            duplicateToProject: async ({ sourceSurvey, targetTeamIds }) => {
-                const response = await api.surveys.duplicateToProjects(sourceSurvey.id, targetTeamIds)
-
-                lemonToast.success(`Survey duplicated to ${pluralize(response.count, 'project')}.`, {
-                    toastId: `survey-bulk-duplicated-${sourceSurvey.id}`,
-                })
-
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_BULK_DUPLICATED,
-                    metadata: {
-                        survey_id: sourceSurvey.id,
-                        target_team_ids: targetTeamIds,
-                        bulk_operation: true,
-                    },
-                })
-
-                actions.setIsDuplicateToProjectModalOpen(false)
-                return sourceSurvey
-            },
-        },
         surveyBaseStats: {
             loadSurveyBaseStats: async (): Promise<SurveyBaseStatsResult> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
@@ -815,7 +738,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, {
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters,
@@ -863,7 +786,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.queryHogQL(query, {
+                const response = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters, // Property filters applied in WHERE
@@ -907,7 +830,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     ORDER BY events.timestamp DESC
                     LIMIT ${limit}` as HogQLQueryString
 
-                const responseJSON = await api.queryHogQL(query, {
+                const responseJSON = await api.SHAMEFULLY_UNTAGGED_queryHogQL(query, {
                     queryParams: {
                         filters: {
                             properties: values.propertyFilters,
@@ -950,12 +873,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 lemonToast.success(<>Survey {survey.name} updated</>)
                 actions.editingSurvey(false)
                 actions.reportSurveyEdited(survey)
-                actions.loadSurveys()
-            },
-            duplicateSurveySuccess: () => {
-                actions.loadSurveys()
-            },
-            duplicatedToProjectSurveySuccess: () => {
                 actions.loadSurveys()
             },
             launchSurveySuccess: ({ survey }) => {
@@ -1040,6 +957,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
                 if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+                } else if (
+                    values.surveyErrors.questions != null &&
+                    !values.surveyErrors.questions.every((q) => q.question === false)
+                ) {
+                    actions.setSelectedSection(SurveyEditSection.Steps)
+                    const page = values.surveyErrors.questions.findIndex((q) => q.question !== false)
+                    if (page >= 0) {
+                        actions.setSelectedPageIndex(page)
+                    }
                 } else if (hasFormErrors(values.survey.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
@@ -1128,12 +1054,6 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
-            },
-        ],
-        isDuplicateToProjectModalOpen: [
-            false,
-            {
-                setIsDuplicateToProjectModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         surveyMissing: [
@@ -2039,10 +1959,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 return responsesByQuestion
             },
         ],
-        surveyVersionWarnings: [
+        surveyWarnings: [
             (s) => [s.survey, s.teamSdkVersions],
-            (survey, teamSdkVersions): SurveyVersionWarning[] => {
-                return getSurveyVersionWarnings(survey as Survey, teamSdkVersions)
+            (survey, teamSdkVersions): SurveyFeatureWarning[] => {
+                return getSurveyWarnings(survey as Survey, teamSdkVersions)
             },
         ],
     }),
@@ -2167,7 +2087,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 try {
                     const parsedAnswerFilters = JSON.parse(searchParams.answerFilters)
                     if (Array.isArray(parsedAnswerFilters) && parsedAnswerFilters.length > 0) {
-                        actions.setAnswerFilters(parsedAnswerFilters, false)
+                        const mergedFilters =
+                            values.answerFilters.length > 0
+                                ? values.answerFilters.map((existingFilter) => {
+                                      const urlFilter = parsedAnswerFilters.find(
+                                          (f: EventPropertyFilter) => f.key === existingFilter.key
+                                      )
+                                      return urlFilter ?? existingFilter
+                                  })
+                                : parsedAnswerFilters
+                        actions.setAnswerFilters(mergedFilters, false)
                     }
                 } catch (e) {
                     console.error('Failed to parse answerFilters from URL:', e)

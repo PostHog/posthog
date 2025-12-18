@@ -2,23 +2,30 @@ import {
     IconAtSign,
     IconBook,
     IconBrain,
+    IconCheckbox,
     IconCreditCard,
     IconDocument,
+    IconGlobe,
     IconMemory,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
+import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
+
+export interface DisplayFormatterContext {
+    registeredToolMap: Record<string, ToolRegistration>
+}
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -39,7 +46,7 @@ export interface ToolDefinition<N extends string = string> {
     icon: JSX.Element
     displayFormatter?: (
         toolCall: EnhancedToolCall,
-        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+        { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
@@ -114,7 +121,30 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'switch_mode',
 ]
 
-export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
+export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    todo_write: {
+        name: 'Write a todo',
+        description: 'Write a todo to remember a task',
+        icon: <IconCheckbox />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return `Update the to-do list`
+            }
+            return `Updating the to-do list...`
+        },
+    },
+    task: {
+        name: 'Run an agent to perform a task',
+        description: 'Run an agent to perform a task',
+        icon: <IconRobot />,
+        displayFormatter: (toolCall) => {
+            const title = toolCall.args.title
+            if (toolCall.status === 'completed') {
+                return `Task (${title})`
+            }
+            return `Running a task (${title})...`
+        },
+    },
     create_form: {
         name: 'Create a form',
         description: 'Create a form to collect information from the user',
@@ -190,6 +220,30 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         name: 'Read data',
         description: 'Read data, such as your data warehouse schema and billed usage statistics',
         icon: iconForType('data_warehouse'),
+        displayFormatter: function readDataDisplayFormatter(
+            toolCall: EnhancedToolCall,
+            context: DisplayFormatterContext
+        ) {
+            if (
+                this.subtools &&
+                isObject(toolCall.args?.query) &&
+                toolCall.args.query &&
+                'kind' in toolCall.args.query &&
+                typeof toolCall.args.query.kind === 'string' &&
+                toolCall.args.query.kind in this.subtools
+            ) {
+                const { displayFormatter } = this.subtools[toolCall.args.query.kind]
+                if (displayFormatter) {
+                    return displayFormatter(toolCall, context)
+                }
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Read data'
+            }
+
+            return 'Reading data...'
+        },
         subtools: {
             billing_info: {
                 name: 'Check your billing data',
@@ -202,15 +256,33 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                     return 'Reading billing data...'
                 },
             },
-            datawarehouse_schema: {
-                name: 'Read your data warehouse schema',
-                description: 'Read your data warehouse schema',
+            data_warehouse_schema: {
+                name: 'Read data warehouse schema',
+                description: 'Read data warehouse schema available in this project',
                 icon: iconForType('data_warehouse'),
                 displayFormatter: (toolCall) => {
                     if (toolCall.status === 'completed') {
                         return 'Read data warehouse schema'
                     }
                     return 'Reading data warehouse schema...'
+                },
+            },
+            data_warehouse_table: {
+                name: 'Read data warehouse table schema',
+                description: 'Read data warehouse table schema for a specific table',
+                icon: iconForType('data_warehouse'),
+                displayFormatter: (toolCall) => {
+                    const tableName =
+                        isObject(toolCall.args?.query) && 'table_name' in toolCall.args.query
+                            ? toolCall.args.query.table_name
+                            : null
+
+                    if (toolCall.status === 'completed') {
+                        return tableName ? `Read schema for \`${tableName}\`` : 'Read data warehouse table schema'
+                    }
+                    return tableName
+                        ? `Reading schema for \`${tableName}\`...`
+                        : 'Reading data warehouse table schema...'
                 },
             },
             artifacts: {
@@ -222,6 +294,26 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                         return 'Read conversation artifacts'
                     }
                     return 'Reading conversation artifacts...'
+                },
+            },
+            insight: {
+                name: 'Retrieve an insight',
+                description: 'Retrieve an insight data',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    function isExecuting(): boolean {
+                        return !!(
+                            isObject(toolCall.args?.query) &&
+                            toolCall.args?.query &&
+                            'execute' in toolCall.args?.query &&
+                            toolCall.args?.query.execute
+                        )
+                    }
+
+                    if (toolCall.status === 'completed') {
+                        return isExecuting() ? 'Analyzed an insight' : 'Retrieved an insight'
+                    }
+                    return isExecuting() ? 'Analyzing an insight...' : 'Retrieving an insight...'
                 },
             },
         },
@@ -504,6 +596,97 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Creating experiment...'
         },
     },
+    create_task: {
+        name: 'Create a task',
+        description: 'Create a task for an AI agent to execute coding changes in a repository',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created task'
+            }
+            return 'Creating task...'
+        },
+    },
+    run_task: {
+        name: 'Run a task',
+        description: 'Run a task to trigger its execution',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Started task execution'
+            }
+            return 'Starting task...'
+        },
+    },
+    get_task_run: {
+        name: 'Get task status',
+        description: 'Get task status including stage, progress, and any errors',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Got task status'
+            }
+            return 'Getting task status...'
+        },
+    },
+    get_task_run_logs: {
+        name: 'Get task logs',
+        description: 'Get task logs for debugging and reviewing execution details',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Got task logs'
+            }
+            return 'Getting task logs...'
+        },
+    },
+    list_tasks: {
+        name: 'List tasks',
+        description: 'List tasks in the current project with optional filtering',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed tasks'
+            }
+            return 'Listing tasks...'
+        },
+    },
+    list_task_runs: {
+        name: 'List task runs',
+        description: 'List task runs for a specific task to see execution history',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed task runs'
+            }
+            return 'Listing task runs...'
+        },
+    },
+    list_repositories: {
+        name: 'List repositories',
+        description: 'List repositories available via GitHub integration for creating tasks',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed repositories'
+            }
+            return 'Listing repositories...'
+        },
+    },
     switch_mode: {
         name: 'Switch agent mode',
         description:
@@ -546,6 +729,19 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             }
             return 'Summarizing sessions...'
         },
+    },
+    web_search: {
+        name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
+        description: 'Search the web for up-to-date information',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                // The args won't be fully streamed initially, so we need to check if `query` is present
+                return toolCall.args.query ? `Searched the web for **${toolCall.args.query}**` : 'Searched the web'
+            }
+            return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
+        },
+        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
 }
 
@@ -597,8 +793,13 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools(): ToolDefinition[] {
-    return DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+    const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+    if (webSearchEnabled) {
+        // Add web search after `search`
+        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
+    }
+    return defaultTools
 }
 
 export type SpecialMode = keyof typeof SPECIAL_MODES
@@ -610,7 +811,6 @@ export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
 
 export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
-    'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',

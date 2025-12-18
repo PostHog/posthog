@@ -38,6 +38,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -109,6 +110,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLIncompatibleSchemaError",
     # Raised when a transaction fails to complete after a certain number of retries.
     "PostgreSQLTransactionError",
+    # Raised when a query takes too long.
+    "TimeoutError",
 )
 
 
@@ -431,6 +434,7 @@ class PostgreSQLClient:
         merge_key: Fields,
         update_key: Fields,
         update_when_matched: Fields,
+        timeout: float | int | None = None,
     ) -> None:
         """Merge two identical person model tables in PostgreSQL.
 
@@ -456,6 +460,8 @@ class PostgreSQLClient:
             for field in merge_key
         )
 
+        order_by = sql.SQL(",").join(sql.Identifier(field[0]) for field in merge_key)
+
         or_separator = sql.SQL(" OR ")
         update_condition = or_separator.join(
             sql.SQL("EXCLUDED.{stage_field} > final.{final_field}").format(
@@ -480,12 +486,14 @@ class PostgreSQLClient:
             """\
         INSERT INTO {final_table} AS final ({field_names})
         SELECT {field_names} FROM {stage_table}
+        ORDER BY {order_by}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
         WHERE ({update_condition})
         """
         ).format(
             final_table=final_table_identifier,
+            order_by=order_by,
             conflict_fields=conflict_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
@@ -501,9 +509,17 @@ class PostgreSQLClient:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
                 try:
-                    await cursor.execute(merge_query)
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(merge_query)
                 except psycopg.errors.InvalidColumnReference:
                     raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
+                except TimeoutError:
+                    self.external_logger.exception(
+                        "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
+                        schema,
+                        final_table_name,
+                    )
+                    raise
 
     async def copy_tsv_to_postgres(
         self,
@@ -901,6 +917,13 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     )
                 finally:
                     if merge_settings.requires_merge:
+                        merge_query_timeout = get_query_timeout(
+                            dt.datetime.fromisoformat(inputs.data_interval_start)
+                            if inputs.data_interval_start
+                            else None,
+                            dt.datetime.fromisoformat(inputs.data_interval_end),
+                        )
+
                         await pg_client.amerge_mutable_tables(
                             final_table_name=pg_table,
                             stage_table_name=pg_stage_table,
@@ -908,6 +931,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                             update_when_matched=table_fields,
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
+                            timeout=merge_query_timeout,
                         )
 
                 return result

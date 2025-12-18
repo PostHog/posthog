@@ -4,15 +4,7 @@ from typing import cast
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.schema import (
-    DateRange,
-    EventPropertyFilter,
-    EventsNode,
-    FunnelsFilter,
-    FunnelsQuery,
-    FunnelsQueryResponse,
-    PropertyOperator,
-)
+from posthog.schema import DateRange, EventPropertyFilter, EventsNode, FunnelsFilter, FunnelsQuery, PropertyOperator
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -59,25 +51,6 @@ class TestFunnelGroupBreakdownUDF(
 
 
 class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # type: ignore
-    def test_assert_udf_flag(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "steps",
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        self.assertTrue(results.isUdf)
-
     # Old style funnels fails on this (not sure why)
     def test_events_same_timestamp_no_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
