@@ -47,7 +47,11 @@ describe('HogFunctionHandler', () => {
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(false),
         } as any
-        hogFunctionHandler = new HogFunctionHandler(mockHogFlowFunctionsService, mockRecipientPreferencesService)
+        hogFunctionHandler = new HogFunctionHandler(
+            mockHogFlowFunctionsService,
+            mockRecipientPreferencesService,
+            'fetch'
+        )
 
         // Simple hog function that prints the inputs
 
@@ -248,7 +252,7 @@ describe('HogFunctionHandler', () => {
         await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         const billableMetrics = invocationResult.metrics.filter(
-            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'billing'
+            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'fetch'
         )
 
         expect(billableMetrics).toHaveLength(1)
@@ -257,7 +261,7 @@ describe('HogFunctionHandler', () => {
             team_id: team.id,
             app_source_id: invocation.functionId,
             instance_id: invocation.id,
-            metric_kind: 'billing',
+            metric_kind: 'fetch',
             metric_name: 'billable_invocation',
             count: 1,
         })
