@@ -6,7 +6,6 @@ use metrics::counter;
 use serde_json::Value;
 use stack_processing::do_stack_processing;
 use tracing::{error, warn};
-use uuid::Uuid;
 
 pub mod issue_processing;
 pub mod stack_processing;
@@ -14,7 +13,6 @@ pub mod stack_processing;
 use crate::{
     app_context::AppContext,
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
-    issue_buckets,
     issue_resolution::IssueStatus,
     metric_consts::{
         ISSUE_PROCESSING_TIME, STACK_PROCESSING_TIME, SUPPRESSED_ISSUE_DROPPED_EVENTS,
@@ -60,12 +58,11 @@ pub async fn do_exception_handling(
     stack_timer.fin();
 
     let issue_timer = common_metrics::timing_guard(ISSUE_PROCESSING_TIME, &[]);
-    let issues = do_issue_processing(context.clone(), &events, &fingerprinted).await?;
+    let issues = do_issue_processing(context, &events, &fingerprinted).await?;
     issue_timer.fin();
 
     // Unfreeze, as we're about to replace the event properties.
     let mut events = events;
-    let mut issue_counts: std::collections::HashMap<Uuid, u32> = std::collections::HashMap::new();
     for (index, fingerprinted) in fingerprinted.into_iter() {
         let issue = issues
             .get(&fingerprinted.fingerprint.value)
@@ -84,11 +81,7 @@ pub async fn do_exception_handling(
 
         let output = fingerprinted.to_output(issue.id);
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
-        *issue_counts.entry(issue.id).or_insert(0) += 1;
     }
-
-    issue_buckets::try_increment_issue_buckets(&*context.issue_buckets_redis_client, issue_counts)
-        .await;
 
     Ok(events)
 }
