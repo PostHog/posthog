@@ -640,8 +640,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             raise ValueError(f"Cannot create merged property with empty unique_hashes. Template property: {template}")
 
         merged_prop = deepcopy(template)
-        merged_prop._merged_condition_hashes = unique_hashes  # type: ignore[union-attr]
-        merged_prop._is_or_group = is_or_group  # type: ignore[union-attr]
+        merged_prop._merged_condition_hashes = unique_hashes  # type: ignore[attr-defined]
+        merged_prop._is_or_group = is_or_group  # type: ignore[attr-defined]
         return merged_prop
 
     def _unwrap_single_property_groups(
