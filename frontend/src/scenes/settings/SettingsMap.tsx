@@ -922,6 +922,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'allow-impersonation',
                 title: 'Support access',
                 component: <AllowImpersonation />,
+                flag: 'CONTROL_SUPPORT_LOGIN',
             },
             {
                 id: 'hedgehog-mode',
