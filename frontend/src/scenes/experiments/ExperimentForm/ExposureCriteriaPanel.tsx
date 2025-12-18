@@ -18,10 +18,16 @@ import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
     onChange: (exposureCriteria: ExperimentExposureCriteria) => void
+    onPrevious?: () => void
     onNext: () => void
 }
 
-export function ExposureCriteriaPanel({ experiment, onChange, onNext }: ExposureCriteriaPanelProps): JSX.Element {
+export function ExposureCriteriaPanel({
+    experiment,
+    onChange,
+    onPrevious,
+    onNext,
+}: ExposureCriteriaPanelProps): JSX.Element {
     // Derive exposure type from experiment state
     const selectedExposureType = experiment.exposure_criteria?.exposure_config ? 'custom' : 'default'
 
@@ -157,7 +163,12 @@ export function ExposureCriteriaPanel({ experiment, onChange, onNext }: Exposure
             </div>
 
             <LemonDivider />
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-2 gap-2">
+                {onPrevious && (
+                    <LemonButton type="secondary" size="small" onClick={onPrevious}>
+                        Previous
+                    </LemonButton>
+                )}
                 <LemonButton type="primary" size="small" onClick={onNext}>
                     Next
                 </LemonButton>

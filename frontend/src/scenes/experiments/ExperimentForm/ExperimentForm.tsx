@@ -5,34 +5,23 @@ import { useState } from 'react'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { ExperimentDetailsPanel } from './ExperimentDetailsPanel'
+import { ExperimentDetailsPanelHeader } from './ExperimentDetailsPanelHeader'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { ExposureCriteriaPanelHeader } from './ExposureCriteriaPanelHeader'
 import { MetricsPanel, MetricsPanelHeader } from './MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
 import { VariantsPanelHeader } from './VariantsPanelHeader'
 import { createExperimentLogic } from './createExperimentLogic'
-
-const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
-    return (
-        <div className="text-danger flex items-center gap-1 text-sm">
-            <IconErrorOutline className="text-xl shrink-0" /> {error}
-        </div>
-    )
-}
 
 interface ExperimentFormProps {
     draftExperiment?: Experiment
@@ -57,26 +46,18 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
+    const title = isEditMode ? 'Edit experiment' : 'New experiment'
+
     return (
         <div>
             <SceneContent>
                 <SceneTitleSection
-                    name={experiment.name}
+                    name={title}
                     description={null}
                     resourceType={{
                         type: 'experiment',
                     }}
-                    canEdit={userHasAccess(
-                        AccessControlResourceType.Experiment,
-                        AccessControlLevel.Editor,
-                        experiment.user_access_level
-                    )}
-                    forceEdit
-                    saveOnBlur
-                    onNameChange={(name) => {
-                        setExperimentValue('name', name)
-                        validateField('name')
-                    }}
+                    canEdit={false}
                     actions={
                         <>
                             <LemonButton
@@ -89,7 +70,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                             >
                                 Cancel
                             </LemonButton>
-
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Experiment}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -109,26 +89,25 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         </>
                     }
                 />
-                {experimentErrors.name && typeof experimentErrors.name === 'string' && (
-                    <LemonFieldError error={experimentErrors.name} />
-                )}
-                <SceneSection title="Hypothesis" description="Describe your experiment in a few sentences.">
-                    <LemonTextArea
-                        placeholder="The goal of this experiment is ..."
-                        data-attr="experiment-hypothesis"
-                        value={experiment.description}
-                        onChange={(value) => {
-                            setExperimentValue('description', value)
-                        }}
-                    />
-                </SceneSection>
-                <SceneDivider />
                 <LemonCollapse
                     activeKey={selectedPanel ?? undefined}
-                    defaultActiveKey="experiment-exposure"
+                    defaultActiveKey="experiment-details"
                     onChange={setSelectedPanel}
                     className="bg-surface-primary"
                     panels={[
+                        {
+                            key: 'experiment-details',
+                            header: <ExperimentDetailsPanelHeader experiment={experiment} />,
+                            content: (
+                                <ExperimentDetailsPanel
+                                    experiment={experiment}
+                                    experimentErrors={experimentErrors}
+                                    onChange={setExperimentValue}
+                                    onValidate={validateField}
+                                    onNext={() => setSelectedPanel('experiment-exposure')}
+                                />
+                            ),
+                        },
                         {
                             key: 'experiment-exposure',
                             header: <ExposureCriteriaPanelHeader experiment={experiment} />,
@@ -136,6 +115,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                 <ExposureCriteriaPanel
                                     experiment={experiment}
                                     onChange={setExposureCriteria}
+                                    onPrevious={() => setSelectedPanel('experiment-details')}
                                     onNext={() => setSelectedPanel('experiment-variants')}
                                 />
                             ),
@@ -240,37 +220,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         },
                     ]}
                 />
-
-                <SceneDivider />
-                <div className="flex justify-end gap-2">
-                    <LemonButton
-                        data-attr="cancel-experiment"
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            router.actions.push(urls.experiments())
-                        }}
-                    >
-                        Cancel
-                    </LemonButton>
-
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Experiment}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={experiment.user_access_level}
-                    >
-                        <LemonButton
-                            loading={isExperimentSubmitting}
-                            disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
-                            data-attr="save-experiment"
-                            type="primary"
-                            size="small"
-                            onClick={saveExperiment}
-                        >
-                            Save as draft
-                        </LemonButton>
-                    </AccessControlAction>
-                </div>
             </SceneContent>
         </div>
     )
