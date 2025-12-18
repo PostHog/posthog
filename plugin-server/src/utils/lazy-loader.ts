@@ -140,7 +140,12 @@ export class LazyLoader<T> {
         const now = Date.now()
 
         for (const [key, value] of Object.entries(map)) {
+            const isNewKey = !(key in this.cache)
             this.cache[key] = value ?? null
+
+            if (isNewKey) {
+                this.cacheSize++
+            }
 
             // Always update the lastUsed time
             this.lastUsed[key] = now
@@ -153,9 +158,6 @@ export class LazyLoader<T> {
                     now + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
             }
         }
-
-        // Update cache size based on actual cache keys
-        this.cacheSize = Object.keys(this.cache).length
 
         // Evict before updating metrics
         this.evictLRU()
@@ -295,17 +297,6 @@ export class LazyLoader<T> {
     }
 
     private evictLRU(): void {
-        // Ensure cacheSize is accurate
-        const actualCacheSize = Object.keys(this.cache).length
-        if (actualCacheSize !== this.cacheSize) {
-            logger.warn('[LazyLoader] Cache size mismatch', {
-                name: this.options.name,
-                reported: this.cacheSize,
-                actual: actualCacheSize,
-            })
-            this.cacheSize = actualCacheSize
-        }
-
         if (this.cacheSize <= this.maxSize) {
             return
         }
@@ -332,9 +323,8 @@ export class LazyLoader<T> {
             delete this.backgroundRefreshAfter[key]
             // Also clean up pendingLoads if present
             delete this.pendingLoads[key]
+            this.cacheSize--
         }
-
-        this.cacheSize = Object.keys(this.cache).length
     }
 
     private updateCacheSizeMetric(): void {
