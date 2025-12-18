@@ -24,6 +24,8 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
     SAMPLE_TIMEOUT_SECONDS,
@@ -63,7 +65,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[5] if len(inputs) > 5 else None,
             window_end=inputs[6] if len(inputs) > 6 else None,
-            model=inputs[7] if len(inputs) > 7 else None,
+            provider=inputs[7] if len(inputs) > 7 else DEFAULT_PROVIDER,
+            model=inputs[8] if len(inputs) > 8 else DEFAULT_MODEL,
         )
 
     @staticmethod
@@ -75,6 +78,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         window_end: str,
         mode: str,
         batch_run_id: str,
+        provider: str | None,
         model: str | None,
     ) -> SummarizationActivityResult:
         """Process a single trace with semaphore-controlled concurrency."""
@@ -88,6 +92,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     window_end,
                     mode,
                     batch_run_id,
+                    provider,
                     model,
                 ],
                 activity_id=f"summarize-{trace_id}",
@@ -150,6 +155,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 window_end=window_end,
                 mode=inputs.mode,
                 batch_run_id=batch_run_id,
+                provider=inputs.provider,
                 model=inputs.model,
             )
             for trace_id in trace_ids

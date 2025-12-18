@@ -36,6 +36,7 @@ async def generate_and_save_summary_activity(
     window_end: str,
     mode: str,
     batch_run_id: str,
+    provider: str | None = None,
     model: str | None = None,
 ) -> SummarizationActivityResult:
     """
@@ -174,6 +175,7 @@ async def generate_and_save_summary_activity(
         text_repr=text_repr,
         team_id=team_id,
         mode=mode,
+        provider=provider,
         model=model,
     )
 
