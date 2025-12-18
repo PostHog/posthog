@@ -25,6 +25,26 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const DEFAULT_CODE = '# Write Python code to run inside your notebook kernel\nresult = 1 + 1\nresult'
 
+const stringifyOutput = (output: unknown): string => {
+    try {
+        return typeof output === 'string' ? output : JSON.stringify(output, null, 2)
+    } catch {
+        return String(output)
+    }
+}
+
+const formatOutputText = (output: unknown): string | null => {
+    if (output === null || output === undefined) {
+        return null
+    }
+
+    if (Array.isArray(output)) {
+        return output.map(stringifyOutput).join('\n')
+    }
+
+    return stringifyOutput(output)
+}
+
 type NotebookNodePythonAttributes = {
     code: string
     stdout?: string | null
@@ -160,62 +180,48 @@ const NotebookNodePythonComponent = ({
         attributes,
         updateAttributes
     )
-    const showCollapsedActions = !isEditingThisNode
 
-    const resultText = useMemo(() => {
-        if (!attributes.result) {
-            return null
-        }
-
-        const textResult = attributes.result['text/plain']
-        if (typeof textResult === 'string') {
-            return textResult
-        }
-
-        return JSON.stringify(attributes.result, null, 2)
-    }, [attributes.result])
-
-    const tracebackText = useMemo(() => (attributes.traceback || []).join('\n'), [attributes.traceback])
-    const hasOutputs = Boolean(
-        resultText || attributes.stdout || attributes.stderr || tracebackText || hasVariables || hasRun
+    const resultText = useMemo(
+        () => (attributes.result ? formatOutputText(attributes.result['text/plain'] ?? attributes.result) : null),
+        [attributes.result]
     )
+    const stdoutText = useMemo(() => formatOutputText(attributes.stdout), [attributes.stdout])
+    const stderrText = useMemo(() => formatOutputText(attributes.stderr), [attributes.stderr])
+    const tracebackText = useMemo(() => formatOutputText(attributes.traceback?.join('\n')), [attributes.traceback])
+    const hasOutputs = Boolean(resultText || stdoutText || stderrText || tracebackText || hasVariables || hasRun)
 
     if (!expanded) {
         return null
     }
 
+    const toggleEditorVisibility = (): void => {
+        if (isEditingThisNode) {
+            toggleEditing(false)
+        } else {
+            setExpanded(true)
+            toggleEditing(true)
+        }
+    }
+
     return (
         <div className="space-y-2">
-            {showCollapsedActions ? (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1">
-                        <LemonButton
-                            type="primary"
-                            size="xsmall"
-                            icon={<IconPlayFilled />}
-                            loading={running}
-                            onClick={() => runCode()}
-                        >
-                            Run
-                        </LemonButton>
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={() => {
-                                setExpanded(true)
-                                toggleEditing(true)
-                            }}
-                        >
-                            Expand code
-                        </LemonButton>
-                    </div>
-                    <PythonRunMeta attributes={attributes} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        icon={<IconPlayFilled />}
+                        loading={running}
+                        onClick={() => runCode()}
+                    >
+                        Run
+                    </LemonButton>
+                    <LemonButton size="xsmall" type="secondary" onClick={toggleEditorVisibility}>
+                        {isEditingThisNode ? 'Collapse code' : 'Expand code'}
+                    </LemonButton>
                 </div>
-            ) : hasOutputs ? (
-                <div className="flex justify-end">
-                    <PythonRunMeta attributes={attributes} />
-                </div>
-            ) : null}
+                <PythonRunMeta attributes={attributes} />
+            </div>
 
             {localError ? (
                 <LemonBanner type="error" onClose={() => setLocalError(null)}>
@@ -232,17 +238,17 @@ const NotebookNodePythonComponent = ({
                             </CodeSnippet>
                         </OutputBlock>
                     ) : null}
-                    {attributes.stdout ? (
+                    {stdoutText ? (
                         <OutputBlock title="Stdout">
                             <CodeSnippet language={Language.Text} wrap compact>
-                                {attributes.stdout}
+                                {stdoutText}
                             </CodeSnippet>
                         </OutputBlock>
                     ) : null}
-                    {attributes.stderr ? (
+                    {stderrText ? (
                         <OutputBlock title="Stderr">
                             <CodeSnippet language={Language.Text} wrap compact>
-                                {attributes.stderr}
+                                {stderrText}
                             </CodeSnippet>
                         </OutputBlock>
                     ) : null}
@@ -400,7 +406,7 @@ const NotebookNodePythonSettings = ({
                         size="xsmall"
                         icon={<IconPlayFilled />}
                         loading={running}
-                        onClick={runCode}
+                        onClick={() => runCode(draftCode)}
                     >
                         Run
                     </LemonButton>
@@ -434,7 +440,7 @@ const NotebookNodePythonSettings = ({
                         setDraftCode(value)
                         persistCode(value)
                     }}
-                    onPressCmdEnter={() => runCode()}
+                    onPressCmdEnter={(value) => runCode(value ?? draftCode)}
                 />
             </div>
         </div>
@@ -469,6 +475,6 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
 export function buildPythonNodeContent(code?: string): JSONContent {
     return {
         type: NotebookNodeType.Python,
-        attrs: { code: code || DEFAULT_CODE },
+        attrs: { code: code || DEFAULT_CODE, __init: { expanded: true, showSettings: true } },
     }
 }
