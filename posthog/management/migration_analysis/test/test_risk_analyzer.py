@@ -1085,8 +1085,8 @@ class TestCombinationRisks:
         assert any("CRITICAL" in warning for warning in combination_risks)
         assert any("DML" in warning for warning in combination_risks)
 
-    def test_runsql_with_ddl_and_other_operations(self):
-        """Warning: RunSQL with DDL (non-concurrent) mixed with other operations"""
+    def test_runsql_with_ddl_and_schema_operations(self):
+        """DDL + schema ops should give specific message about splitting"""
         mock_migration = MagicMock()
         mock_migration.atomic = True
         mock_migration.operations = [
@@ -1100,7 +1100,28 @@ class TestCombinationRisks:
         combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
 
         assert len(combination_risks) > 0
-        assert any("BLOCKED" in warning or "DDL" in warning for warning in combination_risks)
+        # Should give specific message about DDL + schema ops
+        assert any("RunSQL DDL and Django schema operations" in warning for warning in combination_risks)
+        assert any("atomic=True" in warning for warning in combination_risks)
+
+    def test_runsql_ddl_with_dml_specific_message(self):
+        """DDL + DML should give specific message about schema vs data changes"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="ALTER TABLE test_table ADD COLUMN foo text;"),
+            create_mock_operation(migrations.RunSQL, sql="UPDATE test_table SET foo = 'bar';"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        # Should give specific message about DDL + DML
+        assert any(
+            "Schema changes (ALTER TABLE) and data changes (UPDATE/DELETE)" in warning for warning in combination_risks
+        )
+        assert any("atomic=True" in warning for warning in combination_risks)
 
     def test_runsql_concurrent_index_no_ddl_warning(self):
         """CREATE INDEX CONCURRENTLY should NOT trigger DDL isolation warning"""
@@ -1380,10 +1401,10 @@ class TestCombinationRisks:
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_mixed_ops.py")
 
         # SHOULD have DDL isolation warning - there are two top-level operations
-        ddl_warnings = [r for r in migration_risk.combination_risks if "mixed with other operations" in r]
+        # Message should be specific about DDL + schema operations
+        ddl_warnings = [r for r in migration_risk.combination_risks if "RunSQL DDL and Django schema operations" in r]
         assert len(ddl_warnings) == 1, (
-            f"Should warn about DDL mixed with other top-level operations. "
-            f"Got warnings: {migration_risk.combination_risks}"
+            f"Should warn about DDL mixed with schema operations. " f"Got warnings: {migration_risk.combination_risks}"
         )
 
     def test_create_model_with_add_index_safe(self):
