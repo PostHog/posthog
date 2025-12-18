@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
+
 import { getByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
@@ -34,6 +37,26 @@ jest.mock('lib/components/Scenes/SceneFile', () => ({
 
 jest.mock('lib/components/Scenes/SceneDuplicate', () => ({
     SceneDuplicate: ({ onClick }: any) => <button onClick={onClick}>Duplicate</button>,
+}))
+
+jest.mock('scenes/surveys/SurveyFormAppearance', () => ({
+    SurveyFormAppearance: () => null,
+}))
+
+jest.mock('scenes/surveys/Survey', () => ({
+    SurveyDisplaySummary: () => null,
+}))
+
+jest.mock('scenes/surveys/components/empty-state/FirstSurveyHelper', () => ({
+    FirstSurveyHelper: () => null,
+}))
+
+jest.mock('scenes/surveys/SurveyAPIEditor', () => ({
+    SurveyAPIEditor: () => null,
+}))
+
+jest.mock('scenes/surveys/CopySurveyLink', () => ({
+    CopySurveyLink: () => null,
 }))
 
 jest.mock('scenes/organizationLogic', () => {
@@ -113,18 +136,12 @@ jest.mock('scenes/surveys/surveyLogic', () => {
     return { surveyLogic, __testMocks: testMocks }
 })
 
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
-
 jest.mock('lib/hooks/useFileSystemLogView', () => ({
     useFileSystemLogView: () => {},
 }))
 
 jest.mock('scenes/hog-functions/list/LinkedHogFunctions', () => ({
     LinkedHogFunctions: () => null,
-}))
-
-jest.mock('scenes/surveys/SurveyOverview', () => ({
-    SurveyOverview: () => null,
 }))
 
 jest.mock('scenes/surveys/SurveyResponseFilters', () => ({
@@ -180,6 +197,12 @@ const createEndedSurvey = (id: string): Survey =>
         end_date: '2024-01-02T00:00:00Z',
     }) as unknown as Survey
 
+const createEndedSurveyScheduledResume = (id: string): Survey =>
+    ({
+        ...createEndedSurvey(id),
+        scheduled_start_datetime: '2023-02-01T12:00:00.000Z',
+    }) as unknown as Survey
+
 const createRunningSurvey = (id: string): Survey =>
     ({
         ...createBaseSurvey({ id, name: 'Running survey' }),
@@ -208,7 +231,6 @@ describe('SurveyView lifecycle dialogs', () => {
         const surveyId = 'survey-1'
         const { __testMocks }: any = require('scenes/surveys/surveyLogic')
         __testMocks.updateSurveySpy.mockClear()
-
         ;(surveyLogic as any).mount()
         ;(surveyLogic as any).actions.setSurvey(createEndedSurvey(surveyId))
 
@@ -239,11 +261,38 @@ describe('SurveyView lifecycle dialogs', () => {
         expect(payload.scheduled_start_datetime).toMatch(/^2023-01-15T/) // time depends on picker defaults
     })
 
+    it('shows scheduled resume date in the overview tab when survey is ended and scheduled to resume', async () => {
+        const surveyId = 'survey-3'
+
+        ;(surveyLogic as any).mount()
+        ;(surveyLogic as any).actions.setSurvey(createEndedSurveyScheduledResume(surveyId))
+
+        render(<SurveyView id={surveyId} />)
+
+        await screen.findByText('Ended survey')
+        await userEvent.click(screen.getByRole('tab', { name: 'Overview' }))
+        await screen.findByText('Scheduled resume date')
+    })
+
+    it('defaults resume modal to scheduled resume datetime when one exists', async () => {
+        const surveyId = 'survey-4'
+
+        ;(surveyLogic as any).mount()
+        ;(surveyLogic as any).actions.setSurvey(createEndedSurveyScheduledResume(surveyId))
+
+        render(<SurveyView id={surveyId} />)
+
+        await screen.findByText('Ended survey')
+
+        await userEvent.click(screen.getByRole('button', { name: 'Resume' }))
+        expect(await screen.findByRole('button', { name: 'Schedule resume' })).toBeInTheDocument()
+        expect(await screen.findByRole('button', { name: /February/i })).toBeInTheDocument()
+    })
+
     it('sets scheduled_end_datetime when scheduling a stop in the future', async () => {
         const surveyId = 'survey-2'
         const { __testMocks }: any = require('scenes/surveys/surveyLogic')
         __testMocks.updateSurveySpy.mockClear()
-
         ;(surveyLogic as any).mount()
         ;(surveyLogic as any).actions.setSurvey(createRunningSurvey(surveyId))
 

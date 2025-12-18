@@ -231,9 +231,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <SurveyResumeDialog
                         isOpen={isResumeDialogOpen}
                         onClose={() => setIsResumeDialogOpen(false)}
-                        initialScheduledStartTime={survey.scheduled_start_datetime || undefined}
+                        initialScheduledTime={survey.scheduled_start_datetime || undefined}
                         description="Make this survey visible to your users again:"
-                        defaultDatetimeValue={() => dayjs().toISOString()}
+                        defaultDatetimeValue={() => survey.scheduled_start_datetime || dayjs().toISOString()}
                         onSubmit={async (scheduledStartTime) => {
                             await updateSurvey({
                                 ...buildSurveyResumeUpdatePayload(scheduledStartTime),
@@ -245,7 +245,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <SurveyStopDialog
                         isOpen={isStopDialogOpen}
                         onClose={() => setIsStopDialogOpen(false)}
-                        initialScheduledEndTime={survey.scheduled_end_datetime || undefined}
+                        initialScheduledTime={survey.scheduled_end_datetime || undefined}
                         description="Stop displaying this survey to users:"
                         defaultDatetimeValue={() => dayjs().toISOString()}
                         onSubmit={async (scheduledEndTime) => {
