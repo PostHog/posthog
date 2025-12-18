@@ -36,13 +36,13 @@ from posthog.models.webauthn_credential import WebauthnCredential
 WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
 
 
-def get_rp_id() -> str:
+def get_webauthn_rp_id() -> str:
     """Get the Relying Party ID from SITE_URL."""
     parsed = urlparse(settings.SITE_URL)
     return parsed.hostname or "localhost"
 
 
-def get_rp_origin() -> str:
+def get_webauthn_rp_origin() -> str:
     """Get the Relying Party origin from SITE_URL."""
     parsed = urlparse(settings.SITE_URL)
     if parsed.port and parsed.port not in (80, 443):
@@ -50,7 +50,7 @@ def get_rp_origin() -> str:
     return f"{parsed.scheme}://{parsed.hostname}"
 
 
-def handle_to_user_id(handle: bytes) -> int | None:
+def webauthn_handle_to_user_id(handle: bytes) -> int | None:
     """Convert a WebAuthn user handle back to a user ID."""
     try:
         return int(handle.decode("utf-8"))
@@ -628,7 +628,7 @@ class WebauthnBackend(BaseBackend):
 
         try:
             user_handle = base64url_to_bytes(user_handle_b64)
-            user_id = handle_to_user_id(user_handle)
+            user_id = webauthn_handle_to_user_id(user_handle)
             if user_id is None:
                 structlog_logger.warning("webauthn_login_invalid_user_handle", user_handle=user_handle_b64[:20])
                 return None
@@ -670,8 +670,8 @@ class WebauthnBackend(BaseBackend):
             verification = verify_authentication_response(
                 credential=credential_dict,
                 expected_challenge=expected_challenge,
-                expected_rp_id=get_rp_id(),
-                expected_origin=get_rp_origin(),
+                expected_rp_id=get_webauthn_rp_id(),
+                expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
                 require_user_verification=False,

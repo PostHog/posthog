@@ -29,8 +29,8 @@ from posthog.auth import (
     SessionAuthentication,
     WebAuthnAuthenticationResponse,
     WebauthnBackend,
-    get_rp_id,
-    get_rp_origin,
+    get_webauthn_rp_id,
+    get_webauthn_rp_origin,
 )
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
@@ -97,7 +97,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         user_handle = user_id_to_handle(user.pk)
 
         options = generate_registration_options(
-            rp_id=get_rp_id(),
+            rp_id=get_webauthn_rp_id(),
             rp_name="PostHog",
             user_id=user_handle,
             user_name=user.email,
@@ -116,7 +116,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         request.session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
         request.session.save()
 
-        logger.info("webauthn_registration_begin", user_id=user.pk, rp_id=get_rp_id())
+        logger.info("webauthn_registration_begin", user_id=user.pk, rp_id=get_webauthn_rp_id())
 
         # Extract authenticator selection values
         authenticator_selection = options.authenticator_selection
@@ -179,8 +179,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
             verification = verify_registration_response(
                 credential=credential_data,
                 expected_challenge=expected_challenge,
-                expected_rp_id=get_rp_id(),
-                expected_origin=get_rp_origin(),
+                expected_rp_id=get_webauthn_rp_id(),
+                expected_origin=get_webauthn_rp_origin(),
                 require_user_verification=False,  # refers to authenticator behavior, NOT whether posthog has verified the credential
                 supported_pub_key_algs=SUPPORTED_PUB_KEY_ALGS,
             )
@@ -252,7 +252,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
         # Generate authentication options for this specific credential
         options = generate_authentication_options(
-            rp_id=get_rp_id(),
+            rp_id=get_webauthn_rp_id(),
             allow_credentials=[
                 PublicKeyCredentialDescriptor(
                     id=credential.credential_id,
@@ -320,8 +320,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
             verification = verify_authentication_response(
                 credential=request.data,
                 expected_challenge=expected_challenge,
-                expected_rp_id=get_rp_id(),
-                expected_origin=get_rp_origin(),
+                expected_rp_id=get_webauthn_rp_id(),
+                expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
                 require_user_verification=False,
@@ -369,7 +369,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         presents all available passkeys for this RP.
         """
         options = generate_authentication_options(
-            rp_id=get_rp_id(),
+            rp_id=get_webauthn_rp_id(),
             allow_credentials=[],  # Empty for discoverable credentials
             user_verification=UserVerificationRequirement.PREFERRED,
             timeout=CHALLENGE_TIMEOUT_MS,
@@ -379,7 +379,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         request.session[WEBAUTHN_LOGIN_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
         request.session.save()
 
-        logger.info("webauthn_login_begin", rp_id=get_rp_id())
+        logger.info("webauthn_login_begin", rp_id=get_webauthn_rp_id())
 
         user_verification = options.user_verification.value if options.user_verification else "preferred"
 
@@ -602,7 +602,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         # Generate authentication options for this specific credential
         options = generate_authentication_options(
-            rp_id=get_rp_id(),
+            rp_id=get_webauthn_rp_id(),
             allow_credentials=[
                 PublicKeyCredentialDescriptor(
                     id=credential.credential_id,
@@ -682,8 +682,8 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             verification = verify_authentication_response(
                 credential=request.data,
                 expected_challenge=expected_challenge,
-                expected_rp_id=get_rp_id(),
-                expected_origin=get_rp_origin(),
+                expected_rp_id=get_webauthn_rp_id(),
+                expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
                 require_user_verification=False,
