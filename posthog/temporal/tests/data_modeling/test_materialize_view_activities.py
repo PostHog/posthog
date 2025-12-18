@@ -1,5 +1,5 @@
 from collections.abc import Collection
-from typing import Any, cast
+from typing import cast
 
 import pytest
 import unittest.mock
@@ -261,7 +261,7 @@ class TestMaterializeViewActivity:
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
             data = cast(
-                Collection[pa.Array[Any]],
+                Collection[pa.Array],
                 [pa.array([1, 2, 3], type=pa.int64()), pa.array(["a", "b", "c"], type=pa.string())],
             )
             batch = pa.RecordBatch.from_arrays(data, names=["id", "name"])
