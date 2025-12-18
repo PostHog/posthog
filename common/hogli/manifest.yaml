@@ -278,7 +278,7 @@ build:
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
         cmd: |
-            DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI schema written to frontend/tmp/openapi.json"
+            DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json 2>/dev/null && echo "OpenAPI schema written to frontend/tmp/openapi.json"
         description: Generate OpenAPI schema from Django backend (writes to gitignored temp location)
         services:
             - postgresql

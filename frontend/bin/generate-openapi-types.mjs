@@ -493,6 +493,15 @@ export default defineConfig({
       client: 'fetch',
       prettier: false,
       override: {
+        header: (info) => [
+          'Auto-generated from the Django backend OpenAPI schema.',
+          'To modify these types, update the Django serializers or views, then run:',
+          '  hogli build:openapi',
+          'Questions or issues? #team-devex on Slack',
+          '',
+          ...(info?.title ? [info.title] : []),
+          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+        ],
         mutator: {
           path: '${mutatorPath}',
           name: 'apiMutator',
