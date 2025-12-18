@@ -12,8 +12,6 @@
  * * `collection` - Collection
  * `filters` - Filters
  */
-export type SessionRecordingPlaylistTypeEnumApi =
-    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SessionRecordingPlaylistTypeEnumApi = {
@@ -56,6 +54,9 @@ export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 export const BlankEnumApi = {
     '': '',
 } as const
+
+export type SessionRecordingPlaylistTypeEnumApi =
+    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
 
 export interface PaginatedSessionRecordingPlaylistListApi {
     count: number

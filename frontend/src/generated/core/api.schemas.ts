@@ -24,30 +24,17 @@ export const CreationModeEnumApi = {
     unlisted: 'unlisted',
 } as const
 
-/**
- * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
- */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardRestrictionLevelApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
 } as const
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectiveRestrictionLevelEnumApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
 } as const
-
-export type EffectivePrivilegeLevelEnumApi =
-    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectivePrivilegeLevelEnumApi = {
@@ -184,23 +171,12 @@ export const ByweekdayEnumApi = {
     sunday: 'sunday',
 } as const
 
-/**
- * * `1` - member
- * `8` - administrator
- * `15` - owner
- */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OrganizationMembershipLevelApi = {
     NUMBER_1: 1,
     NUMBER_8: 8,
     NUMBER_15: 15,
 } as const
-
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EffectiveMembershipLevelEnumApi = {
@@ -1495,14 +1471,6 @@ export const CohortTypeEnumApi = {
     analytical: 'analytical',
 } as const
 
-/**
- * * `team` - Only team
- * `global` - Global
- * `feature_flag` - Feature Flag
- */
-export type DashboardTemplateScopeEnumApi =
-    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardTemplateScopeEnumApi = {
     team: 'team',
@@ -1527,15 +1495,6 @@ export const PropertyType549EnumApi = {
     Boolean: 'Boolean',
     Duration: 'Duration',
 } as const
-
-/**
- * * `1` - event
- * `2` - person
- * `3` - group
- * `4` - session
- */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyDefinitionTypeEnumApi = {
@@ -1658,18 +1617,59 @@ export const PluginsAccessLevelEnumApi = {
     NUMBER_9: 9,
 } as const
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const DefaultExperimentStatsMethodEnumApi = {
+    bayesian: 'bayesian',
+    frequentist: 'frequentist',
+} as const
+
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type DashboardRestrictionLevelApi =
+    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
+
+export type EffectiveRestrictionLevelEnumApi =
+    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+
+export type EffectivePrivilegeLevelEnumApi =
+    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
+
+/**
+ * * `1` - member
+ * `8` - administrator
+ * `15` - owner
+ */
+export type OrganizationMembershipLevelApi =
+    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+
+/**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+
+/**
+ * * `1` - event
+ * `2` - person
+ * `3` - group
+ * `4` - session
+ */
+export type PropertyDefinitionTypeEnumApi =
+    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+
 /**
  * * `bayesian` - Bayesian
  * `frequentist` - Frequentist
  */
 export type DefaultExperimentStatsMethodEnumApi =
     (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DefaultExperimentStatsMethodEnumApi = {
-    bayesian: 'bayesian',
-    frequentist: 'frequentist',
-} as const
 
 export interface PaginatedDashboardBasicListApi {
     count: number

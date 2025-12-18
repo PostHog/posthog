@@ -15,8 +15,6 @@
  * `pending_release` - Pending release
  * `suppressed` - Suppressed
  */
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ErrorTrackingIssueFullStatusEnumApi = {
@@ -78,6 +76,9 @@ export const KindEnumApi = {
     vercel: 'vercel',
     databricks: 'databricks',
 } as const
+
+export type ErrorTrackingIssueFullStatusEnumApi =
+    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 export interface PaginatedErrorTrackingFingerprintListApi {
     count: number

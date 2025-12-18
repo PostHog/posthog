@@ -24,14 +24,6 @@ export const SurveyTypeApi = {
     api: 'api',
 } as const
 
-/**
- * * `day` - day
- * `week` - week
- * `month` - month
- */
-export type ResponseSamplingIntervalTypeEnumApi =
-    (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ResponseSamplingIntervalTypeEnumApi = {
     day: 'day',
@@ -100,6 +92,14 @@ export const RoleAtOrganizationEnumApi = {
     sales: 'sales',
     other: 'other',
 } as const
+
+/**
+ * * `day` - day
+ * `week` - week
+ * `month` - month
+ */
+export type ResponseSamplingIntervalTypeEnumApi =
+    (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
 
 export interface PaginatedSurveyListApi {
     count: number

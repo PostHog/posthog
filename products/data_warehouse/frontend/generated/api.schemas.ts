@@ -14,8 +14,6 @@
  * `Failed` - Failed
  * `Cancelled` - Cancelled
  */
-export type DataModelingJobStatusEnumApi =
-    (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataModelingJobStatusEnumApi = {
@@ -166,6 +164,9 @@ export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 export const BlankEnumApi = {
     '': '',
 } as const
+
+export type DataModelingJobStatusEnumApi =
+    (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
 export interface PaginatedDataModelingJobListApi {
     /** @nullable */

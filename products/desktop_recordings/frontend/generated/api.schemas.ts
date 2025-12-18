@@ -15,8 +15,6 @@
  * `desktop_audio` - desktop_audio
  * `slack` - slack
  */
-export type CreateRecordingRequestPlatformEnumApi =
-    (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CreateRecordingRequestPlatformEnumApi = {
@@ -62,6 +60,9 @@ export const Status292EnumApi = {
     ready: 'ready',
     error: 'error',
 } as const
+
+export type CreateRecordingRequestPlatformEnumApi =
+    (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
 
 export interface PaginatedDesktopRecordingListApi {
     count: number

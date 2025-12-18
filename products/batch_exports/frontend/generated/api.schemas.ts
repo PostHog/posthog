@@ -78,6 +78,18 @@ export const BatchExportRunStatusEnumApi = {
     Starting: 'Starting',
 } as const
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const BatchExportDestinationTypeEnumApi = {
+    S3: 'S3',
+    Snowflake: 'Snowflake',
+    Postgres: 'Postgres',
+    Redshift: 'Redshift',
+    BigQuery: 'BigQuery',
+    Databricks: 'Databricks',
+    HTTP: 'HTTP',
+    NoOp: 'NoOp',
+} as const
+
 /**
  * * `S3` - S3
  * `Snowflake` - Snowflake
@@ -90,18 +102,6 @@ export const BatchExportRunStatusEnumApi = {
  */
 export type BatchExportDestinationTypeEnumApi =
     (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportDestinationTypeEnumApi = {
-    S3: 'S3',
-    Snowflake: 'Snowflake',
-    Postgres: 'Postgres',
-    Redshift: 'Redshift',
-    BigQuery: 'BigQuery',
-    Databricks: 'Databricks',
-    HTTP: 'HTTP',
-    NoOp: 'NoOp',
-} as const
 
 export interface PaginatedBatchExportListApi {
     count: number

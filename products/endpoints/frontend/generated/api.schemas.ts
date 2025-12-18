@@ -11,9 +11,6 @@
  * @nullable
  */
 
-export type DataWarehouseSyncIntervalApi =
-    (typeof DataWarehouseSyncIntervalApi)[keyof typeof DataWarehouseSyncIntervalApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataWarehouseSyncIntervalApi = {
     '5min': '5min',
@@ -81,9 +78,6 @@ export const WebStatsBreakdownApi = {
     FrustrationMetrics: 'FrustrationMetrics',
 } as const
 
-export type WebAnalyticsOrderByFieldsApi =
-    (typeof WebAnalyticsOrderByFieldsApi)[keyof typeof WebAnalyticsOrderByFieldsApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebAnalyticsOrderByFieldsApi = {
     Visitors: 'Visitors',
@@ -101,9 +95,6 @@ export const WebAnalyticsOrderByFieldsApi = {
     DeadClicks: 'DeadClicks',
     Errors: 'Errors',
 } as const
-
-export type WebAnalyticsOrderByDirectionApi =
-    (typeof WebAnalyticsOrderByDirectionApi)[keyof typeof WebAnalyticsOrderByDirectionApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebAnalyticsOrderByDirectionApi = {
@@ -139,9 +130,6 @@ export const MaterializationModeApi = {
     legacy_null_as_null: 'legacy_null_as_null',
     disabled: 'disabled',
 } as const
-
-export type MaterializedColumnsOptimizationModeApi =
-    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MaterializedColumnsOptimizationModeApi = {
@@ -381,9 +369,6 @@ export const AggregationAxisFormatApi = {
     currency: 'currency',
 } as const
 
-export type DetailedResultsAggregationTypeApi =
-    (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DetailedResultsAggregationTypeApi = {
     total: 'total',
@@ -461,9 +446,6 @@ export const FunnelVizTypeApi = {
     trends: 'trends',
 } as const
 
-export type FunnelConversionWindowTimeUnitApi =
-    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelConversionWindowTimeUnitApi = {
     second: 'second',
@@ -481,9 +463,6 @@ export const FunnelLayoutApi = {
     horizontal: 'horizontal',
     vertical: 'vertical',
 } as const
-
-export type RetentionDashboardDisplayTypeApi =
-    (typeof RetentionDashboardDisplayTypeApi)[keyof typeof RetentionDashboardDisplayTypeApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionDashboardDisplayTypeApi = {
@@ -554,9 +533,6 @@ export const PathTypeApi = {
     custom_event: 'custom_event',
     hogql: 'hogql',
 } as const
-
-export type StickinessComputationModeApi =
-    (typeof StickinessComputationModeApi)[keyof typeof StickinessComputationModeApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StickinessComputationModeApi = {
@@ -848,6 +824,30 @@ export const CustomChannelOperatorApi = {
     regex: 'regex',
     not_regex: 'not_regex',
 } as const
+
+export type DataWarehouseSyncIntervalApi =
+    (typeof DataWarehouseSyncIntervalApi)[keyof typeof DataWarehouseSyncIntervalApi]
+
+export type WebAnalyticsOrderByFieldsApi =
+    (typeof WebAnalyticsOrderByFieldsApi)[keyof typeof WebAnalyticsOrderByFieldsApi]
+
+export type WebAnalyticsOrderByDirectionApi =
+    (typeof WebAnalyticsOrderByDirectionApi)[keyof typeof WebAnalyticsOrderByDirectionApi]
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+export type DetailedResultsAggregationTypeApi =
+    (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
+
+export type FunnelConversionWindowTimeUnitApi =
+    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
+
+export type RetentionDashboardDisplayTypeApi =
+    (typeof RetentionDashboardDisplayTypeApi)[keyof typeof RetentionDashboardDisplayTypeApi]
+
+export type StickinessComputationModeApi =
+    (typeof StickinessComputationModeApi)[keyof typeof StickinessComputationModeApi]
 
 export type EndpointRequestApiQuery =
     | HogQLQueryApi
