@@ -502,7 +502,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 result.pop(field, None)
 
         if "results" in result:
-            result = {"results": result["results"], **result}
+            results_value = result.pop("results")
+            result = {"results": results_value, **result}
 
         response_status = (
             status.HTTP_202_ACCEPTED
