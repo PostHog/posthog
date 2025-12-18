@@ -103,6 +103,9 @@ class NotebookKernelService:
         self._service_lock = threading.RLock()
         self._register_cleanup_hooks()
 
+    def _get_kernel_key(self, notebook: Notebook) -> str:
+        return f"{notebook.team_id}:{notebook.short_id}"
+
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:
             self.shutdown_all()
@@ -126,9 +129,11 @@ class NotebookKernelService:
         handle = self._ensure_handle(notebook)
         return handle.status
 
-    def shutdown_kernel(self, notebook_short_id: str) -> bool:
+    def shutdown_kernel(self, notebook: Notebook) -> bool:
+        key = self._get_kernel_key(notebook)
+
         with self._service_lock:
-            handle = self._kernels.pop(notebook_short_id, None)
+            handle = self._kernels.pop(key, None)
 
         if not handle:
             return False
@@ -148,7 +153,7 @@ class NotebookKernelService:
                 self._shutdown_handle(handle)
 
     def restart_kernel(self, notebook: Notebook) -> KernelStatus:
-        self.shutdown_kernel(notebook.short_id)
+        self.shutdown_kernel(notebook)
         handle = self._ensure_handle(notebook)
         return handle.status
 
@@ -277,8 +282,10 @@ class NotebookKernelService:
         return {k: str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else {}
 
     def _ensure_handle(self, notebook: Notebook) -> _KernelHandle:
+        key = self._get_kernel_key(notebook)
+
         with self._service_lock:
-            handle = self._kernels.get(notebook.short_id)
+            handle = self._kernels.get(key)
 
             if handle and handle.manager.is_alive():
                 return handle
@@ -308,14 +315,14 @@ class NotebookKernelService:
                 started_at=timezone.now(),
                 last_activity_at=timezone.now(),
             )
-            self._kernels[notebook.short_id] = handle
+            self._kernels[key] = handle
 
             return handle
 
     def _reset_handle(self, notebook: Notebook, handle: _KernelHandle) -> _KernelHandle:
         self._shutdown_handle(handle)
         with self._service_lock:
-            self._kernels.pop(notebook.short_id, None)
+            self._kernels.pop(self._get_kernel_key(notebook), None)
         return self._ensure_handle(notebook)
 
     def _shutdown_handle(self, handle: _KernelHandle) -> None:

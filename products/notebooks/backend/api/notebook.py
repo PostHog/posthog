@@ -253,6 +253,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     filterset_fields = ["short_id"]
     lookup_field = "short_id"
 
+    def _get_notebook_for_kernel(self) -> Notebook:
+        if self.kwargs.get(self.lookup_field) == "scratchpad":
+            return Notebook(
+                short_id="scratchpad",
+                team=self.team,
+                created_by=self.request.user,
+                last_modified_by=self.request.user,
+                visibility=Notebook.Visibility.INTERNAL,
+            )
+
+        return self.get_object()
+
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
@@ -417,19 +429,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     @action(methods=["POST"], url_path="kernel/start", detail=True)
     def kernel_start(self, request: Request, **kwargs):
-        notebook = self.get_object()
+        notebook = self._get_notebook_for_kernel()
         kernel_status = notebook_kernel_service.ensure_kernel(notebook)
         return Response(kernel_status.as_dict())
 
     @action(methods=["POST"], url_path="kernel/stop", detail=True)
     def kernel_stop(self, request: Request, **kwargs):
-        notebook = self.get_object()
-        stopped = notebook_kernel_service.shutdown_kernel(notebook.short_id)
+        notebook = self._get_notebook_for_kernel()
+        stopped = notebook_kernel_service.shutdown_kernel(notebook)
         return Response({"stopped": stopped})
 
     @action(methods=["POST"], url_path="kernel/restart", detail=True)
     def kernel_restart(self, request: Request, **kwargs):
-        notebook = self.get_object()
+        notebook = self._get_notebook_for_kernel()
         kernel_status = notebook_kernel_service.restart_kernel(notebook)
         return Response(kernel_status.as_dict())
 
@@ -437,7 +449,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def kernel_execute(self, request: Request, **kwargs):
         serializer = NotebookKernelExecuteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        notebook = self.get_object()
+        notebook = self._get_notebook_for_kernel()
 
         try:
             execution = notebook_kernel_service.execute(

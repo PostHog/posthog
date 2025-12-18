@@ -65,3 +65,19 @@ class TestNotebookKernels(APIBaseTest):
         assert restarted.status_code == 200
         assert stopped.json() == {"stopped": True}
         assert started.json()["id"] != restarted.json()["id"]
+
+    def test_scratchpad_kernel_can_execute_without_notebook(self):
+        execute = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/scratchpad/kernel/execute",
+            data={"code": "2 + 2"},
+            format="json",
+        )
+
+        assert execute.status_code == 200
+
+        payload = execute.json()
+
+        assert payload["status"] == "ok"
+        assert payload["result"]["text/plain"] == "4"
+        assert payload["kernel"]["notebook_short_id"] == "scratchpad"
+        assert Notebook.objects.filter(short_id="scratchpad").exists() is False

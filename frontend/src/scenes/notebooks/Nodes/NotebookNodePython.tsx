@@ -53,7 +53,7 @@ const NotebookNodePythonComponent = ({
 }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const { shortId } = useValues(notebookLogic)
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const [draftCode, setDraftCode] = useState(attributes.code || DEFAULT_CODE)
     const [running, setRunning] = useState(false)
@@ -126,26 +126,6 @@ const NotebookNodePythonComponent = ({
         }
     }, [shortId, updateAttributes])
 
-    useEffect(() => {
-        setActions([
-            {
-                text: running ? 'Running…' : 'Run',
-                icon: <IconPlayFilled />,
-                onClick: runCode,
-            },
-            {
-                text: 'Restart kernel',
-                icon: <IconRefresh />,
-                onClick: restartKernel,
-            },
-            {
-                text: 'Stop kernel',
-                icon: <IconStopFilled />,
-                onClick: stopKernel,
-            },
-        ])
-    }, [restartKernel, runCode, running, setActions, stopKernel])
-
     const resultText = useMemo(() => {
         if (!attributes.result) {
             return null
@@ -175,28 +155,42 @@ const NotebookNodePythonComponent = ({
     return (
         <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-                <LemonButton type="primary" icon={<IconPlayFilled />} loading={running} onClick={runCode}>
-                    Run
-                </LemonButton>
-                <LemonButton icon={<IconRefresh />} onClick={restartKernel} disabled={running}>
-                    Restart kernel
-                </LemonButton>
-                <LemonButton icon={<IconStopFilled />} onClick={stopKernel} disabled={running || !attributes.kernel}>
-                    Stop kernel
-                </LemonButton>
-                <div className="flex-1" />
-                <LemonTag type={attributes.kernel?.alive ? 'success' : 'default'}>
-                    {attributes.kernel?.alive ? 'Kernel running' : 'Kernel stopped'}
-                </LemonTag>
-                {attributes.executionCount ? <LemonTag>Run #{attributes.executionCount}</LemonTag> : null}
-                {attributes.status ? (
-                    <LemonTag type={statusToTag(attributes.status)}>{attributes.status}</LemonTag>
-                ) : null}
-                {attributes.lastRunAt ? (
-                    <LemonTag>
-                        Last run <TZLabel time={attributes.lastRunAt} />
+                <div className="flex items-center gap-1">
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        icon={<IconPlayFilled />}
+                        loading={running}
+                        onClick={runCode}
+                    >
+                        Run
+                    </LemonButton>
+                    <LemonButton size="xsmall" icon={<IconRefresh />} onClick={restartKernel} disabled={running}>
+                        Restart kernel
+                    </LemonButton>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconStopFilled />}
+                        onClick={stopKernel}
+                        disabled={running || !attributes.kernel}
+                    >
+                        Stop kernel
+                    </LemonButton>
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                    <LemonTag type={attributes.kernel?.alive ? 'success' : 'default'}>
+                        {attributes.kernel?.alive ? 'Kernel running' : 'Kernel stopped'}
                     </LemonTag>
-                ) : null}
+                    {attributes.executionCount ? <LemonTag>Run #{attributes.executionCount}</LemonTag> : null}
+                    {attributes.status ? (
+                        <LemonTag type={statusToTag(attributes.status)}>{attributes.status}</LemonTag>
+                    ) : null}
+                    {attributes.lastRunAt ? (
+                        <LemonTag>
+                            Last run <TZLabel time={attributes.lastRunAt} />
+                        </LemonTag>
+                    ) : null}
+                </div>
             </div>
 
             {localError ? <LemonBanner type="error">{localError}</LemonBanner> : null}
@@ -212,7 +206,7 @@ const NotebookNodePythonComponent = ({
             />
 
             {hasOutputs ? (
-                <div className="space-y-1">
+                <div className="space-y-2 overflow-auto max-h-[20rem] pr-1">
                     {resultText ? (
                         <OutputBlock title="Result">
                             <CodeSnippet language={Language.Python} wrap compact>
@@ -265,8 +259,8 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
     nodeType: NotebookNodeType.Python,
     titlePlaceholder: 'Python',
     Component: NotebookNodePythonComponent,
-    heightEstimate: '18rem',
-    minHeight: '12rem',
+    heightEstimate: '26rem',
+    minHeight: '16rem',
     resizeable: true,
     startExpanded: true,
     attributes: {
