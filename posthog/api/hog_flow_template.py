@@ -230,3 +230,30 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             )
         except Exception as e:
             logger.warning("Failed to capture hog_flow_template_created event", error=str(e))
+
+    def perform_destroy(self, instance: HogFlowTemplate):
+        if instance.scope == HogFlowTemplate.Scope.GLOBAL:
+            if not posthoganalytics.feature_enabled(
+                "workflows-template-creation",
+                self.request.user.distinct_id,
+                groups={"organization": str(self.organization.id)},
+                group_properties={"organization": {"id": str(self.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            ):
+                raise exceptions.PermissionDenied(
+                    "Deleting global workflow templates requires the 'workflows-template-creation' feature flag to be enabled."
+                )
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=self.request.user,
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=instance.id,
+            scope="HogFlowTemplate",
+            activity="deleted",
+            detail=Detail(name=instance.name, type="standard"),
+        )
+
+        super().perform_destroy(instance)

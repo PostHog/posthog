@@ -8,6 +8,7 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -21,6 +22,7 @@ import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 export function WorkflowTemplateChooser(): JSX.Element {
     const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
     const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
@@ -46,35 +48,41 @@ export function WorkflowTemplateChooser(): JSX.Element {
                             key={template.id}
                             template={template}
                             onClick={() => createWorkflowFromTemplate(template)}
-                            onDelete={(e) => {
-                                e.stopPropagation()
-                                LemonDialog.open({
-                                    title: 'Delete template?',
-                                    description: (
-                                        <>
-                                            Are you sure you want to delete "{template.name}"?
-                                            <br />
-                                            This action cannot be undone
-                                            {template.scope === 'team' ? '!' : ' and will affect all posthog users!'}
-                                        </>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        status: 'danger',
-                                        onClick: async () => {
-                                            try {
-                                                await deleteHogflowTemplate(template)
-                                                lemonToast.success(`Template "${template.name}" deleted`)
-                                            } catch (error: any) {
-                                                lemonToast.error(
-                                                    `Failed to delete template: ${error.detail || error.message || 'Unknown error'}`
-                                                )
-                                            }
-                                        },
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
+                            onDelete={
+                                template.scope === 'global' && !canCreateTemplates
+                                    ? undefined
+                                    : (e) => {
+                                          e.stopPropagation()
+                                          LemonDialog.open({
+                                              title: 'Delete template?',
+                                              description: (
+                                                  <>
+                                                      Are you sure you want to delete "{template.name}"?
+                                                      <br />
+                                                      This action cannot be undone
+                                                      {template.scope === 'team'
+                                                          ? '!'
+                                                          : ' and will affect all posthog users!'}
+                                                  </>
+                                              ),
+                                              primaryButton: {
+                                                  children: 'Delete',
+                                                  status: 'danger',
+                                                  onClick: async () => {
+                                                      try {
+                                                          await deleteHogflowTemplate(template)
+                                                          lemonToast.success(`Template "${template.name}" deleted`)
+                                                      } catch (error: any) {
+                                                          lemonToast.error(
+                                                              `Failed to delete template: ${error.detail || error.message || 'Unknown error'}`
+                                                          )
+                                                      }
+                                                  },
+                                              },
+                                              secondaryButton: { children: 'Cancel' },
+                                          })
+                                      }
+                            }
                             index={index + 1}
                             data-attr="create-workflow-from-template"
                         />
