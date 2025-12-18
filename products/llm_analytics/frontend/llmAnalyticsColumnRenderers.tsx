@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
@@ -66,7 +66,7 @@ export function createPersonFilter(filterIdentifier: FilterIdentifier): AnyPrope
     if (filterIdentifier.type === 'distinct_id') {
         return {
             type: PropertyFilterType.HogQL,
-            key: `distinct_id == '${filterIdentifier.value}'`,
+            key: hogql`distinct_id == ${filterIdentifier.value}`,
         }
     }
 
