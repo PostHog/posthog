@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { Language } from 'lib/components/CodeSnippet'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
@@ -40,9 +41,7 @@ export function MCPInstallBanner({ variant }: { variant?: 'top' | 'sdk' }): JSX.
                         to="https://posthog.com/docs/model-context-protocol"
                         className="pt-2"
                         onClick={() => {
-                            if (typeof posthog !== 'undefined') {
-                                posthog.capture('onboarding_mcp_docs_clicked')
-                            }
+                            posthog.capture('onboarding_mcp_docs_clicked')
                         }}
                         target="_blank"
                         targetBlankIcon
