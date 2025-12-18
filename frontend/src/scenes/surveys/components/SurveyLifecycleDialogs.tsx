@@ -94,32 +94,23 @@ export function SurveyScheduleDialog(props: SurveyScheduleDialogProps): JSX.Elem
     )
 }
 
-export type SurveyResumeDialogProps = {
+export type SurveyDialogWrapperProps = {
     isOpen: boolean
     description: string
-    initialScheduledStartTime?: ScheduleValue
-    defaultDatetimeValue?: () => string
-    onSubmit: (scheduledStartTime: ScheduleValue) => Promise<void>
-    onClose: () => void
-}
-
-export type SurveyStartDialogProps = {
-    isOpen: boolean
-    description: string
-    initialScheduledStartTime?: ScheduleValue
+    initialScheduledTime?: ScheduleValue
     defaultDatetimeValue?: () => string
     afterPickerContent?: ReactNode
     onSubmit: (scheduledStartTime: ScheduleValue) => Promise<void>
     onClose: () => void
 }
 
-export function SurveyStartDialog(props: SurveyStartDialogProps): JSX.Element | null {
+export function SurveyStartDialog(props: SurveyDialogWrapperProps): JSX.Element | null {
     return (
         <SurveyScheduleDialog
             isOpen={props.isOpen}
             title="Launch this survey?"
             description={props.description}
-            initialScheduledTime={props.initialScheduledStartTime}
+            initialScheduledTime={props.initialScheduledTime}
             defaultDatetimeValue={props.defaultDatetimeValue}
             afterPickerContent={props.afterPickerContent}
             onSubmit={props.onSubmit}
@@ -131,13 +122,13 @@ export function SurveyStartDialog(props: SurveyStartDialogProps): JSX.Element | 
     )
 }
 
-export function SurveyResumeDialog(props: SurveyResumeDialogProps): JSX.Element | null {
+export function SurveyResumeDialog(props: SurveyDialogWrapperProps): JSX.Element | null {
     return (
         <SurveyScheduleDialog
             isOpen={props.isOpen}
             title="Resume this survey?"
             description={props.description}
-            initialScheduledTime={props.initialScheduledStartTime}
+            initialScheduledTime={props.initialScheduledTime}
             defaultDatetimeValue={props.defaultDatetimeValue}
             onSubmit={props.onSubmit}
             onClose={props.onClose}
@@ -148,22 +139,13 @@ export function SurveyResumeDialog(props: SurveyResumeDialogProps): JSX.Element 
     )
 }
 
-export type SurveyStopDialogProps = {
-    isOpen: boolean
-    description: string
-    initialScheduledEndTime?: ScheduleValue
-    defaultDatetimeValue?: () => string
-    onSubmit: (scheduledEndTime: ScheduleValue) => Promise<void>
-    onClose: () => void
-}
-
-export function SurveyStopDialog(props: SurveyStopDialogProps): JSX.Element | null {
+export function SurveyStopDialog(props: SurveyDialogWrapperProps): JSX.Element | null {
     return (
         <SurveyScheduleDialog
             isOpen={props.isOpen}
             title="Stop this survey?"
             description={props.description}
-            initialScheduledTime={props.initialScheduledEndTime}
+            initialScheduledTime={props.initialScheduledTime}
             defaultDatetimeValue={props.defaultDatetimeValue}
             onSubmit={props.onSubmit}
             onClose={props.onClose}

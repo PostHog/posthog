@@ -57,7 +57,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
             <SurveyStartDialog
                 isOpen={isLaunchDialogOpen}
                 description={`Start displaying to ${doesSurveyHaveDisplayConditions(survey) ? 'users matching the display conditions' : 'all your users'}:`}
-                initialScheduledStartTime={survey.scheduled_start_datetime || undefined}
+                initialScheduledTime={survey.scheduled_start_datetime || undefined}
                 afterPickerContent={<SdkVersionWarnings warnings={surveyWarnings} />}
                 onSubmit={async (scheduledStartTime) => {
                     await updateSurvey({

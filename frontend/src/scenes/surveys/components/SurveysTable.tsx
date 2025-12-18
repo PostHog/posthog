@@ -387,7 +387,7 @@ export function SurveysTable(): JSX.Element {
             <SurveyResumeDialog
                 isOpen={!!resumeSurvey}
                 onClose={() => setResumeSurvey(null)}
-                initialScheduledStartTime={resumeSurvey?.scheduled_start_datetime || undefined}
+                initialScheduledTime={resumeSurvey?.scheduled_start_datetime || undefined}
                 description="Once resumed, the survey will be visible to your users again."
                 onSubmit={async (scheduledStartTime) => {
                     if (!resumeSurvey) {
@@ -404,7 +404,7 @@ export function SurveysTable(): JSX.Element {
             <SurveyStopDialog
                 isOpen={!!stopSurveyDialogSurvey}
                 onClose={() => setStopSurveyDialogSurvey(null)}
-                initialScheduledEndTime={stopSurveyDialogSurvey?.scheduled_end_datetime || undefined}
+                initialScheduledTime={stopSurveyDialogSurvey?.scheduled_end_datetime || undefined}
                 defaultDatetimeValue={() => dayjs().add(1, 'hour').toISOString()}
                 description="The survey will no longer be visible to your users."
                 onSubmit={async (scheduledEndTime) => {
