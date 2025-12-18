@@ -20,6 +20,7 @@ from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation
     build_preaggregation_insert_sql,
     compute_query_hash,
     execute_preaggregation_jobs,
+    filter_overlapping_jobs,
     find_missing_contiguous_windows,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
@@ -144,6 +145,153 @@ class TestFindMissingContiguousWindows(BaseTest):
         assert missing[0] == (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
         assert missing[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC))
         assert missing[2] == (datetime(2024, 1, 8, tzinfo=UTC), datetime(2024, 1, 10, tzinfo=UTC))
+
+
+class TestFilterOverlappingJobs(BaseTest):
+    def test_empty_list(self):
+        result = filter_overlapping_jobs([])
+        assert result == []
+
+    def test_single_job(self):
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        result = filter_overlapping_jobs([job])
+        assert len(result) == 1
+        assert result[0].id == job.id
+
+    def test_non_overlapping_jobs(self):
+        job1 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        job2 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 3, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        result = filter_overlapping_jobs([job1, job2])
+        assert len(result) == 2
+
+    def test_overlapping_jobs_keeps_newer(self):
+        """When two jobs overlap, the more recently created one should be kept."""
+        older_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        newer_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 2, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        result = filter_overlapping_jobs([older_job, newer_job])
+        assert len(result) == 1
+        assert result[0].id == newer_job.id
+
+    def test_adjacent_jobs_not_overlapping(self):
+        """Jobs that touch at boundaries [1,2) and [2,3) should not be considered overlapping."""
+        job1 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        job2 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 2, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        result = filter_overlapping_jobs([job1, job2])
+        assert len(result) == 2
+
+    def test_multiple_overlapping_keeps_newest(self):
+        """With multiple overlapping jobs, only the newest should be kept."""
+        job1 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 5, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        job2 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 2, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        job3 = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 3, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 6, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        result = filter_overlapping_jobs([job1, job2, job3])
+        # job3 is newest, so it's selected first. Then job1 and job2 both overlap with job3.
+        assert len(result) == 1
+        assert result[0].id == job3.id
+
+    def test_mixed_overlapping_and_non_overlapping(self):
+        """Some jobs overlap, others don't - keep non-overlapping ones plus newest of overlapping."""
+        # Non-overlapping job at the start
+        job_early = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        # Two overlapping jobs in the middle
+        job_mid_old = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 5, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 8, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        job_mid_new = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 6, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 9, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        # Non-overlapping job at the end
+        job_late = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 15, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 16, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+
+        result = filter_overlapping_jobs([job_early, job_mid_old, job_mid_new, job_late])
+
+        # Should have: job_late (newest), job_mid_new (newest of overlap), job_early (no overlap)
+        assert len(result) == 3
+        result_ids = {j.id for j in result}
+        assert job_early.id in result_ids
+        assert job_mid_new.id in result_ids
+        assert job_late.id in result_ids
+        assert job_mid_old.id not in result_ids
 
 
 class TestBuildPreaggregationInsertSQL(BaseTest):

@@ -102,6 +102,47 @@ def find_existing_jobs(
     )
 
 
+def _intervals_overlap(start1: datetime, end1: datetime, start2: datetime, end2: datetime) -> bool:
+    """Check if two half-open intervals [start1, end1) and [start2, end2) overlap."""
+    return start1 < end2 and start2 < end1
+
+
+def filter_overlapping_jobs(jobs: list[PreaggregationJob]) -> list[PreaggregationJob]:
+    """
+    Filter out overlapping jobs, keeping only the most recently created one in case of conflict.
+
+    When multiple jobs have overlapping time ranges, we prefer the one with the most recent
+    created_at timestamp. This ensures we use the freshest data when there are duplicates.
+
+    Uses a greedy algorithm: sort by creation date descending, then include each job only
+    if it doesn't overlap with any already-selected job.
+    """
+    if len(jobs) <= 1:
+        return jobs
+
+    # Sort by created_at descending (most recent first)
+    sorted_jobs = sorted(jobs, key=lambda j: j.created_at, reverse=True)
+
+    selected: list[PreaggregationJob] = []
+    for job in sorted_jobs:
+        # Check if this job overlaps with any already-selected job
+        has_overlap = False
+        for selected_job in selected:
+            if _intervals_overlap(
+                job.time_range_start,
+                job.time_range_end,
+                selected_job.time_range_start,
+                selected_job.time_range_end,
+            ):
+                has_overlap = True
+                break
+
+        if not has_overlap:
+            selected.append(job)
+
+    return selected
+
+
 def find_missing_contiguous_windows(
     existing_jobs: list[PreaggregationJob],
     start_timestamp: datetime,
@@ -279,9 +320,10 @@ def execute_preaggregation_jobs(
 
     1. Hash the query to get a stable identifier
     2. Find existing jobs for this query
-    3. Identify missing time windows (merged into contiguous ranges)
-    4. Create and execute jobs for missing ranges
-    5. Return job IDs for the combiner query
+    3. Filter out overlapping jobs (keep most recent)
+    4. Identify missing time windows (merged into contiguous ranges)
+    5. Create and execute jobs for missing ranges
+    6. Return job IDs for the combiner query
     """
     errors: list[str] = []
     job_ids: list = []
@@ -290,12 +332,16 @@ def execute_preaggregation_jobs(
 
     existing_jobs = find_existing_jobs(team, query_hash, start, end)
 
-    for existing_job in existing_jobs:
-        if existing_job.status == PreaggregationJob.Status.READY:
-            job_ids.append(existing_job.id)
+    # Filter to only READY jobs, then remove overlaps (keeping most recent)
+    ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
+    ready_jobs = filter_overlapping_jobs(ready_jobs)
+
+    for existing_job in ready_jobs:
+        job_ids.append(existing_job.id)
 
     # Find missing windows merged into contiguous ranges
-    missing_ranges = find_missing_contiguous_windows(existing_jobs, start, end)
+    # Use filtered ready_jobs so coverage matches what we'll actually return
+    missing_ranges = find_missing_contiguous_windows(ready_jobs, start, end)
 
     if not missing_ranges and not job_ids:
         return PreaggregationResult(ready=True, job_ids=[])
