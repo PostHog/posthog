@@ -66,7 +66,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
-            if self.query.filters and finder.has_filters:
+            if finder.has_filters:
                 parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         if self.query.variables:
             with self.timings.measure("replace_variables"):

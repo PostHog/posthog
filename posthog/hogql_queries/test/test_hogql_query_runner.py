@@ -119,6 +119,19 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
 
+    def test_hogql_query_filters_default_to_true_when_missing(self):
+        runner = self._create_runner(HogQLQuery(query="select count(event) from events where {filters}"))
+        query = runner.to_query()
+        query = clear_locations(query)
+        expected = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.Constant(value=True),
+        )
+        self.assertEqual(clear_locations(query), expected)
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], 10)
+
     def test_hogql_query_values(self):
         runner = self._create_runner(
             HogQLQuery(
