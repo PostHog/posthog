@@ -46,6 +46,8 @@ def get_webauthn_rp_origin() -> str:
     if parsed.port and parsed.port not in (80, 443):
         return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
     return f"{parsed.scheme}://{parsed.hostname}"
+
+
 class WebAuthnAuthenticationResponse(TypedDict):
     """WebAuthn authentication response data structure."""
 

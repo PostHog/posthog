@@ -238,7 +238,9 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
         request.session.save()
 
-        logger.info("webauthn_verification_begin", user_id=user.pk, credential_id=credential.pk, rp_id=get_webauthn_rp_id())
+        logger.info(
+            "webauthn_verification_begin", user_id=user.pk, credential_id=credential.pk, rp_id=get_webauthn_rp_id()
+        )
 
         return Response(json.loads(options_to_json(options)))
 
@@ -493,6 +495,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             logger.warning("webauthn_axes_recording_failed", exc_info=True)
 
         return None
+
 
 def get_authenticator_type(transports: list[str]) -> str:
     """Determine authenticator type from transports."""
