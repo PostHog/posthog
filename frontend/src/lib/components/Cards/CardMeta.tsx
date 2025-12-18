@@ -87,7 +87,8 @@ export function CardMeta({
                             )}
                         </h5>
                         <div className="CardMeta__controls">
-                            {extraControls}
+                            {extraControls &&
+                                React.cloneElement(extraControls, { ...extraControls.props, _cardWidth: primaryWidth })}
                             {showDetailsControls && setAreDetailsShown && (
                                 <Tooltip title={detailsTooltip}>
                                     <LemonButton

@@ -1498,7 +1498,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
-    FEED = 'feed',
+    PROFILE = 'profile',
     EVENTS = 'events',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
@@ -1511,7 +1511,7 @@ export enum PersonsTabType {
 }
 
 export enum GroupsTabType {
-    FEED = 'feed',
+    PROFILE = 'profile',
     NOTES = 'notes',
     OVERVIEW = 'overview',
 }
@@ -3252,16 +3252,24 @@ export interface ProductTourSurveyQuestion {
     upperBoundLabel?: string
 }
 
+export type ProductTourProgressionTriggerType = 'button' | 'click'
+
+export type ProductTourStepType = 'element' | 'modal' | 'survey'
+
 export interface ProductTourStep {
     id: string
-    selector: string
+    type: ProductTourStepType
+    /** CSS selector for element steps, empty/undefined for modal/survey steps */
+    selector?: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
-    /** Inline survey question config - if present, this is a survey step */
+    /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
     /** ID of the auto-created survey for this step (set by backend) */
     linkedSurveyId?: string
+    /** how this step progresses, e.g. next button or click trigger */
+    progressionTrigger?: ProductTourProgressionTriggerType
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */

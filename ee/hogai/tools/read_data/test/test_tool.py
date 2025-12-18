@@ -13,10 +13,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from posthog.models import Dashboard, DashboardTile, Insight
+
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
+from ee.hogai.artifacts.manager import StateArtifactResult
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.read_data import ReadDataTool
+from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
 
@@ -65,7 +68,7 @@ class TestReadDataTool(BaseTest):
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
 
-        with patch("ee.hogai.tools.read_data.AssistantContextManager") as mock_context_class:
+        with patch("ee.hogai.tools.read_data.tool.AssistantContextManager") as mock_context_class:
             mock_context = MagicMock()
             mock_context.check_user_has_billing_access = AsyncMock(return_value=False)
             mock_context_class.return_value = mock_context
@@ -204,7 +207,7 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         tool = await ReadDataTool.create_tool_class(
@@ -240,11 +243,11 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         with patch(
-            "ee.hogai.tools.read_data.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
+            "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
         ):
             tool = ReadDataTool(
                 team=team,
@@ -265,7 +268,7 @@ class TestReadDataTool(BaseTest):
             artifact_ref = artifact.messages[0]
             assert isinstance(artifact_ref, ArtifactRefMessage)
             assert artifact_ref.artifact_id == "abc123"
-            assert artifact_ref.source == ArtifactSource.INSIGHT
+            assert artifact_ref.source == ArtifactSource.STATE
 
             # Second message is the tool call message with results
             tool_call_msg = artifact.messages[1]
@@ -315,7 +318,7 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         tool = await ReadDataTool.create_tool_class(
@@ -330,7 +333,7 @@ class TestReadDataTool(BaseTest):
 
         assert artifact is None
         assert "Test Insight" in result
-        assert "Query definition" in result
+        assert "Query schema" in result
 
     async def test_read_insight_uses_fallback_name_when_none(self):
         """Test that insight name falls back to 'Insight {id}' when name is None."""
@@ -349,7 +352,7 @@ class TestReadDataTool(BaseTest):
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_insight_with_source = AsyncMock(
-            return_value=(mock_content, ArtifactSource.INSIGHT)
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
         )
 
         tool = await ReadDataTool.create_tool_class(
@@ -363,13 +366,94 @@ class TestReadDataTool(BaseTest):
 
         assert "Insight abc123" in result
 
+    async def test_read_dashboard_schema_only(self):
+        """Test reading a dashboard without executing it returns the schema."""
+
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            description="A test dashboard description",
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl(
+            {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
+        )
+
+        assert "Test Dashboard" in result
+        assert str(dashboard.id) in result
+        assert "A test dashboard description" in result
+        assert artifact is None
+
+    async def test_read_dashboard_includes_insight_short_id_and_db_id(self):
+        """Test that dashboard insights include short_id and db_id fields."""
+
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+        )
+
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Test Insight",
+            description="Test description",
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "$pageview"}]},
+        )
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight,
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        with patch("ee.hogai.tools.read_data.tool.DashboardContext") as MockDashboardContext:
+            mock_instance = MagicMock()
+            mock_instance.format_schema = AsyncMock(return_value="Formatted schema")
+            MockDashboardContext.return_value = mock_instance
+
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+            await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
+
+            # Verify DashboardContext was instantiated with correct arguments
+            MockDashboardContext.assert_called_once()
+            call_kwargs = MockDashboardContext.call_args.kwargs
+
+            # Verify insights_data contains correct short_id and db_id
+            insights_data = call_kwargs["insights_data"]
+            assert len(insights_data) == 1
+            insight_ctx = insights_data[0]
+
+            assert insight_ctx.short_id == insight.short_id
+            assert insight_ctx.db_id == insight.id
+
     async def test_list_tables_returns_core_tables_with_schema(self):
         """Test that data_warehouse_schema returns core PostHog tables with their field schemas."""
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -413,7 +497,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -444,7 +528,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -463,7 +547,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -505,7 +589,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -547,7 +631,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -566,7 +650,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,
@@ -585,7 +669,7 @@ class TestReadDataTool(BaseTest):
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
 
-        tool = ReadDataTool(
+        tool = await ReadDataTool.create_tool_class(
             team=self.team,
             user=self.user,
             state=state,

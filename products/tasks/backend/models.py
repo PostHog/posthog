@@ -305,6 +305,24 @@ class TaskRun(models.Model):
         }
         self.append_log([event])
 
+    def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
+        """Emit sandbox execution output as ACP notification."""
+        event = {
+            "type": "notification",
+            "timestamp": timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/sandbox_output",
+                "params": {
+                    "sessionId": str(self.id),
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exitCode": exit_code,
+                },
+            },
+        }
+        self.append_log([event])
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 

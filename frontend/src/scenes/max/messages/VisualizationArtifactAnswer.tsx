@@ -27,9 +27,9 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageStatus } from './maxLogic'
-import { MessageTemplate } from './messages/MessageTemplate'
-import { visualizationTypeToQuery } from './utils'
+import { MessageStatus } from '../maxLogic'
+import { visualizationTypeToQuery } from '../utils'
+import { MessageTemplate } from './MessageTemplate'
 
 interface VisualizationArtifactAnswerProps {
     message: ArtifactMessage & { status?: MessageStatus }

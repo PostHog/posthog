@@ -322,6 +322,81 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task
         mock_task.delay.assert_called_once_with(self.team.id)
 
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_tag_rename(self, mock_task):
+        """Test that signal fires when a tag used by a flag is renamed."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Reset mock to ignore the create signals
+        mock_task.reset_mock()
+
+        # Rename the tag
+        tag.name = "landing-page"
+        tag.save()
+
+        # Signal should trigger the Celery task
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_tag_rename_when_not_used_by_flags(self, mock_task):
+        """Test that signal does not fire when a tag not used by any flag is renamed."""
+        # Create a tag that is not used by any flag
+        tag = Tag.objects.create(team=self.team, name="unused-tag")
+
+        # Reset mock to ignore the create signal
+        mock_task.reset_mock()
+
+        # Rename the tag
+        tag.name = "still-unused-tag"
+        tag.save()
+
+        # Signal should NOT trigger the Celery task since no flags use this tag
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_once_when_tag_used_by_multiple_flags(self, mock_task):
+        """Tag used by multiple flags should trigger cache update once per team."""
+        tag = Tag.objects.create(team=self.team, name="shared-tag")
+
+        for i in range(3):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                key=f"flag-{i}",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
+            FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        mock_task.reset_mock()
+
+        tag.name = "renamed-shared-tag"
+        tag.save()
+
+        # Should fire once (team-level), not 3 times (flag-level)
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_tag_creation(self, mock_task):
+        """Signal should not fire when a new tag is created."""
+        mock_task.reset_mock()
+
+        # Create a new tag
+        Tag.objects.create(team=self.team, name="brand-new-tag")
+
+        # Signal should NOT trigger because new tags can't be used by any flags yet
+        mock_task.delay.assert_not_called()
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsCeleryTasks(BaseTest):
@@ -1228,6 +1303,40 @@ class TestManagementCommands(BaseTest):
         output = out.getvalue()
         self.assertIn("DATA_MISMATCH", output)
         self.assertIn("FIXED", output)
+
+    def test_verify_cache_detects_evaluation_tag_rename(self):
+        """Test that verification detects when a tag used by a flag is renamed."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        # Create a flag with an evaluation tag
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="original-tag-name")
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+
+        # Warm the cache
+        update_flags_cache(self.team)
+
+        # Rename the tag directly in DB (bypassing signals to simulate stale cache)
+        Tag.objects.filter(id=tag.id).update(name="renamed-tag-name")
+
+        # Verify should detect the mismatch
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(len(result["diffs"]), 1)
+        self.assertEqual(result["diffs"][0]["type"], "FIELD_MISMATCH")
+        self.assertIn("evaluation_tags", result["diffs"][0]["diff_fields"])
+
+        # Verify the actual values in the diff
+        field_diffs = result["diffs"][0]["field_diffs"]
+        eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_tags")
+        self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
+        self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
 
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""

@@ -190,11 +190,6 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
-from posthog.session_recordings.sql.session_recording_event_sql import (
-    DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    SESSION_RECORDING_EVENTS_TABLE_SQL,
-)
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -1376,7 +1371,6 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
-            DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
@@ -1420,7 +1414,6 @@ def reset_clickhouse_database() -> None:
             WRITABLE_RAW_SESSIONS_TABLE_SQL(),
             WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
             SESSIONS_TABLE_SQL(),
-            SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
             WEB_BOUNCES_DAILY_SQL(),
@@ -1449,7 +1442,6 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
-            DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
