@@ -418,14 +418,7 @@ describe('LazyLoader', () => {
             // Verify cache has correct size
             expect(Object.keys(lazyLoaderInternal.cache).length).toBe(2)
 
-            // Verify tracking objects don't have more entries than cache
-            expect(Object.keys(lazyLoaderInternal.lastUsed).length).toBeLessThanOrEqual(2)
-            expect(Object.keys(lazyLoaderInternal.cacheUntil).length).toBeLessThanOrEqual(2)
-
-            // Clean up orphans
-            customLoader.cleanupOrphans()
-
-            // Verify all tracking objects are in sync
+            // Verify tracking objects are in sync (no orphans)
             expect(Object.keys(lazyLoaderInternal.lastUsed).length).toBe(2)
             expect(Object.keys(lazyLoaderInternal.cacheUntil).length).toBe(2)
             expect(lazyLoaderInternal.cacheSize).toBe(2)

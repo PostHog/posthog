@@ -111,46 +111,6 @@ export class LazyLoader<T> {
         return this.cache
     }
 
-    /**
-     * Clean up orphaned entries in tracking objects that don't have corresponding cache entries
-     * This prevents memory leaks from accumulating over time
-     */
-    public cleanupOrphans(): void {
-        const cacheKeys = new Set(Object.keys(this.cache))
-
-        // Clean up orphaned lastUsed entries
-        for (const key in this.lastUsed) {
-            if (!cacheKeys.has(key)) {
-                delete this.lastUsed[key]
-            }
-        }
-
-        // Clean up orphaned cacheUntil entries
-        for (const key in this.cacheUntil) {
-            if (!cacheKeys.has(key)) {
-                delete this.cacheUntil[key]
-            }
-        }
-
-        // Clean up orphaned backgroundRefreshAfter entries
-        for (const key in this.backgroundRefreshAfter) {
-            if (!cacheKeys.has(key)) {
-                delete this.backgroundRefreshAfter[key]
-            }
-        }
-
-        // Clean up stale pending loads
-        for (const key in this.pendingLoads) {
-            if (!cacheKeys.has(key)) {
-                delete this.pendingLoads[key]
-            }
-        }
-
-        // Update cache size to be accurate
-        this.cacheSize = cacheKeys.size
-        this.updateCacheSizeMetric()
-    }
-
     public async get(key: string): Promise<T | null> {
         const loaded = await this.loadViaCache([key])
         return loaded[key] ?? null
