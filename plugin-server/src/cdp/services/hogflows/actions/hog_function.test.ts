@@ -285,7 +285,7 @@ describe('HogFunctionHandler', () => {
         await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         const billableMetrics = invocationResult.metrics.filter(
-            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'billing'
+            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'fetch'
         )
 
         expect(billableMetrics).toHaveLength(0)
