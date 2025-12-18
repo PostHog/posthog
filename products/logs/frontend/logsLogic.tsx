@@ -93,12 +93,6 @@ export const logsLogic = kea<logsLogicType>([
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
             }
-            if (params.wrapBody !== undefined && params.wrapBody !== values.wrapBody) {
-                actions.setWrapBody(params.wrapBody)
-            }
-            if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
-                actions.setPrettifyJson(params.prettifyJson)
-            }
             if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
                 actions.setLogsPageSize(+params.logsPageSize)
             }
@@ -148,21 +142,6 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
-        const updateUrlWithDisplayPreferences = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
-                updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
-                return params
-            })
-        }
-
         const updateUrlWithPageSize = (): [
             string,
             Params,
@@ -202,8 +181,6 @@ export const logsLogic = kea<logsLogicType>([
             setOrderBy: () => buildUrlAndRunQuery(),
             setLogsPageSize: () => updateUrlWithPageSize(),
             setHighlightedLogId: () => updateHighlightURL(),
-            setWrapBody: () => updateUrlWithDisplayPreferences(),
-            setPrettifyJson: () => updateUrlWithDisplayPreferences(),
         }
     }),
 
@@ -324,6 +301,7 @@ export const logsLogic = kea<logsLogicType>([
         ],
         wrapBody: [
             DEFAULT_WRAP_BODY as boolean,
+            { persist: true },
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
@@ -345,6 +323,7 @@ export const logsLogic = kea<logsLogicType>([
         ],
         prettifyJson: [
             DEFAULT_PRETTIFY_JSON as boolean,
+            { persist: true },
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
