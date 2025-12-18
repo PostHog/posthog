@@ -50,7 +50,7 @@ describe('ActionMatcher', () => {
         hub = await createHub()
         actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionMatcher = new ActionMatcher(actionManager)
         actionCounter = 0
     })
 
