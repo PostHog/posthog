@@ -34,6 +34,7 @@ from posthog.rate_limit import (
 )
 
 from products.llm_analytics.backend.summarization.llm import summarize
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_event_text_repr,
@@ -50,8 +51,8 @@ class SummarizeRequestSerializer(serializers.Serializer):
         help_text="Type of entity to summarize",
     )
     mode = serializers.ChoiceField(
-        choices=["minimal", "detailed"],
-        default="minimal",
+        choices=[m.value for m in SummarizationMode],
+        default=SummarizationMode.MINIMAL.value,
         help_text="Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points",
     )
     data = serializers.JSONField(  # type: ignore[assignment]
@@ -61,6 +62,20 @@ class SummarizeRequestSerializer(serializers.Serializer):
         default=False,
         required=False,
         help_text="Force regenerate summary, bypassing cache",
+    )
+    provider = serializers.ChoiceField(
+        choices=[p.value for p in SummarizationProvider],
+        default=None,
+        required=False,
+        allow_null=True,
+        help_text="LLM provider to use (defaults to 'openai')",
+    )
+    model = serializers.CharField(
+        default=None,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="LLM model to use (defaults based on provider)",
     )
 
 
@@ -103,8 +118,8 @@ class BatchCheckRequestSerializer(serializers.Serializer):
         max_length=100,
     )
     mode = serializers.ChoiceField(
-        choices=["minimal", "detailed"],
-        default="minimal",
+        choices=[m.value for m in SummarizationMode],
+        default=SummarizationMode.MINIMAL.value,
         help_text="Summary detail level to check for",
     )
 
@@ -345,6 +360,11 @@ The response includes the summary text and optional metadata.
             mode = serializer.validated_data["mode"]
             data = serializer.validated_data["data"]
             force_refresh = serializer.validated_data["force_refresh"]
+            provider = serializer.validated_data.get("provider")
+            model = serializer.validated_data.get("model")
+            # Treat empty string as None for model
+            if model == "":
+                model = None
 
             entity_id, entity_data = self._extract_entity_id(summarize_type, data)
 
@@ -368,6 +388,8 @@ The response includes the summary text and optional metadata.
                 text_repr=text_repr,
                 team_id=self.team_id,
                 mode=mode,
+                provider=provider,
+                model=model,
             )
 
             duration_seconds = time.time() - start_time
