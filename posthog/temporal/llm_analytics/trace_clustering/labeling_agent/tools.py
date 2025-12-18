@@ -157,7 +157,7 @@ def get_current_labels(
     Use this to review all labels together and check for distinctiveness.
     Returns a dict mapping cluster_id to {title, description} or null if not yet labeled.
     """
-    result = {}
+    result: dict[int, dict[str, str] | None] = {}
     for cluster_id in state["cluster_data"].keys():
         label = state["current_labels"].get(cluster_id)
         if label:

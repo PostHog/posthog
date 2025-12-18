@@ -336,7 +336,7 @@ class TestFinalizeLabels:
 
 class TestFillMissingLabels:
     def test_preserves_existing_labels(self):
-        existing = {0: ClusterLabel(title="Existing", description="Existing desc")}
+        existing: dict[int, ClusterLabel | None] = {0: ClusterLabel(title="Existing", description="Existing desc")}
         cluster_data = {
             0: ClusterTraceData(cluster_id=0, size=5, centroid_x=0, centroid_y=0, traces={}),
             1: ClusterTraceData(cluster_id=1, size=3, centroid_x=1, centroid_y=1, traces={}),
