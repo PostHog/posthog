@@ -365,7 +365,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     private async getLegacyPluginHogFunctionInvocations(
         invocation: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationHogFunction[]> {
-        // NOTE: This method loads the hog functions from the loader and creates invocations with the actual event data
         const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(invocation.project.id.toString())
 
         if (!pluginConfigHogFunctions) {
