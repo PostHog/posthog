@@ -3,6 +3,7 @@
 from typing import Annotated, TypedDict
 
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceSummary
 
@@ -37,6 +38,9 @@ class ClusterLabelingState(TypedDict):
 
     # LangGraph message history (required by create_react_agent)
     messages: Annotated[list, add_messages]
+
+    # Step tracking (required by create_react_agent)
+    remaining_steps: RemainingSteps
 
     # Input data (set at start, read by tools via InjectedState)
     team_id: int
