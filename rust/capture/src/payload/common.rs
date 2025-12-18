@@ -4,6 +4,8 @@
 //! payload handlers for extracting metadata, processing request bodies, and
 //! handling various encoding/compression formats.
 
+pub const CAPTURE_OPERATION_TIMEOUT_TOTAL: &str = "capture_operation_timeout_total";
+
 use axum::http::{HeaderMap, Method};
 use bytes::Bytes;
 use tracing::{error, Span};

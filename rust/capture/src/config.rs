@@ -119,6 +119,9 @@ pub struct Config {
     // if set in env, will configure a request timeout on the server's Axum router
     pub request_timeout_seconds: Option<u64>,
 
+    #[envconfig(default = "10000")]
+    pub operation_timeout_ms: u64,
+
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.

@@ -14,7 +14,10 @@ use tracing::{debug, instrument, warn, Span};
 use crate::{
     api::CaptureError,
     events::recordings::RawRecording,
-    payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
+    payload::{
+        common::CAPTURE_OPERATION_TIMEOUT_TOTAL, decompress_payload, extract_and_record_metadata,
+        extract_payload_bytes, EventQuery,
+    },
     router,
     v0_request::ProcessingContext,
 };
@@ -55,8 +58,18 @@ pub async fn handle_recording_payload(
     debug!("entering handle_recording_payload");
 
     // Extract payload bytes and metadata using shared helper
-    let (data, compression, lib_version) =
-        extract_payload_bytes(query_params, headers, method, body)?;
+    let result = tokio::time::timeout(state.operation_timeout, async {
+        extract_payload_bytes(query_params, headers, method, body)
+    })
+    .await;
+    let (data, compression, lib_version) = match result {
+        Ok(Ok((d, c, lv))) => (d, c, lv),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "extract").increment(1);
+            return Err(CaptureError::OperationTimeout);
+        }
+    };
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
@@ -64,29 +77,33 @@ pub async fn handle_recording_payload(
     debug!("payload processed: deserializing to RawRecording");
 
     // Decompress the payload
-    let decomp_start_time = std::time::Instant::now();
-    let result = decompress_payload(data, compression, state.event_size_limit, path.as_str());
-    metrics::histogram!("capture_debug_recordings_decompress_seconds")
-        .record(decomp_start_time.elapsed().as_secs_f64());
+    let result = tokio::time::timeout(state.operation_timeout, async {
+        decompress_payload(data, compression, state.event_size_limit, path.as_str())
+    })
+    .await;
     let payload = match result {
-        Ok(payload) => payload,
-        Err(e) => {
-            return Err(e);
+        Ok(Ok(payload)) => payload,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "decompress").increment(1);
+            return Err(CaptureError::OperationTimeout);
         }
     };
 
     // Deserialize to RecordingPayload (handles both single event and array)
-    let deser_start_time = std::time::Instant::now();
-    let result = serde_json::from_str(&payload);
+    let result = tokio::time::timeout(state.operation_timeout, async {
+        serde_json::from_str::<RecordingPayload>(&payload)
+    })
+    .await;
     let recording_payload: RecordingPayload = match result {
-        Ok(payload) => payload,
-        Err(e) => {
-            return Err(e.into());
+        Ok(Ok(payload)) => payload,
+        Ok(Err(e)) => return Err(e.into()),
+        Err(_) => {
+            counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "parse").increment(1);
+            return Err(CaptureError::OperationTimeout);
         }
     };
     let mut events = recording_payload.into_vec();
-    metrics::histogram!("capture_debug_recordings_deserialize_seconds")
-        .record(deser_start_time.elapsed().as_secs_f64());
 
     if events.is_empty() {
         warn!("rejected empty recording batch");

@@ -81,6 +81,9 @@ pub enum CaptureError {
 
     #[error("payload empty after filtering invalid event types")]
     EmptyPayloadFiltered,
+
+    #[error("operation timeout")]
+    OperationTimeout,
 }
 
 impl From<serde_json::Error> for CaptureError {
@@ -114,6 +117,7 @@ impl CaptureError {
             CaptureError::BillingLimit => "billing_limit",
             CaptureError::RateLimited => "rate_limited",
             CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
+            CaptureError::OperationTimeout => "operation_timeout",
         }
     }
 }
@@ -148,6 +152,8 @@ impl IntoResponse for CaptureError {
             CaptureError::BillingLimit | CaptureError::RateLimited => {
                 (StatusCode::TOO_MANY_REQUESTS, self.to_string())
             }
+
+            CaptureError::OperationTimeout => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
         }
         .into_response()
     }

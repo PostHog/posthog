@@ -14,7 +14,10 @@ use tracing::{debug, instrument, Span};
 
 use crate::{
     api::CaptureError,
-    payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
+    payload::{
+        common::CAPTURE_OPERATION_TIMEOUT_TOTAL, extract_and_record_metadata,
+        extract_payload_bytes, EventQuery,
+    },
     router,
     utils::extract_and_verify_token,
     v0_request::{ProcessingContext, RawRequest},
@@ -66,38 +69,42 @@ pub async fn handle_event_payload(
     debug!("entering handle_event_payload");
 
     // Extract payload bytes and metadata using shared helper
-    let extract_start_time = std::time::Instant::now();
-    let result = extract_payload_bytes(query_params, headers, method, body);
+    let result = tokio::time::timeout(state.operation_timeout, async {
+        extract_payload_bytes(query_params, headers, method, body)
+    })
+    .await;
     let (data, compression, lib_version) = match result {
-        Ok((d, c, lv)) => (d, c, lv),
-        Err(e) => {
-            return Err(e);
+        Ok(Ok((d, c, lv))) => (d, c, lv),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "extract").increment(1);
+            return Err(CaptureError::OperationTimeout);
         }
     };
-    metrics::histogram!("capture_debug_analytics_extract_seconds")
-        .record(extract_start_time.elapsed().as_secs_f64());
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
 
     debug!("payload processed: passing to RawRequest::from_bytes");
 
-    let from_bytes_start_time = std::time::Instant::now();
-    let result = RawRequest::from_bytes(
-        data,
-        compression,
-        metadata.request_id,
-        state.event_size_limit,
-        path.as_str().to_string(),
-    );
+    let result = tokio::time::timeout(state.operation_timeout, async {
+        RawRequest::from_bytes(
+            data,
+            compression,
+            metadata.request_id,
+            state.event_size_limit,
+            path.as_str().to_string(),
+        )
+    })
+    .await;
     let request = match result {
-        Ok(request) => request,
-        Err(e) => {
-            return Err(e);
+        Ok(Ok(request)) => request,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "decompress").increment(1);
+            return Err(CaptureError::OperationTimeout);
         }
     };
-    metrics::histogram!("capture_debug_analytics_decompress_seconds")
-        .record(from_bytes_start_time.elapsed().as_secs_f64());
 
     let sent_at = request.sent_at().or(query_params.sent_at());
     let historical_migration = request.historical_migration();
@@ -107,14 +114,18 @@ pub async fn handle_event_payload(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let events_start_time = std::time::Instant::now();
-    let result = request.events(path.as_str());
+    let result = tokio::time::timeout(state.operation_timeout, async {
+        request.events(path.as_str())
+    })
+    .await;
     let mut events = match result {
-        Ok(events) => events,
-        Err(e) => return Err(e),
+        Ok(Ok(events)) => events,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            counter!(CAPTURE_OPERATION_TIMEOUT_TOTAL, "op" => "parse").increment(1);
+            return Err(CaptureError::OperationTimeout);
+        }
     };
-    metrics::histogram!("capture_debug_analytics_deserialize_seconds")
-        .record(events_start_time.elapsed().as_secs_f64());
 
     Span::current().record("batch_size", events.len());
 
@@ -126,7 +137,7 @@ pub async fn handle_event_payload(
     };
     Span::current().record("token", &token);
 
-    counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
+    counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
 
