@@ -14,7 +14,6 @@ import {
     IconLaptop,
     IconPlusSmall,
     IconRewind,
-    IconRewindPlay,
     IconServer,
     IconTrash,
 } from '@posthog/icons'
@@ -29,6 +28,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -93,7 +93,6 @@ import {
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
-    ReplayTabs,
 } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
@@ -107,7 +106,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -1206,18 +1205,10 @@ function FeatureFlagRollout({
                                     variants={variants}
                                     payloads={featureFlag.filters?.payloads}
                                     readOnly={true}
+                                    flagKey={featureFlag.key}
+                                    hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
                                     onViewRecordings={(variantKey) => {
                                         reportViewRecordingsClicked(variantKey)
-                                        router.actions.push(
-                                            urls.replay(
-                                                ReplayTabs.Home,
-                                                getRecordingFilterForFlagVariant(
-                                                    featureFlag.key,
-                                                    variantKey,
-                                                    featureFlag.has_enriched_analytics
-                                                )
-                                            )
-                                        )
                                         addProductIntentForCrossSell({
                                             from: ProductKey.FEATURE_FLAGS,
                                             to: ProductKey.SESSION_REPLAY,
@@ -1480,26 +1471,23 @@ function FeatureFlagRollout({
                                             title="Recordings"
                                             description="Watch recordings of people who have been exposed to the feature flag."
                                         >
-                                            <div className="inline-block">
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        reportViewRecordingsClicked()
-                                                        router.actions.push(
-                                                            urls.replay(ReplayTabs.Home, recordingFilterForFlag)
-                                                        )
-                                                        addProductIntentForCrossSell({
-                                                            from: ProductKey.FEATURE_FLAGS,
-                                                            to: ProductKey.SESSION_REPLAY,
-                                                            intent_context:
-                                                                ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                                        })
-                                                    }}
-                                                    icon={<IconRewindPlay />}
+                                            <div
+                                                onClick={() => {
+                                                    reportViewRecordingsClicked()
+                                                    addProductIntentForCrossSell({
+                                                        from: ProductKey.FEATURE_FLAGS,
+                                                        to: ProductKey.SESSION_REPLAY,
+                                                        intent_context:
+                                                            ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                                    })
+                                                }}
+                                            >
+                                                <ViewRecordingsPlaylistButton
+                                                    filters={recordingFilterForFlag}
                                                     type="secondary"
                                                     size="small"
-                                                >
-                                                    View recordings
-                                                </LemonButton>
+                                                    data-attr="feature-flag-view-recordings"
+                                                />
                                             </div>
                                         </SceneSection>
 
@@ -1700,23 +1688,24 @@ function FeatureFlagRollout({
                                     title="Recordings"
                                     description="Watch recordings of people who have been exposed to the feature flag."
                                 >
-                                    <LemonButton
+                                    <div
                                         onClick={() => {
                                             reportViewRecordingsClicked()
-                                            router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
                                             addProductIntentForCrossSell({
                                                 from: ProductKey.FEATURE_FLAGS,
                                                 to: ProductKey.SESSION_REPLAY,
                                                 intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                             })
                                         }}
-                                        icon={<IconRewindPlay />}
-                                        type="secondary"
-                                        size="small"
-                                        className="w-fit"
                                     >
-                                        View recordings
-                                    </LemonButton>
+                                        <ViewRecordingsPlaylistButton
+                                            filters={recordingFilterForFlag}
+                                            type="secondary"
+                                            size="small"
+                                            className="w-fit"
+                                            data-attr="feature-flag-view-recordings"
+                                        />
+                                    </div>
                                 </SceneSection>
                                 {onGetFeedback && (
                                     <>
