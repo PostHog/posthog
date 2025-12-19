@@ -201,6 +201,7 @@ insert into posthog_datawarehousemodelpath (
   where
     model_path.path ~ ('*.' || %(child)s || '.*')::lquery
     and team_id = %(team_id)s
+  order by id, path
 )
 on conflict (id) do
 update
