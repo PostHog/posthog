@@ -51,7 +51,7 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
     request_context = RequestContext(
         method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
         user=change_request.created_by,  # Already in ChangeRequest
-        data=change_request.intent.get("desired_state", change_request.intent),  # Already in ChangeRequest
+        data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
     )
 
     # Build base context with common metadata

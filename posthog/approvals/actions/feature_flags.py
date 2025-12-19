@@ -25,7 +25,7 @@ class FeatureFlagActionBase(BaseAction):
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> tuple[bool, Optional[dict[str, Any]]]:
-        data_to_validate = intent_data.get("full_request_data", intent_data.get("desired_state", {}))
+        data_to_validate = intent_data.get("full_request_data", intent_data.get("gated_changes", {}))
         instance = context.get("instance") if context else None
 
         serializer = cls.endpoint_serializer_class(
@@ -80,16 +80,16 @@ class FeatureFlagActionBase(BaseAction):
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:
         flag = cls._get_instance(view, *args, **kwargs)
 
-        desired_state = {}
+        gated_changes = {}
         for field in cls.intent_fields:
             if field in request.data:
-                desired_state[field] = request.data[field]
+                gated_changes[field] = request.data[field]
 
         return {
             "flag_id": flag.id,
             "flag_key": flag.key,
             "current_state": {"active": flag.active},
-            "desired_state": desired_state,
+            "gated_changes": gated_changes,
             "full_request_data": dict(request.data),
             "preconditions": {
                 "version": flag.version,
@@ -158,7 +158,7 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
         return {
             "description": f"Enable feature flag '{intent_data.get('flag_key', 'unknown')}'",
             "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("desired_state", {}),
+            "after": intent_data.get("gated_changes", {}),
         }
 
 
@@ -175,5 +175,5 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
         return {
             "description": f"Disable feature flag '{intent_data.get('flag_key', 'unknown')}'",
             "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("desired_state", {}),
+            "after": intent_data.get("gated_changes", {}),
         }

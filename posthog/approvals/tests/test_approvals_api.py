@@ -21,7 +21,7 @@ class TestChangeRequestViewSet(APIBaseTest):
             "resource_type": "feature_flag",
             "resource_id": "123",
             "state": ChangeRequestState.PENDING,
-            "intent": {"desired_state": {"active": True}},
+            "intent": {"gated_changes": {"active": True}},
             "intent_display": {"description": "Enable feature flag"},
             "policy_snapshot": {"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
             "expires_at": timezone.now() + timedelta(days=7),
