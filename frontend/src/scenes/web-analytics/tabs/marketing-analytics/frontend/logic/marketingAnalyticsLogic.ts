@@ -726,7 +726,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             }
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
-                intent_context: ProductIntentContext.MARKETING_ANALYTICS_DASHBOARD_IINTERACTION,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_DASHBOARD_INTERACTION,
             })
         }
 
