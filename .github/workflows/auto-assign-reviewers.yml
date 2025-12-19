@@ -1,25 +1,53 @@
-# � SECURITY PLACEHOLDER - DO NOT USE THIS WORKFLOW NAME �
-#
-# This workflow previously existed and was compromised. This placeholder file
-# exists to allow blocking this workflow name in GitHub's branch protection rules.
-#
-# This prevents anyone from:
-# 1. Using a cached/previous version of a workflow with this name
-# 2. Re-creating a malicious workflow using this known-compromised name
-#
-# If you need to create an auto-assign reviewers workflow, please use a
-# different name and workflow file
+name: Auto Assign Reviewers
 
-name: 'Auto Assign Reviewers'
-
+# NOTE: We use `pull_request_target` here but this is extremely dangerous.
+# DO NOT ATTEMPT TO MODIFY THIS FILE WITHOUT VALIDATING WITH THE SECURITY TEAM.
+#
+# We need to make sure we're never running untrusted code here since this workflow
+# skips any GitHub security checks and any permissions - it'll always run when a user opens a PR against our repo.
+# To make it risk free we need to GUARANTEE we're only ever running code that is trusted - i.e. from our master branch.
+#
+# This has the small downside that changes to CODEOWNERS will not be reflected in here until we merge it to master,
+# which means testing this workflow is slightly less convenient but that's well worth it.
 on:
-    workflow_dispatch:
+    pull_request_target:
+        # Only opened or when clicking ready otherwise you can never remove the reviewers
+        types: [opened, ready_for_review]
+
+permissions:
+    contents: read
+    pull-requests: write
 
 jobs:
-    blocked:
-        runs-on: ubuntu-latest
+    assign-reviewers:
+        runs-on: 'ubuntu-22.04'
+        if: github.event.pull_request.draft == false
+
         steps:
-            - name: This workflow is blocked
+            - name: Checkout master branch
+              uses: actions/checkout@v4
+              with:
+                  ref: master
+
+            # We're always running against master branch, but the PR might not be against master
+            # so we need to fetch both the head and base branches.
+            - name: Fetch head and base branches
               run: |
-                  echo "� A workflow with this name was previously compromised and is now blocked."
-                  exit 1
+                  git fetch origin ${{ github.event.pull_request.head.sha }}
+                  git fetch origin ${{ github.event.pull_request.base.sha }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+
+            # Script runs from master branch (protected), but can diff against PR branch
+            - name: Run reviewer assignment script
+              env:
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  node .github/scripts/assign-reviewers.js
