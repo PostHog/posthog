@@ -4,10 +4,12 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { userLogic } from 'scenes/userLogic'
 
 import { WorkflowTemplateLogicProps, workflowTemplateLogic } from './workflowTemplateLogic'
 
 export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX.Element {
+    const { user } = useValues(userLogic)
     const logic = workflowTemplateLogic(props)
     const { saveAsTemplateModalVisible, isTemplateFormSubmitting, templateForm } = useValues(logic)
     const { hideSaveAsTemplateModal, submitTemplateForm } = useActions(logic)
@@ -48,15 +50,17 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                         <LemonInput placeholder="https://example.com/image.png" />
                     </LemonField>
 
-                    <LemonField name="scope" label="Scope">
-                        <LemonSelect
-                            value={templateForm.scope}
-                            options={[
-                                { value: 'team', label: 'Team only' },
-                                { value: 'global', label: 'Official (visible to everyone)' },
-                            ]}
-                        />
-                    </LemonField>
+                    {user?.is_staff && (
+                        <LemonField name="scope" label="Scope">
+                            <LemonSelect
+                                value={templateForm.scope}
+                                options={[
+                                    { value: 'team', label: 'Team only' },
+                                    { value: 'global', label: 'Official (visible to everyone)' },
+                                ]}
+                            />
+                        </LemonField>
+                    )}
                 </div>
             </Form>
         </LemonModal>
