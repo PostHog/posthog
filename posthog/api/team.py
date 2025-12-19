@@ -1385,7 +1385,9 @@ class RootTeamViewSet(TeamViewSet):
 
 
 def handle_conversations_token_on_update(
-    validated_data: dict[str, Any], current_conversations_enabled: bool, current_conversations_settings: dict | None
+    validated_data: dict[str, Any],
+    current_conversations_enabled: bool | None,
+    current_conversations_settings: dict | None,
 ) -> dict[str, Any]:
     """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
     if "conversations_enabled" not in validated_data:
