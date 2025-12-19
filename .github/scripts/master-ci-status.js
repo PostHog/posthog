@@ -5,51 +5,72 @@
 //   channel: string,      // Slack channel ID
 //   ts: string,           // Slack message timestamp (thread parent)
 //   since: string,        // ISO timestamp of incident start
-//   commits: string[],    // Ordered list of commit SHAs (index = commit_order)
-//   fail_seq: {[workflow]: number},  // workflow -> commit_order of last failure
-//   ok_seq: {[workflow]: number}     // workflow -> commit_order of last success
+//   sha_ts: {[sha]: number},        // sha -> commit timestamp (epoch ms)
+//   fail_ts: {[workflow]: number},  // workflow -> timestamp of last failure
+//   ok_ts: {[workflow]: number}     // workflow -> timestamp of last success
 // }
 //
-// A workflow is "known failing" iff fail_seq[w] > ok_seq[w]
+// A workflow is "known failing" iff fail_ts[w] > ok_ts[w]
 // Resolution occurs when no workflows are known failing
 
 const STATE_FILE = '.master-ci-incident';
 
-function getCommitOrder(state, sha) {
-    const idx = state.commits.indexOf(sha);
-    return idx >= 0 ? idx : state.commits.length;
+async function getCommitTimestamp(github, context, sha) {
+    const { data } = await github.rest.repos.getCommit({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        ref: sha,
+    });
+    const iso = data.commit.committer?.date ?? data.commit.author?.date;
+    return new Date(iso).getTime();
 }
 
 function getFailingWorkflows(state) {
-    return Object.entries(state.fail_seq)
-        .filter(([wf, order]) => order > (state.ok_seq[wf] ?? -1))
+    return Object.entries(state.fail_ts)
+        .filter(([wf, ts]) => ts > (state.ok_ts[wf] ?? 0))
         .map(([wf]) => wf);
 }
 
-function handleFailure(state, event, order, core, fs) {
+function pruneOldShas(state) {
+    // Remove sha_ts entries older than the minimum ok_ts.
+    // Once all workflows have passed on a commit newer than a SHA,
+    // that SHA's timestamp is no longer needed for ordering comparisons.
+    const okTimestamps = Object.values(state.ok_ts);
+    if (okTimestamps.length === 0) return;
+
+    const minOkTs = Math.min(...okTimestamps);
+    for (const sha of Object.keys(state.sha_ts)) {
+        if (state.sha_ts[sha] < minOkTs) {
+            delete state.sha_ts[sha];
+        }
+    }
+}
+
+function handleFailure(state, event, commitTs, core, fs) {
     const isNew = !state;
 
     if (isNew) {
         state = {
             since: new Date().toISOString(),
-            commits: [event.head_sha],
-            fail_seq: { [event.name]: 0 },
-            ok_seq: {},
+            sha_ts: { [event.head_sha]: commitTs },
+            fail_ts: { [event.name]: commitTs },
+            ok_ts: {},
         };
     } else {
-        if (!state.commits.includes(event.head_sha)) {
-            state.commits.push(event.head_sha);
-        }
-        state.fail_seq[event.name] = Math.max(state.fail_seq[event.name] ?? -1, order);
+        // Record this SHA's timestamp
+        state.sha_ts[event.head_sha] = commitTs;
+        // Update fail_ts: max of current and new timestamp
+        state.fail_ts[event.name] = Math.max(state.fail_ts[event.name] ?? 0, commitTs);
     }
 
     const failing = getFailingWorkflows(state);
+    pruneOldShas(state);
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
     core.setOutput('action', isNew ? 'create' : 'update');
     core.setOutput('failing_workflows', failing.join(', '));
     core.setOutput('failing_count', String(failing.length));
-    core.setOutput('commit_count', String(state.commits.length));
+    core.setOutput('commit_count', String(Object.keys(state.sha_ts).length));
     core.setOutput('save_cache', 'true');
 
     console.log(`Action: ${isNew ? 'create' : 'update'}`);
@@ -57,7 +78,7 @@ function handleFailure(state, event, order, core, fs) {
     console.log(`State:`, JSON.stringify(state, null, 2));
 }
 
-function handleSuccess(state, event, order, core, fs) {
+function handleSuccess(state, event, commitTs, core, fs) {
     if (!state) {
         core.setOutput('action', 'none');
         core.setOutput('save_cache', 'false');
@@ -65,19 +86,20 @@ function handleSuccess(state, event, order, core, fs) {
         return;
     }
 
-    if (!state.commits.includes(event.head_sha)) {
-        state.commits.push(event.head_sha);
-    }
-    state.ok_seq[event.name] = Math.max(state.ok_seq[event.name] ?? -1, order);
+    // Record this SHA's timestamp
+    state.sha_ts[event.head_sha] = commitTs;
+    // Update ok_ts: max of current and new timestamp
+    state.ok_ts[event.name] = Math.max(state.ok_ts[event.name] ?? 0, commitTs);
 
     const failing = getFailingWorkflows(state);
     const resolved = failing.length === 0;
 
+    pruneOldShas(state);
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
     core.setOutput('action', resolved ? 'resolve' : 'none');
     core.setOutput('still_failing', failing.join(', '));
-    core.setOutput('commit_count', String(state.commits.length));
+    core.setOutput('commit_count', String(Object.keys(state.sha_ts).length));
     core.setOutput('resolved', resolved ? 'true' : 'false');
     core.setOutput('since', state.since);
     core.setOutput('channel', state.channel || '');
@@ -92,8 +114,9 @@ function handleSuccess(state, event, order, core, fs) {
 module.exports = async ({ github, context, core }) => {
     const fs = require('fs');
     const event = context.payload.workflow_run;
+    const conclusion = event.conclusion;
 
-    console.log(`Processing ${event.name} (${event.conclusion}) for ${event.head_sha.substring(0, 7)}`);
+    console.log(`Processing ${event.name} (${conclusion}) for ${event.head_sha.substring(0, 7)}`);
 
     // Read existing state
     let state = null;
@@ -103,9 +126,9 @@ module.exports = async ({ github, context, core }) => {
             // Ensure required fields exist (handles old format or corrupted state)
             state = {
                 ...raw,
-                commits: raw.commits || [],
-                fail_seq: raw.fail_seq || {},
-                ok_seq: raw.ok_seq || {},
+                sha_ts: raw.sha_ts || {},
+                fail_ts: raw.fail_ts || {},
+                ok_ts: raw.ok_ts || {},
             };
             console.log('Loaded existing incident state');
         } catch (e) {
@@ -113,18 +136,19 @@ module.exports = async ({ github, context, core }) => {
         }
     }
 
-    // Get commit order
-    const commitOrder = state ? getCommitOrder(state, event.head_sha) : 0;
-    console.log(`Commit order: ${commitOrder}`);
+    // Get commit timestamp from GitHub API
+    const commitTs = await getCommitTimestamp(github, context, event.head_sha);
+    console.log(`Commit timestamp: ${new Date(commitTs).toISOString()}`);
 
-    if (event.conclusion === 'failure') {
-        handleFailure(state, event, commitOrder, core, fs);
-    } else if (event.conclusion === 'success') {
-        handleSuccess(state, event, commitOrder, core, fs);
+    // Handle based on conclusion
+    if (conclusion === 'failure' || conclusion === 'timed_out') {
+        handleFailure(state, event, commitTs, core, fs);
+    } else if (conclusion === 'success') {
+        handleSuccess(state, event, commitTs, core, fs);
     } else {
         // Ignore cancelled, skipped, etc. - no state change
         core.setOutput('action', 'none');
         core.setOutput('save_cache', 'false');
-        console.log(`Ignoring ${event.conclusion} conclusion`);
+        console.log(`Ignoring ${conclusion} conclusion`);
     }
 };
