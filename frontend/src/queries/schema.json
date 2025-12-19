@@ -31092,6 +31092,9 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "plan": {
+                    "type": ["string", "null"]
+                },
                 "query": {
                     "anyOf": [
                         {
