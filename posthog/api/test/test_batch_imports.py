@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
 
@@ -499,3 +499,27 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], str(batch_import.id))
         self.assertEqual(results[0]["display_status"], expected_display_status)
+
+    def test_resume_clears_lease_and_backoff(self):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=BatchImport.Status.PAUSED,
+            lease_id="old-lease-uuid",
+            leased_until=datetime.now(tz=UTC) + timedelta(hours=1),
+            backoff_attempt=5,
+            backoff_until=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/resume")
+
+        self.assertEqual(response.status_code, 200)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+        self.assertEqual(batch_import.status_message, "Resumed by user")
