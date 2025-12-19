@@ -25,7 +25,7 @@ jobs:
 
         steps:
             - name: Checkout master branch
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   ref: master
 
@@ -44,7 +44,7 @@ jobs:
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script
               env:
-                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
+                  GITHUB_TOKEN: ${{ github.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
