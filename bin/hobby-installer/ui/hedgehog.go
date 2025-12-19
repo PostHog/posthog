@@ -1,8 +1,9 @@
 package ui
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -36,8 +37,10 @@ func NewHedgehog() Hedgehog {
 }
 
 func (h *Hedgehog) Pet() {
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hedgehogMoods))))
+
 	h.petCount++
-	h.mood = rand.Intn(len(hedgehogMoods))
+	h.mood = int(n.Int64())
 }
 
 func (h Hedgehog) PetCount() int {
