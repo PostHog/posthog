@@ -211,7 +211,7 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
                 }
             } catch (e) {
                 posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                    extra: { context: 'TerraformExporter', resourceType: resource.type },
+                    extra: { context: 'TerraformExporter', resourceType: resource.type, resourceId: resource.data.id },
                 })
                 if (!isStale()) {
                     setState({
