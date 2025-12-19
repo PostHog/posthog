@@ -4,16 +4,17 @@
 //! Unlike analytics events, recording payloads are deserialized directly to
 //! Vec<RawRecording> to avoid the overhead of going through RawRequest.
 
+use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use bytes::Bytes;
 use metrics::counter;
 use tracing::{debug, info, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
     events::recordings::RawRecording,
+    extractors::extract_body_with_timeout,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     v0_request::ProcessingContext,
@@ -47,7 +48,7 @@ pub async fn handle_recording_payload(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
-    body: Bytes,
+    body: Body,
 ) -> Result<(ProcessingContext, Vec<RawRecording>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
 
@@ -55,6 +56,21 @@ pub async fn handle_recording_payload(
         info!(headers=?headers, "CHATTY: entering handle_recording_payload");
     } else {
         debug!("entering handle_recording_payload");
+    }
+
+    // Extract body with optional chunk timeout
+    let body = extract_body_with_timeout(
+        body,
+        state.event_size_limit,
+        state.body_chunk_read_timeout,
+        path.as_str(),
+    )
+    .await?;
+
+    if chatty_debug_enabled {
+        info!(headers=?headers, "CHATTY: streamed payload body");
+    } else {
+        debug!(headers=?headers, "streamed payload body");
     }
 
     // Extract request metadata using shared helper

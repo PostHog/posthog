@@ -3,6 +3,7 @@ pub mod ai_s3;
 pub mod api;
 pub mod config;
 pub mod events;
+pub mod extractors;
 pub mod limiters;
 pub mod metrics_middleware;
 pub mod payload;
