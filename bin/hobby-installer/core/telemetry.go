@@ -1,4 +1,4 @@
-package installer
+package core
 
 import (
 	"github.com/posthog/posthog-go"
@@ -9,15 +9,11 @@ const endpoint = "https://us.i.posthog.com"
 
 var client posthog.Client
 
-// Go's `init` function is called automatically when the package is imported.
 func init() {
 	var err error
 	client, err = posthog.NewWithConfig(posthogAPIKey, posthog.Config{
 		Endpoint: endpoint,
 	})
-
-	// Just keep going even if we get an error,
-	// not having telemtry isn't a blocker for the installer
 	if err != nil {
 		client = nil
 	}

@@ -1,12 +1,14 @@
-package installer
+package core
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 )
 
-// EnvConfig holds the configuration for the .env file
 type EnvConfig struct {
 	PosthogSecret        string
 	EncryptionSaltKeys   string
@@ -71,7 +73,6 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 	return os.WriteFile(".env", []byte(content), 0600)
 }
 
-// Loads existing .env values and preserves them
 func LoadExistingEnv() map[string]string {
 	values := make(map[string]string)
 	keys := []string{
@@ -94,11 +95,9 @@ func LoadExistingEnv() map[string]string {
 	return values
 }
 
-// Updates the .env file for an upgrade, preserving secrets
 func UpdateEnvForUpgrade(version string) error {
 	existing := LoadExistingEnv()
 
-	// Check if ENCRYPTION_SALT_KEYS exists, add if missing
 	if existing["ENCRYPTION_SALT_KEYS"] == "" {
 		key, err := GenerateEncryptionKey()
 		if err != nil {
@@ -109,7 +108,6 @@ func UpdateEnvForUpgrade(version string) error {
 		}
 	}
 
-	// Check if SESSION_RECORDING_V2_METADATA_SWITCHOVER exists, add if missing
 	if existing["SESSION_RECORDING_V2_METADATA_SWITCHOVER"] == "" {
 		if err := AppendToEnv("SESSION_RECORDING_V2_METADATA_SWITCHOVER", time.Now().Format(time.RFC3339)); err != nil {
 			return err
@@ -119,16 +117,72 @@ func UpdateEnvForUpgrade(version string) error {
 	return nil
 }
 
-// Checks if the encryption key is in valid format
-func ValidateEncryptionKey(key string) bool {
-	// Should be 32 hex characters
-	if len(key) != 32 {
-		return false
+func FixEnvQuoting() error {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return nil
 	}
-	for _, c := range key {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
+
+	var result strings.Builder
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			result.WriteString(line)
+			result.WriteString("\n")
+			continue
+		}
+
+		idx := strings.Index(line, "=")
+		if idx == -1 {
+			result.WriteString(line)
+			result.WriteString("\n")
+			continue
+		}
+
+		key := strings.TrimSpace(line[:idx])
+		value := strings.TrimSpace(line[idx+1:])
+
+		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+			(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+			result.WriteString(line)
+			result.WriteString("\n")
+			continue
+		}
+
+		needsQuote := strings.ContainsAny(value, " ,") || strings.Contains(value, "://")
+		if needsQuote {
+			value = strings.ReplaceAll(value, "\"", "\\\"")
+			result.WriteString(fmt.Sprintf("%s=\"%s\"\n", key, value))
+		} else {
+			result.WriteString(line)
+			result.WriteString("\n")
 		}
 	}
-	return true
+
+	return os.WriteFile(".env", []byte(result.String()), 0600)
+}
+
+func ValidateEnvForUpgrade() error {
+	required := []string{"POSTHOG_SECRET", "DOMAIN"}
+	for _, key := range required {
+		if ReadEnvValue(key) == "" {
+			return fmt.Errorf("missing required env var: %s", key)
+		}
+	}
+
+	encKey := ReadEnvValue("ENCRYPTION_SALT_KEYS")
+	if encKey != "" {
+		if !regexp.MustCompile(`^[A-Za-z0-9_-]{32}$`).MatchString(encKey) {
+			return fmt.Errorf("ENCRYPTION_SALT_KEYS is not in correct format")
+		}
+	}
+
+	return nil
+}
+
+func GetExistingDomain() string {
+	return ReadEnvValue("DOMAIN")
 }

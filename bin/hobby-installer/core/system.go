@@ -1,4 +1,4 @@
-package installer
+package core
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"strings"
 )
 
-// Used to generate a random secret for POSTHOG_SECRET
 func GenerateSecret() (string, error) {
 	b := make([]byte, 28)
 	if _, err := rand.Read(b); err != nil {
@@ -22,7 +21,6 @@ func GenerateSecret() (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// Used to generate a 32-byte hex key for ENCRYPTION_SALT_KEYS
 func GenerateEncryptionKey() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -31,7 +29,6 @@ func GenerateEncryptionKey() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// Run a shell command and return output as a string
 func RunCommand(name string, args ...string) (string, error) {
 	log := GetLogger()
 	log.WriteString(fmt.Sprintf("$ %s %s\n", name, strings.Join(args, " ")))
@@ -47,7 +44,6 @@ func RunCommand(name string, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
-// Run a command in a specific directory
 func RunCommandWithDir(dir string, name string, args ...string) (string, error) {
 	log := GetLogger()
 	log.WriteString(fmt.Sprintf("$ cd %s && %s %s\n", dir, name, strings.Join(args, " ")))
@@ -64,14 +60,6 @@ func RunCommandWithDir(dir string, name string, args ...string) (string, error) 
 	return stdout.String(), nil
 }
 
-// Run a command and stream output in real-time
-func RunCommandStreaming(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
@@ -86,8 +74,7 @@ func DirExists(path string) bool {
 }
 
 func AptUpdate() error {
-	logger := GetLogger()
-	logger.WriteString("Updating apt cache...\n")
+	GetLogger().WriteString("Updating apt cache...\n")
 	cmd := exec.Command("sudo", "apt", "update")
 	return cmd.Run()
 }

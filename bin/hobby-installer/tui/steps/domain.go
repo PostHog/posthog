@@ -1,13 +1,12 @@
 package steps
 
 import (
-	"bufio"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/posthog/posthog/bin/hobby-installer/core"
 	"github.com/posthog/posthog/bin/hobby-installer/ui"
 )
 
@@ -74,22 +73,7 @@ func (m DomainModel) View() string {
 
 // GetExistingDomain checks if a domain already exists in .env file
 func (m DomainModel) GetExistingDomain() string {
-	file, err := os.Open(".env")
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "DOMAIN=") {
-			domain := strings.TrimPrefix(line, "DOMAIN=")
-			domain = strings.Trim(domain, "\"'")
-			return domain
-		}
-	}
-	return ""
+	return core.GetExistingDomain()
 }
 
 func isValidDomain(domain string) bool {

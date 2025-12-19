@@ -72,4 +72,3 @@ func (h Hedgehog) RenderWithMessage() string {
 		MutedStyle.Render(h.GetMessage()),
 	)
 }
-

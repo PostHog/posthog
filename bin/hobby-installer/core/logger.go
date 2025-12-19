@@ -1,4 +1,4 @@
-package installer
+package core
 
 import (
 	"io"
@@ -63,8 +63,4 @@ func (l *LogBuffer) Clear() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines = l.lines[:0]
-}
-
-func Log(format string, args ...interface{}) {
-	globalLog.WriteString(strings.TrimRight(format, "\n") + "\n")
 }
