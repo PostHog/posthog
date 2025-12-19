@@ -116,8 +116,8 @@ def find_existing_jobs(
             status__in=[PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING],
         )
         .filter(
-            # Include jobs where expires_at is null (legacy) or far enough in the future
-            Q(expires_at__isnull=True) | Q(expires_at__gte=min_expires_at)
+            # Include jobs where expires_at is far enough in the future (exclude null)
+            Q(expires_at__gte=min_expires_at)
         )
         .order_by("time_range_start")
     )
