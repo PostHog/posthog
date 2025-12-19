@@ -213,7 +213,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             content = artifact_contents.get(message.id or "")
             if not content:
                 continue
-            plan = content.description or ""
+            plan = content.plan or ""
             query = content.name or ""
             answer = content.query
 
