@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
@@ -18,6 +19,7 @@ interface CreateSurveyButtonProps {
 export const CreateSurveyButton = ({ value }: CreateSurveyButtonProps): JSX.Element => {
     const { openSurveyModal } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     if (!featureFlags[FEATURE_FLAGS.SURVEYS_WEB_ANALYTICS_CROSS_SELL]) {
         return <></>
@@ -36,7 +38,7 @@ export const CreateSurveyButton = ({ value }: CreateSurveyButtonProps): JSX.Elem
             className="no-underline"
             onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
-                openSurveyModal(value)
+                openSurveyModal(value, currentTeam?.path_cleaning_filters)
                 void addProductIntentForCrossSell({
                     from: ProductKey.WEB_ANALYTICS,
                     to: ProductKey.SURVEYS,
