@@ -139,4 +139,4 @@ def build(handle: SourceHandle) -> BuiltQuery:
         ],
     )
 
-    return BuiltQuery(key=f"{handle.source.id}-mrr", prefix=prefix, query=query)
+    return BuiltQuery(key=f"{source.id}-mrr", prefix=prefix, query=query)
