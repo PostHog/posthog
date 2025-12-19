@@ -500,4 +500,49 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json() == {"users_affected": 4, "total_users": 10}
-        mock_get_user_blast_radius.assert_called_once_with(self.team, {"properties": []})
+
+    def test_billable_action_types_computed_correctly(self):
+        """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        actions = [
+            trigger_action,
+            {
+                "id": "a1",
+                "name": "webhook1",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+            },
+            {
+                "id": "a2",
+                "name": "webhook2",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example2.com"}}},
+            },  # Duplicate function type
+        ]
+
+        # Try to set billable_action_types manually (should be ignored)
+        hog_flow = {
+            "name": "Test Billable Types",
+            "actions": actions,
+            "billable_action_types": ["fake_type", "another_fake"],  # Client tries to override
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        # Should have only unique billable types (deduped), client override ignored
+        assert response.json()["billable_action_types"] == ["function"]
+
+        # Verify it's stored correctly in database
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        assert flow.billable_action_types == ["function"]

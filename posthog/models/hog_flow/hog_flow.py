@@ -63,6 +63,10 @@ class HogFlow(UUIDTModel):
     abort_action = models.CharField(max_length=400, null=True, blank=True)
     variables = models.JSONField(default=list, null=True, blank=True)
 
+    # Pre-computed set of billable action types in this workflow for efficient quota checking
+    # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
+    billable_action_types = models.JSONField(default=list, null=True, blank=True)
+
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 

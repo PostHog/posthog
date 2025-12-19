@@ -183,6 +183,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "actions",
             "abort_action",
             "variables",
+            "billable_action_types",
         ]
         read_only_fields = fields
 
@@ -211,6 +212,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "actions",
             "abort_action",
             "variables",
+            "billable_action_types",
         ]
         read_only_fields = [
             "id",
@@ -218,6 +220,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_at",
             "created_by",
             "abort_action",
+            "billable_action_types",  # Computed field, not user-editable
         ]
 
     def validate(self, data):
@@ -230,6 +233,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        # Compute and store unique billable action types for efficient quota checking
+        # Only track billable actions: function, function_email, function_sms, function_push
+        billable_types = {"function", "function_email", "function_sms", "function_push"}
+        billable_action_types = list(
+            {action.get("type", "") for action in actions if action.get("type") in billable_types}
+        )
+        data["billable_action_types"] = billable_action_types
 
         return data
 
