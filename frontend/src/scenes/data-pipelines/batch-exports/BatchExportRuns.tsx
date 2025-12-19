@@ -262,6 +262,26 @@ export function BatchExportRunsGrouped({
                                         render: (_, run) => run.id,
                                     },
                                     {
+                                        title: 'Rows exported',
+                                        key: 'rowsExported',
+                                        render: (_, run) => {
+                                            if (run.records_completed == null) {
+                                                return ''
+                                            }
+                                            return humanFriendlyNumber(run.records_completed)
+                                        },
+                                    },
+                                    {
+                                        title: 'Bytes exported',
+                                        key: 'bytesExported',
+                                        render: (_, run) => {
+                                            if (run.bytes_exported == null) {
+                                                return ''
+                                            }
+                                            return humanizeBytes(run.bytes_exported)
+                                        },
+                                    },
+                                    {
                                         title: 'Run start',
                                         key: 'runStart',
                                         tooltip: 'Date and time when this BatchExport run started',
