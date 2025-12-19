@@ -248,7 +248,7 @@ const ExperimentsTable = ({
 
                 if (remainingDays === 0) {
                     return (
-                        <Tooltip title="Target sample size reached">
+                        <Tooltip title="Recommended sample size reached">
                             <div className="w-full">
                                 <LemonProgress percent={100} strokeColor="var(--success)" />
                             </div>
