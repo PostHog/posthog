@@ -5,7 +5,7 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import ArtifactSource, AssistantHogQLQuery, DataTableNode, InsightVizNode
+from posthog.schema import ArtifactSource, DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -152,10 +152,12 @@ class UpsertDashboardTool(MaxTool):
             elif isinstance(result, StateArtifactResult | DatabaseArtifactResult):
                 # Need to create and save insight from artifact content
                 content = result.content
-                if isinstance(content.query, AssistantHogQLQuery):
-                    converted = DataTableNode(source=content.query).model_dump()
+                # Coerce query to the QuerySchema union
+                coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
+                if isinstance(content.query, HogQLQuery):
+                    converted = DataTableNode(source=coerced_query).model_dump()
                 else:
-                    converted = InsightVizNode(source=content.query).model_dump()
+                    converted = InsightVizNode(source=coerced_query).model_dump()
 
                 insight = Insight(
                     team=self._team,
