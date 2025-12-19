@@ -94,10 +94,26 @@ async function exportInsight(insight: Partial<InsightModel>, checkStale: () => b
         throw new Error('Fetch cancelled')
     }
 
-    return generateInsightHCL(insight, {
-        alerts,
-        hogFunctionsByAlertId,
-    })
+    try {
+        return generateInsightHCL(insight, {
+            alerts,
+            hogFunctionsByAlertId,
+        })
+    } catch (e) {
+        const resourceId = insight.id || insight.short_id || 'unknown'
+        const resourceName = insight.name || 'unnamed insight'
+        posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
+            extra: {
+                context: 'TerraformExporter',
+                operation: 'generateInsightHCL',
+                resourceId,
+                resourceName,
+            },
+        })
+        throw new Error(
+            `Failed to generate HCL for insight "${resourceName}" (${resourceId}): ${e instanceof Error ? e.message : String(e)}`
+        )
+    }
 }
 
 async function exportDashboard(
@@ -121,11 +137,27 @@ async function exportDashboard(
         throw new Error('Fetch cancelled')
     }
 
-    return generateDashboardHCL(dashboard, {
-        insights,
-        alertsByInsightId,
-        hogFunctionsByAlertId,
-    })
+    try {
+        return generateDashboardHCL(dashboard, {
+            insights,
+            alertsByInsightId,
+            hogFunctionsByAlertId,
+        })
+    } catch (e) {
+        const resourceId = dashboard.id || 'unknown'
+        const resourceName = dashboard.name || 'unnamed dashboard'
+        posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
+            extra: {
+                context: 'TerraformExporter',
+                operation: 'generateDashboardHCL',
+                resourceId,
+                resourceName,
+            },
+        })
+        throw new Error(
+            `Failed to generate HCL for dashboard "${resourceName}" (${resourceId}): ${e instanceof Error ? e.message : String(e)}`
+        )
+    }
 }
 
 export function useTerraformDownload(result: TerraformExportResult | null, baseName: string): () => void {
