@@ -19,23 +19,9 @@ def ADD_PERSON_ID_TO_SHARDED_TABLE():
     """
 
 
-def CLEANUP_NULL_PERSON_IDS():
-    """
-    Delete rows with null person_id (00000000-0000-0000-0000-000000000000).
-    These are rows that existed before the person_id column was added and cannot be used
-    for person-based cohort queries.
-    """
-    return """
-    ALTER TABLE sharded_precalculated_person_properties
-    DELETE WHERE person_id = '00000000-0000-0000-0000-000000000000'
-    """
-
-
 operations = [
     # Step 1: Alter the sharded table to add person_id column
     run_sql_with_exceptions(ADD_PERSON_ID_TO_SHARDED_TABLE(), node_roles=[NodeRole.DATA], sharded=True),
-    # Step 2: Clean up any rows with null person_ids (from before migration)
-    run_sql_with_exceptions(CLEANUP_NULL_PERSON_IDS(), node_roles=[NodeRole.DATA], sharded=True),
     # Step 3: Recreate distributed tables (can't ALTER distributed tables - must drop/recreate)
     run_sql_with_exceptions(
         DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
