@@ -9,17 +9,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name="agentartifact",
-            name="type",
-            field=models.CharField(
-                choices=[
-                    ("visualization", "Visualization"),
-                    ("notebook", "Notebook"),
-                    ("error_tracking_filters", "Error tracking filters"),
-                    ("error_tracking_impact", "Error tracking impact"),
-                ],
-                max_length=50,
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name="agentartifact",
+                    name="type",
+                    field=models.CharField(
+                        choices=[
+                            ("visualization", "Visualization"),
+                            ("notebook", "Notebook"),
+                            ("error_tracking_filters", "Error tracking filters"),
+                            ("error_tracking_impact", "Error tracking impact"),
+                        ],
+                        max_length=50,
+                    ),
+                ),
+            ],
+            database_operations=[],
         ),
     ]
