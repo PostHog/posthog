@@ -2,7 +2,7 @@
 
 # 0.5.20
 
-- chore: add requests throttling for the Posthog API
+- chore: add global `--rate-limit` option for Posthog client
 
 # 0.5.19
 
