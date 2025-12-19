@@ -114,9 +114,9 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     query = ast.SelectQuery(
         select=[
-            ast.Field(chain=["source_label"]),
-            ast.Field(chain=["customer_id"]),
-            ast.Field(chain=["subscription_id"]),
+            ast.Alias(alias="source_label", expr=ast.Field(chain=["source_label"])),
+            ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+            ast.Alias(alias="subscription_id", expr=ast.Field(chain=["subscription_id"])),
             ast.Alias(
                 alias="mrr",
                 expr=ast.Call(name="argMax", args=[ast.Field(chain=["amount"]), ast.Field(chain=["timestamp"])]),

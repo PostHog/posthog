@@ -58,8 +58,8 @@ class TestMRRStripeBuilder(StripeSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
-        self.assertIn(f"`{expected_prefix}.revenue_item_events_revenue_view`", query_sql)
-        self.assertIn(f"`{expected_prefix}.subscription_events_revenue_view`", query_sql)
+        self.assertIn(f"`{expected_prefix}.revenue_item_revenue_view`", query_sql)
+        self.assertIn(f"`{expected_prefix}.subscription_revenue_view`", query_sql)
 
     def test_build_requires_source(self):
         handle = self.create_stripe_handle_without_source()
