@@ -222,7 +222,7 @@ def get_api_team_rate_limiter():
             # the slot is free.
             retry=0.134,
             # The default timeout for an API query on ClickHouse is 10s. p99 duration is 19s,
-            # 30 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
+            # 15 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
             # the user should contact us about increasing the quota.
             retry_timeout=15.0,
         )
