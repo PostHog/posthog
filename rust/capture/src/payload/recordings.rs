@@ -9,7 +9,7 @@ use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use metrics::counter;
-use tracing::{debug, instrument, warn, Span};
+use tracing::{debug, info, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
@@ -49,19 +49,43 @@ pub async fn handle_recording_payload(
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawRecording>), CaptureError> {
+    let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
+
+    if chatty_debug_enabled {
+        info!(headers=?headers, "CHATTY: entering handle_recording_payload");
+    } else {
+        debug!("entering handle_recording_payload");
+    }
+
     // Extract request metadata using shared helper
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
 
-    debug!("entering handle_recording_payload");
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, "CHATTY: extracted metadata");
+    } else {
+        debug!(metadata=?metadata, "extracted metadata");
+    }
 
     // Extract payload bytes and metadata using shared helper
-    let (data, compression, lib_version) =
-        extract_payload_bytes(query_params, headers, method, body)?;
+    let extract_start_time = std::time::Instant::now();
+    let result = extract_payload_bytes(query_params, headers, method, body);
+    let (data, compression, lib_version) = match result {
+        Ok((d, c, lv)) => (d, c, lv),
+        Err(e) => {
+            return Err(e);
+        }
+    };
+    metrics::histogram!("capture_debug_recordings_extract_seconds")
+        .record(extract_start_time.elapsed().as_secs_f64());
 
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
 
-    debug!("payload processed: deserializing to RawRecording");
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, compression=?compression, lib_version=?lib_version, "CHATTY: extracted payload");
+    } else {
+        debug!(metadata=?metadata, compression=?compression, lib_version=?lib_version, "extracted payload");
+    }
 
     // Decompress the payload
     let decomp_start_time = std::time::Instant::now();
@@ -74,6 +98,12 @@ pub async fn handle_recording_payload(
             return Err(e);
         }
     };
+
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, compression=?compression, lib_version=?lib_version, "CHATTY: decompressed payload");
+    } else {
+        debug!(metadata=?metadata, compression=?compression, lib_version=?lib_version, "decompressed payload");
+    }
 
     // Deserialize to RecordingPayload (handles both single event and array)
     let deser_start_time = std::time::Instant::now();
@@ -88,6 +118,12 @@ pub async fn handle_recording_payload(
     metrics::histogram!("capture_debug_recordings_deserialize_seconds")
         .record(deser_start_time.elapsed().as_secs_f64());
 
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, event_count=?events.len(), "CHATTY: hydrated events");
+    } else {
+        debug!(metadata=?metadata, event_count=?events.len(), "hydrated events");
+    }
+
     if events.is_empty() {
         warn!("rejected empty recording batch");
         return Err(CaptureError::EmptyBatch);
@@ -101,11 +137,7 @@ pub async fn handle_recording_payload(
         .ok_or(CaptureError::NoTokenError)?;
     Span::current().record("token", &token);
 
-    counter!(
-        "capture_events_received_total",
-        &[("legacy", "false"), ("endpoint", "recordings")]
-    )
-    .increment(events.len() as u64);
+    counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
     let sent_at = query_params.sent_at();
@@ -121,20 +153,26 @@ pub async fn handle_recording_payload(
         is_mirror_deploy: metadata.is_mirror_deploy,
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
+        chatty_debug_enabled,
     };
 
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
-    debug!(context=?context, event_count=?events.len(), "handle_recording_payload: evaluating quota limits");
+    if chatty_debug_enabled {
+        info!(context=?context, event_count=?events.len(), "CHATTY: evaluating quota limits");
+    } else {
+        debug!(context=?context, event_count=?events.len(), "evaluating quota limits");
+    }
     events = state
         .quota_limiter
         .check_and_filter(&context.token, events)
         .await?;
 
-    debug!(context=?context,
-        event_count=?events.len(),
-        "handle_recording_payload: successfully hydrated recording events");
-
+    if chatty_debug_enabled {
+        info!(context=?context, event_count=?events.len(), "CHATTY: processing complete");
+    } else {
+        debug!(context=?context, event_count=?events.len(), "processing complete");
+    }
     Ok((context, events))
 }
 
