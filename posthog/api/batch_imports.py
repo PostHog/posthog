@@ -294,6 +294,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     end_date = serializers.SerializerMethodField()
     content_type = serializers.SerializerMethodField()
     status_message = serializers.CharField(source="display_status_message", allow_null=True)
+    display_status = serializers.SerializerMethodField()
 
     class Meta:
         model = BatchImport
@@ -302,6 +303,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "source_type",
             "content_type",
             "status",
+            "display_status",
             "start_date",
             "end_date",
             "created_by",
@@ -339,6 +341,11 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             except User.DoesNotExist:
                 return None
         return None
+
+    def get_display_status(self, obj):
+        if obj.status == BatchImport.Status.RUNNING and obj.lease_id is None:
+            return "waiting_to_start"
+        return obj.status
 
 
 class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

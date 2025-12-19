@@ -28,14 +28,16 @@ const STATUS_COLORS = {
     running: 'primary',
     completed: 'success',
     paused: 'danger',
+    waiting_to_start: 'muted',
 } as const
 
+const STATUS_LABELS: Record<string, string> = {
+    waiting_to_start: 'Waiting to start',
+}
+
 function StatusTag({ status }: { status: string }): JSX.Element {
-    return (
-        <LemonTag type={STATUS_COLORS[status as keyof typeof STATUS_COLORS] || 'default'}>
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-        </LemonTag>
-    )
+    const label = STATUS_LABELS[status] ?? status.charAt(0).toUpperCase() + status.slice(1)
+    return <LemonTag type={STATUS_COLORS[status as keyof typeof STATUS_COLORS] || 'default'}>{label}</LemonTag>
 }
 
 export function ManagedMigration(): JSX.Element {
@@ -338,9 +340,9 @@ export function ManagedMigrations(): JSX.Element {
                             },
                             {
                                 title: 'Status',
-                                dataIndex: 'status',
+                                dataIndex: 'display_status',
                                 render: (_: any, migration: ManagedMigration) => (
-                                    <StatusTag status={migration.status} />
+                                    <StatusTag status={migration.display_status} />
                                 ),
                             },
                             {
@@ -353,15 +355,17 @@ export function ManagedMigrations(): JSX.Element {
                                             <LemonProgress
                                                 percent={progress}
                                                 strokeColor={
-                                                    migration.status === 'paused' ? 'var(--danger)' : undefined
+                                                    migration.display_status === 'paused' ? 'var(--danger)' : undefined
                                                 }
                                             />
                                             <span className="text-xs text-muted">
-                                                {migration.status === 'completed'
+                                                {migration.display_status === 'completed'
                                                     ? 'Complete'
-                                                    : migration.status === 'paused'
+                                                    : migration.display_status === 'paused'
                                                       ? 'Paused'
-                                                      : `${completed}/${total}`}
+                                                      : migration.display_status === 'waiting_to_start'
+                                                        ? 'Waiting to start'
+                                                        : `${completed}/${total}`}
                                             </span>
                                         </div>
                                     )
@@ -404,7 +408,7 @@ export function ManagedMigrations(): JSX.Element {
                                 title: 'Actions',
                                 key: 'actions',
                                 render: (_: any, migration: ManagedMigration) => {
-                                    if (migration.status === 'running') {
+                                    if (migration.display_status === 'running') {
                                         return (
                                             <LemonButton
                                                 type="secondary"
@@ -415,7 +419,7 @@ export function ManagedMigrations(): JSX.Element {
                                                 Pause
                                             </LemonButton>
                                         )
-                                    } else if (migration.status === 'paused') {
+                                    } else if (migration.display_status === 'paused') {
                                         return (
                                             <LemonButton
                                                 type="primary"

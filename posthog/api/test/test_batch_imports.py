@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
 
+from parameterized import parameterized
+
 from posthog.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
 
@@ -470,3 +472,30 @@ class TestBatchImportAPI(APIBaseTest):
         # Verify the batch import was created
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         self.assertIsNotNone(batch_import)
+
+    @parameterized.expand(
+        [
+            ("running_unclaimed", BatchImport.Status.RUNNING, None, "waiting_to_start"),
+            ("running_claimed", BatchImport.Status.RUNNING, "worker-uuid-123", "running"),
+            ("paused", BatchImport.Status.PAUSED, None, "paused"),
+            ("completed", BatchImport.Status.COMPLETED, None, "completed"),
+            ("failed", BatchImport.Status.FAILED, None, "failed"),
+        ]
+    )
+    def test_display_status(self, _name, status, lease_id, expected_display_status):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test"},
+            status=status,
+            lease_id=lease_id,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations")
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(batch_import.id))
+        self.assertEqual(results[0]["display_status"], expected_display_status)
