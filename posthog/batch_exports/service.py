@@ -27,6 +27,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
+from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -313,6 +314,17 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class WorkflowsBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Workflows export workflow.
+
+    NOTE: "Workflows" in this context refers to PostHog Workflows. PostHog Workflows
+    are not related to Temporal Workflows.
+    """
+
+    topic: str = KAFKA_CDP_BACKFILL_EVENTS
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
@@ -336,6 +348,7 @@ DESTINATION_WORKFLOWS = {
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
 
@@ -1045,6 +1058,7 @@ class BatchExportInsertInputs:
     # TODO - pass these in to all inherited classes
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
+    stage_folder: str | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -1079,4 +1093,6 @@ class BatchExportInsertInputs:
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
             "batch_export_schema": self.batch_export_schema,
+            "batch_export_id": self.batch_export_id,
+            "stage_folder": self.stage_folder,
         }

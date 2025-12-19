@@ -242,6 +242,52 @@ class TestOAuthModels(TestCase):
                 algorithm="RS256",
             )
 
+    @override_settings(DEBUG=False)
+    def test_can_create_application_with_posthog_custom_scheme(self):
+        """Native mobile apps can use posthog:// custom scheme for OAuth callbacks."""
+        app = OAuthApplication.objects.create(
+            name="Mobile App",
+            client_id="mobile_client_id",
+            client_secret="mobile_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="posthog://callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertEqual(app.redirect_uris, "posthog://callback")
+
+    @override_settings(DEBUG=False)
+    def test_can_create_application_with_mixed_posthog_and_https_uris(self):
+        """Applications can have both custom scheme and https redirect URIs."""
+        app = OAuthApplication.objects.create(
+            name="Mixed Mobile App",
+            client_id="mixed_mobile_client_id",
+            client_secret="mixed_mobile_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="posthog://callback https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        self.assertIn("posthog://callback", app.redirect_uris)
+        self.assertIn("https://example.com/callback", app.redirect_uris)
+
+    @override_settings(DEBUG=False)
+    def test_cannot_create_application_with_posthog_scheme_and_fragment(self):
+        """Custom scheme URIs still cannot contain fragments."""
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="Invalid Mobile App",
+                client_id="invalid_mobile_client_id",
+                client_secret="invalid_mobile_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="posthog://callback#fragment",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
     def test_invalid_redirect_uri_fragment(self):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(

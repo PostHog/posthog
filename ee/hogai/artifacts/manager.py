@@ -1,15 +1,16 @@
 from collections.abc import Sequence
-from typing import cast
+from typing import Generic, Literal, TypeVar, cast
 from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from posthog.schema import (
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
+    DocumentArtifactContent,
     VisualizationArtifactContent,
     VisualizationMessage,
 )
@@ -21,6 +22,29 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
+
+ArtifactContentUnion = DocumentArtifactContent | VisualizationArtifactContent
+
+T = TypeVar("T", bound=ArtifactContentUnion)
+S = TypeVar("S", bound=ArtifactSource)
+M = TypeVar("M")
+
+
+class StateArtifactResult(BaseModel, Generic[T]):
+    source: Literal[ArtifactSource.STATE] = ArtifactSource.STATE
+    content: T
+
+
+class DatabaseArtifactResult(BaseModel, Generic[T]):
+    source: Literal[ArtifactSource.ARTIFACT] = ArtifactSource.ARTIFACT
+    content: T
+
+
+class ModelArtifactResult(BaseModel, Generic[T, S, M]):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    source: S
+    content: T
+    model: M
 
 
 class ArtifactManager(AssistantContextMixin):
@@ -90,26 +114,39 @@ class ArtifactManager(AssistantContextMixin):
 
     async def aget_insight_with_source(
         self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
-    ) -> tuple[VisualizationArtifactContent, ArtifactSource] | None:
+    ) -> (
+        StateArtifactResult[VisualizationArtifactContent]
+        | DatabaseArtifactResult[VisualizationArtifactContent]
+        | ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight]
+        | None
+    ):
         """
         Retrieve artifact content by ID along with its source.
         Checks state first, then artifacts, then insights.
-        Returns tuple of (content, source) or None if not found.
+        Returns content or None if not found.
         """
         # Try state first if messages provided
         if state_messages is not None:
             content = self._content_from_state(artifact_id, state_messages)
             if content is not None:
-                return content, ArtifactSource.STATE
+                return StateArtifactResult(content=content)
 
         # Fall back to database (artifact, then insight)
         artifact_contents = await self._afetch_artifact_contents([artifact_id])
         if content := artifact_contents.get(artifact_id):
-            return content, ArtifactSource.ARTIFACT
+            return DatabaseArtifactResult(content=content)
 
-        insight_contents = await self._afetch_insight_contents([artifact_id])
-        if content := insight_contents.get(artifact_id):
-            return content, ArtifactSource.INSIGHT
+        try:
+            insight = await Insight.objects.aget(short_id=artifact_id, team=self._team, deleted=False, saved=True)
+            return ModelArtifactResult(
+                source=ArtifactSource.INSIGHT,
+                content=VisualizationArtifactContent(
+                    query=insight.query, name=insight.name or insight.derived_name, description=insight.description
+                ),
+                model=insight,
+            )
+        except Insight.DoesNotExist:
+            pass
 
         return None
 
@@ -234,7 +271,7 @@ class ArtifactManager(AssistantContextMixin):
                     return VisualizationArtifactContent(
                         query=msg.answer,
                         name=msg.query,
-                        description=msg.plan,
+                        plan=msg.plan,
                     )
                 except ValidationError as e:
                     capture_exception(e)

@@ -213,6 +213,11 @@ export const MetricHeader = ({
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {metric.goal === 'decrease' && (
+                        <LemonTag type="highlight" size="small">
+                            Goal: Decrease
+                        </LemonTag>
+                    )}
                     {metric.isSharedMetric && (
                         <LemonTag type="option" size="small">
                             Shared

@@ -31,7 +31,7 @@ export function CodeVariablesInlineBanner(): JSX.Element | null {
                     <span className="italic">Code variables would appear here. </span>
                     <Link
                         className="font-medium"
-                        to="https://posthog.com/docs/error-tracking/code-variables"
+                        to={`https://posthog.com/docs/error-tracking/code-variables/${exceptionAttributes.runtime}`}
                         target="_blank"
                     >
                         Learn how to enable them
