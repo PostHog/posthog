@@ -43,10 +43,13 @@ build-all: build-linux build-darwin
 run: build-darwin
 	$(OUTPUT_DIR)/$(BINARY_NAME)-darwin
 
-# Build and run demo (checks only)
-demo: deps
-	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(DEMO_BINARY) ./cmd/demo
-	$(OUTPUT_DIR)/$(DEMO_BINARY)
+# Build demo binary
+demo-build: deps
+	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(DEMO_BINARY) ./demo
+
+# Run a demo (usage: make demo DEMO=checks)
+demo: demo-build
+	$(OUTPUT_DIR)/$(DEMO_BINARY) $(DEMO)
 
 # Clean build artifacts
 clean:
@@ -71,16 +74,16 @@ lint:
 help:
 	@echo "PostHog Hobby Installer - Build Targets"
 	@echo ""
-	@echo "  make              Build Linux binary (default)"
-	@echo "  make build        Build for current platform"
-	@echo "  make build-linux  Build for Linux/Ubuntu"
-	@echo "  make build-darwin Build for macOS"
-	@echo "  make build-all    Build for all platforms"
-	@echo "  make run          Build and run locally (macOS)"
-	@echo "  make demo         Build and run checks demo"
-	@echo "  make clean        Remove build artifacts"
-	@echo "  make deps         Download dependencies"
-	@echo "  make test         Run tests"
-	@echo "  make fmt          Format code"
+	@echo "  make                   Build Linux binary (default)"
+	@echo "  make build             Build for current platform"
+	@echo "  make build-linux       Build for Linux/Ubuntu"
+	@echo "  make build-darwin      Build for macOS"
+	@echo "  make build-all         Build for all platforms"
+	@echo "  make run               Build and run locally (macOS)"
+	@echo "  make demo DEMO=checks  Run a demo (checks, etc.)"
+	@echo "  make clean             Remove build artifacts"
+	@echo "  make deps              Download dependencies"
+	@echo "  make test              Run tests"
+	@echo "  make fmt               Format code"
 	@echo ""
 

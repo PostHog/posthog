@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/posthog/posthog/bin/hobby-installer/installer"
+	"github.com/posthog/posthog/bin/hobby-installer/core"
 	"github.com/posthog/posthog/bin/hobby-installer/ui"
 )
 
@@ -31,7 +31,7 @@ type WelcomeModel struct {
 }
 
 func NewWelcomeModel() WelcomeModel {
-	isUpgrade := installer.DirExists("posthog")
+	isUpgrade := core.DirExists("posthog")
 	return WelcomeModel{
 		isUpgrade: isUpgrade,
 		factIndex: rand.Intn(len(funFacts)),

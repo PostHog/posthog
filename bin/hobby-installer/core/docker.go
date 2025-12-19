@@ -1,4 +1,4 @@
-package installer
+package core
 
 import (
 	"fmt"
@@ -19,8 +19,7 @@ func IsDockerRunning() bool {
 }
 
 func InstallDocker() error {
-	logger := GetLogger()
-	logger.WriteString("Installing Docker...\n")
+	GetLogger().WriteString("Installing Docker...\n")
 
 	commands := [][]string{
 		{"apt", "update"},
@@ -38,9 +37,8 @@ func InstallDocker() error {
 		}
 	}
 
-	// Add current user to docker group
 	if err := AddCurrentUserToDockerGroup(); err != nil {
-		logger.WriteString("Warning: could not add user to docker group\n")
+		GetLogger().WriteString("Warning: could not add user to docker group\n")
 	}
 
 	return nil
@@ -52,8 +50,6 @@ func InstallDockerCompose() error {
 	return cmd.Run()
 }
 
-// Returns the appropriate docker-compose command for the system
-// This will be either `docker-compose` or `docker compose`
 func GetDockerComposeCommand() (string, []string) {
 	if _, err := exec.LookPath("docker-compose"); err == nil {
 		return "docker-compose", nil
@@ -64,7 +60,7 @@ func GetDockerComposeCommand() (string, []string) {
 func DockerComposeStop() error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "stop")
-	RunCommand(cmd, fullArgs...) // Ignore errors, stack might not be running
+	RunCommand(cmd, fullArgs...)
 	return nil
 }
 
@@ -76,14 +72,13 @@ func DockerComposeDown() error {
 }
 
 func DockerComposePull() error {
-	logger := GetLogger()
-	logger.WriteString("Pulling Docker images (this may take a while)...\n")
+	GetLogger().WriteString("Pulling Docker images (this may take a while)...\n")
 
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "pull")
 	_, err := RunCommand(cmd, fullArgs...)
 	if err == nil {
-		logger.WriteString("All images pulled successfully\n")
+		GetLogger().WriteString("All images pulled successfully\n")
 	}
 	return err
 }
@@ -122,8 +117,7 @@ func DockerComposeUpDB() error {
 }
 
 func RunAsyncMigrationsCheck() error {
-	logger := GetLogger()
-	logger.WriteString("Checking async migrations...\n")
+	GetLogger().WriteString("Checking async migrations...\n")
 
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "run", "asyncmigrationscheck")
@@ -132,7 +126,6 @@ func RunAsyncMigrationsCheck() error {
 	return err
 }
 
-// WaitForHealth waits for PostHog to be healthy
 func WaitForHealth(timeout time.Duration) error {
 	logger := GetLogger()
 	logger.WriteString("Waiting for PostHog to start...\n")
@@ -166,15 +159,8 @@ func CheckDockerVolumes() (bool, bool) {
 		return false, false
 	}
 
-	hasPostgres := false
-	hasClickhouse := false
-
-	if contains(out, "postgres-data") {
-		hasPostgres = true
-	}
-	if contains(out, "clickhouse-data") {
-		hasClickhouse = true
-	}
+	hasPostgres := contains(out, "postgres-data")
+	hasClickhouse := contains(out, "clickhouse-data")
 
 	return hasPostgres, hasClickhouse
 }
@@ -186,7 +172,7 @@ func AddUserToDockerGroup(user string) error {
 func AddCurrentUserToDockerGroup() error {
 	user := os.Getenv("USER")
 	if user == "" {
-		return nil // Can't determine user, skip
+		return nil
 	}
 	return AddUserToDockerGroup(user)
 }
@@ -202,7 +188,6 @@ func DockerExec(container string, command ...string) (string, error) {
 	return RunCommand(cmd, fullArgs...)
 }
 
-// Creates a backup of the postgres database
 func BackupPostgres(outputFile string) error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "exec", "-T", "db", "pg_dumpall", "--clean", "-U", "posthog")
@@ -211,7 +196,6 @@ func BackupPostgres(outputFile string) error {
 	return exec.Command("sh", "-c", shellCmd).Run()
 }
 
-// Restores a postgres backup
 func RestorePostgres(inputFile string) error {
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "exec", "-T", "db", "psql", "-U", "posthog")
@@ -232,10 +216,6 @@ func joinArgs(args []string) string {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true
