@@ -89,6 +89,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Filter by repository or organization using the repository field
         organization = params.get("organization")
         repository = params.get("repository")
+        created_by = params.get("created_by")
 
         if repository:
             repo_str = repository.strip().lower()
@@ -101,8 +102,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             org_str = organization.strip().lower()
             qs = qs.filter(repository__istartswith=f"{org_str}/")
 
-        # Filter by creator
-        created_by = params.get("created_by")
         if created_by:
             qs = qs.filter(created_by_id=created_by)
 
