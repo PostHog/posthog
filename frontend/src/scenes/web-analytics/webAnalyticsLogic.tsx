@@ -124,12 +124,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['hasAvailableFeature'],
             preflightLogic,
             ['isDev'],
-            authorizedUrlListLogic({
-                type: AuthorizedUrlListType.WEB_ANALYTICS,
-                actionId: null,
-                experimentId: null,
-                productTourId: null,
-            }),
+            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
             webAnalyticsHealthLogic,
             ['webAnalyticsHealthStatus'],
@@ -137,12 +132,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions: [
             webAnalyticsHealthLogic,
             ['trackTabViewed'],
-            authorizedUrlListLogic({
-                type: AuthorizedUrlListType.WEB_ANALYTICS,
-                actionId: null,
-                experimentId: null,
-                productTourId: null,
-            }),
+            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             [
                 'addUrl as addAuthorizedUrl',
                 'newUrl as newAuthorizedUrl',

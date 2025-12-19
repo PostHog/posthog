@@ -19,7 +19,6 @@ export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
-    productTourId?: string | null
     query?: string | null
     allowWildCards?: boolean
     displaySuggestions?: boolean
@@ -31,7 +30,6 @@ export interface AuthorizedUrlListProps {
 export function AuthorizedUrlList({
     actionId,
     experimentId,
-    productTourId,
     query,
     type,
     addText = 'Add new authorized URL',
@@ -43,7 +41,6 @@ export function AuthorizedUrlList({
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
-        productTourId: productTourId ?? null,
         actionId: actionId ?? null,
         type,
         query,
@@ -60,7 +57,6 @@ export function AuthorizedUrlList({
         <div className="flex flex-col gap-2">
             <EmptyState
                 experimentId={experimentId}
-                productTourId={productTourId}
                 actionId={actionId}
                 type={type}
                 displaySuggestions={displaySuggestions}
@@ -72,7 +68,6 @@ export function AuthorizedUrlList({
                         type={type}
                         actionId={actionId}
                         experimentId={experimentId}
-                        productTourId={productTourId}
                         allowWildCards={allowWildCards}
                     />
                 </div>
@@ -103,7 +98,6 @@ export function AuthorizedUrlList({
                             type={type}
                             actionId={actionId}
                             experimentId={experimentId}
-                            productTourId={productTourId}
                             allowWildCards={allowWildCards}
                         />
                     </div>

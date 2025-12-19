@@ -379,10 +379,6 @@ export function Toolbar(): JSX.Element | null {
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
-
-        if (userIntent === 'add-product-tour' || userIntent === 'edit-product-tour') {
-            setVisibleMenu('product-tours')
-        }
     }, [userIntent]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (isEmbeddedInApp) {
