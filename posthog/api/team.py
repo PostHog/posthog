@@ -772,23 +772,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             new_settings = validated_data["conversations_settings"] or {}
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
-        # Auto-generate/clear conversations token based on conversations_enabled
-        if "conversations_enabled" in validated_data:
-            current_settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
-            has_token = current_settings.get("widget_public_token")
-            is_enabling = validated_data["conversations_enabled"] and not instance.conversations_enabled
-            is_disabling = not validated_data["conversations_enabled"] and instance.conversations_enabled
-
-            if is_enabling and not has_token:
-                # Auto-generate token when enabling for the first time
-                settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
-                settings["widget_public_token"] = secrets.token_urlsafe(32)
-                validated_data["conversations_settings"] = settings
-            elif is_disabling:
-                # Clear token when disabling
-                settings = validated_data.get("conversations_settings") or instance.conversations_settings or {}
-                settings["widget_public_token"] = None
-                validated_data["conversations_settings"] = settings
+        validated_data = handle_conversations_token_on_update(
+            validated_data, instance.conversations_enabled, instance.conversations_settings
+        )
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
@@ -1396,6 +1382,30 @@ class RootTeamViewSet(TeamViewSet):
     # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
     # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+
+
+def handle_conversations_token_on_update(
+    validated_data: dict[str, Any], current_conversations_enabled: bool, current_conversations_settings: dict | None
+) -> dict[str, Any]:
+    """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
+    if "conversations_enabled" not in validated_data:
+        return validated_data
+
+    current_settings = validated_data.get("conversations_settings") or current_conversations_settings or {}
+    has_token = current_settings.get("widget_public_token")
+    is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
+    is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
+
+    if is_enabling and not has_token:
+        conv_settings = validated_data.get("conversations_settings") or current_conversations_settings or {}
+        conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
+        validated_data["conversations_settings"] = conv_settings
+    elif is_disabling:
+        conv_settings = validated_data.get("conversations_settings") or current_conversations_settings or {}
+        conv_settings["widget_public_token"] = None
+        validated_data["conversations_settings"] = conv_settings
+
+    return validated_data
 
 
 def validate_team_attrs(

@@ -15,7 +15,12 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
-from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
+from posthog.api.team import (
+    TEAM_CONFIG_FIELDS_SET,
+    TeamSerializer,
+    handle_conversations_token_on_update,
+    validate_team_attrs,
+)
 from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
@@ -425,6 +430,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             existing_settings = team.conversations_settings or {}
             new_settings = validated_data["conversations_settings"] or {}
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
+
+        validated_data = handle_conversations_token_on_update(
+            validated_data, team.conversations_enabled, team.conversations_settings
+        )
 
         should_team_be_saved_too = False
         for attr, value in validated_data.items():

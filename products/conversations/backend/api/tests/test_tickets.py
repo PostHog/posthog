@@ -20,7 +20,7 @@ class TestTicketAPI(APIBaseTest):
         )
 
     def test_list_tickets(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
@@ -32,7 +32,7 @@ class TestTicketAPI(APIBaseTest):
             widget_session_id="other-session",
             distinct_id="other-user",
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)
         ticket_ids = {t["id"] for t in response.json()["results"]}
@@ -40,7 +40,7 @@ class TestTicketAPI(APIBaseTest):
         self.assertIn(str(other_ticket.id), ticket_ids)
 
     def test_retrieve_ticket(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
@@ -49,7 +49,7 @@ class TestTicketAPI(APIBaseTest):
         self.ticket.unread_team_count = 5
         self.ticket.save()
 
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["unread_team_count"], 0)
 
@@ -58,7 +58,7 @@ class TestTicketAPI(APIBaseTest):
 
     def test_update_ticket_status(self):
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
             {"status": Status.RESOLVED},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -69,7 +69,7 @@ class TestTicketAPI(APIBaseTest):
 
     def test_update_ticket_priority(self):
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
             {"priority": Priority.HIGH},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -77,7 +77,7 @@ class TestTicketAPI(APIBaseTest):
 
     def test_update_ticket_assigned_to(self):
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
             {"assigned_to": self.user.id},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -92,7 +92,7 @@ class TestTicketAPI(APIBaseTest):
             distinct_id="user-456",
             status=Status.RESOLVED,
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/?status={Status.NEW}")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status={Status.NEW}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], Status.NEW)
@@ -107,7 +107,7 @@ class TestTicketAPI(APIBaseTest):
             distinct_id="user-789",
             priority=Priority.LOW,
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/?priority={Priority.HIGH}")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority={Priority.HIGH}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["priority"], Priority.HIGH)
@@ -120,7 +120,7 @@ class TestTicketAPI(APIBaseTest):
             distinct_id="user-email",
         )
         response = self.client.get(
-            f"/api/environments/{self.team.id}/conversations/tickets/?channel_source={Channel.WIDGET}"
+            f"/api/projects/{self.team.id}/conversations/tickets/?channel_source={Channel.WIDGET}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
@@ -134,7 +134,7 @@ class TestTicketAPI(APIBaseTest):
             distinct_id="user-assigned",
             assigned_to=self.user,
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/?assigned_to=unassigned")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assigned_to=unassigned")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertIsNone(response.json()["results"][0]["assigned_to"])
@@ -148,9 +148,7 @@ class TestTicketAPI(APIBaseTest):
             widget_session_id="unassigned-session",
             distinct_id="user-unassigned",
         )
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/conversations/tickets/?assigned_to={self.user.id}"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assigned_to={self.user.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["assigned_to"], self.user.id)
@@ -162,18 +160,18 @@ class TestTicketAPI(APIBaseTest):
             widget_session_id="other-session",
             distinct_id="different-user",
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/?distinct_id=user-123")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?distinct_id=user-123")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["distinct_id"], "user-123")
 
     def test_invalid_status_filter_ignored(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/?status=invalid")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=invalid")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
     def test_invalid_priority_filter_ignored(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/?priority=invalid")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=invalid")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
@@ -190,7 +188,7 @@ class TestTicketAPI(APIBaseTest):
             item_id=str(self.ticket.id),
             content="Second message",
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["message_count"], 2)
 
@@ -207,7 +205,7 @@ class TestTicketAPI(APIBaseTest):
             item_id=str(self.ticket.id),
             content="Latest message",
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["last_message_text"], "Latest message")
         self.assertIsNotNone(response.json()["last_message_at"])
@@ -227,6 +225,6 @@ class TestTicketAPI(APIBaseTest):
             content="Deleted message",
             deleted=True,
         )
-        response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["message_count"], 1)
