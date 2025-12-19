@@ -18,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ParsingError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -37,8 +38,9 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
+
 MB_100_IN_BYTES = 100 * 1000 * 1000
-CLICKHOUSE_MAX_BLOCK_SIZE = 50 * 1000
+CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
 
@@ -243,7 +245,8 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """Execute a HogQL query and yield batches of results."""
     query_node = parse_select(query)
-    assert query_node is not None
+    if query_node is None:
+        raise ParsingError(f"Failed to parse query node from query, parse_select() returned None: query={query}")
 
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -333,7 +336,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE) as client:
+    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client:
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
@@ -375,7 +378,7 @@ def _get_matview_input_objects(
         .exclude(deleted=True)
         .get(id=node.saved_query.id, team_id=inputs.team_id)
     )
-    job = DataModelingJob.objects.get(id=inputs.job_id)
+    job = DataModelingJob.objects.get(id=inputs.job_id, team_id=inputs.team_id)
     return (team, node, saved_query, job)
 
 
@@ -421,24 +424,35 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-            mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
+            # i know this isn't DRY but it was the only way to make type checking shut up
             if index == 0:
-                mode = "overwrite"
-                schema_mode = "overwrite"
-            deltalake.write_deltalake(
-                table_or_uri=table_uri,
-                data=batch,
-                mode="overwrite",
-                schema_mode="overwrite",
-                storage_options=storage_options,
-                engine="rust",
-            )
+                await logger.adebug(
+                    f"Writing batch to delta table: index={index} mode=overwrite schema_mode=overwrite batch_row_count={batch.num_rows}"
+                )
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=table_uri,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                    storage_options=storage_options,
+                    engine="rust",
+                )
+            else:
+                await logger.adebug(
+                    f"Writing batch to delta table: index={index} mode=append schema_mode=merge batch_row_count={batch.num_rows}"
+                )
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=table_uri,
+                    data=batch,
+                    mode="append",
+                    schema_mode="merge",
+                    storage_options=storage_options,
+                    engine="rust",
+                )
             if index == 0:
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-            await logger.adebug(
-                f"Writing batch to delta table: index={index} mode={mode} schema_mode={schema_mode} batch_row_count={batch.num_rows}"
-            )
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
