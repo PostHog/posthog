@@ -6,7 +6,6 @@ import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { IconKey } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/passkeyLogic'
 
@@ -62,21 +61,23 @@ export function SocialLoginButton({
 
     return (
         <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
-            <LemonButton
-                size="large"
-                icon={<SocialLoginIcon provider={provider} />}
-                active={isLastUsed}
-                tooltip={SSO_PROVIDER_NAMES[provider]}
-            />
-            {isLastUsed && (
-                <LemonTag
-                    type="muted"
-                    size="small"
-                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                >
-                    Last used
-                </LemonTag>
-            )}
+            <div className="relative">
+                <LemonButton
+                    size="large"
+                    icon={<SocialLoginIcon provider={provider} />}
+                    active={isLastUsed}
+                    tooltip={SSO_PROVIDER_NAMES[provider]}
+                />
+                {isLastUsed && (
+                    <LemonTag
+                        type="muted"
+                        size="small"
+                        className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+                    >
+                        Last used
+                    </LemonTag>
+                )}
+            </div>
         </SocialLoginLink>
     )
 }
