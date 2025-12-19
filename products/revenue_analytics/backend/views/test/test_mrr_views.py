@@ -204,8 +204,8 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         self.assertEqual(
             response.results,
             [
-                ("stripe.posthog_test", "cus_1", "sub_1", Decimal("4.1397346665")),
-                ("stripe.posthog_test", "cus_2", "sub_2", Decimal("16.3052916666")),
+                ("stripe.posthog_test", "cus_1", "sub_1", Decimal("22.9631447238")),
+                ("stripe.posthog_test", "cus_2", "sub_2", Decimal("40.8052916666")),
                 ("stripe.posthog_test", "cus_3", "sub_3", Decimal("1546.59444")),
                 ("stripe.posthog_test", "cus_4", "sub_4", Decimal("0")),
                 ("stripe.posthog_test", "cus_5", "sub_5", Decimal("0")),

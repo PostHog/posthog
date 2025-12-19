@@ -64,7 +64,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             ast.Field(chain=["source_label"]),
             ast.Field(chain=["customer_id"]),
             ast.Field(chain=["subscription_id"]),
-            ast.Field(chain=["revenue_item", "timestamp"]),
+            ast.Field(chain=["timestamp"]),
         ],
     )
 
