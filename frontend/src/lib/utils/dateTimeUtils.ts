@@ -70,7 +70,7 @@ export function formatResolvedDateRange(
 }
 
 export function formatLocalizedDate(): string {
-    const localLang = document.documentElement.lang || navigator.language || 'en-US'
+    const localLang = navigator.language || document.documentElement.lang || 'en-US'
     const usDateLocales = ['en-US', 'en-CA']
 
     return usDateLocales.some((usLocale) => localLang.startsWith(usLocale)) ? 'MMM DD' : 'DD MMM'
