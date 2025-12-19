@@ -27,13 +27,7 @@ import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
-import {
-    BOTTOM_HANDLE_POSITION,
-    NODE_GAP,
-    NODE_HEIGHT,
-    NODE_WIDTH,
-    TOP_HANDLE_POSITION,
-} from './react_flow_utils/constants'
+import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -478,7 +472,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             type: 'dropzone',
                             position: {
                                 x: targetNode.position.x,
-                                y: targetNode.position.y - NODE_GAP / 2,
+                                y: targetNode.position.y - NODE_HEIGHT,
                             },
                             data: {
                                 edge,
@@ -554,7 +548,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
 
                 // We add the new action with two new edges - the continue edge and the target edge
-                // We also then check for any other missing edges based on the
+                // We also then check for any other missing edges based on the type of edge being replaced
 
                 const newEdges: HogFlow['edges'] = [...values.workflow.edges]
 

@@ -3,7 +3,7 @@ import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
 import { TRIGGER_NODE_ID } from '../../workflowLogic'
 import type { HogFlowActionNode } from '../types'
-import { NODE_EDGE_GAP, NODE_GAP, NODE_HEIGHT, NODE_LAYER_GAP, NODE_WIDTH } from './constants'
+import { NODE_EDGE_GAP, NODE_HEIGHT, NODE_LAYER_GAP, NODE_NODE_GAP, NODE_WIDTH } from './constants'
 
 /**
  * By default, React Flow does not do any layouting of nodes or edges. This file uses the ELK Layered algorithm
@@ -31,7 +31,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
     const elkOptions = {
         'elk.algorithm': 'layered',
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_LAYER_GAP}`,
-        'elk.spacing.nodeNode': `${NODE_GAP}`,
+        'elk.spacing.nodeNode': `${NODE_NODE_GAP}`,
         'elk.spacing.edgeEdge': `${NODE_EDGE_GAP}`,
         'elk.spacing.edgeNode': `${NODE_EDGE_GAP}`,
         'elk.direction': 'DOWN',
