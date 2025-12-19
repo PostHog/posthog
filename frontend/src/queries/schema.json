@@ -14763,7 +14763,8 @@
                 "chat",
                 "search",
                 "folder",
-                "folder_open"
+                "folder_open",
+                "conversations"
             ],
             "type": "string"
         },
