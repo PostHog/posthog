@@ -176,6 +176,7 @@ export type CdpConfig = {
     CDP_RATE_LIMITER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_RATE_LIMITER_TTL: number // The expiry for the rate limit key
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
