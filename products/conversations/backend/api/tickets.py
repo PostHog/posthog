@@ -1,5 +1,3 @@
-import uuid
-
 from django.db.models import CharField, Count, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Cast
 
@@ -169,8 +167,8 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(assigned_to__isnull=True)
             else:
                 try:
-                    uuid.UUID(assigned_to)
-                    queryset = queryset.filter(assigned_to_id=assigned_to)
+                    assigned_to_id = int(assigned_to)
+                    queryset = queryset.filter(assigned_to_id=assigned_to_id)
                 except ValueError:
                     pass
 
