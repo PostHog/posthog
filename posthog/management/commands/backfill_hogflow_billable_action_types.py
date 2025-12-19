@@ -145,17 +145,5 @@ class Command(BaseCommand):
                 )
             )
 
-        # Show sample of billable action types found
-        if updated_count > 0 and not dry_run:
-            self.stdout.write("\nSample of unique billable action types found:")
-            all_billable_types = set()
-            sample_flows = HogFlow.objects.exclude(billable_action_types=[])[:20]
-            for flow in sample_flows:
-                if flow.billable_action_types:
-                    all_billable_types.update(flow.billable_action_types)
-
-            for action_type in sorted(all_billable_types):
-                self.stdout.write(f"  - {action_type}")
-
         if error_count > 0:
             self.stdout.write(self.style.WARNING(f"Check logs for details on {error_count} errors encountered"))
