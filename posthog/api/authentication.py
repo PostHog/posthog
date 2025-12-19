@@ -163,6 +163,9 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def _check_if_2fa_required(self, user: User) -> bool:
+        if user.mfa_disabled:
+            return False
+
         device = default_device(user)
         if not device:
             # No TOTP device - check for email MFA remember cookie
@@ -367,6 +370,13 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         user = User.objects.get(pk=request.session["user_authenticated_but_no_2fa"])
+
+        if user.mfa_disabled:
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            set_two_factor_verified_in_session(request)
+            report_user_logged_in(user, social_provider="")
+            return Response({"success": True})
+
         expiration_time = request.session["user_authenticated_time"] + getattr(
             settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600
         )
@@ -432,18 +442,24 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
             raise validation_error
 
-        if not email_mfa_token_generator.check_token(user, token):
-            raise validation_error
+        if not user.mfa_disabled:
+            if not email_mfa_token_generator.check_token(user, token):
+                raise validation_error
+            mfa_logger.info(
+                "Email MFA login successful",
+                user_id=user.pk,
+                token=_obfuscate_token(token),
+            )
+        else:
+            mfa_logger.info(
+                "Email MFA bypassed for user with disabled MFA",
+                user_id=user.pk,
+            )
 
         # Token valid - complete login
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(request)
         report_user_logged_in(user, social_provider="")
-        mfa_logger.info(
-            "Email MFA login successful",
-            user_id=user.pk,
-            token=_obfuscate_token(token),
-        )
 
         # Always set remember device cookie (30 days), same as TOTP 2FA
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
@@ -452,7 +468,7 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         response.set_cookie(
             cookie_key,
             cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
+            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
             domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
             path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
             secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
@@ -465,7 +481,6 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         ip_address = get_ip_address(request)
         geoip = get_geoip_properties(ip_address)
         country = geoip.get("$geoip_country_name", "Unknown")
-
         check_and_cache_login_device(user.id, country, short_user_agent)
 
         return response
