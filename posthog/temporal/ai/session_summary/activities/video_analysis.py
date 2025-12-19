@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import tempfile
@@ -32,6 +33,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
 )
 from posthog.temporal.ai.session_summary.types.video import (
+    ConsolidatedVideoSegment,
     UploadedVideo,
     VideoSegmentOutput,
     VideoSegmentSpec,
@@ -477,8 +479,8 @@ Your task:
 - If nothing is happening, return "Static"
 
 Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
-*   **MM:SS - MM:SS:** <detailed description>
-*   **MM:SS - MM:SS:** <detailed description>
+* MM:SS - MM:SS: <detailed description>
+* MM:SS - MM:SS: <detailed description>
 
 Be specific and detailed about:
 - What the user clicked on
@@ -489,9 +491,9 @@ Be specific and detailed about:
 - What outcomes occurred
 
 Example output:
-*   **{start_timestamp} - {_format_timestamp(segment.start_time + 3)}:** User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
-*   **{_format_timestamp(segment.start_time + 3)} - {_format_timestamp(segment.start_time + 8)}:** User clicked on "Create new project" button in the top toolbar
-*   **{_format_timestamp(segment.start_time + 8)} - {end_timestamp}:** User attempted to submit the form but received validation error "Name is required"
+* {start_timestamp} - {_format_timestamp(segment.start_time + 3)}: User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
+* {_format_timestamp(segment.start_time + 3)} - {_format_timestamp(segment.start_time + 8)}: User clicked on "Create new project" button in the top toolbar
+* {_format_timestamp(segment.start_time + 8)} - {end_timestamp}: User attempted to submit the form but received validation error "Name is required"
 
 IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
 """
@@ -550,21 +552,10 @@ IMPORTANT: Use timestamps relative to the full recording (starting at {start_tim
             )
             return []
 
-        # Parse bullet points in format: *   **MM:SS - MM:SS:** description
-        # Note: The colon can be inside OR outside the bold markers depending on LLM output
-        import re
+        # Parse bullet points in format: * MM:SS - MM:SS: description
+        pattern_colon = r"\*\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?):\s*(.+?)(?=\n\*|$)"
 
-        # Try both patterns: **time - time:** (colon inside) and **time - time**: (colon outside)
-        pattern_colon_inside = (
-            r"\*\s+\*\*(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?):\*\*\s*(.+?)(?=\n\*|$)"
-        )
-        pattern_colon_outside = (
-            r"\*\s+\*\*(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)\*\*:\s*(.+?)(?=\n\*|$)"
-        )
-
-        matches = re.findall(pattern_colon_inside, response_text, re.DOTALL | re.MULTILINE)
-        if not matches:
-            matches = re.findall(pattern_colon_outside, response_text, re.DOTALL | re.MULTILINE)
+        matches = re.findall(pattern_colon, response_text, re.DOTALL | re.MULTILINE)
 
         if not matches:
             logger.warning(
@@ -600,6 +591,120 @@ IMPORTANT: Use timestamps relative to the full recording (starting at {start_tim
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
         )
+        raise
+
+
+@temporalio.activity.defn
+async def consolidate_video_segments_activity(
+    inputs: VideoSummarySingleSessionInputs,
+    raw_segments: list[VideoSegmentOutput],
+) -> list[ConsolidatedVideoSegment]:
+    """Consolidate raw video segments into meaningful semantic segments using LLM.
+
+    Takes the raw segments from video analysis (which have generic timestamps but no meaningful titles)
+    and asks an LLM to reorganize them into semantically meaningful segments with proper titles.
+
+    This preserves all information while creating logical groupings like:
+    - "User onboarding flow"
+    - "Debugging API configuration"
+    - "Exploring dashboard features"
+    """
+    if not raw_segments:
+        return []
+
+    try:
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+        # Format raw segments for the prompt
+        segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
+
+        prompt = f"""You are analyzing a session recording from a web analytics product. Below are timestamped descriptions of what the user did during the session.
+
+Your task is to consolidate these into meaningful semantic segments. Each segment should:
+1. Have a **descriptive title** that captures the user's goal or activity (e.g., "Setting up integration", "Exploring analytics dashboard", "Debugging API errors")
+2. Span a coherent period of related activity (combine adjacent segments that are part of the same task)
+3. Have a **combined description** that synthesizes the details from the original segments
+4. Preserve ALL important information from the original descriptions - don't lose any details
+
+Raw segments:
+{segments_text}
+
+Output format (JSON array):
+```json
+[
+  {{
+    "title": "Descriptive segment title",
+    "start_time": "MM:SS",
+    "end_time": "MM:SS",
+    "description": "Combined description of what happened in this segment, preserving all important details from the original segments"
+  }}
+]
+```
+
+Rules:
+- Create 3-10 segments depending on session complexity (fewer for short simple sessions, more for long complex ones)
+- Titles should be specific and actionable (avoid generic titles like "User activity" or "Browsing")
+- Time ranges must not overlap and should cover the full session
+- Preserve error messages, specific UI elements clicked, and outcomes mentioned in original segments
+- Keep descriptions concise but complete
+
+Output ONLY the JSON array, no other text."""
+
+        logger.info(
+            f"Consolidating {len(raw_segments)} raw segments for session {inputs.session_id}",
+            session_id=inputs.session_id,
+            raw_segment_count=len(raw_segments),
+        )
+
+        response = client.models.generate_content(
+            model="models/gemini-2.5-flash",
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(include_thoughts=False),
+                max_output_tokens=4096,
+            ),
+            posthog_distinct_id=inputs.user_distinct_id_to_log,
+            posthog_trace_id=f"video-consolidation-{inputs.redis_key_base}-{inputs.session_id}",
+            posthog_properties={"$session_id": inputs.session_id},
+            posthog_groups={"project": str(inputs.team_id)},
+        )
+
+        response_text = (response.text or "").strip()
+
+        # Extract JSON from response (handle markdown code blocks)
+        json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response_text)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_str = response_text
+
+        parsed = json.loads(json_str)
+
+        consolidated_segments = [
+            ConsolidatedVideoSegment(
+                title=item["title"],
+                start_time=item["start_time"],
+                end_time=item["end_time"],
+                description=item["description"],
+            )
+            for item in parsed
+        ]
+
+        logger.info(
+            f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_segments)} semantic segments",
+            session_id=inputs.session_id,
+            raw_count=len(raw_segments),
+            consolidated_count=len(consolidated_segments),
+        )
+
+        return consolidated_segments
+
+    except Exception as e:
+        logger.exception(
+            f"Failed to consolidate segments for session {inputs.session_id}: {e}",
+            session_id=inputs.session_id,
+        )
+        # Re-raise to let the workflow retry with proper retry policy
         raise
 
 
@@ -670,7 +775,7 @@ async def embed_and_store_segments_activity(
 
 
 def _convert_video_segments_to_session_summary(
-    segments: list[VideoSegmentOutput],
+    segments: list[ConsolidatedVideoSegment],
     session_id: str,
     llm_input: SingleSessionSummaryLlmInputs | None = None,
 ) -> dict:
@@ -772,7 +877,7 @@ def _convert_video_segments_to_session_summary(
         summary_segments.append(
             {
                 "index": idx,
-                "name": f"Segment {idx + 1}",
+                "name": segment.title,
                 "start_event_id": first_event_id,
                 "end_event_id": last_event_id,
                 "meta": {
@@ -886,7 +991,7 @@ def _convert_video_segments_to_session_summary(
 
 
 def _convert_video_segments_to_session_summary_fallback(
-    segments: list[VideoSegmentOutput],
+    segments: list[ConsolidatedVideoSegment],
     session_id: str,
 ) -> dict:
     """Fallback conversion when no cached event data is available.
@@ -903,7 +1008,7 @@ def _convert_video_segments_to_session_summary_fallback(
         summary_segments.append(
             {
                 "index": idx,
-                "name": f"Segment {idx + 1}",
+                "name": segment.title,
                 "start_event_id": f"vid_{idx:04d}_start",
                 "end_event_id": f"vid_{idx:04d}_end",
                 "meta": {
@@ -967,7 +1072,7 @@ def _convert_video_segments_to_session_summary_fallback(
 @temporalio.activity.defn
 async def store_video_session_summary_activity(
     inputs: VideoSummarySingleSessionInputs,
-    segments: list[VideoSegmentOutput],
+    segments: list[ConsolidatedVideoSegment],
 ) -> None:
     """Convert video segments to session summary format and store in database
 

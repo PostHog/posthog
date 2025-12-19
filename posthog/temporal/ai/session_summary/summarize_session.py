@@ -24,6 +24,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities.video_analysis import (
     CHUNK_DURATION,
     analyze_video_segment_activity,
+    consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
     store_video_session_summary_activity,
@@ -460,31 +461,39 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         segment_results = await asyncio.gather(*segment_tasks)
 
         # Flatten results from all segments
-        all_segments = []
+        raw_segments = []
         for segment_output_list in segment_results:
-            all_segments.extend(segment_output_list)
+            raw_segments.extend(segment_output_list)
 
-        # Activity 4: Generate embeddings for all segments and store in ClickHouse via Kafka
-        await temporalio.workflow.execute_activity(
-            embed_and_store_segments_activity,
-            args=(video_inputs, all_segments, asset_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=retry_policy,
-        )
-
-        # Activity 5: Store video-based summary in database
-        # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
-        # and uses it to map video segments to real events
-        if not all_segments:
+        if not raw_segments:
             raise ApplicationError(
                 f"No segments extracted from video analysis for session {inputs.session_id}. "
                 "All video segments may have been static or the LLM output format was not parseable.",
                 non_retryable=True,
             )
 
+        # Activity 4: Consolidate raw segments into meaningful semantic segments
+        consolidated_segments = await temporalio.workflow.execute_activity(
+            consolidate_video_segments_activity,
+            args=(video_inputs, raw_segments),
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=retry_policy,
+        )
+
+        # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
+        await temporalio.workflow.execute_activity(
+            embed_and_store_segments_activity,
+            args=(video_inputs, consolidated_segments, asset_id),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+
+        # Activity 6: Store video-based summary in database
+        # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
+        # and uses it to map video segments to real events
         await temporalio.workflow.execute_activity(
             store_video_session_summary_activity,
-            args=(video_inputs, all_segments),
+            args=(video_inputs, consolidated_segments),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )

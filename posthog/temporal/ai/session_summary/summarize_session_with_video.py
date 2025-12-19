@@ -13,12 +13,14 @@ from posthog.models.user import User
 from posthog.temporal.ai.session_summary.activities.video_analysis import (
     CHUNK_DURATION,
     analyze_video_segment_activity,
+    consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
 )
 from posthog.temporal.ai.session_summary.types.video import (
+    ConsolidatedVideoSegment,
     VideoSegmentOutput,
     VideoSegmentSpec,
     VideoSummarySingleSessionInputs,
@@ -40,7 +42,7 @@ class SummarizeSingleSessionWithVideoWorkflow(PostHogWorkflow):
         return VideoSummarySingleSessionInputs(**loaded)
 
     @wf.run
-    async def run(self, inputs: VideoSummarySingleSessionInputs) -> list[VideoSegmentOutput]:
+    async def run(self, inputs: VideoSummarySingleSessionInputs) -> list[ConsolidatedVideoSegment]:
         """Execute video-based session segmentation workflow
 
         Uploads the full video once to Gemini, then analyzes segments in parallel.
@@ -90,34 +92,42 @@ class SummarizeSingleSessionWithVideoWorkflow(PostHogWorkflow):
         segment_results = await asyncio.gather(*segment_tasks)
 
         # Flatten results from all segments
-        all_segments: list[VideoSegmentOutput] = []
+        raw_segments: list[VideoSegmentOutput] = []
         for segment_output_list in segment_results:
-            all_segments.extend(segment_output_list)
+            raw_segments.extend(segment_output_list)
 
-        # Activity 4: Generate embeddings for all segments and store in ClickHouse via Kafka
-        await wf.execute_activity(
-            embed_and_store_segments_activity,
-            args=(inputs, all_segments, asset_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=retry_policy,
-        )
-
-        # Activity 5: Store video-based summary in database
-        if not all_segments:
+        if not raw_segments:
             raise ApplicationError(
                 f"No segments extracted from video analysis for session {inputs.session_id}. "
                 "All video segments may have been static or the LLM output format was not parseable.",
                 non_retryable=True,
             )
 
+        # Activity 4: Consolidate raw segments into meaningful semantic segments
+        consolidated_segments: list[ConsolidatedVideoSegment] = await wf.execute_activity(
+            consolidate_video_segments_activity,
+            args=(inputs, raw_segments),
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=retry_policy,
+        )
+
+        # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
         await wf.execute_activity(
-            store_video_session_summary_activity,
-            args=(inputs, all_segments),
+            embed_and_store_segments_activity,
+            args=(inputs, consolidated_segments, asset_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
 
-        return all_segments
+        # Activity 6: Store video-based summary in database
+        await wf.execute_activity(
+            store_video_session_summary_activity,
+            args=(inputs, consolidated_segments),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+
+        return consolidated_segments
 
 
 async def execute_summarize_session_with_video(
@@ -127,7 +137,7 @@ async def execute_summarize_session_with_video(
     model_to_use: str = "gemini-2.5-flash",
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> list[VideoSegmentOutput]:
+) -> list[ConsolidatedVideoSegment]:
     """
     Execute video-based session segmentation workflow.
 
@@ -135,7 +145,8 @@ async def execute_summarize_session_with_video(
     1. Exports the full session recording as a video
     2. Uploads the video once to Gemini
     3. Analyzes 15-second segments in parallel using video_metadata for time ranges
-    4. Combines all segment descriptions and stores them as embeddings
+    4. Consolidates raw segments into meaningful semantic segments with titles
+    5. Stores consolidated segments as embeddings
 
     Args:
         session_id: Session recording ID to analyze
@@ -146,7 +157,7 @@ async def execute_summarize_session_with_video(
         local_reads_prod: Whether to use local reads in production
 
     Returns:
-        List of all identified segments with detailed descriptions
+        List of consolidated segments with meaningful titles and detailed descriptions
     """
     # Prepare workflow inputs
     redis_key_base = f"session-video-summary:single:{user.id}-{team.id}:{session_id}"
