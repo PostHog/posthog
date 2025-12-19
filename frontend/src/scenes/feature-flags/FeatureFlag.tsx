@@ -1471,7 +1471,11 @@ function FeatureFlagRollout({
                                             title="Recordings"
                                             description="Watch recordings of people who have been exposed to the feature flag."
                                         >
-                                            <div
+                                            <ViewRecordingsPlaylistButton
+                                                filters={recordingFilterForFlag}
+                                                type="secondary"
+                                                size="small"
+                                                data-attr="feature-flag-view-recordings"
                                                 onClick={() => {
                                                     reportViewRecordingsClicked()
                                                     addProductIntentForCrossSell({
@@ -1481,14 +1485,7 @@ function FeatureFlagRollout({
                                                             ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                                     })
                                                 }}
-                                            >
-                                                <ViewRecordingsPlaylistButton
-                                                    filters={recordingFilterForFlag}
-                                                    type="secondary"
-                                                    size="small"
-                                                    data-attr="feature-flag-view-recordings"
-                                                />
-                                            </div>
+                                            />
                                         </SceneSection>
 
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
@@ -1688,7 +1685,12 @@ function FeatureFlagRollout({
                                     title="Recordings"
                                     description="Watch recordings of people who have been exposed to the feature flag."
                                 >
-                                    <div
+                                    <ViewRecordingsPlaylistButton
+                                        filters={recordingFilterForFlag}
+                                        type="secondary"
+                                        size="small"
+                                        className="w-fit"
+                                        data-attr="feature-flag-view-recordings"
                                         onClick={() => {
                                             reportViewRecordingsClicked()
                                             addProductIntentForCrossSell({
@@ -1697,15 +1699,7 @@ function FeatureFlagRollout({
                                                 intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                             })
                                         }}
-                                    >
-                                        <ViewRecordingsPlaylistButton
-                                            filters={recordingFilterForFlag}
-                                            type="secondary"
-                                            size="small"
-                                            className="w-fit"
-                                            data-attr="feature-flag-view-recordings"
-                                        />
-                                    </div>
+                                    />
                                 </SceneSection>
                                 {onGetFeedback && (
                                     <>

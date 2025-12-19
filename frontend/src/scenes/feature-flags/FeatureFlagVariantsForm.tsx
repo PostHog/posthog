@@ -153,18 +153,17 @@ export function FeatureFlagVariantsForm({
                             {(flagKey || onGetFeedback) && (
                                 <div className="col-span-2 flex gap-2 items-start">
                                     {flagKey && (
-                                        <div onClick={() => onViewRecordings?.(variant.key)}>
-                                            <ViewRecordingsPlaylistButton
-                                                filters={getRecordingFilterForFlagVariant(
-                                                    flagKey,
-                                                    variant.key,
-                                                    hasEnrichedAnalytics
-                                                )}
-                                                size="xsmall"
-                                                type="secondary"
-                                                data-attr={`feature-flag-variant-${variant.key}-view-recordings`}
-                                            />
-                                        </div>
+                                        <ViewRecordingsPlaylistButton
+                                            filters={getRecordingFilterForFlagVariant(
+                                                flagKey,
+                                                variant.key,
+                                                hasEnrichedAnalytics
+                                            )}
+                                            size="xsmall"
+                                            type="secondary"
+                                            data-attr={`feature-flag-variant-${variant.key}-view-recordings`}
+                                            onClick={() => onViewRecordings?.(variant.key)}
+                                        />
                                     )}
                                     {onGetFeedback && (
                                         <LemonButton
