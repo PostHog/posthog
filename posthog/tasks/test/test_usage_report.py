@@ -2382,19 +2382,63 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self._setup_teams()
 
         # Create workflow metrics for org 1 team 1
-        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="email_sent", count=10)
-        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="push_sent", count=5)
-        create_app_metric2(team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="sms_sent", count=3)
         create_app_metric2(
-            team_id=self.org_1_team_1.id, app_source="hog_flow", metric_name="billable_invocation", count=8
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=10,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="push",
+            count=5,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="sms",
+            count=3,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="fetch",
+            count=8,
         )
 
         # Create workflow metrics for org 1 team 2
-        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="email_sent", count=15)
-        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="push_sent", count=7)
-        create_app_metric2(team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="sms_sent", count=2)
         create_app_metric2(
-            team_id=self.org_1_team_2.id, app_source="hog_flow", metric_name="billable_invocation", count=12
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=15,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="push",
+            count=7,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="sms",
+            count=2,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="fetch",
+            count=12,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))

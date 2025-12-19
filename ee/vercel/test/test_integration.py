@@ -313,6 +313,29 @@ class TestVercelIntegration(TestCase):
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
 
+    def test_upsert_installation_reactivates_inactive_user(self):
+        new_installation_id = self.NEW_INSTALLATION_ID
+        inactive_email = "inactive@example.com"
+
+        inactive_user = User.objects.create_user(
+            email=inactive_email, password="testpass", first_name="Inactive", is_active=False
+        )
+
+        payload = self.payload.copy()
+        payload["account"]["contact"]["email"] = inactive_email
+
+        user_claims = self._create_user_claims("inactive_user_123")
+        user_claims.installation_id = new_installation_id
+        user_claims.user_email = inactive_email
+
+        VercelIntegration.upsert_installation(new_installation_id, payload, user_claims)
+
+        inactive_user.refresh_from_db()
+        assert inactive_user.is_active is True
+
+        org_integration = OrganizationIntegration.objects.get(integration_id=new_installation_id)
+        assert org_integration.created_by == inactive_user
+
     def test_get_resource_not_found(self):
         with self.assertRaises(NotFound):
             VercelIntegration.get_resource("999999")

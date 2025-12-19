@@ -1,22 +1,134 @@
+import clsx from 'clsx'
+import { useEffect, useRef, useState } from 'react'
+
+import { isChristmas } from 'lib/holidays'
+
+const LogomarkHead = ({ children }: { children?: React.ReactNode }): JSX.Element => (
+    <g id="head" className="fill-[var(--brand-key)] dark:fill-white">
+        <path d="M903.1641,358.57729l-110.00034,-124.75323c-7.36453,-8.35223 -19.98943,-2.38637 -19.98943,9.41282v174.60152c0,7.29164 5.26039,13.25752 11.68974,13.25752h170.43622c6.42935,0 11.68972,-5.96588 11.68972,-13.25752v-15.90902c0,-7.29164 -5.26037,-13.12495 -11.68972,-14.05298c-19.63875,-2.91665 -37.99162,-13.12493 -52.13618,-29.16653zM829.16811,388.53929c-10.28695,0 -18.70356,-9.54543 -18.70356,-21.21203c0,-11.66661 8.41661,-21.21202 18.70356,-21.21202c10.28695,0 18.70356,9.54541 18.70356,21.21202c0,11.66661 -8.41661,21.21203 -18.70356,21.21203z" />
+        {children}
+    </g>
+)
+
+const LogomarkChristmasHat = (): JSX.Element => (
+    <g id="christmas-hat">
+        <path
+            d="M760.44221,350.78547l105.09131,-63.59165c2.99786,-1.81373 3.53866,-6.05832 1.09756,-8.61203l-74.51149,-77.93921c-8.68281,-9.08152 -23.24768,-7.66116 -30.12961,2.93974l-42.29777,65.15048c-2.27949,3.511 2.05301,7.56212 5.21072,4.87178l27.51804,-23.44101v95.87485c0,4.25098 4.47015,6.8964 8.02125,4.74706z"
+            className="fill-[var(--brand-red)]"
+            stroke="none"
+            stroke-width="1"
+        />
+        <path
+            d="M748.13994,352.44425v-32.45923c0,-2.87648 1.45099,-5.54575 3.82903,-7.04497l91.41712,-57.60028c3.09288,-1.94944 7.06755,-1.50563 9.68623,1.07927l23.26986,22.977c3.87165,3.8228 3.07691,10.41935 -1.58416,13.14544l-114.68697,67.08341c-5.32797,3.11581 -11.93107,-0.85826 -11.93107,-7.18066z"
+            fill="#ffffff"
+            stroke="#000000"
+            stroke-width="5"
+        />
+        <path
+            d="M745.94127,261.57323c0,8.54877 -6.71144,15.47909 -14.99021,15.47909c-8.27877,0 -14.99019,-6.93033 -14.99019,-15.47909c0,-8.54877 6.71142,-15.47909 14.99019,-15.47909c8.27877,0 14.99021,6.93033 14.99021,15.47909z"
+            fill="#ffffff"
+            stroke="#000000"
+            stroke-width="5"
+        />
+    </g>
+)
+
 export function Logomark(): JSX.Element {
     return (
-        <svg width="45" height="25" viewBox="0 0 45 25" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-                d="M39.8662 19.7983L31.042 10.9741C30.4513 10.3835 29.4416 10.8018 29.4416 11.637V23.9803C29.4416 24.498 29.8613 24.9177 30.3791 24.9177H44.0481C44.5659 24.9177 44.9856 24.498 44.9856 23.9803V22.8562C44.9856 22.3384 44.5641 21.9249 44.0506 21.8581C42.475 21.653 41.0012 20.9333 39.8662 19.7983ZM33.9401 21.9187C33.1124 21.9187 32.4406 21.2469 32.4406 20.4191C32.4406 19.5914 33.1124 18.9196 33.9401 18.9196C34.7679 18.9196 35.4397 19.5914 35.4397 20.4191C35.4397 21.2469 34.7679 21.9187 33.9401 21.9187Z"
-                className="fill-[var(--brand-key)] dark:fill-white"
-            />
-            <path
-                d="M24.6409 23.3171C25.2315 23.9077 24.8133 24.9174 23.9781 24.9174H19.1323C18.9969 24.9174 18.865 24.8873 18.7441 24.8322V17.8084C18.7441 17.5599 18.6453 17.3214 18.4695 17.1456L24.6409 23.3171ZM27.8415 17.1456C28.0173 17.3214 28.1162 17.5599 28.1162 17.8084V22.6542C28.1162 23.4894 27.1065 23.9077 26.5159 23.3171L18.7441 15.5453V8.43638C18.7441 8.1878 18.6453 7.94932 18.4695 7.77356L27.8415 17.1456ZM9.37207 15.1571C9.37207 15.4057 9.471 15.6442 9.64672 15.82L9.37207 15.5453V15.1571ZM18.7441 0.939284C18.7442 0.104147 19.7539 -0.314106 20.3444 0.276456L27.8415 7.77356C28.0173 7.94932 28.1162 8.18781 28.1162 8.43638V13.2822C28.1162 14.1174 27.1065 14.5356 26.5159 13.945L19.0188 6.4479C18.8431 6.2721 18.7441 6.03366 18.7441 5.78507V0.939284Z"
-                className="fill-[var(--brand-yellow)] dark:fill-white"
-            />
-            <path
-                d="M18.744 8.43645C18.744 8.18783 18.6453 7.94933 18.4694 7.77355L10.9724 0.276525C10.3819 -0.31406 9.37201 0.104216 9.37201 0.939418V5.78543C9.37201 6.03406 9.47081 6.27251 9.64659 6.44832L18.744 15.5457V8.43645ZM9.37201 24.9177H14.6063C15.4415 24.9177 15.8598 23.908 15.2692 23.3174L9.37201 17.4201V24.9177ZM9.37201 8.04814V15.1574C9.37201 15.4061 9.47081 15.6446 9.64659 15.8203L18.744 24.9177V17.8084C18.744 17.5598 18.6453 17.3213 18.4694 17.1456L9.37201 8.04814Z"
-                className="fill-[var(--brand-red)] dark:fill-white"
-            />
-            <path
-                d="M0 23.9803C0 24.498 0.419724 24.9177 0.937481 24.9177H5.23432C6.06953 24.9177 6.4878 23.908 5.89723 23.3174L1.60038 19.0205C1.0098 18.4299 0 18.8482 0 19.6834V23.9803ZM9.372 8.04814L1.60038 0.276525C1.0098 -0.31406 0 0.104216 0 0.939418V5.78543C0 6.03406 0.0987702 6.27251 0.274582 6.44832L9.372 15.5457V8.04814ZM1.60038 9.64851C1.0098 9.0579 0 9.47621 0 10.3114V15.1574C0 15.4061 0.0987702 15.6446 0.274582 15.8203L9.372 24.9177V17.4201L1.60038 9.64851Z"
-                className="fill-[var(--brand-blue)] dark:fill-white"
-            />
+        <svg
+            width="45"
+            height="25"
+            viewBox="406 78.49999 560.99001 352.59593"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+        >
+            <g id="blue" className="fill-[var(--brand-blue)] dark:fill-white">
+                <path d="M425.98943,347.57356c-7.36453,-8.35223 -19.98943,-2.38635 -19.98943,9.41284v60.71942c0,7.29164 5.26037,13.25754 11.68972,13.25754h53.53895c5.26037,0 9.118,-3.57953 10.75456,-8.21967c0.46758,-1.19318 0.70139,-2.38635 0.81829,-3.57953c0.35069,-3.71211 -0.5845,-7.68937 -3.39003,-10.87117l-53.53895,-60.71944z" />
+                <path d="M425.98943,214.99838c-7.36453,-8.35223 -19.98943,-2.38635 -19.98943,9.41284v68.54137c0,3.57953 1.28587,6.89391 3.39003,9.41284l110.00032,124.75323l3.39003,3.84469v-106.06015z" />
+                <path d="M425.98943,82.42319c-7.36453,-8.35223 -19.98943,-2.38635 -19.98943,9.41284v68.54137c0,3.57953 1.28587,6.89391 3.39003,9.41284l113.39035,128.59793v0v-106.06015z" />
+            </g>
+            <g id="red" className="fill-[var(--brand-red)] dark:fill-white">
+                <path d="M596.42565,408.293l-73.52838,-83.38979v106.06015h65.22867c10.40385,0 15.66424,-14.31813 8.29971,-22.67036z" />
+                <path d="M636.28762,321.05853l-113.39035,-128.73051v16.43933v73.18149v11.00375v5.43558l3.39003,3.84468l110.00032,124.75325l3.39003,3.97726v-1.32576v-99.29881v-5.43558z" />
+                <path d="M636.28762,188.48334l-8.6504,-9.81057l-84.86741,-96.24958c-0.93518,-1.06059 -1.87035,-1.85606 -2.92243,-2.51894c-2.10416,-1.19318 -4.4421,-1.59089 -6.54626,-1.32574c-2.22105,0.26515 -4.32521,1.32576 -6.07866,2.78408c-0.81829,0.79544 -1.63654,1.72347 -2.33793,2.78406c-1.28587,2.1212 -2.10416,4.64014 -2.10416,7.55679v68.54137c0,3.57953 1.28587,6.89391 3.39003,9.41284l113.39035,128.59793v-106.06013l-3.39003,-3.84469z" />
+            </g>
+            <g id="yellow" className="fill-[var(--brand-yellow)] dark:fill-white">
+                <path d="M713.32292,408.293l-73.52838,-83.38979v106.06015h65.22867c10.40385,0 15.66424,-14.31813 8.29971,-22.67036z" />
+                <path d="M639.67765,298.38817v-106.06015l113.39035,128.59793c2.22105,2.51894 3.39003,5.83331 3.39003,9.41284v68.54137c0,11.79919 -12.6249,17.76507 -19.98943,9.41284l-96.90784,-109.90483z" />
+                <path d="M753.18489,188.48334l-93.51781,-106.06015c-7.36453,-8.35223 -19.98943,-2.38635 -19.98943,9.41284v68.54137c0,3.57953 1.28587,6.89391 3.39003,9.41284l93.51781,106.06015c7.36453,8.35223 19.98943,2.38635 19.98943,-9.41284v-68.54137c0,-3.57953 -1.28587,-6.89391 -3.39003,-9.41284z" />
+            </g>
+
+            <LogomarkHead>{isChristmas() && <LogomarkChristmasHat />}</LogomarkHead>
         </svg>
+    )
+}
+
+export interface AnimatedLogomarkProps {
+    /** Animate the logomark continuously (e.g. during loading states) */
+    animate: boolean
+    /** Play a single animation cycle and call the provided callback when done */
+    animateOnce?: () => void
+    className?: string
+}
+
+/**
+ * Animated PostHog logomark that jumps continuously while `animate` is true.
+ *
+ * When `animate` becomes false, the animation completes its current cycle before
+ * stopping - it won't cut off mid-jump.
+ *
+ * When `animateOnce` is provided, plays a single animation cycle and calls
+ * the provided callback when done.
+ */
+export function AnimatedLogomark({ animate, animateOnce, className }: AnimatedLogomarkProps): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+    const [isAnimating, setIsAnimating] = useState(false)
+    const shouldStopRef = useRef(false)
+    const animateOnceRef = useRef(animateOnce)
+
+    animateOnceRef.current = animateOnce
+
+    // Track stop intent via ref so the listener always sees current value
+    // without needing to be re-attached when `animate` changes
+    shouldStopRef.current = !animate && isAnimating
+
+    // Start animation immediately when requested
+    useEffect(() => {
+        if (animate || animateOnce) {
+            setIsAnimating(true)
+        }
+    }, [animate, animateOnce])
+
+    // Set up iteration listener once when animation starts.
+    // The listener checks shouldStopRef on each cycle to decide whether to stop.
+    useEffect(() => {
+        if (!isAnimating || !ref.current) {
+            return
+        }
+
+        const animatedElement = ref.current.querySelector('svg > *')
+        if (!animatedElement) {
+            return
+        }
+
+        const handleAnimationIteration = (): void => {
+            if (animateOnceRef.current) {
+                setIsAnimating(false)
+                animateOnceRef.current()
+            } else if (shouldStopRef.current) {
+                setIsAnimating(false)
+            }
+        }
+
+        animatedElement.addEventListener('animationiteration', handleAnimationIteration)
+        return () => {
+            animatedElement.removeEventListener('animationiteration', handleAnimationIteration)
+        }
+    }, [isAnimating])
+
+    return (
+        <div ref={ref} className={clsx(className, isAnimating && 'animate-logomark-jump-continuous')}>
+            <Logomark />
+        </div>
     )
 }

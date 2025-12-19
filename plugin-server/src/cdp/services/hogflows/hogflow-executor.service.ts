@@ -82,7 +82,12 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService
     ) {
-        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService)
+        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
+        const hogFunctionEmailHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            'email'
+        )
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
@@ -93,7 +98,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
-            function_email: hogFunctionHandler,
+            function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
     }

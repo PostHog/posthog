@@ -597,9 +597,10 @@ export function FeatureFlagReleaseConditions({
                     </LemonBanner>
                 )}
             {!readOnly && showGroupsOptions && !hideMatchOptions && (
-                <div className="centered">
+                <div className="centered flex items-center gap-2">
                     Match by
                     <LemonSelect
+                        size="small"
                         dropdownMatchSelectWidth={false}
                         data-attr="feature-flag-aggregation-filter"
                         onChange={(value) => {
