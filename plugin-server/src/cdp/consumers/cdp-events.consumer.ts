@@ -317,7 +317,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
-                            app_source_id: item.hogFlow.id,
+                            app_source_id: item.functionId,
                             metric_kind: 'failure',
                             metric_name: 'quota_limited',
                             count: 1,
