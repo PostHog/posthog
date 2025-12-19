@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import type { Plugin } from 'vite'
 
@@ -62,8 +62,7 @@ function copyPostHogJsFiles(): void {
 
     // Copy integration files (e.g., *integration.js*)
     try {
-        const fs = require('fs')
-        const files = fs.readdirSync(nodeModulesPostHogJs)
+        const files = readdirSync(nodeModulesPostHogJs)
         files.forEach((file: string) => {
             if (file.includes('integration') && (file.endsWith('.js') || file.endsWith('.js.map'))) {
                 const from = join(nodeModulesPostHogJs, file)
@@ -77,8 +76,7 @@ function copyPostHogJsFiles(): void {
 
     // Copy recorder files (e.g., *recorder*.js*)
     try {
-        const fs = require('fs')
-        const files = fs.readdirSync(nodeModulesPostHogJs)
+        const files = readdirSync(nodeModulesPostHogJs)
         files.forEach((file: string) => {
             if (file.includes('recorder') && (file.endsWith('.js') || file.endsWith('.js.map'))) {
                 const from = join(nodeModulesPostHogJs, file)
