@@ -4,7 +4,6 @@ use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Debug, iter, thread::sleep, time::Duration};
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 use crate::{
     invocation_context::context,

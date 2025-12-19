@@ -2,20 +2,14 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 use crate::{
-    api::{
-        releases::ReleaseBuilder,
-        symbol_sets::{self, SymbolSetUpload},
-    },
+    api::symbol_sets::{self, SymbolSetUpload},
     invocation_context::context,
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs},
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
     },
-    utils::{
-        files::{delete_files, FileSelection},
-        git::get_git_info,
-    },
+    utils::files::{delete_files, FileSelection},
 };
 
 #[derive(clap::Args, Clone)]
@@ -34,7 +28,7 @@ pub struct Args {
     pub delete_after: bool,
 
     /// The maximum number of chunks to upload in a single batch
-    #[arg(long, default_value = "50")]
+    #[arg(long, default_value = "50", env = "POSTHOG_UPLOAD_BATCH_SIZE")]
     pub batch_size: usize,
 
     #[clap(flatten)]
