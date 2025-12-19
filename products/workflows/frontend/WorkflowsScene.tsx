@@ -92,9 +92,10 @@ export function WorkflowsScene(): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
     const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     if (!hasWorkflowsFeatureFlag) {
         return (
@@ -181,7 +182,13 @@ export function WorkflowsScene(): JSX.Element {
                         {currentTab === 'workflows' && (
                             <LemonButton
                                 data-attr="new-workflow"
-                                onClick={showNewWorkflowModal}
+                                onClick={() => {
+                                    if (canCreateTemplates) {
+                                        showNewWorkflowModal()
+                                    } else {
+                                        createEmptyWorkflow()
+                                    }
+                                }}
                                 type="primary"
                                 size="small"
                             >
