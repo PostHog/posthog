@@ -209,7 +209,7 @@ function SessionReplayBlockPreview({ block }: { block: SessionReplayBlock }): JS
         autoPlay: false,
         mode: SessionRecordingPlayerMode.Notebook,
         noBorder: true,
-        noInspector: true,
+        withSidebar: false,
     }
 
     return (

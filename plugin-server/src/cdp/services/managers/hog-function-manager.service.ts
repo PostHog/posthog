@@ -22,6 +22,7 @@ const HOG_FUNCTION_FIELDS = [
     'type',
     'template_id',
     'execution_order',
+    'batch_export_id',
     'created_at',
     'updated_at',
 ]

@@ -1,4 +1,4 @@
-import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
@@ -73,7 +73,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         }
         return (
             <div onClick={handleClick}>
-                <ViewReplayButton filters={filters} type="tertiary" size="xsmall" />
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
             </div>
         )
     }
@@ -108,7 +108,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         }
         return (
             <div onClick={handleClick}>
-                <ViewReplayButton filters={filters} type="tertiary" size="xsmall" />
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
             </div>
         )
     }
@@ -150,7 +150,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         }
         return (
             <div onClick={handleClick}>
-                <ViewReplayButton filters={filters} type="tertiary" size="xsmall" />
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
             </div>
         )
     }
@@ -185,7 +185,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
     }
     return (
         <div onClick={handleClick}>
-            <ViewReplayButton filters={filters} type="tertiary" size="xsmall" />
+            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
         </div>
     )
 }

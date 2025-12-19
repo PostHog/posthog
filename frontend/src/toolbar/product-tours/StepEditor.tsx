@@ -3,14 +3,16 @@ import { useActions, useValues } from 'kea'
 import { renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { IconChevronRight, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconCursorClick, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { ElementRect } from '~/toolbar/types'
 import { elementToActionStep } from '~/toolbar/utils'
 import {
+    ProductTourProgressionTriggerType,
     ProductTourSurveyQuestion,
     ProductTourSurveyQuestionType,
     SurveyPosition,
@@ -105,10 +107,10 @@ function calculatePosition(
     return { left, top }
 }
 
-export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
-    const { editingStep, selectedElement, dataAttributes, inspectingElement, editingModalStep, editingSurveyStep } =
+export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elementNotFound?: boolean }): JSX.Element {
+    const { editingStep, selectedElement, dataAttributes, editingStepIndex, editingStepType } =
         useValues(productToursLogic)
-    const { confirmStep, cancelStep, removeStep } = useActions(productToursLogic)
+    const { confirmStep, cancelEditing, removeStep, changeStepElement } = useActions(productToursLogic)
 
     const [richEditor, setRichEditor] = useState<ToolbarEditor | null>(null)
     const editorRef = useRef<HTMLDivElement>(null)
@@ -116,6 +118,9 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
     const [selector, setSelector] = useState('')
     const [showAdvanced, setShowAdvanced] = useState(false)
+
+    // Progression trigger state (for element steps)
+    const [progressionTrigger, setProgressionTrigger] = useState<ProductTourProgressionTriggerType>('button')
 
     // Survey step state
     const [surveyType, setSurveyType] = useState<ProductTourSurveyQuestionType>('open')
@@ -125,23 +130,28 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
     const [lowerBoundLabel, setLowerBoundLabel] = useState('Not at all')
     const [upperBoundLabel, setUpperBoundLabel] = useState('Very much')
 
-    const isModalStep = editingModalStep || !rect
-    const isSurveyStep = editingSurveyStep || !!editingStep?.survey
-    const editorWidth = isSurveyStep ? 360 : 320 // Wider for survey preview
+    const isElementStep = editingStepType === 'element'
+    const isModalStep = editingStepType === 'modal'
+    const isSurveyStep = editingStepType === 'survey'
+    const editorWidth = isSurveyStep ? 360 : 320
     const padding = 16
 
-    // Initialize selector from editingStep or derive from selectedElement
+    // Initialize selector and progressionTrigger from selectedElement or editingStep
     useEffect(() => {
-        if (editingStep) {
-            // Existing step - use its selector (even if empty for modal steps)
-            setSelector(editingStep.selector)
-        } else if (selectedElement) {
-            // New element step - derive selector from element
+        if (selectedElement) {
+            // Fresh element selection (new step OR changing element) - always derive from element
             const actionStep = elementToActionStep(selectedElement, dataAttributes)
             setSelector(actionStep.selector ?? '')
+            // Preserve progressionTrigger if editing existing step, otherwise default to button
+            setProgressionTrigger(editingStep?.progressionTrigger ?? 'button')
+        } else if (editingStep) {
+            // Existing step with no new selection - use saved values
+            setSelector(editingStep.selector ?? '')
+            setProgressionTrigger(editingStep.progressionTrigger ?? 'button')
         } else {
-            // New modal step - no selector
+            // New modal/survey step - no selector
             setSelector('')
+            setProgressionTrigger('button')
         }
     }, [editingStep, selectedElement, dataAttributes])
 
@@ -162,7 +172,7 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
             if (editingStep.survey.upperBoundLabel) {
                 setUpperBoundLabel(editingStep.survey.upperBoundLabel)
             }
-        } else if (editingSurveyStep) {
+        } else if (isSurveyStep) {
             // Reset to defaults for new survey step
             setSurveyType('open')
             setQuestionText(DEFAULT_OPEN_QUESTION)
@@ -171,7 +181,7 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
             setLowerBoundLabel('Not at all')
             setUpperBoundLabel('Very much')
         }
-    }, [editingStep, editingSurveyStep])
+    }, [editingStep, isSurveyStep])
 
     // Update scale when display type changes to ensure valid combination
     useEffect(() => {
@@ -255,17 +265,18 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
         }
     }, [isSurveyStep, previewSurvey])
 
-    // Center modal/survey steps, position element steps near target
+    // Position element steps near target (when element is visible)
     useLayoutEffect(() => {
-        if (!isModalStep && !isSurveyStep && editorRef.current && rect) {
+        if (!isModalStep && !isSurveyStep && !elementNotFound && editorRef.current && rect) {
             const editorHeight = editorRef.current.offsetHeight
             setPosition(calculatePosition(rect, editorWidth, editorHeight, padding, 'right'))
         }
-    }, [rect, isModalStep, isSurveyStep, editorWidth])
+    }, [rect, isModalStep, isSurveyStep, elementNotFound, editorWidth])
 
-    // Use ResizeObserver + window resize to center modal/survey steps
+    // Center modal/survey steps, or element steps when element not found
+    const shouldCenter = isModalStep || isSurveyStep || elementNotFound
     useLayoutEffect(() => {
-        if (!isModalStep && !isSurveyStep) {
+        if (!shouldCenter) {
             return
         }
 
@@ -290,7 +301,7 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
             observer.disconnect()
             window.removeEventListener('resize', centerEditor)
         }
-    }, [isModalStep, isSurveyStep, editorWidth])
+    }, [shouldCenter, editorWidth])
 
     // Update editor when editing a different step
     useLayoutEffect(() => {
@@ -313,19 +324,10 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
         ...(position ?? { left: 0, top: 0 }),
     }
 
-    const getStepTypeLabel = (): string => {
-        if (isSurveyStep) {
-            return 'survey '
-        }
-        if (isModalStep) {
-            return 'modal '
-        }
-        return ''
-    }
-
+    const stepTypeLabel = isSurveyStep ? 'survey' : isModalStep ? 'modal' : 'element'
     const actionLabel = editingStep
-        ? `Editing Step ${inspectingElement! + 1}${editingStep.survey ? ' (Survey)' : !editingStep.selector ? ' (Modal)' : ''}`
-        : `Adding new ${getStepTypeLabel()}step`
+        ? `Editing step ${editingStepIndex! + 1} (${stepTypeLabel})`
+        : `Adding ${stepTypeLabel} step`
 
     // Build survey config for confirmStep
     const getSurveyConfig = (): ProductTourSurveyQuestion | undefined => {
@@ -367,6 +369,13 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
             >
                 {actionLabel}
             </div>
+
+            {/* Warning when element not found */}
+            {elementNotFound && (
+                <div className="px-3 py-2 bg-warning-highlight text-warning-dark text-xs">
+                    Target element not visible on this page
+                </div>
+            )}
 
             <div className="p-4 space-y-3">
                 {/* Rich text editor for non-survey steps */}
@@ -476,7 +485,20 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
                     </div>
                 )}
 
-                {/* Advanced section - hide for survey steps */}
+                {/* Element step: change element button */}
+                {isElementStep && editingStep && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconCursorClick />}
+                        onClick={() => changeStepElement()}
+                        fullWidth
+                    >
+                        Change element
+                    </LemonButton>
+                )}
+
+                {/* Advanced section - only for element/modal steps */}
                 {!isSurveyStep && (
                     <div className="space-y-1">
                         <button
@@ -488,37 +510,57 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
                                 className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
                             />
                             Advanced
-                            {!showAdvanced && selector && (
-                                <span className="font-mono text-[10px] ml-1 truncate max-w-[150px]">({selector})</span>
-                            )}
                         </button>
                         {showAdvanced && (
-                            <>
-                                <LemonInput
-                                    value={selector}
-                                    onChange={setSelector}
-                                    placeholder="CSS selector (e.g., #my-button)"
-                                    size="small"
-                                    fullWidth
-                                    className="font-mono text-xs"
-                                />
-                                <span className="font-mono text-muted text-xs">
-                                    (leave blank to show step as modal)
-                                </span>
-                            </>
+                            <div className="space-y-3 pt-1">
+                                {isElementStep && (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium">CSS selector</label>
+                                        <LemonInput
+                                            value={selector}
+                                            onChange={setSelector}
+                                            placeholder="CSS selector (e.g., #my-button)"
+                                            size="small"
+                                            fullWidth
+                                            className="font-mono text-xs"
+                                        />
+                                    </div>
+                                )}
+                                {isElementStep && (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium">Advance action</label>
+                                        <LemonRadio
+                                            value={progressionTrigger}
+                                            onChange={setProgressionTrigger}
+                                            options={[
+                                                { value: 'button', label: 'Next button' },
+                                                { value: 'click', label: 'Element click' },
+                                            ]}
+                                            orientation="horizontal"
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </div>
                 )}
 
                 <div className="flex items-center justify-between">
                     <div className="flex gap-2 pt-1">
-                        <LemonButton type="secondary" size="small" onClick={() => cancelStep()}>
+                        <LemonButton type="secondary" size="small" onClick={() => cancelEditing()}>
                             Cancel
                         </LemonButton>
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={() => confirmStep(getContent(), isSurveyStep ? '' : selector, getSurveyConfig())}
+                            onClick={() =>
+                                confirmStep(
+                                    getContent(),
+                                    isElementStep ? selector : undefined,
+                                    getSurveyConfig(),
+                                    isElementStep ? progressionTrigger : undefined
+                                )
+                            }
                             disabledReason={isSurveyStep && !questionText.trim() ? 'Enter a question' : undefined}
                         >
                             Done
@@ -530,9 +572,8 @@ export function StepEditor({ rect }: { rect?: ElementRect }): JSX.Element {
                         status="danger"
                         size="small"
                         onClick={() => {
-                            if (inspectingElement !== null) {
-                                removeStep(inspectingElement)
-                                cancelStep()
+                            if (editingStepIndex !== null) {
+                                removeStep(editingStepIndex)
                             }
                         }}
                         tooltip="Delete this step"

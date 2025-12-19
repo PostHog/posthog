@@ -87,6 +87,7 @@ export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
     ui_context?: MaxUIContext
+    trace_id?: string
 }
 
 export interface AssistantFormOption {

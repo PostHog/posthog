@@ -18,6 +18,7 @@ services:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
             - 'capture:host-gateway'
+            - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
         environment:
@@ -28,6 +29,11 @@ services:
                         path /s/*
                     }
 
+                    @capture-ai {
+                        path /i/v0/ai
+                        path /i/v0/ai/*
+                    }
+
                     @capture {
                         path /e
                         path /e/*
@@ -36,8 +42,6 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
-                        path /ai
-                        path /ai/*
                     }
 
                     @flags {
@@ -50,6 +54,10 @@ services:
                         path /public/webhooks/*
                         path /public/m
                         path /public/m/*
+                    }
+
+                    handle @capture-ai {
+                        reverse_proxy capture-ai:3309
                     }
 
                     handle @capture {

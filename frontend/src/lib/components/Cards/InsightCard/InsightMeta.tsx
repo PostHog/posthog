@@ -166,14 +166,12 @@ export function InsightMeta({
         surveyOpportunity &&
         featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
         isSurveyableFunnelInsight(insight) ? (
-            <div className="flex">
-                <SurveyOpportunityButton
-                    insight={insight}
-                    disableAutoPromptSubmit={true}
-                    source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
-                    fromProduct={ProductKey.PRODUCT_ANALYTICS}
-                />
-            </div>
+            <SurveyOpportunityButton
+                insight={insight}
+                disableAutoPromptSubmit={true}
+                source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
+                fromProduct={ProductKey.PRODUCT_ANALYTICS}
+            />
         ) : null
 
     // If user can't view the insight, show minimal interface

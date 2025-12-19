@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
-import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -641,4 +641,21 @@ export function getExpressionCommentForQuestion(
 
 export function getSurveyForFeatureFlagVariant(variantKey: string, surveys?: Survey[]): Survey | undefined {
     return surveys?.find((survey) => survey.conditions?.linkedFlagVariant === variantKey)
+}
+
+export function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
+    return {
+        ...survey,
+        questions: survey.questions.map((question) => ({
+            ...question,
+            id: undefined,
+        })),
+        id: NEW_SURVEY.id,
+        name: `${survey.name} (duplicated at ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
+        archived: false,
+        start_date: null,
+        end_date: null,
+        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
+    }
 }
