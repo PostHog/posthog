@@ -10045,6 +10045,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -12775,6 +12779,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -27804,6 +27822,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -28041,6 +28063,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
