@@ -30,7 +30,7 @@ class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
         try:
             organization = get_organization_from_view(view)
             user = cast(User, request.user)
-            return posthoganalytics.feature_enabled(
+            return user.distinct_id is not None and posthoganalytics.feature_enabled(
                 "workflows-template-creation",
                 user.distinct_id,
                 groups={"organization": str(organization.id)},
