@@ -27,7 +27,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.context.error_tracking import ErrorTrackingFiltersContext, ErrorTrackingIssueContext
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -225,10 +225,10 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
 
     @property
     def _model(self):
-        return MaxChatOpenAI(
-            model="gpt-4.1",
+        return MaxChatAnthropic(
+            model="claude-sonnet-4-5",
             temperature=0.3,
-            disable_streaming=True,
+            streaming=False,
             user=self._user,
             team=self._team,
             billable=True,
@@ -412,11 +412,12 @@ When the user says "this issue", they mean the issue with this ID. Use it when c
         """Analyze an error tracking issue and generate a summary."""
         formatted_prompt = ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT.replace("{{{stacktrace}}}", stacktrace)
 
-        llm = MaxChatOpenAI(
+        llm = MaxChatAnthropic(
             user=self._user,
             team=self._team,
-            model="gpt-4.1",
+            model="claude-sonnet-4-5",
             temperature=0.1,
+            streaming=False,
             inject_context=False,
         ).with_structured_output(ErrorTrackingExplainIssueOutput)
 
