@@ -137,7 +137,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         dropzoneNodes: [
-            [] as Node<{ edge: HogFlowActionEdge }>[],
+            [] as DropzoneNode[],
             {
                 setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
             },
@@ -289,7 +289,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         resetFlowFromHogFlow: ({ hogFlow }) => {
             try {
-                const edges: Edge[] = hogFlow.edges.map((edge) => {
+                const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => {
                     const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
                     const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
 

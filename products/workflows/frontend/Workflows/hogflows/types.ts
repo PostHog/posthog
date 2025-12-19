@@ -68,7 +68,7 @@ export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string,
 export interface HogFlowActionNode extends Node<HogFlowAction> {}
 
 // Dropzone nodes are ephemeral and on the client only, used in the editor to highlight where nodes can be added to a workflow
-export type DropzoneNode = Node<{ edge: Edge; isBranchJoinDropzone?: boolean }>
+export type DropzoneNode = Node<{ edge: HogFlowActionEdge; isBranchJoinDropzone?: boolean }>
 
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
