@@ -862,9 +862,11 @@ export async function queryEvaluationRuns(params: {
         LIMIT 100
     `
 
-    const response = await api.queryHogQL(query, {
-        ...(forceRefresh && { refresh: 'force_blocking' }),
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'LLMAnalytics', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
 
     return (response.results || []).map(mapEvaluationRunRow)
 }

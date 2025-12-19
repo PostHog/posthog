@@ -10,7 +10,6 @@ from posthog.models import Team, User
 
 from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.chat_agent.sql.prompts import (
@@ -19,6 +18,7 @@ from ee.hogai.chat_agent.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string

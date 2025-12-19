@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
 
@@ -28,6 +31,10 @@ class ExportedRecording(UUIDModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def is_expired(self) -> bool:
+        return self.created_at < timezone.now() - timedelta(days=7)
 
     def __str__(self):
         return f"ExportedRecording({self.session_id}, {self.status})"

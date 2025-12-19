@@ -330,9 +330,7 @@ export class PostgresPersonRepository
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds: { distinctId: string; version?: number }[] = [],
-        tx?: TransactionClient,
-        // Used to support dual-write; we want to force the id a person is created with to prevent drift
-        forcedId?: number
+        tx?: TransactionClient
     ): Promise<CreatePersonResult> {
         const distinctIds = [primaryDistinctId, ...extraDistinctIds]
         for (const distinctId of distinctIds) {
@@ -343,7 +341,7 @@ export class PostgresPersonRepository
         const personVersion = 0
 
         try {
-            const baseColumns = [
+            const columns = [
                 'created_at',
                 'properties',
                 'properties_last_updated_at',
@@ -354,7 +352,6 @@ export class PostgresPersonRepository
                 'uuid',
                 'version',
             ]
-            const columns = forcedId ? ['id', ...baseColumns] : baseColumns
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
 
             // Sanitize and measure JSON field sizes
@@ -379,7 +376,7 @@ export class PostgresPersonRepository
                     .observe(sanitizedPropertiesLastOperation.length)
             }
 
-            const baseParams = [
+            const personParams = [
                 createdAt.toISO(),
                 sanitizedProperties,
                 sanitizedPropertiesLastUpdatedAt,
@@ -390,7 +387,6 @@ export class PostgresPersonRepository
                 uuid,
                 personVersion,
             ]
-            const personParams = forcedId ? [forcedId, ...baseParams] : baseParams
 
             // Find the actual index of team_id in the personParams array (1-indexed for SQL)
             const teamIdParamIndex = personParams.indexOf(teamId) + 1

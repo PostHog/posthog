@@ -137,8 +137,6 @@ export function InsightMeta({
           )
         : true
 
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES]
-
     const summary = useSummarizeInsight()(insight.query)
 
     // Feedback buttons for Customer Analytics
@@ -166,14 +164,12 @@ export function InsightMeta({
         surveyOpportunity &&
         featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
         isSurveyableFunnelInsight(insight) ? (
-            <div className="flex">
-                <SurveyOpportunityButton
-                    insight={insight}
-                    disableAutoPromptSubmit={true}
-                    source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
-                    fromProduct={ProductKey.PRODUCT_ANALYTICS}
-                />
-            </div>
+            <SurveyOpportunityButton
+                insight={insight}
+                disableAutoPromptSubmit={true}
+                source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
+                fromProduct={ProductKey.PRODUCT_ANALYTICS}
+            />
         ) : null
 
     // If user can't view the insight, show minimal interface
@@ -267,7 +263,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && tile && (
+                            {tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>

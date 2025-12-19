@@ -16,11 +16,16 @@ import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { isObject } from '~/lib/utils'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
+
+export interface DisplayFormatterContext {
+    registeredToolMap: Record<string, ToolRegistration>
+}
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -41,7 +46,7 @@ export interface ToolDefinition<N extends string = string> {
     icon: JSX.Element
     displayFormatter?: (
         toolCall: EnhancedToolCall,
-        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+        { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
@@ -175,6 +180,23 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description:
             'Search PostHog data for documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, surveys, and other.',
         icon: <IconSearch />,
+        displayFormatter: function readDataDisplayFormatter(
+            toolCall: EnhancedToolCall,
+            context: DisplayFormatterContext
+        ) {
+            if (this.subtools && 'kind' in toolCall.args && typeof toolCall.args.kind === 'string') {
+                const { displayFormatter } = this.subtools[toolCall.args.kind]
+                if (displayFormatter) {
+                    return displayFormatter(toolCall, context)
+                }
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Searched data'
+            }
+
+            return 'Searching data...'
+        },
         subtools: {
             docs: {
                 name: 'Search docs',
@@ -198,6 +220,105 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Searching insights...'
                 },
             },
+            dashboards: {
+                name: 'Search dashboards',
+                description: 'Search dashboards for answers',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched dashboards'
+                    }
+                    return 'Searching dashboards...'
+                },
+            },
+            cohorts: {
+                name: 'Search cohorts',
+                description: 'Search cohorts for answers',
+                icon: iconForType('cohort'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched cohorts'
+                    }
+                    return 'Searching cohorts...'
+                },
+            },
+            actions: {
+                name: 'Search actions',
+                description: 'Search actions for answers',
+                icon: iconForType('action'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched actions'
+                    }
+                    return 'Searching actions...'
+                },
+            },
+            experiments: {
+                name: 'Search experiments',
+                description: 'Search experiments for answers',
+                icon: iconForType('experiment'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched experiments'
+                    }
+                    return 'Searching experiments...'
+                },
+            },
+            feature_flags: {
+                name: 'Search feature flags',
+                description: 'Search feature flags for answers',
+                icon: iconForType('feature_flag'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched feature flags'
+                    }
+                    return 'Searching feature flags...'
+                },
+            },
+            notebooks: {
+                name: 'Search notebooks',
+                description: 'Search notebooks for answers',
+                icon: iconForType('notebook'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched notebooks'
+                    }
+                    return 'Searching notebooks...'
+                },
+            },
+            surveys: {
+                name: 'Search surveys',
+                description: 'Search surveys for answers',
+                icon: iconForType('survey'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched surveys'
+                    }
+                    return 'Searching surveys...'
+                },
+            },
+            error_tracking_issues: {
+                name: 'Search error tracking issues',
+                description: 'Search error tracking issues for answers',
+                icon: iconForType('error_tracking'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched error tracking issues'
+                    }
+                    return 'Searching error tracking issues...'
+                },
+            },
+            all: {
+                name: 'Search all entities',
+                description: 'Search all entities for answers',
+                icon: <IconSearch />,
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched all entities'
+                    }
+                    return 'Searching all entities...'
+                },
+            },
         },
     },
     read_taxonomy: {
@@ -215,6 +336,30 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Read data',
         description: 'Read data, such as your data warehouse schema and billed usage statistics',
         icon: iconForType('data_warehouse'),
+        displayFormatter: function readDataDisplayFormatter(
+            toolCall: EnhancedToolCall,
+            context: DisplayFormatterContext
+        ) {
+            if (
+                this.subtools &&
+                isObject(toolCall.args?.query) &&
+                toolCall.args.query &&
+                'kind' in toolCall.args.query &&
+                typeof toolCall.args.query.kind === 'string' &&
+                toolCall.args.query.kind in this.subtools
+            ) {
+                const { displayFormatter } = this.subtools[toolCall.args.query.kind]
+                if (displayFormatter) {
+                    return displayFormatter(toolCall, context)
+                }
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Read data'
+            }
+
+            return 'Reading data...'
+        },
         subtools: {
             billing_info: {
                 name: 'Check your billing data',
@@ -227,15 +372,33 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Reading billing data...'
                 },
             },
-            datawarehouse_schema: {
-                name: 'Read your data warehouse schema',
-                description: 'Read your data warehouse schema',
+            data_warehouse_schema: {
+                name: 'Read data warehouse schema',
+                description: 'Read data warehouse schema available in this project',
                 icon: iconForType('data_warehouse'),
                 displayFormatter: (toolCall) => {
                     if (toolCall.status === 'completed') {
                         return 'Read data warehouse schema'
                     }
                     return 'Reading data warehouse schema...'
+                },
+            },
+            data_warehouse_table: {
+                name: 'Read data warehouse table schema',
+                description: 'Read data warehouse table schema for a specific table',
+                icon: iconForType('data_warehouse'),
+                displayFormatter: (toolCall) => {
+                    const tableName =
+                        isObject(toolCall.args?.query) && 'table_name' in toolCall.args.query
+                            ? toolCall.args.query.table_name
+                            : null
+
+                    if (toolCall.status === 'completed') {
+                        return tableName ? `Read schema for \`${tableName}\`` : 'Read data warehouse table schema'
+                    }
+                    return tableName
+                        ? `Reading schema for \`${tableName}\`...`
+                        : 'Reading data warehouse table schema...'
                 },
             },
             artifacts: {
@@ -247,6 +410,46 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                         return 'Read conversation artifacts'
                     }
                     return 'Reading conversation artifacts...'
+                },
+            },
+            insight: {
+                name: 'Retrieve an insight',
+                description: 'Retrieve an insight data',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    function isExecuting(): boolean {
+                        return !!(
+                            isObject(toolCall.args?.query) &&
+                            toolCall.args?.query &&
+                            'execute' in toolCall.args?.query &&
+                            toolCall.args?.query.execute
+                        )
+                    }
+
+                    if (toolCall.status === 'completed') {
+                        return isExecuting() ? 'Analyzed an insight' : 'Retrieved an insight'
+                    }
+                    return isExecuting() ? 'Analyzing an insight...' : 'Retrieving an insight...'
+                },
+            },
+            dashboard: {
+                name: 'Retrieve a dashboard',
+                description: 'Retrieve a dashboard data',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    function isExecuting(): boolean {
+                        return !!(
+                            isObject(toolCall.args?.query) &&
+                            toolCall.args?.query &&
+                            'execute' in toolCall.args?.query &&
+                            toolCall.args?.query.execute
+                        )
+                    }
+
+                    if (toolCall.status === 'completed') {
+                        return isExecuting() ? 'Analyzed a dashboard' : 'Retrieved a dashboard'
+                    }
+                    return isExecuting() ? 'Analyzing a dashboard...' : 'Retrieving a dashboard...'
                 },
             },
         },

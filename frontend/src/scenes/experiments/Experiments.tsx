@@ -14,10 +14,12 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { pluralize } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -225,6 +227,50 @@ const ExperimentsTable = ({
             align: 'right',
         },
         {
+            title: 'Remaining',
+            key: 'remaining_time',
+            width: 80,
+            render: function Render(_, experiment: Experiment) {
+                const remainingDays = experiment.parameters?.recommended_running_time
+                const daysElapsed = experiment.start_date
+                    ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                    : undefined
+
+                if (remainingDays === undefined || remainingDays === null) {
+                    return (
+                        <Tooltip title="Remaining time will be calculated once the experiment has enough data">
+                            <div className="w-full">
+                                <LemonProgress percent={0} bgColor="var(--border)" strokeColor="var(--border)" />
+                            </div>
+                        </Tooltip>
+                    )
+                }
+
+                if (remainingDays === 0) {
+                    return (
+                        <Tooltip title="Recommended sample size reached">
+                            <div className="w-full">
+                                <LemonProgress percent={100} strokeColor="var(--success)" />
+                            </div>
+                        </Tooltip>
+                    )
+                }
+
+                const totalEstimatedDays = (daysElapsed ?? 0) + remainingDays
+                const progress = totalEstimatedDays > 0 ? ((daysElapsed ?? 0) / totalEstimatedDays) * 100 : 0
+
+                return (
+                    <Tooltip
+                        title={`~${Math.ceil(remainingDays)} day${Math.ceil(remainingDays) !== 1 ? 's' : ''} remaining`}
+                    >
+                        <div className="w-full">
+                            <LemonProgress percent={progress} />
+                        </div>
+                    </Tooltip>
+                )
+            },
+        },
+        {
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
@@ -400,9 +446,7 @@ const ExperimentsTable = ({
             {count ? (
                 <div>
                     <span className="text-secondary">
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} experiment${
-                            count === 1 ? '' : 's'
-                        }`}
+                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
                     </span>
                 </div>
             ) : null}

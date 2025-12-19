@@ -11,6 +11,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
 import {
     ScenePanel,
@@ -33,18 +34,13 @@ import {
     PropertyOperator,
     StepOrderValue,
     StepOrderVersion,
+    SurveyMatchType,
 } from '~/types'
 
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
 import { productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isProductTourRunning, productToursLogic } from './productToursLogic'
-
-const UrlMatchTypeLabels: Record<string, string> = {
-    contains: 'contains',
-    exact: 'exactly matches',
-    regex: 'matches regex',
-}
 
 export function ProductTourView({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, tourStats, tourStatsLoading, dateRange, targetingFlagFilters } = useValues(
@@ -63,6 +59,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
 
     const status = getProductTourStatus(productTour)
     const isRunning = isProductTourRunning(productTour)
+    const hasUrlCondition = !!productTour.content?.conditions?.url
 
     return (
         <SceneContent>
@@ -118,6 +115,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="small"
+                                disabledReason={!hasUrlCondition ? 'Set a URL pattern before launching' : undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Launch this product tour?',
@@ -400,8 +398,8 @@ function TargetingSummary({
             </span>
             {hasUrl && (
                 <div className="flex flex-col font-medium gap-1">
-                    <div className="flex flex-row">
-                        <span>URL {UrlMatchTypeLabels[conditions.urlMatchType || 'contains']}:</span>{' '}
+                    <div className="flex flex-row gap-1">
+                        <span>URL {SurveyMatchTypeLabels[conditions.urlMatchType || SurveyMatchType.Contains]}:</span>
                         <LemonTag>{conditions.url}</LemonTag>
                     </div>
                 </div>
