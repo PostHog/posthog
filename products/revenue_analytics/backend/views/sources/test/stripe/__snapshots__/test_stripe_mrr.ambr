@@ -15,8 +15,7 @@
      WHERE and(equals(is_recurring, true), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
      GROUP BY source_label,
               customer_id,
-              subscription_id,
-              revenue_item.timestamp
+              subscription_id, timestamp
      ORDER BY timestamp DESC
      UNION ALL SELECT source_label,
                       customer_id,
