@@ -1928,6 +1928,80 @@ def team_api_test_factory():
             else:
                 assert actual_value == expected_output
 
+        def test_conversations_settings_filters_null_widget_domains(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_domains": ["https://example.com", None, "https://test.com", None]}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_domains"] == [
+                "https://example.com",
+                "https://test.com",
+            ]
+
+        def test_conversations_settings_merges_with_existing(self):
+            self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+            )
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_greeting_text"] == "Hello!"
+            assert settings["widget_color"] == "#ff0000"
+
+        def test_enabling_conversations_auto_generates_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = None
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings is not None
+            assert settings.get("widget_public_token") is not None
+            assert len(settings["widget_public_token"]) > 20
+
+        def test_enabling_conversations_preserves_existing_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = {"widget_public_token": "existing_token_123"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
+
+        def test_disabling_conversations_clears_token(self):
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is None
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.conversations_settings = {"widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is not None
+            assert len(settings["widget_public_token"]) > 20
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token_requires_admin(self):
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+
     return TestTeamAPI
 
 

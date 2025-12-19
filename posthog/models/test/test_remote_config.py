@@ -163,6 +163,54 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
 
+    def test_conversations_disabled_by_default(self):
+        self.sync_remote_config()
+        assert (
+            self.remote_config.config.get("conversations") is None
+            or self.remote_config.config.get("conversations") is False
+        )
+
+    def test_conversations_enabled_with_defaults(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"]["enabled"] is True
+        assert self.remote_config.config["conversations"]["greetingText"] == "Hey, how can I help you today?"
+        assert self.remote_config.config["conversations"]["color"] == "#1d4aff"
+        assert self.remote_config.config["conversations"]["token"] == "test_public_token_123"
+        assert self.remote_config.config["conversations"]["domains"] == []
+
+    def test_conversations_enabled_with_custom_config(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token",
+            "widget_domains": ["example.com", "test.com"],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"]["enabled"] is True
+        assert self.remote_config.config["conversations"]["greetingText"] == "Welcome! Need assistance?"
+        assert self.remote_config.config["conversations"]["color"] == "#ff5733"
+        assert self.remote_config.config["conversations"]["token"] == "custom_token"
+        assert self.remote_config.config["conversations"]["domains"] == ["example.com", "test.com"]
+
+    def test_conversations_disabled_returns_false(self):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "should_not_appear",
+        }
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["conversations"] is False
+
     @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
     def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
         self.team.session_recording_opt_in = True
