@@ -305,11 +305,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             detail=Detail(name=serializer.instance.name, type="standard"),
         )
 
-        # PostHog capture for hog_flow started
         try:
-            # Extract trigger type from the trigger config
-            # trigger_type = serializer.instance.trigger.get("type", "unknown")
-
             # Count edges and actions
             edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
             actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
@@ -328,7 +324,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 },
             )
         except Exception as e:
-            logger.warning("Failed to capture hog_flow_started event", error=str(e))
+            logger.warning("Failed to capture hog_flow_created event", error=str(e))
 
     def perform_update(self, serializer):
         # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
