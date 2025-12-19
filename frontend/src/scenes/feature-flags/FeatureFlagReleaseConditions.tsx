@@ -613,7 +613,7 @@ export function FeatureFlagReleaseConditions({
                 )}
             {!readOnly && showGroupsOptions && !hideMatchOptions && (
                 <div className="mb-4">
-                    <LemonLabel className="mb-2">Match by</LemonLabel>
+                    <LemonLabel className="mb-2">Assign variant by</LemonLabel>
                     <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
                         value={
@@ -626,7 +626,7 @@ export function FeatureFlagReleaseConditions({
                         onChange={(value) => {
                             if (value === 'user') {
                                 setAggregationGroupTypeIndex(null)
-                                setBucketingIdentifier(null)
+                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
                             } else if (value === 'device') {
                                 setAggregationGroupTypeIndex(null)
                                 setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
@@ -642,20 +642,21 @@ export function FeatureFlagReleaseConditions({
                         options={[
                             {
                                 value: 'user',
-                                label: 'Users',
+                                label: 'User ID',
                                 description:
-                                    'Stable variant assignment for logged-in users based on their unique user ID.',
+                                    'Stable assignment for logged-in users based on their unique user ID. Great fit for in-app features.',
                             },
                             {
                                 value: 'device',
-                                label: 'Devices',
+                                label: 'Device ID',
                                 description:
-                                    'Stable variant assignment per device. Useful for anonymous users or when consistency across sessions on the same device matters.',
+                                    'Stable assignment per device. Good fit for experiments on anonymous users.',
                             },
                             {
                                 value: 'group',
-                                label: 'Groups',
-                                description: 'Target organizations, companies, or other custom group types.',
+                                label: 'Group',
+                                description:
+                                    'Stable assignment for everyone in an organization, company, or other custom group type.',
                                 disabledReason: hasEarlyAccessFeatures
                                     ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
                                     : groupTypes.size === 0
