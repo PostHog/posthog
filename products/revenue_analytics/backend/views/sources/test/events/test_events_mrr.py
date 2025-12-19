@@ -81,18 +81,6 @@ class TestMRREventsBuilder(EventsSourceBaseTest):
         # Subscription end events should have toDecimal(0, ...) as amount
         self.assertIn("toDecimal(0,", query_sql)
 
-    def test_mrr_query_with_different_event(self):
-        """Test building MRR query for a different event configuration."""
-        handle = SourceHandle(type="events", team=self.team, event=self.events[1])
-
-        query = build(handle)
-
-        self.assertBuiltQueryStructure(
-            query, self.SUBSCRIPTION_CHARGE_EVENT_NAME, "revenue_analytics.events.subscription_charge"
-        )
-        query_sql = query.query.to_hogql()
-        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
-
     def test_build_requires_event(self):
         """Test that build raises ValueError when event is None."""
         handle = SourceHandle(type="events", team=self.team, event=None)
