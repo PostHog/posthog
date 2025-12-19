@@ -16599,6 +16599,7 @@ class HumanMessage(BaseModel):
     content: str
     id: str | None = None
     parent_tool_call_id: str | None = None
+    trace_id: str | None = None
     type: Literal["human"] = "human"
     ui_context: MaxUIContext | None = None
 
