@@ -15,6 +15,7 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.video import UploadedVideo, VideoSummarySingleSessionInputs
 
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE
 from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
@@ -82,7 +83,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
 
             return UploadedVideo(
                 file_uri=uploaded_file.uri,
-                mime_type=uploaded_file.mime_type,
+                mime_type=uploaded_file.mime_type or DEFAULT_VIDEO_EXPORT_MIME_TYPE,
                 duration=duration,
             )
 
