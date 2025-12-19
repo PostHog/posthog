@@ -8,7 +8,7 @@ logger = structlog.get_logger(__name__)
 
 
 def get_video_duration_s(video_bytes: bytes) -> int:
-    """Extract duration in milliseconds from video bytes to understand when the export UI finished rendering"""
+    """Extract duration in seconds from video bytes to understand when the export UI finished rendering"""
     media_info = MediaInfo.parse(BytesIO(video_bytes))
     for track in media_info.tracks:
         if track.track_type == "General":

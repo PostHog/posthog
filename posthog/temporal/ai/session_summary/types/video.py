@@ -22,7 +22,7 @@ class UploadedVideo:
 
     file_uri: str
     mime_type: str
-    duration: float  # Duration in seconds
+    duration: int  # Duration in seconds
 
 
 @dataclasses.dataclass(frozen=True)

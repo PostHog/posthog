@@ -19,8 +19,6 @@ from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
 
-raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
-
 
 @temporalio.activity.defn
 async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInputs, asset_id: int) -> UploadedVideo:
@@ -54,6 +52,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 session_id=inputs.session_id,
                 video_size_bytes=len(video_bytes),
             )
+            raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
             uploaded_file = raw_client.files.upload(
                 file=tmp_file.name, config=types.UploadFileConfig(mime_type=asset.export_format)
             )
