@@ -858,7 +858,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         archivedResponseUuids: [
-            new Set<any>(),
+            new Set<string>(),
             {
                 loadArchivedResponseUuids: async (): Promise<Set<string>> => {
                     if (props.id === NEW_SURVEY.id) {
