@@ -1060,6 +1060,62 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
         self.assertEqual(len(response_data["results"]), expected_result_count)
 
+    @freeze_time("2025-01-15 12:00:00")
+    def test_last_execution_time_set_on_run(self):
+        """Test that last_execution_time is set when an endpoint is executed."""
+        endpoint = Endpoint.objects.create(
+            name="execution_time_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self.assertIsNone(endpoint.last_execution_time)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/execution_time_test/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.last_execution_time)
+        self.assertEqual(endpoint.last_execution_time.isoformat(), "2025-01-15T12:00:00+00:00")
+
+    @freeze_time("2025-01-15 12:00:00")
+    def test_last_execution_time_hour_granularity(self):
+        """Test that last_execution_time is only updated after an hour has passed."""
+        endpoint = Endpoint.objects.create(
+            name="hour_granularity_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # First execution at 12:00
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/hour_granularity_test/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        endpoint.refresh_from_db()
+        first_execution_time = endpoint.last_execution_time
+        self.assertIsNotNone(first_execution_time)
+
+        # Execute again at 12:30 - should NOT update (within the hour)
+        with freeze_time("2025-01-15 12:30:00"):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/hour_granularity_test/run/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            endpoint.refresh_from_db()
+            self.assertEqual(endpoint.last_execution_time, first_execution_time)
+
+        # Execute again at 13:01 - should update (more than 1 hour passed)
+        with freeze_time("2025-01-15 13:01:00"):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/hour_granularity_test/run/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            endpoint.refresh_from_db()
+            self.assertNotEqual(endpoint.last_execution_time, first_execution_time)
+            self.assertEqual(endpoint.last_execution_time.isoformat(), "2025-01-15T13:01:00+00:00")
+
 
 class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
     """Tests for the OpenAPI specification generation endpoint."""

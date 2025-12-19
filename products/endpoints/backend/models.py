@@ -115,6 +115,12 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    last_execution_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this endpoint was executed via /run. Updated with hour granularity.",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(

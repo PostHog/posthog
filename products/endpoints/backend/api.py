@@ -117,6 +117,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
+            "last_execution_time": endpoint.last_execution_time,
         }
 
         if endpoint.is_materialized and endpoint.saved_query:
@@ -713,6 +714,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             result.data["endpoint_version"] = version_obj.version
             result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
 
+        now = timezone.now()
+        if endpoint.last_execution_time is None or (now - endpoint.last_execution_time > timedelta(hours=1)):
+            endpoint.last_execution_time = now
+            endpoint.save(update_fields=["last_execution_time"])
+
         return result
 
     def validate_run_request(self, data: EndpointRunRequest, endpoint: Endpoint) -> None:
@@ -724,9 +730,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
 
     @extend_schema(
-        description="Get the last execution times in the past 6 months for multiple endpoints.",
+        description="DEPRECATED: Get the last execution times in the past 6 months for multiple endpoints. Use the last_execution_time field on the Endpoint model instead.",
         request=EndpointLastExecutionTimesRequest,
         responses={200: QueryStatusResponse},
+        deprecated=True,
     )
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
