@@ -1,7 +1,3 @@
-# This directory contains team-level configuration that is shared across all dashboards/modules.
-# It is not a runnable module itself - skip it so terragrunt discovers child modules.
-skip = true
-
 include "root" {
   path   = find_in_parent_folders("root.hcl")
   expose = true
