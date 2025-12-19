@@ -17,7 +17,15 @@ git commit -m "Bump version number"
 git tag "posthog-cli-v0.1.0-prerelease.1"
 git push
 git push --tags
-# Optional - also publish to crates.io
+```
+
+### Publishing to crates.io
+
+The CLI is automatically published to crates.io when a PR labeled with `release-cli` is merged to master. This uses GitHub's trusted publishing feature for authentication.
+
+To manually publish to crates.io:
+
+```bash
 cd cli && cargo publish
 ```
 
