@@ -157,17 +157,18 @@ def validate_traits(traits: dict) -> dict:
     return validated
 
 
-def validate_ticket_id(ticket_id: Optional[str]) -> str:
-    """Validate ticket_id is a valid UUID."""
+def validate_ticket_id(ticket_id) -> str:
     if not ticket_id:
         raise ValidationError("ticket_id is required")
 
+    ticket_id_str = str(ticket_id)
+
     try:
-        uuid.UUID(ticket_id)
+        uuid.UUID(ticket_id_str)
     except ValueError:
         raise ValidationError("ticket_id must be a valid UUID")
 
-    return ticket_id
+    return ticket_id_str
 
 
 def validate_pagination(limit_str: Optional[str], offset_str: Optional[str], max_limit: int = 500) -> tuple[int, int]:
