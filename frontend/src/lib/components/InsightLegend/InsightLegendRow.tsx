@@ -86,6 +86,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                             breakdownValue={formattedBreakdownValue}
                             compareValue={isPrevious ? formatCompareLabel(item) : undefined}
                             pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                            showSingleName
                             hideIcon
                         />
                     }
