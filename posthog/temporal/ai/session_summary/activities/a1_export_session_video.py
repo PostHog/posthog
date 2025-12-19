@@ -6,6 +6,7 @@ from django.utils.timezone import now
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -15,7 +16,11 @@ from posthog.temporal.ai.session_summary.types.video import VideoSummarySingleSe
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE, EXPIRES_AFTER_DAYS
+from ee.hogai.session_summaries.constants import (
+    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+    EXPIRES_AFTER_DAYS,
+    MIN_SESSION_DURATION_FOR_SUMMARY_MS,
+)
 from ee.hogai.session_summaries.session.input_data import get_team
 
 logger = structlog.get_logger(__name__)
@@ -37,6 +42,16 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         )
 
         if existing_asset:
+            # Check duration from existing asset's export_context
+            existing_duration_s = (
+                existing_asset.export_context.get("duration", 0) if existing_asset.export_context else 0
+            )
+            if existing_duration_s * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
+                raise ApplicationError(
+                    f"Session {inputs.session_id} video is too short for summarization "
+                    f"({existing_duration_s * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)",
+                    non_retryable=True,
+                )
             logger.info(
                 f"Found existing video export for session {inputs.session_id}, reusing asset {existing_asset.id}",
                 session_id=inputs.session_id,
@@ -53,6 +68,14 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         if not metadata:
             raise ValueError(f"No metadata found for session {inputs.session_id}")
         session_duration = metadata["duration"]  # duration is in seconds
+
+        # Check if session is too short for summarization
+        if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
+            raise ApplicationError(
+                f"Session {inputs.session_id} video is too short for summarization "
+                f"({session_duration * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)",
+                non_retryable=True,
+            )
 
         # Create filename for the video
         import uuid
