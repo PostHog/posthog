@@ -26,6 +26,7 @@ import { workflowSceneLogic } from './workflowSceneLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    templateId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -143,6 +144,23 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
+                        if (props.templateId) {
+                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
+
+                            const newWorkflow = {
+                                ...templateWorkflow,
+                                name: `${templateWorkflow.name} (copy)`,
+                                status: 'draft' as const,
+                                version: 1,
+                            }
+                            delete (newWorkflow as any).id
+                            delete (newWorkflow as any).team_id
+                            delete (newWorkflow as any).created_at
+                            delete (newWorkflow as any).updated_at
+                            delete (newWorkflow as any).created_by
+
+                            return newWorkflow
+                        }
                         return { ...NEW_WORKFLOW }
                     }
 
@@ -204,7 +222,6 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         },
     })),
-
     selectors({
         logicProps: [() => [(_, props) => props], (props): WorkflowLogicProps => props],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],

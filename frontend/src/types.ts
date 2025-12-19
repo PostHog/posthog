@@ -3286,14 +3286,30 @@ export interface StepOrderVersion {
     created_at: string
 }
 
+export interface ProductTourDisplayConditions {
+    url?: string
+    urlMatchType?: SurveyMatchType
+    selector?: string
+    autoShowDelaySeconds?: number
+    actions?: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events?: {
+        repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    cancelEvents?: {
+        values: SurveyEventsWithProperties[]
+    } | null
+}
+
 export interface ProductTourContent {
     steps: ProductTourStep[]
     appearance?: Record<string, any>
-    conditions?: {
-        url?: string
-        urlMatchType?: SurveyMatchType
-        selector?: string
-    }
+    conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
 }
@@ -5309,6 +5325,8 @@ export type RawBatchExportRun = {
     data_interval_start?: string
     data_interval_end: string
     last_updated_at?: string
+    records_completed?: number
+    bytes_exported?: number
 }
 
 export type BatchExportRun = {
@@ -5327,6 +5345,8 @@ export type BatchExportRun = {
     data_interval_start?: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
+    records_completed?: number
+    bytes_exported?: number
 }
 
 export type GroupedBatchExportRuns = {

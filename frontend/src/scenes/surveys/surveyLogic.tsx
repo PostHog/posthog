@@ -857,15 +857,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 return { responsesByQuestion }
             },
         },
-        archivedResponseUuids: {
-            loadArchivedResponseUuids: async (): Promise<Set<string>> => {
-                if (props.id === NEW_SURVEY.id) {
-                    return new Set()
-                }
-                const uuids = await api.surveys.getArchivedResponseUuids(props.id)
-                return new Set(uuids)
+        archivedResponseUuids: [
+            new Set<string>(),
+            {
+                loadArchivedResponseUuids: async (): Promise<Set<string>> => {
+                    if (props.id === NEW_SURVEY.id) {
+                        return new Set()
+                    }
+                    const uuids = await api.surveys.getArchivedResponseUuids(props.id)
+                    return new Set(uuids)
+                },
             },
-        },
+        ],
     })),
     listeners(({ actions, values }) => {
         const reloadAllSurveyResults = debounce((): void => {

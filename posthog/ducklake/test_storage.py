@@ -155,16 +155,47 @@ class TestDuckLakeStorageConfigProduction:
             },
         )()
         monkeypatch.setattr("posthog.ducklake.storage._get_django_settings", lambda: mock_settings)
+        monkeypatch.setattr(
+            "posthog.ducklake.storage._get_boto3_credentials",
+            lambda: ("ASIAACCESSKEY", "secretkey123", "sessiontoken456"),
+        )
 
         config = DuckLakeStorageConfig.from_runtime()
         sql = config.to_duckdb_secret_sql()
 
         assert "TYPE S3" in sql
-        assert "PROVIDER CREDENTIAL_CHAIN" in sql
+        assert "KEY_ID 'ASIAACCESSKEY'" in sql
+        assert "SECRET 'secretkey123'" in sql
+        assert "SESSION_TOKEN 'sessiontoken456'" in sql
         assert "REGION 'eu-central-1'" in sql
-        assert "KEY_ID '" not in sql
-        assert "SECRET '" not in sql
+        assert "PROVIDER CREDENTIAL_CHAIN" not in sql
         assert "ENDPOINT '" not in sql
+
+    def test_to_duckdb_secret_sql_production_no_session_token(self, monkeypatch):
+        monkeypatch.setenv("DUCKLAKE_BUCKET_REGION", "us-east-1")
+
+        mock_settings = type(
+            "Settings",
+            (),
+            {
+                "USE_LOCAL_SETUP": False,
+                "OBJECT_STORAGE_ENDPOINT": "",
+            },
+        )()
+        monkeypatch.setattr("posthog.ducklake.storage._get_django_settings", lambda: mock_settings)
+        monkeypatch.setattr(
+            "posthog.ducklake.storage._get_boto3_credentials",
+            lambda: ("AKIAACCESSKEY", "secretkey789", None),
+        )
+
+        config = DuckLakeStorageConfig.from_runtime()
+        sql = config.to_duckdb_secret_sql()
+
+        assert "TYPE S3" in sql
+        assert "KEY_ID 'AKIAACCESSKEY'" in sql
+        assert "SECRET 'secretkey789'" in sql
+        assert "SESSION_TOKEN" not in sql
+        assert "REGION 'us-east-1'" in sql
 
     def test_to_deltalake_options_production_irsa(self, monkeypatch):
         monkeypatch.setenv("DUCKLAKE_BUCKET_REGION", "us-west-2")
@@ -227,20 +258,6 @@ class TestDuckLakeStorageConfigEdgeCases:
 
         assert "key''with''quotes" in sql
         assert "secret''value" in sql
-
-    def test_custom_secret_name(self):
-        config = DuckLakeStorageConfig(
-            access_key="key",
-            secret_key="secret",
-            region="us-east-1",
-            endpoint="",
-            use_ssl=True,
-            url_style="path",
-            is_local=True,
-        )
-        sql = config.to_duckdb_secret_sql(secret_name="custom_s3_secret")
-
-        assert "CREATE OR REPLACE SECRET custom_s3_secret" in sql
 
     def test_explicit_use_local_setup_override(self, monkeypatch):
         monkeypatch.setenv("DUCKLAKE_S3_ACCESS_KEY", "override_key")

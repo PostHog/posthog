@@ -220,19 +220,67 @@ describe('insightHclExporter test', () => {
             const result = generateInsightHCL(insight)
 
             expect(result.warnings).toContain(
-                '`dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
+                'Some `dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
             )
         })
 
-        it('returns no warnings for simple insights', () => {
+        it('suppresses dashboard warnings when all dashboardIdReplacements are provided', () => {
             const insight = createTestInsight({
                 name: 'Valid Insight',
                 query: { kind: NodeKind.TrendsQuery },
+                dashboards: [1],
             })
 
-            const result = generateInsightHCL(insight)
+            const result = generateInsightHCL(insight, {
+                dashboardIdReplacements: new Map([[1, 'posthog_dashboard.my_dashboard.id']]),
+            })
 
+            expect(result.hcl).toContain('dashboard_ids = [posthog_dashboard.my_dashboard.id]')
+            expect(result.hcl).not.toContain('dashboard_ids = [1]')
             expect(result.warnings).toHaveLength(0)
+        })
+
+        it('supports multiple dashboard TF references', () => {
+            const insight = createTestInsight({
+                name: 'Multi Dashboard Insight',
+                query: { kind: NodeKind.TrendsQuery },
+                dashboards: [1, 2],
+            })
+
+            const result = generateInsightHCL(insight, {
+                dashboardIdReplacements: new Map([
+                    [1, 'posthog_dashboard.dashboard_one.id'],
+                    [2, 'posthog_dashboard.dashboard_two.id'],
+                ]),
+            })
+
+            expect(result.hcl).toContain(
+                'dashboard_ids = [posthog_dashboard.dashboard_one.id, posthog_dashboard.dashboard_two.id]'
+            )
+            expect(result.warnings).toHaveLength(0)
+        })
+
+        it('replaces only mapped dashboard IDs, keeps others as hardcoded', () => {
+            const insight = createTestInsight({
+                name: 'Multi Dashboard Insight',
+                query: { kind: NodeKind.TrendsQuery },
+                dashboards: [1, 2, 3, 4],
+            })
+
+            const result = generateInsightHCL(insight, {
+                dashboardIdReplacements: new Map([
+                    [1, 'posthog_dashboard.dashboard_one.id'],
+                    [3, 'posthog_dashboard.dashboard_three.id'],
+                ]),
+            })
+
+            expect(result.hcl).toContain(
+                'dashboard_ids = [posthog_dashboard.dashboard_one.id, 2, posthog_dashboard.dashboard_three.id, 4]'
+            )
+            // Should still warn because IDs 2 and 4 are hardcoded
+            expect(result.warnings).toContain(
+                'Some `dashboard_ids` are hardcoded. After exporting, consider referencing the Terraform resource instead (for example, `posthog_dashboard.my_dashboard.id`) so the dashboard is managed alongside this configuration.'
+            )
         })
     })
 

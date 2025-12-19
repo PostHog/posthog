@@ -48,7 +48,7 @@ import type { llmAnalyticsLogicType } from './llmAnalyticsLogicType'
 export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
-const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
+const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export function getDefaultGenerationsColumns(showInputOutput: boolean): string[] {

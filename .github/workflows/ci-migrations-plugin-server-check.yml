@@ -1,0 +1,46 @@
+name: Migration & Plugin Server Separation Check
+
+on:
+    pull_request:
+    merge_group:
+
+permissions:
+    contents: read
+
+jobs:
+    check-migration-plugin-server-separation:
+        name: Check migrations and plugin-server changes are not in same PR
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      migrations:
+                          - 'posthog/migrations/*.py'
+                          - 'posthog/clickhouse/migrations/*.py'
+                          - 'products/*/backend/migrations/*.py'
+                          - 'ee/migrations/*.py'
+                          - 'rust/persons_migrations/*.sql'
+                      plugin_server:
+                          - 'plugin-server/**'
+
+            - name: Check for conflicting changes
+              id: check
+              run: |
+                  if [ "${{ steps.filter.outputs.migrations }}" == "true" ] && [ "${{ steps.filter.outputs.plugin_server }}" == "true" ]; then
+                      echo "error=true" >> $GITHUB_OUTPUT
+                      echo "❌ Found both migration and plugin-server changes"
+                  else
+                      echo "error=false" >> $GITHUB_OUTPUT
+                      echo "✅ No conflicting changes detected"
+                  fi
+
+            - name: Fail if conflicting changes detected
+              if: steps.check.outputs.error == 'true'
+              run: |
+                  echo "::error::This PR contains both migration files and plugin-server changes. These must be separated into different PRs."
+                  exit 1

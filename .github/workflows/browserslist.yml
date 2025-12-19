@@ -6,15 +6,23 @@ on:
     workflow_dispatch:
 
 permissions:
-    contents: write
-    pull-requests: write
+    contents: read
 
 jobs:
     update-browserslist-database:
         runs-on: ubuntu-latest
         steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+
             - name: Checkout repository
               uses: actions/checkout@v4
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
 
             - name: Configure git
               run: |
@@ -25,7 +33,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: 'pnpm'
@@ -34,14 +42,14 @@ jobs:
               id: update-browserlist
               uses: c2corg/browserslist-update-action@a76abb476199caea5399f9e28ff3f16e491ec566 # v2
               with:
-                  github_token: ${{ secrets.POSTHOG_BOT_PAT }} # This token has permission to open PRs
+                  github_token: ${{ steps.app-token.outputs.token }}
                   commit_message: 'build: update Browserslist db'
                   title: 'build: update Browserslist db'
                   labels: 'dependencies'
 
             - name: Enable automerge
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ steps.update-browserlist.outputs.pr_number }}
               run: |
                   gh pr merge "$PR_NUMBER" --auto --merge

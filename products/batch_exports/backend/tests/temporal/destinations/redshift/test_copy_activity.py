@@ -129,7 +129,7 @@ async def _run_activity(
     )
 
     assert copy_inputs.batch_export.batch_export_id is not None
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=copy_inputs.batch_export.team_id,
@@ -145,6 +145,7 @@ async def _run_activity(
             destination_default_fields=redshift_default_fields(),
         ),
     )
+    copy_inputs.batch_export.stage_folder = stage_folder
     result = await activity_environment.run(copy_into_redshift_activity_from_stage, copy_inputs)
 
     if not assert_records:

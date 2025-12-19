@@ -40,7 +40,7 @@ export function LogsScene(): JSX.Element {
         if (parsedLogs.length === 0) {
             runQuery()
         }
-    }, [runQuery])
+    }, [runQuery, parsedLogs.length])
 
     return (
         <SceneContent>
