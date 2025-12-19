@@ -30,9 +30,6 @@ SESSION_VIDEO_CHUNK_DURATION_S = 15
 logger = structlog.get_logger(__name__)
 
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
-
-
 @temporalio.activity.defn
 async def analyze_video_segment_activity(
     inputs: VideoSummarySingleSessionInputs,
@@ -102,6 +99,7 @@ async def analyze_video_segment_activity(
         team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
         # Analyze with Gemini using video_metadata to specify the time range
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
         response = client.models.generate_content(
             model=f"models/{inputs.model_to_use}",
             contents=[

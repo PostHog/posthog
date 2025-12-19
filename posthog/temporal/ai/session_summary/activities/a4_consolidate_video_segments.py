@@ -19,9 +19,6 @@ from posthog.temporal.ai.session_summary.types.video import (
 logger = structlog.get_logger(__name__)
 
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
-
-
 @temporalio.activity.defn
 async def consolidate_video_segments_activity(
     inputs: VideoSummarySingleSessionInputs,
@@ -57,6 +54,7 @@ async def consolidate_video_segments_activity(
             raw_segment_count=len(raw_segments),
         )
         segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
         response = client.models.generate_content(
             model="models/gemini-2.5-flash",
             contents=[
