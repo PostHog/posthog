@@ -58,3 +58,25 @@ class ConsolidatedVideoSegment:
     start_time: str  # Format: MM:SS or HH:MM:SS
     end_time: str  # Format: MM:SS or HH:MM:SS
     description: str  # Combined/refined description of what happened
+    # Success/failure indicators detected from video analysis
+    success: bool = True  # Whether the segment appears successful
+    failure_detected: bool = False  # User encountered errors/failures
+    confusion_detected: bool = False  # User appeared confused (backtracking, hesitation)
+    abandonment_detected: bool = False  # User abandoned a flow
+
+
+@dataclasses.dataclass(frozen=True)
+class VideoSessionOutcome:
+    """Overall session outcome determined from video analysis."""
+
+    success: bool
+    description: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ConsolidatedVideoAnalysis:
+    """Complete output from video segment consolidation including segments, outcomes, and session-level analysis."""
+
+    segments: list[ConsolidatedVideoSegment]
+    session_outcome: VideoSessionOutcome
+    segment_outcomes: list[dict]  # [{segment_index: int, success: bool, summary: str}]

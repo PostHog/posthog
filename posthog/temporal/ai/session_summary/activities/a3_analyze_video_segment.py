@@ -99,7 +99,7 @@ async def analyze_video_segment_activity(
             segment_index=segment.segment_index,
         )
 
-        team_name = await Team.objects.only("name").aget(id=inputs.team_id).name
+        team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
         # Analyze with Gemini using video_metadata to specify the time range
         response = client.models.generate_content(
