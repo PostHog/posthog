@@ -114,6 +114,7 @@ class RateLimit:
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
+        wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
         while (
             self.redis_client.eval(
@@ -146,8 +147,10 @@ class RateLimit:
                     limit_name=self.limit_name,
                     result="retry",
                 ).inc()
-                self.sleep(backoff(count))
-                tag_queries(rate_limit_wait=count)
+                wait_sec = backoff(count)
+                self.sleep(wait_sec)
+                wait_total += wait_sec
+                tag_queries(rate_limit_wait_ms=int(1000 * wait_total))
                 count += 1
                 continue
 

@@ -107,7 +107,7 @@ class QueryTags(BaseModel):
     query_type: Optional[str] = None
 
     rate_limit_bypass: Optional[int] = None
-    rate_limit_wait: Optional[int] = None
+    rate_limit_wait_ms: Optional[int] = None
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
