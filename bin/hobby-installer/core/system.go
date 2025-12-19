@@ -3,7 +3,7 @@ package core
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -13,11 +13,11 @@ import (
 )
 
 func GenerateSecret() (string, error) {
-	b := make([]byte, 28)
+	b := make([]byte, 48)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	hash := sha256.Sum224(b)
+	hash := sha512.Sum384(b)
 	return hex.EncodeToString(hash[:]), nil
 }
 
