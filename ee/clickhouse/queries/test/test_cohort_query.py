@@ -66,7 +66,7 @@ def execute(filter: Filter, team: Team, max_retries: int = 5):
     sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
     sync_execute("OPTIMIZE TABLE person FINAL")
 
-    last_error = None
+    last_error: AssertionError | None = None
     for attempt in range(max_retries):
         cohort_query = CohortQuery(filter=filter, team=team)
         q, params = cohort_query.get_query()
@@ -81,7 +81,9 @@ def execute(filter: Filter, team: Team, max_retries: int = 5):
                 # Force another merge before retrying
                 sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
                 sync_execute("OPTIMIZE TABLE person FINAL")
-    raise last_error  # type: ignore[misc]
+    if last_error is not None:
+        raise last_error
+    raise AssertionError("Cohort query comparison failed without capturing an error")
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
