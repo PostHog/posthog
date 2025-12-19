@@ -10,7 +10,7 @@ use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use common_types::RawEvent;
 use metrics::counter;
-use tracing::{debug, instrument, Span};
+use tracing::{debug, info, instrument, Span};
 
 use crate::{
     api::CaptureError,
@@ -49,6 +49,8 @@ pub async fn handle_event_payload(
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
+    let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
+
     // this endpoint handles:
     // - GET or POST requests w/payload that is one of:
     //   1. possibly base64-wrapped, possibly GZIP or LZ64 compressed JSON payload
@@ -61,9 +63,18 @@ pub async fn handle_event_payload(
     //     - lib_version = SDK version that submitted the request
 
     // capture arguments and add to logger, processing context
+    if chatty_debug_enabled {
+        info!(headers=?headers, "CHATTY: entering handle_event_payload");
+    } else {
+        debug!(headers=?headers, "entering handle_event_payload");
+    }
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
 
-    debug!("entering handle_event_payload");
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, "CHATTY: extracted metadata");
+    } else {
+        debug!(metadata=?metadata, "extracted metadata");
+    }
 
     // Extract payload bytes and metadata using shared helper
     let extract_start_time = std::time::Instant::now();
@@ -80,7 +91,11 @@ pub async fn handle_event_payload(
     Span::current().record("compression", format!("{compression}"));
     Span::current().record("lib_version", &lib_version);
 
-    debug!("payload processed: passing to RawRequest::from_bytes");
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, "CHATTY: extracted payload");
+    } else {
+        debug!(metadata=?metadata, "extracted payload");
+    }
 
     let from_bytes_start_time = std::time::Instant::now();
     let result = RawRequest::from_bytes(
@@ -98,6 +113,12 @@ pub async fn handle_event_payload(
     };
     metrics::histogram!("capture_debug_analytics_decompress_seconds")
         .record(from_bytes_start_time.elapsed().as_secs_f64());
+
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, "CHATTY: parsed RawRequest");
+    } else {
+        debug!(metadata=?metadata, "parsed RawRequest");
+    }
 
     let sent_at = request.sent_at().or(query_params.sent_at());
     let historical_migration = request.historical_migration();
@@ -118,6 +139,12 @@ pub async fn handle_event_payload(
 
     Span::current().record("batch_size", events.len());
 
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, "CHATTY: extracted events from RawRequest");
+    } else {
+        debug!(metadata=?metadata,"extracted events from RawRequest");
+    }
+
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
         Err(err) => {
@@ -126,7 +153,7 @@ pub async fn handle_event_payload(
     };
     Span::current().record("token", &token);
 
-    counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
+    counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
 
@@ -141,18 +168,25 @@ pub async fn handle_event_payload(
         is_mirror_deploy: metadata.is_mirror_deploy,
         historical_migration,
         user_agent: Some(metadata.user_agent.to_string()),
+        chatty_debug_enabled,
     };
 
+    if chatty_debug_enabled {
+        info!(context=?context, event_count=?events.len(), "CHATTY: processing complete");
+    } else {
+        debug!(context=?context, event_count=?events.len(), "processing complete");
+    }
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
-    debug!(context=?context, event_count=?events.len(), "handle_event_payload: evaluating quota limits");
     events = state
         .quota_limiter
         .check_and_filter(&context.token, events)
         .await?;
 
-    debug!(context=?context,
-        event_count=?events.len(),
-        "handle_event_payload: successfully hydrated events");
+    if chatty_debug_enabled {
+        info!(context=?context, event_count=?events.len(), "CHATTY: quota limits filter applied");
+    } else {
+        debug!(context=?context, event_count=?events.len(), "quota limits filter applied");
+    }
     Ok((context, events))
 }
