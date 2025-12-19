@@ -20,6 +20,7 @@ class BaseTaskAPITest(TestCase):
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
+    user: User
 
     def setUp(self):
         self.client = APIClient()
