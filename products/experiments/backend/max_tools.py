@@ -93,6 +93,13 @@ Examples:
                     f"Feature flag '{feature_flag_key}' must have at least 2 variants for an experiment (e.g., control and test)"
                 )
 
+            # Validate that the first variant is "control" - required for experiment statistics
+            if variants[0].get("key") != "control":
+                raise ValueError(
+                    f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
+                    f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
+                )
+
             # If flag already exists and is already used by another experiment, raise error
             existing_experiment_with_flag = Experiment.objects.filter(feature_flag=feature_flag, deleted=False).first()
             if existing_experiment_with_flag:
