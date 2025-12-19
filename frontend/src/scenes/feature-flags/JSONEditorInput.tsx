@@ -35,6 +35,7 @@ export function JSONEditorInput({ onChange, placeholder, value = '', readOnly = 
                 minHeight={37}
                 maxHeight="24em"
                 embedded
+                allowManualResize={!readOnly}
                 options={{
                     readOnly: readOnly,
                     minimap: {
