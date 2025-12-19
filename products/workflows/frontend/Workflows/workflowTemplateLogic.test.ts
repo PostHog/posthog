@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { resetContext } from 'kea'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType } from '~/types'
@@ -215,6 +218,10 @@ describe('workflowTemplateLogic', () => {
             const createdTemplate = { ...workflow, id: 'created-template-id' }
 
             mockApi.createHogFlowTemplate.mockResolvedValue(createdTemplate as any)
+
+            // Load a staff user so scope: 'global' is allowed
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
 
             const workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
             workflowLogicInstance.mount()
