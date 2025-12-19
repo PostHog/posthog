@@ -43,10 +43,9 @@ describe('useTerraformExport', () => {
                 expect(result.current.loading).toBe(false)
             })
 
-            expect(result.current.error).toContain('Failed to generate HCL for insight')
-            expect(result.current.error).toContain('My Test Insight')
-            expect(result.current.error).toContain('123')
-            expect(result.current.error).toContain('Cannot read property of null')
+            expect(result.current.error).toBe(
+                'Failed to generate HCL for insight "My Test Insight" (123): Cannot read property of null'
+            )
             expect(result.current.result).toBeNull()
         })
 
@@ -70,10 +69,9 @@ describe('useTerraformExport', () => {
                 expect(result.current.loading).toBe(false)
             })
 
-            expect(result.current.error).toContain('Failed to generate HCL for dashboard')
-            expect(result.current.error).toContain('My Test Dashboard')
-            expect(result.current.error).toContain('456')
-            expect(result.current.error).toContain('Unexpected null value')
+            expect(result.current.error).toBe(
+                'Failed to generate HCL for dashboard "My Test Dashboard" (456): Unexpected null value'
+            )
             expect(result.current.result).toBeNull()
         })
 
@@ -130,7 +128,9 @@ describe('useTerraformExport', () => {
                 expect(result.current.loading).toBe(false)
             })
 
-            expect(result.current.error).toContain('String error instead of Error object')
+            expect(result.current.error).toBe(
+                'Failed to generate HCL for insight "Test Insight" (999): String error instead of Error object'
+            )
         })
     })
 
