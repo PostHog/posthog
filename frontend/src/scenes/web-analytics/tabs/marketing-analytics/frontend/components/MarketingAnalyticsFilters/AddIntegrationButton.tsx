@@ -98,7 +98,11 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         setShowPopover(false)
     }
 
-    const renderIntegrationGroup = (type: string, integrations: string[], title: string): JSX.Element | null => {
+    const renderIntegrationGroup = (
+        type: string,
+        integrations: readonly string[],
+        title: string
+    ): JSX.Element | null => {
         if (integrations.length === 0) {
             return null
         }
