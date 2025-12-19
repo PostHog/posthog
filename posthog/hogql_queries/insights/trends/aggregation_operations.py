@@ -22,7 +22,7 @@ DEFAULT_REVENUE_PROPERTY = "$revenue"
 # e.g. taking p99 of p99 values doesn't make sense
 SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = (
     PropertyMathType.SUM,
-    PropertyMathType.AVG,
+    PropertyMathType.AVG,  # buckets have same size
     PropertyMathType.MIN,
     PropertyMathType.MAX,
 )
