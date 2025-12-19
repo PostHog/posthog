@@ -254,6 +254,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     actions = models.ManyToManyField(Action)
 
+    # enable invisible captcha for this survey, when used as a hosted survey
+    enable_hosted_captcha = models.BooleanField(default=False, null=True)
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
         base_qs = cls.objects.filter(team=team)

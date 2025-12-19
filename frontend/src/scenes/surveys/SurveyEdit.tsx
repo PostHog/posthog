@@ -439,6 +439,20 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                     </Link>
                                                                 </li>
                                                             </ul>
+
+                                                            {featureFlags[
+                                                                FEATURE_FLAGS.SURVEYS_TOGGLE_HOSTED_CAPTCHA
+                                                            ] && (
+                                                                <LemonCheckbox
+                                                                    label="Enable invisible captcha"
+                                                                    info="Add a non-disruptive captcha to ensure survey responses are coming from humans, not robots. This is useful for sending pre-filled survey links via email, for example, when email clients may automatically click links during security scans."
+                                                                    className="mt-2"
+                                                                    checked={survey.enable_hosted_captcha ?? false}
+                                                                    onChange={(checked) =>
+                                                                        setSurveyValue('enable_hosted_captcha', checked)
+                                                                    }
+                                                                />
+                                                            )}
                                                         </>
                                                     )}
                                                 </div>
