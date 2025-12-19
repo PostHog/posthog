@@ -19,7 +19,6 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
             onClose={hideSaveAsTemplateModal}
             isOpen={saveAsTemplateModalVisible}
             title="Save as template"
-            description="The actions in the template will be reset to default inputs."
             footer={
                 <>
                     <LemonButton type="secondary" onClick={hideSaveAsTemplateModal}>
