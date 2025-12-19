@@ -5,7 +5,9 @@ from django.db.models import Q
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import serializers, viewsets
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+from rest_framework.request import Request
 
 from posthog.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from posthog.api.log_entries import LogEntryMixin
@@ -17,6 +19,30 @@ from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
 logger = structlog.get_logger(__name__)
+
+
+class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
+    message = "You don't have edit permissions for global workflow templates."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+
+        if request.method == "POST":
+            scope = request.data.get("scope")
+            if scope == HogFlowTemplate.Scope.GLOBAL:
+                return request.user.is_staff
+
+        return True
+
+    def has_object_permission(self, request: Request, view, obj: HogFlowTemplate) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+
+        if obj.scope == HogFlowTemplate.Scope.GLOBAL:
+            return request.user.is_staff
+
+        return True
 
 
 class HogFlowTemplateActionSerializer(serializers.Serializer):
@@ -170,6 +196,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()
     serializer_class = HogFlowTemplateSerializer
+    permission_classes = [OnlyStaffCanEditGlobalHogFlowTemplate]
     log_source = "hog_flow_template"
     app_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
@@ -187,18 +214,6 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         return qs
 
     def perform_create(self, serializer):
-        if not posthoganalytics.feature_enabled(
-            "workflows-template-creation",
-            serializer.context["request"].user.distinct_id,
-            groups={"organization": str(self.organization.id)},
-            group_properties={"organization": {"id": str(self.organization.id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        ):
-            raise exceptions.PermissionDenied(
-                "Template creation is not available. Please enable the 'workflows-template-creation' feature flag."
-            )
-
         serializer.save()
         log_activity(
             organization_id=self.organization.id,
@@ -232,52 +247,21 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             logger.warning("Failed to capture hog_flow_template_created event", error=str(e))
 
     def perform_update(self, serializer):
-        instance = serializer.instance
-
-        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
-        if instance.scope == HogFlowTemplate.Scope.GLOBAL:
-            if distinct_id is None or not posthoganalytics.feature_enabled(
-                "workflows-template-creation",
-                distinct_id,
-                groups={"organization": str(self.organization.id)},
-                group_properties={"organization": {"id": str(self.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            ):
-                raise exceptions.PermissionDenied(
-                    "Updating global workflow templates requires the 'workflows-template-creation' feature flag to be enabled."
-                )
-
         serializer.validated_data["team_id"] = self.team_id
-        serializer.save()
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
             was_impersonated=is_impersonated_session(self.request),
-            item_id=instance.id,
+            item_id=serializer.instance.id,
             scope="HogFlowTemplate",
             activity="updated",
-            detail=Detail(name=instance.name, type="standard"),
+            detail=Detail(name=serializer.instance.name, type="standard"),
         )
+        serializer.save()
 
     def perform_destroy(self, instance: HogFlowTemplate):
-        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
-
-        if instance.scope == HogFlowTemplate.Scope.GLOBAL:
-            if distinct_id is None or not posthoganalytics.feature_enabled(
-                "workflows-template-creation",
-                distinct_id,
-                groups={"organization": str(self.organization.id)},
-                group_properties={"organization": {"id": str(self.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            ):
-                raise exceptions.PermissionDenied(
-                    "Deleting global workflow templates requires the 'workflows-template-creation' feature flag to be enabled."
-                )
-
-        # Authentication is enforced above, so user cannot be AnonymousUser
+        # Authentication is enforced, so user cannot be AnonymousUser
         user = cast(User, self.request.user)
         log_activity(
             organization_id=self.organization.id,

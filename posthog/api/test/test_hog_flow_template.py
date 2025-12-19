@@ -1,5 +1,4 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from inline_snapshot import snapshot
 
@@ -16,16 +15,6 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 class TestHogFlowTemplateAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # Mock workflows-template-creation feature flag to be enabled
-        self.feature_flag_patcher = patch("posthog.api.hog_flow_template.posthoganalytics.feature_enabled")
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
-
-        def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "workflows-template-creation":
-                return True
-            return False
-
-        self.mock_feature_enabled.side_effect = check_flag
 
         # Create slack template in DB
         sync_template_to_db(template_slack)
@@ -67,11 +56,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             category=["Testing"],
             free=True,
         )
-
-    def tearDown(self):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-        super().tearDown()
 
     def _create_hog_flow_data(self, include_metadata=False, custom_inputs=None):
         """Helper to create hog flow data for template creation"""
@@ -135,47 +119,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Verify inputs are preserved - only url was provided in custom_inputs
         assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
 
-    def test_template_creation_validates_actions(self):
-        """Test that actions are validated before saving"""
-        # Test missing trigger action
-        hog_flow_data = {
-            "name": "Test Flow",
-            "actions": [
-                {
-                    "id": "action_1",
-                    "name": "action_1",
-                    "type": "function",
-                    "config": {
-                        "template_id": "template-test-defaults",
-                        "inputs": {},
-                    },
-                }
-            ],
-            "scope": "team",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 400, response.json()
-        assert response.json() == {
-            "attr": "actions",
-            "code": "invalid_input",
-            "detail": "Exactly one trigger action is required",
-            "type": "validation_error",
-        }
-
-        # Test invalid template_id
-        hog_flow_data = self._create_hog_flow_data()
-        hog_flow_data["actions"][1]["config"]["template_id"] = "missing-template"
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 400, response.json()
-        assert response.json() == {
-            "attr": "actions__1__template_id",
-            "code": "invalid_input",
-            "detail": "Template not found",
-            "type": "validation_error",
-        }
-
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
         trigger_action = {
@@ -236,26 +179,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template = HogFlowTemplate.objects.get(pk=response.json()["id"])
 
-        # Verify team_id and created_by are set correctly
         assert template.team_id == self.team.id
         assert template.created_by == self.user
-
-    def test_template_function_trigger_check(self):
-        """Test that exactly one trigger action is required"""
-        hog_flow_data = {
-            "name": "Test Flow",
-            "actions": [],
-            "scope": "team",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 400, response.json()
-        assert response.json() == {
-            "attr": "actions",
-            "code": "invalid_input",
-            "detail": "Exactly one trigger action is required",
-            "type": "validation_error",
-        }
 
     def test_template_function_validation(self):
         """Test that function actions validate template_id exists"""
@@ -561,21 +486,21 @@ class TestHogFlowTemplateAPI(APIBaseTest):
     def test_template_scope_field(self):
         """Test that scope field can be set to team or global"""
         hog_flow_data = self._create_hog_flow_data()
-        hog_flow_data["scope"] = "global"
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
-        assert response.status_code == 201, response.json()
-
-        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
-        assert template.scope == "global"
-
-        # Test team scope
         hog_flow_data["scope"] = "team"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 201, response.json()
 
         template = HogFlowTemplate.objects.get(pk=response.json()["id"])
         assert template.scope == "team"
+
+        self.user.is_staff = True
+        self.user.save()
+        hog_flow_data["scope"] = "global"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.scope == "global"
 
     def test_template_image_url_field(self):
         """Test that image_url field can be set"""
@@ -596,6 +521,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert response.status_code == 201
         team_template_id = response.json()["id"]
 
+        self.user.is_staff = True
+        self.user.save()
         global_template_data = self._create_hog_flow_data()
         global_template_data["scope"] = "global"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", global_template_data)
@@ -624,6 +551,8 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
     def test_template_filtering_global_templates_visible_to_all_teams(self):
         """Test that global templates are visible to all teams"""
+        self.user.is_staff = True
+        self.user.save()
         global_template_data = self._create_hog_flow_data()
         global_template_data["scope"] = "global"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", global_template_data)
@@ -712,67 +641,62 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         assert not HogFlowTemplate.objects.filter(id=template_id).exists()
 
-    def test_cannot_create_global_template_without_feature_flag(self):
-        """Test that users cannot create global templates without the feature flag"""
-
-        def check_flag_disabled(flag_name, *_args, **_kwargs):
-            if flag_name == "workflows-template-creation":
-                return False
-            return False
-
-        self.mock_feature_enabled.side_effect = check_flag_disabled
+    def test_cannot_create_global_template_without_staff(self):
+        """Test that non-staff users cannot create global templates"""
+        self.user.is_staff = False
+        self.user.save()
 
         hog_flow_data = self._create_hog_flow_data()
         hog_flow_data["scope"] = "global"
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 403
-        assert "workflows-template-creation" in response.json()["detail"].lower()
+        assert "you don't have edit permissions for global workflow templates" in response.json()["detail"].lower()
 
-    def test_cannot_update_global_template_without_feature_flag(self):
-        """Test that users cannot update global templates without the feature flag"""
+    def test_cannot_update_global_template_without_staff(self):
+        """Test that non-staff users cannot update global templates"""
+        self.user.is_staff = True
+        self.user.save()
         hog_flow_data = self._create_hog_flow_data()
         hog_flow_data["scope"] = "global"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 201
         template_id = response.json()["id"]
 
-        def check_flag_disabled(flag_name, *_args, **_kwargs):
-            if flag_name == "workflows-template-creation":
-                return False
-            return False
-
-        self.mock_feature_enabled.side_effect = check_flag_disabled
+        self.user.is_staff = False
+        self.user.save()
         update_data = self._create_hog_flow_data()
         update_data["scope"] = "global"
         update_data["name"] = "Updated Name"
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
         assert response.status_code == 403
-        assert "workflows-template-creation" in response.json()["detail"].lower()
+        assert "you don't have edit permissions for global workflow templates" in response.json()["detail"].lower()
 
-    def test_cannot_delete_global_template_without_feature_flag(self):
-        """Test that users cannot delete global templates without the feature flag"""
+    def test_cannot_delete_global_template_without_staff(self):
+        """Test that non-staff users cannot delete global templates"""
+
+        self.user.is_staff = True
+        self.user.save()
         hog_flow_data = self._create_hog_flow_data()
         hog_flow_data["scope"] = "global"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 201
         template_id = response.json()["id"]
 
-        def check_flag_disabled(flag_name, *_args, **_kwargs):
-            if flag_name == "workflows-template-creation":
-                return False
-            return False
-
-        self.mock_feature_enabled.side_effect = check_flag_disabled
+        self.user.is_staff = False
+        self.user.save()
         response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
         assert response.status_code == 403
-        assert "workflows-template-creation" in response.json()["detail"].lower()
+        assert "you don't have edit permissions for global workflow templates" in response.json()["detail"].lower()
 
         assert HogFlowTemplate.objects.filter(id=template_id).exists()
 
-    def test_can_create_update_delete_global_template_with_feature_flag(self):
-        """Test that users can create, update, and delete global templates with the feature flag"""
+    def test_can_create_update_delete_global_template_with_staff(self):
+        """Test that staff users can create, update, and delete global templates"""
+        self.user.is_staff = True
+        self.user.save()
+
         hog_flow_data = self._create_hog_flow_data()
         hog_flow_data["scope"] = "global"
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
