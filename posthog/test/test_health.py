@@ -14,7 +14,7 @@ from django.db import (
     Error as DjangoDatabaseError,
     connections,
 )
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.test import Client
 
 import psycopg2
@@ -389,8 +389,9 @@ def test_readyz_returns_503_when_prestop_marker_exists(client: Client):
     with simulate_prestop_marker():
         resp = get_readyz(client)
 
+    assert isinstance(resp, JsonResponse)
     assert resp.status_code == 503
-    assert resp.json() == {"shutting_down": True}
+    assert resp.json() == {"shutting_down": True}  # type: ignore[attr-defined]
 
 
 @pytest.mark.django_db
@@ -398,8 +399,9 @@ def test_readyz_returns_503_when_prestop_marker_exists_with_role(client: Client)
     with simulate_prestop_marker():
         resp = get_readyz(client, role="web")
 
+    assert isinstance(resp, JsonResponse)
     assert resp.status_code == 503
-    assert resp.json() == {"shutting_down": True}
+    assert resp.json() == {"shutting_down": True}  # type: ignore[attr-defined]
 
 
 @pytest.mark.django_db
@@ -408,6 +410,7 @@ def test_readyz_skips_prestop_check_when_setting_is_empty(client: Client):
         with simulate_prestop_marker():
             resp = get_readyz(client)
 
+    assert isinstance(resp, JsonResponse)
     assert resp.status_code == 200
 
 
