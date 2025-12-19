@@ -67,6 +67,12 @@ pub async fn handle_recording_payload(
     )
     .await?;
 
+    if chatty_debug_enabled {
+        info!(headers=?headers, "CHATTY: streamed payload body");
+    } else {
+        debug!(headers=?headers, "streamed payload body");
+    }
+
     // Extract request metadata using shared helper
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
 

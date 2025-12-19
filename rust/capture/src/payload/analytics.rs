@@ -28,16 +28,11 @@ use crate::{
     fields(
         method,
         path,
-        user_agent,
-        content_type,
-        content_encoding,
-        x_request_id,
         token,
+        ip,
         historical_migration,
-        lib_version,
         compression,
-        params_lib_version,
-        params_compression,
+        lib_version,
         batch_size
     )
 )]
@@ -51,6 +46,12 @@ pub async fn handle_event_payload(
     body: Body,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
+
+    if chatty_debug_enabled {
+        info!(headers=?headers, "CHATTY: entering handle_event_payload");
+    } else {
+        debug!(headers=?headers, "entering handle_event_payload");
+    }
 
     // this endpoint handles:
     // - GET or POST requests w/payload that is one of:
@@ -72,12 +73,13 @@ pub async fn handle_event_payload(
     )
     .await?;
 
-    // capture arguments and add to logger, processing context
     if chatty_debug_enabled {
-        info!(headers=?headers, "CHATTY: entering handle_event_payload");
+        info!(headers=?headers, "CHATTY: streamed payload body");
     } else {
-        debug!(headers=?headers, "entering handle_event_payload");
+        debug!(headers=?headers, "streamed payload body");
     }
+
+    // capture arguments and add to logger, processing context
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);
 
     if chatty_debug_enabled {
