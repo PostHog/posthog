@@ -258,6 +258,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;"
+            mock_parse_result.name = ""
+            mock_parse_result.description = ""
             mock_parse.return_value = lambda x: mock_parse_result
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = graph_result
@@ -294,6 +296,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;;;"
+            mock_parse_result.name = ""
+            mock_parse_result.description = ""
             mock_parse.return_value = lambda x: mock_parse_result
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = graph_result
@@ -330,6 +334,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT 'hello;world' FROM events;"
+            mock_parse_result.name = ""
+            mock_parse_result.description = ""
             mock_parse.return_value = lambda x: mock_parse_result
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = graph_result

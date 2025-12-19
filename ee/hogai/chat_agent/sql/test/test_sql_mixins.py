@@ -38,7 +38,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
 
         # Test direct _parse_output method
-        test_output = {"query": "SELECT count() FROM events"}
+        test_output = {"query": "SELECT count() FROM events", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -53,7 +53,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test parsing with empty query string."""
         mixin = self._node
 
-        test_output = {"query": ""}
+        test_output = {"query": "", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -63,7 +63,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that semicolons are removed from the end of queries."""
         mixin = self._node
 
-        test_output = {"query": "SELECT count() FROM events;"}
+        test_output = {"query": "SELECT count() FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -73,7 +73,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that multiple semicolons are removed from the end of queries."""
         mixin = self._node
 
-        test_output = {"query": "SELECT count() FROM events;;;"}
+        test_output = {"query": "SELECT count() FROM events;;;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
@@ -83,7 +83,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that semicolons in the middle of queries are preserved."""
         mixin = self._node
 
-        test_output = {"query": "SELECT 'hello;world' FROM events;"}
+        test_output = {"query": "SELECT 'hello;world' FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
         self.assertIsInstance(result, SQLSchemaGeneratorOutput)
