@@ -19,7 +19,7 @@ def capture_session_summary_started(
     summary_type: SummaryType,
     is_streaming: bool,
     session_ids: list[str],
-    video_validation_enabled: bool | None,
+    video_validation_enabled: bool | Literal["full"] | None,
 ) -> None:
     """Capture the start of a session summary generation."""
     if not user.distinct_id:
@@ -50,7 +50,7 @@ def capture_session_summary_generated(
     summary_type: SummaryType,
     is_streaming: bool,
     session_ids: list[str],
-    video_validation_enabled: bool | None,
+    video_validation_enabled: bool | Literal["full"] | None,
     success: bool | None,
     error_type: str | None = None,
     error_message: str | None = None,
