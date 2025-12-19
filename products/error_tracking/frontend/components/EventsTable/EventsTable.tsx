@@ -6,9 +6,9 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
@@ -100,7 +100,7 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
             <DataSourceTableColumn<ErrorEventType> className="p-0" cellRenderer={renderRowSelectedIndicator} />
             <DataSourceTableColumn<ErrorEventType> title="Exception" cellRenderer={renderTitle} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
-            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
+            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" width="240px" cellRenderer={Actions} />
         </DataSourceTable>
     )
 }
@@ -119,26 +119,36 @@ const Person = ({ person }: { person: ErrorEventType['person'] }): JSX.Element =
 }
 
 const Actions = (record: ErrorEventType): JSX.Element => {
-    const { onClick: onClickRecordingButton, disabledReason } = useRecordingButton({
-        sessionId: getSessionId(record.properties),
-        recordingStatus: getRecordingStatus(record.properties),
-        timestamp: record.timestamp,
-        inModal: true,
-        hasRecording: record.properties.has_recording as boolean | undefined,
-    })
+    const sessionId = getSessionId(record.properties)
+    const recordingStatus = getRecordingStatus(record.properties)
+    const hasRecording = record.properties.has_recording as boolean | undefined
+
+    // Match the old ViewRecordingButton logic exactly
+    const shouldDisable =
+        !sessionId ||
+        (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) ||
+        !hasRecording
+
+    const disabledReason = !sessionId
+        ? 'No session ID associated with this event'
+        : recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)
+          ? 'Replay was not active when capturing this event'
+          : !hasRecording
+            ? 'No recording for this event'
+            : undefined
 
     return (
-        <div className="flex justify-end gap-1">
-            <LemonButton
-                size="small"
-                icon={<IconPlayCircle />}
-                onClick={(event) => {
-                    cancelEvent(event)
-                    onClickRecordingButton()
-                }}
-                disabledReason={disabledReason || undefined}
-                tooltip={!disabledReason ? 'View recording' : undefined}
-            />
+        <div className="flex justify-end align-middle gap-1">
+            <div className="flex justify-end align-middle items-center" onClick={(event) => cancelEvent(event)}>
+                <ViewReplayButton
+                    type="secondary"
+                    recordingId={sessionId ?? ''}
+                    size="xsmall"
+                    data-attr="error-tracking-view-recording"
+                    disabled={shouldDisable}
+                    disabledReason={disabledReason}
+                />
+            </div>
             {record.properties.$ai_trace_id && (
                 <LemonButton
                     size="small"
