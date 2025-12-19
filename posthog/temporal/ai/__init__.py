@@ -12,6 +12,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
 )
 from posthog.temporal.ai.session_summary.activities.video_analysis import (
     analyze_video_segment_activity,
+    consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
     store_video_session_summary_activity,
@@ -87,6 +88,7 @@ ACTIVITIES = [
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
+    consolidate_video_segments_activity,
 ]
 
 __all__ = [

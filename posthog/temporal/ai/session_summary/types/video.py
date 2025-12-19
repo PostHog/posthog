@@ -45,3 +45,17 @@ class VideoSegmentOutput:
     start_time: str  # Format: MM:SS or HH:MM:SS
     end_time: str  # Format: MM:SS or HH:MM:SS
     description: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ConsolidatedVideoSegment:
+    """A semantically meaningful segment consolidated from raw video analysis outputs.
+
+    Unlike VideoSegmentOutput which has generic titles, this has a meaningful title
+    created by LLM analysis of the segment descriptions.
+    """
+
+    title: str  # Meaningful segment title (e.g., "User onboarding flow", "Debugging API errors")
+    start_time: str  # Format: MM:SS or HH:MM:SS
+    end_time: str  # Format: MM:SS or HH:MM:SS
+    description: str  # Combined/refined description of what happened
