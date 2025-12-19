@@ -13,6 +13,11 @@ export enum MaterializedColumnSlotState {
     ERROR = 'ERROR',
 }
 
+export enum MaterializationType {
+    DMAT = 'dmat',
+    EAV = 'eav',
+}
+
 export interface PropertyDefinition {
     id: number
     name: string
@@ -28,6 +33,7 @@ export interface MaterializedColumnSlot {
     property_type: string
     slot_index: number
     state: MaterializedColumnSlotState
+    materialization_type: MaterializationType
     backfill_temporal_uuid: string | null
     created_at: string
     updated_at: string

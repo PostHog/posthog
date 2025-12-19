@@ -14,7 +14,7 @@ from rest_framework.decorators import action
 from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializationType, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import IsStaffUserOrImpersonating
 from posthog.settings import EE_AVAILABLE
@@ -24,6 +24,7 @@ from posthog.temporal.backfill_materialized_property.activities import (
 )
 from posthog.temporal.backfill_materialized_property.workflows import BackfillMaterializedPropertyInputs
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.eav_backfill.workflows import BackfillEAVPropertyWorkflowInputs
 
 if EE_AVAILABLE:
     from ee.clickhouse.materialized_columns.columns import get_materialized_columns
@@ -64,6 +65,7 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
             "property_type",
             "slot_index",
             "state",
+            "materialization_type",
             "backfill_temporal_workflow_id",
             "error_message",
             "created_at",
@@ -220,20 +222,36 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         workflow_id_suffix: str = "",
     ) -> str | None:
         """Start the Temporal backfill workflow. Returns error message on failure, None on success."""
-        mat_column_name = self._get_mat_column_name(property_type, slot.slot_index)
 
         async def _start():
             client = await async_connect()
-            workflow_id = f"backfill-mat-prop-{slot.id}{workflow_id_suffix}"
-            handle = await client.start_workflow(
-                "backfill-materialized-property",
-                BackfillMaterializedPropertyInputs(
+
+            # Choose workflow based on materialization type
+            if slot.materialization_type == MaterializationType.EAV:
+                workflow_name = "backfill-eav-property"
+                workflow_id = f"backfill-eav-prop-{slot.id}{workflow_id_suffix}"
+                workflow_input = BackfillEAVPropertyWorkflowInputs(
+                    team_id=slot.team_id,
+                    slot_id=str(slot.id),
+                    property_name=property_name,
+                    property_type=property_type,
+                )
+            else:
+                # DMAT workflow
+                mat_column_name = self._get_mat_column_name(property_type, slot.slot_index)
+                workflow_name = "backfill-materialized-property"
+                workflow_id = f"backfill-mat-prop-{slot.id}{workflow_id_suffix}"
+                workflow_input = BackfillMaterializedPropertyInputs(
                     team_id=slot.team_id,
                     slot_id=str(slot.id),
                     property_name=property_name,
                     property_type=property_type,
                     mat_column_name=mat_column_name,
-                ),
+                )
+
+            handle = await client.start_workflow(
+                workflow_name,
+                workflow_input,
                 id=workflow_id,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -249,6 +267,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 slot_id=slot.id,
                 team_id=slot.team_id,
                 workflow_id=workflow_id,
+                materialization_type=slot.materialization_type,
             )
             return None
         except Exception as e:
@@ -280,6 +299,16 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if not property_definition_id:
             return response.Response({"error": "property_definition_id is required"}, status=400)
 
+        # Parse materialization type, default to DMAT for backwards compatibility
+        materialization_type_str = request.data.get("materialization_type", MaterializationType.DMAT)
+        try:
+            materialization_type = MaterializationType(materialization_type_str)
+        except ValueError:
+            return response.Response(
+                {"error": f"Invalid materialization_type. Must be one of: {[t.value for t in MaterializationType]}"},
+                status=400,
+            )
+
         # Fetch auto-materialized names outside transaction (ClickHouse query)
         auto_materialized_names = get_auto_materialized_property_names()
 
@@ -301,12 +330,17 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 property_type = property_definition.property_type
                 assert property_type is not None
 
-                slot_index = self._find_available_slot_index(property_type, existing_slots)
-                if slot_index is None:
-                    return response.Response(
-                        {"error": f"No available slots for property type {property_type}"},
-                        status=400,
-                    )
+                # For DMAT, we need a slot index. For EAV, slot_index is not used (set to 0)
+                if materialization_type == MaterializationType.DMAT:
+                    slot_index = self._find_available_slot_index(property_type, existing_slots)
+                    if slot_index is None:
+                        return response.Response(
+                            {"error": f"No available slots for property type {property_type}"},
+                            status=400,
+                        )
+                else:
+                    # EAV doesn't use slot indexes
+                    slot_index = 0
 
                 slot = MaterializedColumnSlot.objects.create(
                     team=self.team,
@@ -314,6 +348,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     property_type=property_type,
                     slot_index=slot_index,
                     state=MaterializedColumnSlotState.BACKFILL,
+                    materialization_type=materialization_type,
                     created_by=request.user,
                 )
 

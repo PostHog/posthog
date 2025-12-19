@@ -19,6 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CreateSlotModal } from './CreateSlotModal'
 import {
     AutoMaterializedColumn,
+    MaterializationType,
     MaterializedColumnSlot,
     MaterializedColumnSlotState,
     materializedColumnsLogic,
@@ -57,10 +58,30 @@ export function MaterializedColumns(): JSX.Element {
         },
     }
 
-    const slotIndexColumn: SlotColumn = {
-        title: 'Slot Index',
+    const materializationTypeColumn: SlotColumn = {
+        title: 'Storage',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            // Map property types to their column name prefixes
+            const isEav = slot.materialization_type === MaterializationType.EAV
+            return <LemonTag type={isEav ? 'highlight' : 'default'}>{isEav ? 'EAV Table' : 'DMAT Column'}</LemonTag>
+        },
+    }
+
+    const slotIndexColumn: SlotColumn = {
+        title: 'Slot / Column',
+        render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
+            // For EAV, show the value column that will be used
+            if (slot.materialization_type === MaterializationType.EAV) {
+                const typeToEavColumn: Record<string, string> = {
+                    String: 'value_string',
+                    Numeric: 'value_numeric',
+                    Boolean: 'value_bool',
+                    DateTime: 'value_datetime',
+                }
+                const eavColumn = typeToEavColumn[slot.property_type] || 'value_string'
+                return <div className="font-mono text-xs">event_properties.{eavColumn}</div>
+            }
+
+            // For DMAT, show the column name
             const typeToColumnName: Record<string, string> = {
                 String: 'string',
                 Numeric: 'numeric',
@@ -75,7 +96,7 @@ export function MaterializedColumns(): JSX.Element {
                 )
             }
             return (
-                <div className="font-mono">
+                <div className="font-mono text-xs">
                     dmat_{columnType}_{slot.slot_index}
                 </div>
             )
@@ -145,6 +166,7 @@ export function MaterializedColumns(): JSX.Element {
     const columns: SlotColumn[] = [
         propertyColumn,
         typeColumn,
+        materializationTypeColumn,
         slotIndexColumn,
         stateColumn,
         backfillColumn,
