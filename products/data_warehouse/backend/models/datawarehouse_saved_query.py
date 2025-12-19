@@ -241,7 +241,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            # KRUDGE: Should accept this as a parameter to avoid rebuilding it everytime this is called
+            # KLUDGE: Should accept this as a parameter to avoid rebuilding it everytime this is called
             database=Database.create_for(self.team.pk),
         )
 
