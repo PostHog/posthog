@@ -16,6 +16,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
     PreaggregationResult,
+    PreaggregationTable,
     QueryInfo,
     _build_manual_insert_sql,
     build_preaggregation_insert_sql,
@@ -77,8 +78,8 @@ class TestComputeQueryHash(BaseTest):
         s2 = parse_select(q2)
         assert isinstance(s1, ast.SelectQuery)
         assert isinstance(s2, ast.SelectQuery)
-        query_info1 = QueryInfo(query=s1, table="preaggregation_results", timezone=t1)
-        query_info2 = QueryInfo(query=s2, table="preaggregation_results", timezone=t2)
+        query_info1 = QueryInfo(query=s1, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=t1)
+        query_info2 = QueryInfo(query=s2, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -438,7 +439,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table="preaggregation_results", timezone="UTC")
+        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         result = execute_preaggregation_jobs(
             team=self.team,
@@ -470,7 +471,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table="preaggregation_results", timezone="UTC")
+        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: run for Jan 1-2
         first_result = execute_preaggregation_jobs(
@@ -515,7 +516,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, table="preaggregation_results", timezone="UTC")
+        query_info = QueryInfo(query=query, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
         # First: Create job for Jan 2 only
         jan2_result = execute_preaggregation_jobs(

@@ -3,7 +3,7 @@ import json
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Union
+from enum import StrEnum
 
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -25,7 +25,13 @@ DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 # Buffer time before expiry when we stop using a job.
 # This prevents race conditions where we try to query data that ClickHouse
 # is about to delete or has just deleted.
-EXPIRY_BUFFER_SECONDS = 24 * 60 * 60  # 24 hours
+EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
+
+
+class PreaggregationTable(StrEnum):
+    """Allowed target tables for preaggregation results."""
+
+    PREAGGREGATION_RESULTS = "preaggregation_results"
 
 
 @dataclass
@@ -33,7 +39,7 @@ class QueryInfo:
     """Normalized query information for preaggregation matching."""
 
     query: ast.SelectQuery
-    table: Union[Literal["preaggregation_results"]]
+    table: PreaggregationTable
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
 
@@ -117,7 +123,8 @@ def find_existing_jobs(
             status__in=[PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING],
         )
         .filter(
-            # Include jobs where expires_at is far enough in the future (exclude null)
+            # Only include jobs with expires_at far enough in the future.
+            # Jobs with expires_at=NULL (legacy) are intentionally excluded.
             Q(expires_at__gte=min_expires_at)
         )
         .order_by("time_range_start")
@@ -414,7 +421,7 @@ def ensure_preaggregated(
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    table: str = "preaggregation_results",
+    table: PreaggregationTable = PreaggregationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> PreaggregationResult:
     """
@@ -497,7 +504,7 @@ def ensure_preaggregated(
     # Create QueryInfo for hashing (timezone from team)
     query_info = QueryInfo(
         query=parsed_for_hash,
-        table=table,  # type: ignore
+        table=table,
         timezone=team.timezone,
     )
 
@@ -556,7 +563,7 @@ def _build_manual_insert_sql(
     team: Team,
     job: PreaggregationJob,
     insert_query: str,
-    table: str,
+    table: PreaggregationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
 ) -> tuple[str, dict]:
     """

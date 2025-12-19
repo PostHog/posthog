@@ -12,6 +12,7 @@ from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
     PreaggregationResult,
+    PreaggregationTable,
     QueryInfo,
     execute_preaggregation_jobs,
 )
@@ -466,7 +467,9 @@ def _run_daily_unique_persons_pageviews(
     2. Calls the executor to find/create preaggregation jobs
     3. Returns the result with job IDs for the combiner query
     """
-    query_info = QueryInfo(query=query_to_insert, table="preaggregation_results", timezone=team.timezone)
+    query_info = QueryInfo(
+        query=query_to_insert, table=PreaggregationTable.PREAGGREGATION_RESULTS, timezone=team.timezone
+    )
 
     result = execute_preaggregation_jobs(
         team=team,
