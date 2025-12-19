@@ -62,23 +62,21 @@ export function SocialLoginButton({
 
     return (
         <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
-            <div className="relative">
-                <LemonButton
-                    size="large"
-                    icon={<SocialLoginIcon provider={provider} />}
-                    active={isLastUsed}
-                    tooltip={SSO_PROVIDER_NAMES[provider]}
-                />
-                {isLastUsed && (
-                    <LemonTag
-                        type="muted"
-                        size="small"
-                        className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                    >
-                        Last used
-                    </LemonTag>
-                )}
-            </div>
+            <LemonButton
+                size="large"
+                icon={<SocialLoginIcon provider={provider} />}
+                active={isLastUsed}
+                tooltip={SSO_PROVIDER_NAMES[provider]}
+            />
+            {isLastUsed && (
+                <LemonTag
+                    type="muted"
+                    size="small"
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+                >
+                    Last used
+                </LemonTag>
+            )}
         </SocialLoginLink>
     )
 }
