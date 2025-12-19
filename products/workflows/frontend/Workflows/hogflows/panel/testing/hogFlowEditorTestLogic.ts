@@ -230,10 +230,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         accumulatedVariables: [
             {} as Record<string, any>,
             {
-                setTestResult: (state, { testResult }) => ({
-                    ...state,
-                    ...testResult?.variables,
-                }),
+                setTestResult: (state, { testResult }) =>
+                    testResult?.variables ? { ...state, ...testResult.variables } : state,
                 resetAccumulatedVariables: () => ({}),
                 // Reset when loading fresh sample globals (starting a new test session)
                 loadSampleGlobals: () => ({}),
@@ -466,6 +464,17 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             { resultEqualityCheck: equal },
         ],
+        workflowVariableDefaults: [
+            (s) => [s.workflow],
+            (workflow): Record<string, any> =>
+                workflow.variables?.reduce(
+                    (acc, variable) => {
+                        acc[variable.key] = variable.default
+                        return acc
+                    },
+                    {} as Record<string, any>
+                ) ?? {},
+        ],
     })),
     forms(({ actions, values }) => ({
         testInvocation: {
@@ -483,20 +492,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
-                    // Start with workflow variable defaults, then overlay accumulated variables from previous steps
-                    const variablesWithDefaults = values.workflow.variables?.reduce(
-                        (acc, variable) => {
-                            acc[variable.key] = variable.default
-                            return acc
-                        },
-                        {} as Record<string, any>
-                    )
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
                         globals: {
                             ...JSON.parse(testInvocation.globals),
+                            // Merge order: defaults < accumulated (variables set by previous test steps take precedence)
                             variables: {
-                                ...variablesWithDefaults,
+                                ...values.workflowVariableDefaults,
                                 ...values.accumulatedVariables,
                             },
                         },
