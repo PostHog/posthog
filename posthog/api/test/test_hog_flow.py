@@ -546,3 +546,75 @@ class TestHogFlowAPI(APIBaseTest):
         # Verify it's stored correctly in database
         flow = HogFlow.objects.get(pk=response.json()["id"])
         assert flow.billable_action_types == ["function"]
+
+    def test_billable_action_types_recomputed_on_update(self):
+        """Test that billable_action_types is recomputed when HogFlow is updated"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        # Create flow with just one function action
+        initial_actions = [
+            trigger_action,
+            {
+                "id": "a1",
+                "name": "webhook",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+            },
+        ]
+
+        hog_flow = {"name": "Test Update Billable Types", "actions": initial_actions}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["billable_action_types"] == ["function"]
+
+        # Update to remove function action (no billable actions left)
+        updated_actions = [trigger_action]
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": updated_actions}
+        )
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["billable_action_types"] == []
+
+        # Update again to add multiple webhook actions (same billable type)
+        complex_actions = [
+            trigger_action,
+            {
+                "id": "a1",
+                "name": "webhook",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+            },
+            {
+                "id": "a2",
+                "name": "webhook2",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example2.com"}}},
+            },
+        ]
+
+        # Try to override billable_action_types in update - should be ignored and recomputed
+        override_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": complex_actions,
+                "billable_action_types": ["fake_type"],  # Try to override
+            },
+        )
+        assert override_response.status_code == 200, override_response.json()
+        # Should be recomputed based on actual actions, not the override attempt
+        assert override_response.json()["billable_action_types"] == ["function"]
+
+        # Verify database is consistent
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.billable_action_types == ["function"]
