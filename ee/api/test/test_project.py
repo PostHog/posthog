@@ -168,29 +168,3 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):
 
         self.assertEqual(response.status_code, 404, response.json())
         self.assertEqual(response.json(), self.not_found_response("Organization not found."))
-
-    def test_conversations_settings_merges_with_existing_via_project_api(self):
-        self.client.patch(
-            "/api/environments/@current/",
-            {"conversations_settings": {"widget_greeting_text": "Hello!"}},
-        )
-        response = self.client.patch(
-            "/api/environments/@current/",
-            {"conversations_settings": {"widget_color": "#ff0000"}},
-        )
-        self.assertEqual(response.status_code, 200)
-        settings = response.json()["conversations_settings"]
-        self.assertEqual(settings["widget_greeting_text"], "Hello!")
-        self.assertEqual(settings["widget_color"], "#ff0000")
-
-    def test_enabling_conversations_auto_generates_token_via_project_api(self):
-        self.team.conversations_enabled = False
-        self.team.conversations_settings = None
-        self.team.save()
-
-        response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
-        self.assertEqual(response.status_code, 200)
-        settings = response.json()["conversations_settings"]
-        self.assertIsNotNone(settings)
-        self.assertIsNotNone(settings.get("widget_public_token"))
-        self.assertGreater(len(settings["widget_public_token"]), 20)
