@@ -520,7 +520,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     throw new Error(`Step not found for action type: ${newAction}`)
                 }
 
-                let edgeToBeReplacedIndexes = []
+                let edgesToBeReplacedIndexes = []
 
                 if (isBranchJoinDropzone) {
                     // There are multiple edges that need to be replaced here to join the branches on new node
@@ -529,7 +529,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                      * If isBranchJoinDropzone is set, we know to connect this new node on top with all previous target's sources
                      * and below with the original edges' shared target
                      */
-                    edgeToBeReplacedIndexes = values.workflow.edges
+                    edgesToBeReplacedIndexes = values.workflow.edges
                         .map((edge, index) => ({
                             edge,
                             index,
@@ -538,12 +538,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         .map(({ index }) => index)
                 } else {
                     // There is just the one *very specific* (i.e. getEdgeId must be used) target edge that needs to be replaced
-                    edgeToBeReplacedIndexes = [
+                    edgesToBeReplacedIndexes = [
                         values.workflow.edges.findIndex((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id),
                     ]
                 }
 
-                if (edgeToBeReplacedIndexes.length === 0) {
+                if (edgesToBeReplacedIndexes.length === 0) {
                     throw new Error('Edge to be replaced not found')
                 }
 
@@ -553,10 +553,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const newEdges: HogFlow['edges'] = [...values.workflow.edges]
 
                 // First remove the edge to be replaced
-                const edgesToBeReplaced = edgeToBeReplacedIndexes.map((index) => values.workflow.edges[index])
+                const edgesToBeReplaced = edgesToBeReplacedIndexes.map((index) => values.workflow.edges[index])
 
                 // Sort indexes in descending order to avoid index shifting during removal
-                edgeToBeReplacedIndexes
+                edgesToBeReplacedIndexes
                     .sort((a, b) => b - a)
                     .forEach((index) => {
                         newEdges.splice(index, 1)
@@ -568,17 +568,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         ...edgeToBeReplaced,
                         to: newAction.id,
                     })
+                }
 
-                    // Then any branch edges
-                    for (let i = 0; i < branchEdges; i++) {
-                        // Add in branching edges
-                        newEdges.push({
-                            ...edgeToBeReplaced,
-                            index: i,
-                            type: 'branch',
-                            from: newAction.id,
-                        })
-                    }
+                // Then any branch edges (once, not per incoming edge)
+                for (let i = 0; i < branchEdges; i++) {
+                    // Add in branching edges
+                    newEdges.push({
+                        ...edgesToBeReplaced[0],
+                        index: i,
+                        type: 'branch',
+                        from: newAction.id,
+                    })
                 }
 
                 // Finally the last continue edge
