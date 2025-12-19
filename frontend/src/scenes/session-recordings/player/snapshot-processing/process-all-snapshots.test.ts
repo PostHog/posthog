@@ -140,7 +140,7 @@ describe('process all snapshots', () => {
 
             for (let i = 0; i < runs; i++) {
                 const start = performance.now()
-                const results = await processAllSnapshots(
+                const results = processAllSnapshots(
                     [
                         {
                             source: 'blob_v2',
@@ -180,17 +180,14 @@ describe('process all snapshots', () => {
             expect(stdDev).toBeLessThan(25)
         })
 
-        it.each([
-            ['sync', false],
-            ['async', true],
-        ])('deduplicates snapshot (%s)', async (_name, enableYielding) => {
+        it('deduplicates snapshot', async () => {
             const sessionId = '1234'
             const source = {
                 source: 'blob_v2',
                 blob_key: '0',
             } as SessionRecordingSnapshotSource
             const key = keyForSource(source)
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [
                     {
                         source: 'blob_v2',
@@ -231,76 +228,68 @@ describe('process all snapshots', () => {
                         href: 'https://example.com',
                     }
                 },
-                sessionId,
-                enableYielding
+                sessionId
             )
 
             expect(results).toHaveLength(1)
         })
 
-        it.each([
-            ['sync', false],
-            ['async', true],
-        ])(
-            'deduplicates correctly when duplicates are interspersed with unique snapshots (%s)',
-            async (_name, enableYielding) => {
-                const sessionId = '1234'
-                const source = {
-                    source: 'blob_v2',
-                    blob_key: '0',
-                } as SessionRecordingSnapshotSource
-                const key = keyForSource(source)
-                const results = await processAllSnapshots(
-                    [{ source: 'blob_v2', blob_key: '0' }],
-                    {
-                        [key]: {
-                            snapshots: [
-                                // Three snapshots at timestamp 1000: A, A (dup), B (unique)
-                                {
-                                    windowId: 1,
-                                    timestamp: 1000,
-                                    type: 3,
-                                    data: { value: 'A' },
-                                } as unknown as RecordingSnapshot,
-                                {
-                                    windowId: 1,
-                                    timestamp: 1000,
-                                    type: 3,
-                                    data: { value: 'A' },
-                                } as unknown as RecordingSnapshot, // duplicate of first
-                                {
-                                    windowId: 1,
-                                    timestamp: 1000,
-                                    type: 3,
-                                    data: { value: 'B' },
-                                } as unknown as RecordingSnapshot, // unique, should be kept
-                                // Two snapshots at timestamp 2000: C, C (dup)
-                                {
-                                    windowId: 1,
-                                    timestamp: 2000,
-                                    type: 3,
-                                    data: { value: 'C' },
-                                } as unknown as RecordingSnapshot,
-                                {
-                                    windowId: 1,
-                                    timestamp: 2000,
-                                    type: 3,
-                                    data: { value: 'C' },
-                                } as unknown as RecordingSnapshot, // duplicate
-                            ],
-                        },
+        it('deduplicates correctly when duplicates are interspersed with unique snapshots', async () => {
+            const sessionId = '1234'
+            const source = {
+                source: 'blob_v2',
+                blob_key: '0',
+            } as SessionRecordingSnapshotSource
+            const key = keyForSource(source)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' }],
+                {
+                    [key]: {
+                        snapshots: [
+                            // Three snapshots at timestamp 1000: A, A (dup), B (unique)
+                            {
+                                windowId: 1,
+                                timestamp: 1000,
+                                type: 3,
+                                data: { value: 'A' },
+                            } as unknown as RecordingSnapshot,
+                            {
+                                windowId: 1,
+                                timestamp: 1000,
+                                type: 3,
+                                data: { value: 'A' },
+                            } as unknown as RecordingSnapshot, // duplicate of first
+                            {
+                                windowId: 1,
+                                timestamp: 1000,
+                                type: 3,
+                                data: { value: 'B' },
+                            } as unknown as RecordingSnapshot, // unique, should be kept
+                            // Two snapshots at timestamp 2000: C, C (dup)
+                            {
+                                windowId: 1,
+                                timestamp: 2000,
+                                type: 3,
+                                data: { value: 'C' },
+                            } as unknown as RecordingSnapshot,
+                            {
+                                windowId: 1,
+                                timestamp: 2000,
+                                type: 3,
+                                data: { value: 'C' },
+                            } as unknown as RecordingSnapshot, // duplicate
+                        ],
                     },
-                    { snapshots: {} },
-                    () => ({ width: '100', height: '100', href: 'https://example.com' }),
-                    sessionId,
-                    enableYielding
-                )
+                },
+                { snapshots: {} },
+                () => ({ width: '100', height: '100', href: 'https://example.com' }),
+                sessionId
+            )
 
-                // Should have: A@1000, B@1000, C@2000 (3 unique snapshots)
-                expect(results).toHaveLength(3)
-                expect(results.map((r) => (r.data as any).value)).toEqual(['A', 'B', 'C'])
-            }
-        )
+            // Should have: A@1000, B@1000, C@2000 (3 unique snapshots)
+            expect(results).toHaveLength(3)
+            expect(results.map((r) => (r.data as any).value)).toEqual(['A', 'B', 'C'])
+        })
     })
 
     describe('hasAnyWireframes', () => {
@@ -583,7 +572,7 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -634,7 +623,7 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(2)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -680,7 +669,7 @@ describe('process all snapshots', () => {
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             // viewportForTimestamp returns undefined - should extract from mobile snapshot
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -731,7 +720,7 @@ describe('process all snapshots', () => {
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             // viewportForTimestamp returns different dimensions - should use snapshot dimensions
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -777,7 +766,7 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -817,7 +806,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const result = await processAllSnapshots(
+            const result = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -861,7 +850,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -958,7 +947,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = await processAllSnapshots(
+            const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -1010,7 +999,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const result = await processAllSnapshots(
+            const result = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
