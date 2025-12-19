@@ -516,13 +516,15 @@ class PostgreSQLClient:
                         await cursor.execute(merge_query)
                 except psycopg.errors.InvalidColumnReference:
                     raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
-                except TimeoutError:
+                except TimeoutError as e:
                     self.external_logger.exception(
                         "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
                         schema,
                         final_table_name,
                     )
-                    raise
+                    raise TimeoutError(
+                        f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
+                    ) from e
 
     async def copy_tsv_to_postgres(
         self,
