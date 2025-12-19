@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -20,6 +20,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -31,7 +32,13 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagGroupType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -129,8 +136,9 @@ export function FeatureFlagReleaseConditions({
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
+    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } =
         useValues(featureFlagLogic)
+    const { setBucketingIdentifier } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -597,42 +605,91 @@ export function FeatureFlagReleaseConditions({
                     </LemonBanner>
                 )}
             {!readOnly && showGroupsOptions && !hideMatchOptions && (
-                <div className="centered flex items-center gap-2">
-                    Match by
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
+                <div className="mb-4">
+                    <LemonLabel className="mb-2">Assign variant by</LemonLabel>
+                    <LemonRadio
                         data-attr="feature-flag-aggregation-filter"
+                        value={
+                            filters.aggregation_group_type_index != null
+                                ? 'group'
+                                : featureFlag.bucketing_identifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                  ? 'device'
+                                  : 'user'
+                        }
                         onChange={(value) => {
-                            // MatchByGroupsIntroductionOption
-                            if (value == -2) {
-                                return
+                            if (value === 'user') {
+                                setAggregationGroupTypeIndex(null)
+                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                            } else if (value === 'device') {
+                                setAggregationGroupTypeIndex(null)
+                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                            } else if (value === 'group') {
+                                // Default to first group type when selecting Group
+                                const firstGroupType = Array.from(groupTypes.values())[0]
+                                if (firstGroupType) {
+                                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                                }
+                                setBucketingIdentifier(null)
                             }
-
-                            const groupTypeIndex = value !== -1 ? value : null
-                            setAggregationGroupTypeIndex(groupTypeIndex)
                         }}
-                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
                         options={[
-                            { value: -1, label: 'Users' },
-                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                value: groupType.group_type_index,
-                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                            {
+                                value: 'user',
+                                label: 'User ID',
+                                description:
+                                    'Stable assignment for logged-in users based on their unique user ID. Great fit for in-app features.',
+                            },
+                            {
+                                value: 'device',
+                                label: 'Device ID',
+                                description:
+                                    'Stable assignment per device. Good fit for experiments on anonymous users.',
+                            },
+                            {
+                                value: 'group',
+                                label: 'Group',
+                                description:
+                                    'Stable assignment for everyone in an organization, company, or other custom group type.',
                                 disabledReason: hasEarlyAccessFeatures
                                     ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
-                                    : null,
-                            })),
-                            ...(includeGroupsIntroductionOption()
-                                ? [
-                                      {
-                                          value: -2,
-                                          label: 'MatchByGroupsIntroductionOption',
-                                          labelInMenu: matchByGroupsIntroductionOption,
-                                      },
-                                  ]
-                                : []),
+                                    : groupTypes.size === 0
+                                      ? 'No group types defined. Set up group analytics first.'
+                                      : undefined,
+                            },
                         ]}
+                        radioPosition="top"
                     />
+                    {filters.aggregation_group_type_index != null && groupTypes.size > 0 && (
+                        <div className="mt-3 ml-6">
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                data-attr="feature-flag-group-type-select"
+                                value={filters.aggregation_group_type_index}
+                                onChange={(value) => {
+                                    if (value != null) {
+                                        setAggregationGroupTypeIndex(value)
+                                    }
+                                }}
+                                options={[
+                                    ...Array.from(groupTypes.values()).map((groupType) => ({
+                                        value: groupType.group_type_index,
+                                        label: capitalizeFirstLetter(
+                                            aggregationLabel(groupType.group_type_index).plural
+                                        ),
+                                    })),
+                                    ...(includeGroupsIntroductionOption()
+                                        ? [
+                                              {
+                                                  value: -2,
+                                                  label: 'MatchByGroupsIntroductionOption',
+                                                  labelInMenu: matchByGroupsIntroductionOption,
+                                              },
+                                          ]
+                                        : []),
+                                ]}
+                            />
+                        </div>
+                    )}
                 </div>
             )}
             <div className="FeatureConditionCard max-w-prose">
