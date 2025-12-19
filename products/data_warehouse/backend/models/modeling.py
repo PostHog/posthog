@@ -180,7 +180,7 @@ insert into posthog_datawarehousemodelpath (
   created_at,
   updated_at
 ) (
-  select
+  select distinct on (id)
     id,
     team_id,
     table_id,
@@ -221,6 +221,24 @@ where
     where partitioned.row_number > 1
 );
 """
+
+CYCLE_CHECK_QUERY = """\
+select exists (
+  select 1
+  from posthog_datawarehousemodelpath
+  where team_id = %(team_id)s
+  and path ~ ('*.' || %(child)s || '.*.' || %(parent)s)::lquery
+)
+"""
+
+
+class ModelPathCycleError(Exception):
+    """Exception raised when a cycle would be created in the model DAG."""
+
+    def __init__(self, child: str, parent: str):
+        super().__init__(f"Adding {parent} as a parent of {child} would create a cycle in the DAG")
+        self.child = child
+        self.parent = parent
 
 
 class UnknownParentError(Exception):
@@ -483,6 +501,10 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                                 parent_id = parent_table.id.hex
                         else:
                             parent_id = parent_query.id.hex
+
+                    cursor.execute(CYCLE_CHECK_QUERY, params={"team_id": team.pk, "child": label, "parent": parent_id})
+                    if cursor.fetchone()[0]:
+                        raise ModelPathCycleError(child=label, parent=parent_id)
 
                     cursor.execute(UPDATE_PATHS_QUERY, params={**{"child": label, "parent": parent_id}, **base_params})
 
