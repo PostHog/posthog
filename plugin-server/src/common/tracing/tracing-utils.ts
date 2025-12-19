@@ -95,11 +95,6 @@ export async function instrumentFn<T>(
     options: string | FunctionInstrumentationOptions,
     func: () => Promise<T>
 ): Promise<T> {
-    // Fast path: skip all instrumentation if disabled
-    if (defaultConfig.DISABLE_INSTRUMENTATION) {
-        return func()
-    }
-
     const key = typeof options === 'string' ? options : options.key
     const timeoutMessage =
         (typeof options === 'string' ? undefined : options.timeoutMessage) ?? `Timeout warning for '${key}'!`
@@ -115,7 +110,10 @@ export async function instrumentFn<T>(
     })
 
     try {
-        const result = await withSpan('instrumented_function', key, {}, func)
+        // Skip expensive span creation when tracing is disabled
+        const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
+            ? await func()
+            : await withSpan('instrumented_function', key, {}, func)
         end({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)
