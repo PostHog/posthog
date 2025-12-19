@@ -31,13 +31,15 @@ type systemCheck struct {
 }
 
 type ChecksModel struct {
-	checks  []systemCheck
-	current int
-	spinner spinner.Model
-	done    bool
-	allGood bool
-	width   int
-	height  int
+	checks      []systemCheck
+	current     int
+	spinner     spinner.Model
+	done        bool
+	allGood     bool
+	hasWarnings bool
+	confirmed   bool
+	width       int
+	height      int
 }
 
 type checkResultMsg struct {
@@ -61,6 +63,7 @@ func NewChecksModel() ChecksModel {
 			{name: "Memory (8GB+ recommended)", status: checkPending},
 			{name: "Disk space available", status: checkPending},
 			{name: "Network connectivity", status: checkPending},
+			{name: "Docker volumes", status: checkPending},
 		},
 		current: 0,
 		spinner: s,
@@ -91,6 +94,8 @@ func (m ChecksModel) runCheck(index int) tea.Cmd {
 			return m.checkDiskSpace()
 		case 4:
 			return m.checkNetwork()
+		case 5:
+			return m.checkDockerVolumes()
 		}
 		return nil
 	}
@@ -211,6 +216,33 @@ func (m ChecksModel) checkNetwork() checkResultMsg {
 	return checkResultMsg{index: 4, passed: true, detail: "Connected"}
 }
 
+func (m ChecksModel) checkDockerVolumes() checkResultMsg {
+	logger := installer.GetLogger()
+
+	// Only relevant for upgrades (when posthog dir already exists)
+	if !installer.DirExists("posthog") {
+		logger.WriteString("New installation, skipping volume check\n")
+		return checkResultMsg{index: 5, passed: true, detail: "new install"}
+	}
+
+	logger.WriteString("Checking for named Docker volumes...\n")
+	hasPostgres, hasClickhouse := installer.CheckDockerVolumes()
+
+	if hasPostgres && hasClickhouse {
+		logger.WriteString("✓ Named volumes found\n")
+		return checkResultMsg{index: 5, passed: true, detail: "postgres-data, clickhouse-data"}
+	}
+
+	// Volumes missing - this is a warning for pre-1.39 installations
+	warning := installer.GetVolumeWarning()
+	if warning != "" {
+		logger.WriteString("⚠ " + warning + "\n")
+		return checkResultMsg{index: 5, passed: true, warning: true, detail: "volumes may be anonymous (pre-1.39)"}
+	}
+
+	return checkResultMsg{index: 5, passed: true, detail: "OK"}
+}
+
 func (m ChecksModel) Update(msg tea.Msg) (ChecksModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -227,6 +259,7 @@ func (m ChecksModel) Update(msg tea.Msg) (ChecksModel, tea.Cmd) {
 		if msg.passed {
 			if msg.warning {
 				m.checks[msg.index].status = checkWarning
+				m.hasWarnings = true
 			} else {
 				m.checks[msg.index].status = checkPassed
 			}
@@ -251,19 +284,46 @@ func (m ChecksModel) Update(msg tea.Msg) (ChecksModel, tea.Cmd) {
 		}
 
 	case allChecksCompleteMsg:
-		if m.allGood {
+		if !m.allGood {
+			return m, func() tea.Msg {
+				return ErrorMsg{Err: fmt.Errorf("system requirements not met")}
+			}
+		}
+		// If no warnings, auto-proceed
+		if !m.hasWarnings {
 			return m, func() tea.Msg {
 				return StepCompleteMsg{Data: nil}
 			}
 		}
-		return m, func() tea.Msg {
-			return ErrorMsg{Err: fmt.Errorf("system requirements not met")}
-		}
+		// If warnings exist, wait for user confirmation
+		return m, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "enter" && m.done && m.allGood {
-			return m, func() tea.Msg {
-				return StepCompleteMsg{Data: nil}
+		if m.done && m.allGood {
+			switch msg.String() {
+			case "y", "Y":
+				// User explicitly confirmed to proceed despite warnings
+				m.confirmed = true
+				return m, func() tea.Msg {
+					return StepCompleteMsg{Data: nil}
+				}
+			case "n", "N", "esc":
+				// User chose not to proceed
+				return m, func() tea.Msg {
+					return ErrorMsg{Err: fmt.Errorf("installation cancelled by user")}
+				}
+			case "enter":
+				// Enter only proceeds if no warnings (default N for warnings)
+				if !m.hasWarnings {
+					return m, func() tea.Msg {
+						return StepCompleteMsg{Data: nil}
+					}
+				}
+
+				// With warnings, enter = N (abort)
+				return m, func() tea.Msg {
+					return ErrorMsg{Err: fmt.Errorf("installation cancelled by user")}
+				}
 			}
 		}
 	}
@@ -310,10 +370,19 @@ func (m ChecksModel) View() string {
 
 	var footer string
 	if m.done {
-		if m.allGood {
-			footer = ui.SuccessStyle.Render("\n✓ All checks passed! Press enter to continue...")
-		} else {
+		if !m.allGood {
 			footer = ui.ErrorStyle.Render("\n✗ Some checks failed. Please resolve the issues and try again.")
+		} else if m.hasWarnings {
+			footer = lipgloss.JoinVertical(
+				lipgloss.Left,
+				"",
+				ui.WarningStyle.Render("⚠ Some checks have warnings."),
+				ui.MutedStyle.Render("Review the warnings above before proceeding."),
+				"",
+				ui.WarningStyle.Render("Do you want to proceed anyway? [y/N]"),
+			)
+		} else {
+			footer = ui.SuccessStyle.Render("\n✓ All checks passed!")
 		}
 	}
 
