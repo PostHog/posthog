@@ -1,5 +1,6 @@
 use std::future::ready;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
@@ -7,7 +8,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
@@ -42,7 +43,7 @@ pub struct State {
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
-    pub body_chunk_read_timeout_ms: Option<u64>,
+    pub body_chunk_read_timeout: Option<Duration>,
 }
 
 #[derive(Clone)]
@@ -71,7 +72,7 @@ impl HistoricalConfig {
             return false;
         }
 
-        let days_stale = Duration::days(self.historical_rerouting_threshold_days);
+        let days_stale = ChronoDuration::days(self.historical_rerouting_threshold_days);
         let threshold = Utc::now() - days_stale;
         timestamp <= threshold
     }
@@ -141,7 +142,7 @@ pub fn router<
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
         ai_blob_storage,
-        body_chunk_read_timeout_ms,
+        body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
     };
 
     // Very permissive CORS policy, as old SDK versions

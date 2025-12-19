@@ -4,8 +4,6 @@
 //! Unlike analytics events, recording payloads are deserialized directly to
 //! Vec<RawRecording> to avoid the overhead of going through RawRequest.
 
-use std::time::Duration;
-
 use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
@@ -52,7 +50,6 @@ pub async fn handle_recording_payload(
     path: &MatchedPath,
     body: Body,
 ) -> Result<(ProcessingContext, Vec<RawRecording>), CaptureError> {
-<<<<<<< Updated upstream
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
 
     if chatty_debug_enabled {
@@ -60,13 +57,15 @@ pub async fn handle_recording_payload(
     } else {
         debug!("entering handle_recording_payload");
     }
-=======
+
     // Extract body with optional chunk timeout
-    let chunk_timeout = state.body_chunk_read_timeout_ms.map(Duration::from_millis);
-    let body =
-        extract_body_with_timeout(body, state.event_size_limit, chunk_timeout, path.as_str())
-            .await?;
->>>>>>> Stashed changes
+    let body = extract_body_with_timeout(
+        body,
+        state.event_size_limit,
+        state.body_chunk_read_timeout,
+        path.as_str(),
+    )
+    .await?;
 
     // Extract request metadata using shared helper
     let metadata = extract_and_record_metadata(headers, path.as_str(), state.is_mirror_deploy);

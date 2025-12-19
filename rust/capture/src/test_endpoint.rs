@@ -1,4 +1,4 @@
-use std::{io::Read, ops::Deref, time::Duration};
+use std::{io::Read, ops::Deref};
 
 use axum::{
     body::Body,
@@ -44,11 +44,10 @@ pub async fn test_black_hole(
     body: Body,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
     // Extract body with optional chunk timeout
-    let chunk_timeout = state.body_chunk_read_timeout_ms.map(Duration::from_millis);
     let body = extract_body_with_timeout(
         body,
         state.event_size_limit,
-        chunk_timeout,
+        state.body_chunk_read_timeout,
         "/test/black_hole",
     )
     .await?;

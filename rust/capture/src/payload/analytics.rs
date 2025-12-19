@@ -4,8 +4,6 @@
 //! It extracts and validates event payloads from HTTP requests, handling
 //! decompression, deserialization, and token extraction.
 
-use std::time::Duration;
-
 use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
@@ -66,10 +64,13 @@ pub async fn handle_event_payload(
     //     - lib_version = SDK version that submitted the request
 
     // Extract body with optional chunk timeout
-    let chunk_timeout = state.body_chunk_read_timeout_ms.map(Duration::from_millis);
-    let body =
-        extract_body_with_timeout(body, state.event_size_limit, chunk_timeout, path.as_str())
-            .await?;
+    let body = extract_body_with_timeout(
+        body,
+        state.event_size_limit,
+        state.body_chunk_read_timeout,
+        path.as_str(),
+    )
+    .await?;
 
     // capture arguments and add to logger, processing context
     if chatty_debug_enabled {
