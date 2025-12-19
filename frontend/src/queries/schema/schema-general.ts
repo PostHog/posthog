@@ -2815,6 +2815,7 @@ export type FileSystemIconType =
     | 'search'
     | 'folder'
     | 'folder_open'
+    | 'conversations'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
