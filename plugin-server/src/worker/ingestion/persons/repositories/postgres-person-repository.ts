@@ -32,6 +32,7 @@ import {
 } from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
+import { handleBatchUpdateError, prepareBatchUpdateArrays, processBatchUpdateResults } from './batch-update-utils'
 import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
@@ -996,48 +997,14 @@ export class PostgresPersonRepository
     async updatePersonsBatch(
         personUpdates: PersonUpdate[]
     ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
-        const results = new Map<
-            string,
-            { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }
-        >()
-
         if (personUpdates.length === 0) {
-            return results
+            return new Map()
         }
 
-        // Prepare arrays for UNNEST - one array per column we're updating/filtering on
-        const uuids: string[] = []
-        const teamIds: number[] = []
-        const properties: string[] = []
-        const propertiesLastUpdatedAt: string[] = []
-        const propertiesLastOperation: string[] = []
-        const isIdentified: boolean[] = []
-        const createdAt: string[] = []
-
-        for (const update of personUpdates) {
-            uuids.push(update.uuid)
-            teamIds.push(update.team_id)
-
-            // Calculate final properties by applying set and unset operations
-            const finalProperties = { ...update.properties }
-            Object.entries(update.properties_to_set).forEach(([key, value]) => {
-                finalProperties[key] = value
-            })
-            update.properties_to_unset.forEach((key) => {
-                delete finalProperties[key]
-            })
-
-            // sanitizeJsonbValue already returns JSON.stringify(value) for objects, so don't double-stringify
-            properties.push(sanitizeJsonbValue(finalProperties))
-            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
-            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
-            isIdentified.push(update.is_identified)
-            createdAt.push(update.created_at.toISO()!)
-        }
+        const arrays = prepareBatchUpdateArrays(personUpdates)
 
         try {
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
-            // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
             const { rows } = await this.postgres.query<RawPerson>(
                 PostgresUse.PERSONS_WRITE,
                 `
@@ -1060,62 +1027,22 @@ export class PostgresPersonRepository
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
                 RETURNING p.*
                 `,
-                [uuids, teamIds, properties, propertiesLastUpdatedAt, propertiesLastOperation, isIdentified, createdAt],
+                [
+                    arrays.uuids,
+                    arrays.teamIds,
+                    arrays.properties,
+                    arrays.propertiesLastUpdatedAt,
+                    arrays.propertiesLastOperation,
+                    arrays.isIdentified,
+                    arrays.createdAt,
+                ],
                 'updatePersonsBatch'
             )
 
-            // Build a map of uuid -> updated person for quick lookup
-            const updatedPersonsByUuid = new Map<string, InternalPerson>()
-            for (const row of rows) {
-                const person = this.toPerson(row)
-                updatedPersonsByUuid.set(person.uuid, person)
-            }
-
-            // Process results for each input update
-            for (const update of personUpdates) {
-                const updatedPerson = updatedPersonsByUuid.get(update.uuid)
-                if (updatedPerson) {
-                    results.set(update.uuid, {
-                        success: true,
-                        version: updatedPerson.version,
-                        kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                    })
-                } else {
-                    // Person was not found/updated - likely deleted or merged
-                    results.set(update.uuid, {
-                        success: false,
-                        error: new NoRowsUpdatedError(
-                            `Person with uuid="${update.uuid}" and team_id="${update.team_id}" was not updated`
-                        ),
-                    })
-                }
-            }
+            return processBatchUpdateResults(personUpdates, rows, false, this.toPerson.bind(this))
         } catch (error) {
-            // If the batch update fails due to properties size constraint, we need to handle it
-            // For now, mark all as failed - the caller can fall back to individual updates
-            if (this.isPropertiesSizeConstraintViolation(error)) {
-                for (const update of personUpdates) {
-                    results.set(update.uuid, {
-                        success: false,
-                        error: new PersonPropertiesSizeViolationError(
-                            `Batch update failed due to properties size constraint`,
-                            update.team_id,
-                            update.id
-                        ),
-                    })
-                }
-            } else {
-                // For other errors, mark all as failed with the original error
-                for (const update of personUpdates) {
-                    results.set(update.uuid, {
-                        success: false,
-                        error: error instanceof Error ? error : new Error(String(error)),
-                    })
-                }
-            }
+            return handleBatchUpdateError(personUpdates, error, this.isPropertiesSizeConstraintViolation.bind(this))
         }
-
-        return results
     }
 
     /**
@@ -1132,45 +1059,12 @@ export class PostgresPersonRepository
     async updatePersonsBatchAssertVersion(
         personUpdates: PersonUpdate[]
     ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
-        const results = new Map<
-            string,
-            { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }
-        >()
-
         if (personUpdates.length === 0) {
-            return results
+            return new Map()
         }
 
-        // Prepare arrays for UNNEST - one array per column we're updating/filtering on
-        const uuids: string[] = []
-        const teamIds: number[] = []
-        const versions: number[] = []
-        const properties: string[] = []
-        const propertiesLastUpdatedAt: string[] = []
-        const propertiesLastOperation: string[] = []
-        const isIdentified: boolean[] = []
-        const createdAt: string[] = []
-
-        for (const update of personUpdates) {
-            uuids.push(update.uuid)
-            teamIds.push(update.team_id)
-            versions.push(update.version)
-
-            // Calculate final properties by applying set and unset operations
-            const finalProperties = { ...update.properties }
-            Object.entries(update.properties_to_set).forEach(([key, value]) => {
-                finalProperties[key] = value
-            })
-            update.properties_to_unset.forEach((key) => {
-                delete finalProperties[key]
-            })
-
-            properties.push(sanitizeJsonbValue(finalProperties))
-            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
-            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
-            isIdentified.push(update.is_identified)
-            createdAt.push(update.created_at.toISO()!)
-        }
+        const arrays = prepareBatchUpdateArrays(personUpdates)
+        const versions = personUpdates.map((update) => update.version)
 
         try {
             // Use UNNEST with version assertion in WHERE clause
@@ -1201,70 +1095,22 @@ export class PostgresPersonRepository
                 RETURNING p.*
                 `,
                 [
-                    uuids,
-                    teamIds,
+                    arrays.uuids,
+                    arrays.teamIds,
                     versions,
-                    properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    isIdentified,
-                    createdAt,
+                    arrays.properties,
+                    arrays.propertiesLastUpdatedAt,
+                    arrays.propertiesLastOperation,
+                    arrays.isIdentified,
+                    arrays.createdAt,
                 ],
                 'updatePersonsBatchAssertVersion'
             )
 
-            // Build a map of uuid -> updated person for quick lookup
-            const updatedPersonsByUuid = new Map<string, InternalPerson>()
-            for (const row of rows) {
-                const person = this.toPerson(row)
-                updatedPersonsByUuid.set(person.uuid, person)
-            }
-
-            // Process results for each input update
-            for (const update of personUpdates) {
-                const updatedPerson = updatedPersonsByUuid.get(update.uuid)
-                if (updatedPerson) {
-                    results.set(update.uuid, {
-                        success: true,
-                        version: updatedPerson.version,
-                        kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                    })
-                } else {
-                    // Version mismatch - the person's version changed since we read it
-                    results.set(update.uuid, {
-                        success: false,
-                        error: new NoRowsUpdatedError(
-                            `Person with uuid="${update.uuid}" version mismatch (expected ${update.version})`
-                        ),
-                    })
-                }
-            }
+            return processBatchUpdateResults(personUpdates, rows, true, this.toPerson.bind(this))
         } catch (error) {
-            // If the batch update fails due to properties size constraint, mark all as failed
-            // The caller can fall back to individual updates to isolate the problematic person
-            if (this.isPropertiesSizeConstraintViolation(error)) {
-                for (const update of personUpdates) {
-                    results.set(update.uuid, {
-                        success: false,
-                        error: new PersonPropertiesSizeViolationError(
-                            `Batch update failed due to properties size constraint`,
-                            update.team_id,
-                            update.id
-                        ),
-                    })
-                }
-            } else {
-                // For other errors, mark all as failed with the original error
-                for (const update of personUpdates) {
-                    results.set(update.uuid, {
-                        success: false,
-                        error: error instanceof Error ? error : new Error(String(error)),
-                    })
-                }
-            }
+            return handleBatchUpdateError(personUpdates, error, this.isPropertiesSizeConstraintViolation.bind(this))
         }
-
-        return results
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

@@ -82,6 +82,13 @@ export const personOptimisticUpdateConflictsPerBatchCounter = new Counter({
     help: 'Number of optimistic update conflicts per batch',
 })
 
+export const personBatchRetryAttemptsHistogram = new Histogram({
+    name: 'person_batch_retry_attempts',
+    help: 'Number of retry attempts per batch flush in ASSERT_VERSION mode',
+    labelNames: ['outcome'], // outcome: success, fallback
+    buckets: [0, 1, 2, 3, 4, 5], // 0 = no retries needed, up to max retries
+})
+
 // Flush instrumentation metrics
 export const personFlushOperationsCounter = new Counter({
     name: 'person_flush_operations_total',

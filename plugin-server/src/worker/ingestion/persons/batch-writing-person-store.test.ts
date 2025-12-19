@@ -35,7 +35,7 @@ jest.mock('./metrics', () => ({
     personProfileBatchIgnoredPropertiesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personProfileBatchUpdateOutcomeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personPropertyKeyUpdateCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
-    personRetryAttemptsHistogram: { observe: jest.fn() },
+    personBatchRetryAttemptsHistogram: { observe: jest.fn() },
     personWriteMethodAttemptCounter: { inc: jest.fn() },
     personWriteMethodLatencyHistogram: { observe: jest.fn() },
     totalPersonUpdateLatencyPerBatchHistogram: { observe: jest.fn() },
@@ -1306,6 +1306,173 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
                 // Should NOT fall back to individual updates since person doesn't exist
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should update pending updates with new person ID/UUID when merge is detected during batch refresh', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 2,
+                })
+
+                // Original person that will be merged
+                const originalPerson = createPersonWithId('old-id', 'uuid-old', 1)
+                // The person it was merged into (different ID and UUID)
+                const mergedPerson = {
+                    ...originalPerson,
+                    id: 'new-id',
+                    uuid: 'uuid-new',
+                    version: 2,
+                    distinct_id: 'dist1',
+                    team_id: teamId,
+                }
+
+                let batchCallCount = 0
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    batchCallCount++
+                    const results = new Map()
+                    for (const update of updates) {
+                        if (batchCallCount === 1) {
+                            // First call fails with old UUID (simulating a race with merge)
+                            expect(update.uuid).toBe('uuid-old')
+                            expect(update.id).toBe('old-id')
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new Error('Version mismatch'),
+                            })
+                        } else {
+                            // Second call should use the NEW UUID from the merged person
+                            expect(update.uuid).toBe('uuid-new')
+                            expect(update.id).toBe('new-id')
+                            results.set(update.uuid, {
+                                success: true,
+                                version: 3,
+                                kafkaMessage: { topic: 'test', messages: [] },
+                            })
+                        }
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Refresh returns the merged person with NEW ID and UUID
+                mockRepo.fetchPersonsByDistinctIds = jest.fn().mockResolvedValue([mergedPerson])
+
+                // Add the original person to the store
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    originalPerson,
+                    { prop1: 'value1' },
+                    [],
+                    {},
+                    'dist1'
+                )
+
+                // Verify original person is in cache before flush
+                const cachedBeforeFlush = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'dist1')
+                expect(cachedBeforeFlush?.id).toBe('old-id')
+                expect(cachedBeforeFlush?.uuid).toBe('uuid-old')
+
+                await personStore.flush()
+
+                // Verify the batch was called twice
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(2)
+
+                // Verify first call used old UUID, second call used new UUID
+                const firstBatchUpdates = mockRepo.updatePersonsBatchAssertVersion.mock.calls[0][0]
+                expect(firstBatchUpdates[0].uuid).toBe('uuid-old')
+                expect(firstBatchUpdates[0].id).toBe('old-id')
+
+                const secondBatchUpdates = mockRepo.updatePersonsBatchAssertVersion.mock.calls[1][0]
+                expect(secondBatchUpdates[0].uuid).toBe('uuid-new')
+                expect(secondBatchUpdates[0].id).toBe('new-id')
+
+                // No fallback to individual updates needed since batch retry succeeded
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should handle mixed failure modes in single batch (version conflicts, size violations, and successes)', async () => {
+                const mockRepo = createMockRepository()
+                const personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                    maxOptimisticUpdateRetries: 2,
+                })
+
+                const { PersonPropertiesSizeViolationError } = require('./repositories/person-repository')
+
+                const person1 = createPersonWithId('1', 'uuid-1', 1) // Will succeed
+                const person2 = createPersonWithId('2', 'uuid-2', 1) // Will have version conflict
+                const person3 = createPersonWithId('3', 'uuid-3', 1) // Will have size violation
+
+                // Batch returns mixed results: person1 succeeds, person2 version conflict, person3 size violation
+                mockRepo.updatePersonsBatchAssertVersion = jest.fn().mockImplementation((updates) => {
+                    const results = new Map()
+                    for (const update of updates) {
+                        if (update.uuid === 'uuid-1') {
+                            results.set(update.uuid, {
+                                success: true,
+                                version: 2,
+                                kafkaMessage: { topic: 'test', messages: [] },
+                            })
+                        } else if (update.uuid === 'uuid-2') {
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new Error('Version mismatch'),
+                            })
+                        } else {
+                            // Size violation - this should trigger immediate fallback
+                            results.set(update.uuid, {
+                                success: false,
+                                error: new PersonPropertiesSizeViolationError(
+                                    'Size exceeded',
+                                    update.team_id,
+                                    update.id
+                                ),
+                            })
+                        }
+                    }
+                    return Promise.resolve(results)
+                })
+
+                // Mock individual fallback - person2 succeeds, person3 fails with size violation
+                mockRepo.updatePersonAssertVersion = jest.fn().mockImplementation((update) => {
+                    if (update.uuid === 'uuid-2') {
+                        return Promise.resolve([update.version + 1, []])
+                    }
+                    throw new PersonPropertiesSizeViolationError('Size exceeded', update.team_id, update.id)
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person1, { prop1: 'value1' }, [], {}, 'dist1')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { prop2: 'value2' }, [], {}, 'dist2')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person3,
+                    { largeProp: 'x'.repeat(1000) },
+                    [],
+                    {},
+                    'dist3'
+                )
+
+                await personStore.flush()
+
+                // Should only try batch once, then immediately fall back due to size violation
+                expect(mockRepo.updatePersonsBatchAssertVersion).toHaveBeenCalledTimes(1)
+
+                // Should fall back to individual updates for person2 and person3
+                // (person1 succeeded in batch, so it shouldn't be in fallback)
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
+                const individualCalls = mockRepo.updatePersonAssertVersion.mock.calls
+                const individualUuids = individualCalls.map((call: any) => call[0].uuid)
+                expect(individualUuids).toContain('uuid-2')
+                expect(individualUuids).toContain('uuid-3')
+                expect(individualUuids).not.toContain('uuid-1') // person1 succeeded in batch
+
+                // Size violation for person3 should have been captured as ingestion warning
+                expect(captureIngestionWarning).toHaveBeenCalledWith(
+                    db.kafkaProducer,
+                    teamId,
+                    'person_properties_size_violation',
+                    expect.objectContaining({
+                        personId: '3',
+                    })
+                )
             })
         })
 
