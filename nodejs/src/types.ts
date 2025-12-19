@@ -60,6 +60,7 @@ export enum PluginServerMode {
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    recording_api = 'recording-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -544,6 +545,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    recordingApi?: boolean
 }
 
 export type TeamId = Team['id']
