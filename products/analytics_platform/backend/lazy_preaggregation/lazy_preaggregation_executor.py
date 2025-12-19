@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.hogql import ast
@@ -15,6 +16,14 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.models.team import Team
 
 from products.analytics_platform.backend.models import PreaggregationJob
+
+# Default TTL for preaggregated data (how long before ClickHouse deletes it)
+DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+# Buffer time before expiry when we stop using a job.
+# This prevents race conditions where we try to query data that ClickHouse
+# is about to delete or has just deleted.
+EXPIRY_BUFFER_SECONDS = 24 * 60 * 60  # 24 hours
 
 
 @dataclass
@@ -90,7 +99,12 @@ def find_existing_jobs(
     """
     Find all existing preaggregation jobs for the given team and query hash
     that overlap with the requested time range.
+
+    Excludes jobs that are expired or about to expire (within EXPIRY_BUFFER_SECONDS).
     """
+    # Calculate the minimum expires_at we'll accept (now + buffer)
+    min_expires_at = django_timezone.now() + timedelta(seconds=EXPIRY_BUFFER_SECONDS)
+
     return list(
         PreaggregationJob.objects.filter(
             team=team,
@@ -98,7 +112,12 @@ def find_existing_jobs(
             time_range_start__lt=end,
             time_range_end__gt=start,
             status__in=[PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING],
-        ).order_by("time_range_start")
+        )
+        .filter(
+            # Include jobs where expires_at is null (legacy) or far enough in the future
+            Q(expires_at__isnull=True) | Q(expires_at__gte=min_expires_at)
+        )
+        .order_by("time_range_start")
     )
 
 
@@ -206,14 +225,17 @@ def create_preaggregation_job(
     query_hash: str,
     time_range_start: datetime,
     time_range_end: datetime,
+    ttl_seconds: int = DEFAULT_TTL_SECONDS,
 ) -> PreaggregationJob:
-    """Create a new preaggregation job in PENDING status."""
+    """Create a new preaggregation job in PENDING status with expiry time."""
+    expires_at = django_timezone.now() + timedelta(seconds=ttl_seconds)
     return PreaggregationJob.objects.create(
         team=team,
         query_hash=query_hash,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         status=PreaggregationJob.Status.PENDING,
+        expires_at=expires_at,
     )
 
 
@@ -223,12 +245,13 @@ def build_preaggregation_insert_sql(
     select_query: ast.SelectQuery,
     time_range_start: datetime,
     time_range_end: datetime,
+    expires_at: datetime,
 ) -> tuple[str, dict]:
     """
     Build the INSERT ... SELECT SQL for populating preaggregation results.
 
     Takes a SelectQuery AST with 3 expressions (time_window_start, breakdown_value, uniq_exact_state)
-    and prepends team_id and appends job_id, then adds a date range filter to the WHERE clause.
+    and prepends team_id and appends job_id and expires_at, then adds a date range filter to the WHERE clause.
     Returns the full SQL string ready to execute.
     """
     # Deep copy the query to avoid mutating the original
@@ -242,12 +265,19 @@ def build_preaggregation_insert_sql(
     team_id_expr = ast.Alias(alias="team_id", expr=ast.Constant(value=team.id))
     query.select.insert(0, team_id_expr)
 
-    # Append job_id as the last expression
+    # Append job_id
     job_id_expr = ast.Alias(
         alias="job_id",
         expr=ast.Call(name="toUUID", args=[ast.Constant(value=job_id)]),
     )
     query.select.append(job_id_expr)
+
+    # Append expires_at
+    expires_at_expr = ast.Alias(
+        alias="expires_at",
+        expr=ast.Constant(value=expires_at),
+    )
+    query.select.append(expires_at_expr)
 
     # Build the date range filter
     date_range_filter = ast.And(
@@ -284,7 +314,8 @@ def build_preaggregation_insert_sql(
     time_window_start,
     breakdown_value,
     uniq_exact_state,
-    job_id
+    job_id,
+    expires_at
 )
 {select_sql}"""
 
@@ -305,6 +336,7 @@ def run_preaggregation_insert(
         select_query=query_info.query,
         time_range_start=job.time_range_start,
         time_range_end=job.time_range_end,
+        expires_at=job.expires_at,
     )
     sync_execute(insert_sql, values)
 

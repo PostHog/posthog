@@ -23,6 +23,10 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     computed_at = models.DateTimeField(null=True, blank=True)
 
+    # TTL: when the preaggregated data expires in ClickHouse
+    # Jobs with expires_at in the past should not be used
+    expires_at = models.DateTimeField(null=True, blank=True)
+
     # Timestamps (created_at from CreatedMetaFields, created_by also included)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -34,6 +38,7 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
             models.Index(fields=["team", "query_hash"]),
             models.Index(fields=["team", "status"]),
             models.Index(fields=["team", "time_range_start", "time_range_end"]),
+            models.Index(fields=["team", "expires_at"]),
         ]
 
         constraints = [
