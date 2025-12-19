@@ -1,0 +1,181 @@
+# serializer version: 1
+# name: TestRemoteConfig.test_creates_remote_config_immediately
+  dict({
+    'analytics': dict({
+      'endpoint': '/i/v0/e/',
+    }),
+    'autocaptureExceptions': False,
+    'autocapture_opt_out': False,
+    'captureDeadClicks': False,
+    'capturePerformance': dict({
+      'network_timing': True,
+      'web_vitals': False,
+      'web_vitals_allowed_metrics': None,
+    }),
+    'defaultIdentifiedOnly': True,
+    'elementsChainAsString': True,
+    'errorTracking': dict({
+      'autocaptureExceptions': False,
+      'suppressionRules': list([
+      ]),
+    }),
+    'hasFeatureFlags': False,
+    'heatmaps': False,
+    'productTours': False,
+    'sessionRecording': dict({
+      'consoleLogRecordingEnabled': True,
+      'domains': list([
+        'https://*.example.com',
+      ]),
+      'endpoint': '/s/',
+      'eventTriggers': list([
+      ]),
+      'linkedFlag': None,
+      'masking': None,
+      'minimumDurationMilliseconds': None,
+      'networkPayloadCapture': None,
+      'recorderVersion': 'v2',
+      'sampleRate': None,
+      'scriptConfig': None,
+      'triggerMatchType': None,
+      'urlBlocklist': list([
+      ]),
+      'urlTriggers': list([
+      ]),
+    }),
+    'siteApps': list([
+    ]),
+    'siteAppsJS': list([
+    ]),
+    'supportedCompression': list([
+      'gzip',
+      'gzip-js',
+    ]),
+    'surveys': False,
+    'token': 'phc_12345',
+  })
+# ---
+# name: TestRemoteConfigCaching.test_gets_via_redis_cache
+  dict({
+    'analytics': dict({
+      'endpoint': '/i/v0/e/',
+    }),
+    'autocaptureExceptions': False,
+    'autocapture_opt_out': False,
+    'captureDeadClicks': False,
+    'capturePerformance': dict({
+      'network_timing': True,
+      'web_vitals': False,
+      'web_vitals_allowed_metrics': None,
+    }),
+    'defaultIdentifiedOnly': True,
+    'elementsChainAsString': True,
+    'errorTracking': dict({
+      'autocaptureExceptions': False,
+      'suppressionRules': list([
+      ]),
+    }),
+    'hasFeatureFlags': False,
+    'heatmaps': False,
+    'productTours': False,
+    'sessionRecording': dict({
+      'consoleLogRecordingEnabled': True,
+      'endpoint': '/s/',
+      'eventTriggers': list([
+      ]),
+      'linkedFlag': None,
+      'masking': None,
+      'minimumDurationMilliseconds': None,
+      'networkPayloadCapture': None,
+      'recorderVersion': 'v2',
+      'sampleRate': None,
+      'scriptConfig': None,
+      'triggerMatchType': None,
+      'urlBlocklist': list([
+      ]),
+      'urlTriggers': list([
+      ]),
+    }),
+    'siteApps': list([
+    ]),
+    'supportedCompression': list([
+      'gzip',
+      'gzip-js',
+    ]),
+    'surveys': False,
+    'token': 'phc_12345',
+  })
+# ---
+# name: TestRemoteConfigCaching.test_gets_via_redis_cache.1
+  dict({
+    'analytics': dict({
+      'endpoint': '/i/v0/e/',
+    }),
+    'autocaptureExceptions': False,
+    'autocapture_opt_out': False,
+    'captureDeadClicks': False,
+    'capturePerformance': dict({
+      'network_timing': True,
+      'web_vitals': False,
+      'web_vitals_allowed_metrics': None,
+    }),
+    'defaultIdentifiedOnly': True,
+    'elementsChainAsString': True,
+    'errorTracking': dict({
+      'autocaptureExceptions': False,
+      'suppressionRules': list([
+      ]),
+    }),
+    'hasFeatureFlags': False,
+    'heatmaps': False,
+    'productTours': False,
+    'sessionRecording': dict({
+      'consoleLogRecordingEnabled': True,
+      'endpoint': '/s/',
+      'eventTriggers': list([
+      ]),
+      'linkedFlag': None,
+      'masking': None,
+      'minimumDurationMilliseconds': None,
+      'networkPayloadCapture': None,
+      'recorderVersion': 'v2',
+      'sampleRate': None,
+      'scriptConfig': None,
+      'triggerMatchType': None,
+      'urlBlocklist': list([
+      ]),
+      'urlTriggers': list([
+      ]),
+    }),
+    'siteApps': list([
+    ]),
+    'supportedCompression': list([
+      'gzip',
+      'gzip-js',
+    ]),
+    'surveys': False,
+    'token': 'phc_12345',
+  })
+# ---
+# name: TestRemoteConfigJS.test_renders_js_including_config
+  '''
+  (function() {
+    window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
+    window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": null}, "heatmaps": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      siteApps: []
+    }
+  })();
+  '''
+# ---
+# name: TestRemoteConfigJS.test_renders_js_including_site_apps
+  '''
+  (function() {
+    window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
+    window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
+      config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": null}, "heatmaps": false, "surveys": false, "productTours": false, "defaultIdentifiedOnly": true},
+      siteApps: []
+    }
+  })();
+  '''
+# ---
