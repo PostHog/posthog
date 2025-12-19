@@ -640,6 +640,9 @@ describe('hog flow processing', () => {
                 'workflow_destinations_dispatched'
             )
 
+            // Flush metrics
+            await processor['hogFunctionMonitoringService'].flush()
+
             // Should have queued a quota limited metric
             const producedMetrics =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
@@ -647,6 +650,7 @@ describe('hog flow processing', () => {
                 expect.arrayContaining([
                     expect.objectContaining({
                         value: expect.objectContaining({
+                            app_source: 'hog_flow',
                             app_source_id: hogFlow.id,
                             metric_kind: 'failure',
                             metric_name: 'quota_limited',
