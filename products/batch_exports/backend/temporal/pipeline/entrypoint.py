@@ -36,6 +36,7 @@ class _BatchExportInputsProtocol(typing.Protocol):
     is_backfill: bool = False
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
+    stage_folder: str | None = None
 
 
 class _ComposedBatchExportInputsProtocol(typing.Protocol):
@@ -133,7 +134,7 @@ async def execute_batch_export_using_internal_stage(
         raise ValueError(f"Unsupported interval: '{interval}'")
 
     try:
-        await workflow.execute_activity(
+        stage_folder = await workflow.execute_activity(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=batch_export_inputs.team_id,
@@ -159,7 +160,7 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=["InvalidFilterError"],
             ),
         )
-
+        batch_export_inputs.stage_folder = stage_folder
         result = await workflow.execute_activity(
             activity,
             inputs,

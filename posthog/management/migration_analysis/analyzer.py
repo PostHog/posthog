@@ -245,10 +245,28 @@ class RiskAnalyzer:
 
         ddl_refs = categorizer.format_operation_refs(categorizer.ddl_ops)
 
+        # Specific: DDL + DML
+        if categorizer.has_dml:
+            dml_refs = categorizer.format_operation_refs(categorizer.dml_ops)
+            return [
+                f"❌ BLOCKED: {ddl_refs} mixed with {dml_refs}    "
+                "Schema changes (ALTER TABLE) and data changes (UPDATE/DELETE) should be in separate migrations. "
+                "Both can use atomic=True (default) for rollback safety."
+            ]
+
+        # Specific: DDL + schema operations
+        if categorizer.has_schema_changes:
+            schema_refs = categorizer.format_operation_refs(categorizer.schema_ops)
+            return [
+                f"❌ BLOCKED: {ddl_refs} mixed with {schema_refs}    "
+                "RunSQL DDL and Django schema operations should be in separate migrations. "
+                "Both can use atomic=True (default) for rollback safety."
+            ]
+
+        # Generic fallback
         return [
             f"❌ BLOCKED: {ddl_refs} mixed with other operations    "
-            "RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
-            "to avoid lock conflicts."
+            "Consider splitting into separate migrations for rollback safety."
         ]
 
     def _check_multiple_high_risk_ops(self, categorizer: OperationCategorizer) -> list[str]:

@@ -64,6 +64,7 @@ import { EvaluationStats, evaluationMetricsLogic } from './evaluations/evaluatio
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
@@ -311,6 +312,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             )
                         },
                     },
+                    person: llmAnalyticsColumnRenderers.person,
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },

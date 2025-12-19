@@ -52,6 +52,11 @@ export const HogFlowSchema = z.object({
     created_at: z.string(),
 })
 
+export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({
+    image_url: z.string().optional().nullable(),
+    scope: z.enum(['team', 'global']).optional().nullable(),
+})
+
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
@@ -67,4 +72,8 @@ export type DropzoneNode = Node<{ edge: Edge; isBranchJoinDropzone?: boolean }>
 
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
+}
+
+export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {
+    created_by?: UserBasicType | null
 }

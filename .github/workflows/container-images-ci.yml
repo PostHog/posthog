@@ -57,6 +57,11 @@ jobs:
     deploy_preview:
         name: Deploy preview environment
         uses: ./.github/workflows/pr-preview-deploy.yml
+        # these permissions are required by pr-preview-deploy.yml
+        permissions:
+            id-token: write
+            contents: read
+            deployments: write
         needs: [posthog_build, changes]
         secrets: inherit
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}

@@ -6,8 +6,6 @@ import pytest
 
 from django.test import TestCase
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -61,8 +59,8 @@ class TestSiteFunctions(TestCase):
         assert isinstance(result, str)
         assert 'console.log("Hello, World!")' in result
 
-        # NOTE: We do one inlne snapshot here so we can have an easy glance at what it generally looks like - all other tests we should just check specific parts
-        assert result == snapshot(
+        # NOTE: We have this big equality check so we can have an easy glance at what it generally looks like - all other tests we should just check specific parts
+        assert result == (
             """\
 (function() {
 
