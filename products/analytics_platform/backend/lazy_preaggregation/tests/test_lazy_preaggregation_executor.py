@@ -761,34 +761,21 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
 
 
 class TestBuildManualInsertSQL(BaseTest):
-    def _make_manual_insert_query(self) -> ast.SelectQuery:
-        """Create a manual preaggregation insert query (without team_id/job_id which are added automatically)."""
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias="time_window_start",
-                    expr=ast.Call(name="toStartOfDay", args=[ast.Field(chain=["timestamp"])]),
-                ),
-                ast.Alias(alias="expires_at", expr=ast.Call(name="now", args=[])),
-                ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=[])),
-                ast.Alias(
-                    alias="uniq_exact_state",
-                    expr=ast.Call(name="uniqExactState", args=[ast.Field(chain=["person_id"])]),
-                ),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value="$pageview"),
-            ),
-            group_by=[ast.Field(chain=["time_window_start"])],
-        )
+    MANUAL_INSERT_QUERY = """
+        SELECT
+            toStartOfDay(timestamp) as time_window_start,
+            now() as expires_at,
+            [] as breakdown_value,
+            uniqExactState(person_id) as uniq_exact_state
+        FROM events
+        WHERE event = '$pageview'
+            AND timestamp >= {time_window_min}
+            AND timestamp < {time_window_max}
+        GROUP BY time_window_start
+    """
 
     def test_adds_job_id_column(self):
         """Test that _build_manual_insert_sql adds job_id as second column."""
-        query = self._make_manual_insert_query()
-
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
@@ -800,7 +787,7 @@ class TestBuildManualInsertSQL(BaseTest):
         sql, values = _build_manual_insert_sql(
             team=self.team,
             job=job,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             table="preaggregation_results",
         )
 
@@ -811,10 +798,8 @@ class TestBuildManualInsertSQL(BaseTest):
         assert sql.index("team_id") < sql.index("job_id")
         assert sql.index("job_id") < sql.index("time_window_start")
 
-    def test_adds_time_range_filter(self):
-        """Test that _build_manual_insert_sql adds time range filter."""
-        query = self._make_manual_insert_query()
-
+    def test_substitutes_time_placeholders(self):
+        """Test that _build_manual_insert_sql substitutes time placeholders."""
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
@@ -826,20 +811,16 @@ class TestBuildManualInsertSQL(BaseTest):
         sql, values = _build_manual_insert_sql(
             team=self.team,
             job=job,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             table="preaggregation_results",
         )
 
-        # Should contain timestamp filter
+        # Should contain the job's time range values
         assert "2024-01-01" in sql
         assert "2024-01-02" in sql
 
-    def test_does_not_mutate_original_query(self):
-        """Test that the original query is not mutated."""
-        query = self._make_manual_insert_query()
-        original_select_len = len(query.select)
-        original_where = query.where
-
+    def test_accepts_custom_placeholders(self):
+        """Test that _build_manual_insert_sql accepts custom placeholders."""
         job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash="test_hash",
@@ -848,49 +829,50 @@ class TestBuildManualInsertSQL(BaseTest):
             status=PreaggregationJob.Status.PENDING,
         )
 
-        _build_manual_insert_sql(
+        query_with_custom = """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                now() as expires_at,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = {event_name}
+                AND timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+            GROUP BY time_window_start
+        """
+
+        sql, values = _build_manual_insert_sql(
             team=self.team,
             job=job,
-            insert_query=query,
+            insert_query=query_with_custom,
             table="preaggregation_results",
+            base_placeholders={"event_name": ast.Constant(value="$pageleave")},
         )
 
-        assert len(query.select) == original_select_len
-        assert query.where == original_where
+        # The placeholder value should be in the parameterized values
+        assert "$pageleave" in values.values()
 
 
 class TestEnsurePreaggregated(BaseTest):
-    def _make_manual_insert_query(self) -> ast.SelectQuery:
-        """Create a manual preaggregation insert query (without team_id/job_id which are added automatically)."""
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(
-                    alias="time_window_start",
-                    expr=ast.Call(name="toStartOfDay", args=[ast.Field(chain=["timestamp"])]),
-                ),
-                ast.Alias(alias="expires_at", expr=ast.Call(name="now", args=[])),
-                ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=[])),
-                ast.Alias(
-                    alias="uniq_exact_state",
-                    expr=ast.Call(name="uniqExactState", args=[ast.Field(chain=["person_id"])]),
-                ),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value="$pageview"),
-            ),
-            group_by=[ast.Field(chain=["time_window_start"])],
-        )
+    MANUAL_INSERT_QUERY = """
+        SELECT
+            toStartOfDay(timestamp) as time_window_start,
+            now() as expires_at,
+            [] as breakdown_value,
+            uniqExactState(person_id) as uniq_exact_state
+        FROM events
+        WHERE event = '$pageview'
+            AND timestamp >= {time_window_min}
+            AND timestamp < {time_window_max}
+        GROUP BY time_window_start
+    """
 
     def test_creates_job_and_returns_job_ids(self):
         """Test that ensure_preaggregated creates jobs and returns job IDs."""
-        query = self._make_manual_insert_query()
-
         result = ensure_preaggregated(
             team=self.team,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -905,12 +887,10 @@ class TestEnsurePreaggregated(BaseTest):
 
     def test_reuses_existing_jobs(self):
         """Test that ensure_preaggregated reuses existing READY jobs."""
-        query = self._make_manual_insert_query()
-
         # First call
         first_result = ensure_preaggregated(
             team=self.team,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -919,7 +899,7 @@ class TestEnsurePreaggregated(BaseTest):
         # Second call with same parameters
         second_result = ensure_preaggregated(
             team=self.team,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -930,12 +910,10 @@ class TestEnsurePreaggregated(BaseTest):
 
     def test_creates_jobs_for_missing_ranges(self):
         """Test that ensure_preaggregated creates jobs only for missing time ranges."""
-        query = self._make_manual_insert_query()
-
         # Create job for Jan 1 only
         first_result = ensure_preaggregated(
             team=self.team,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -944,7 +922,7 @@ class TestEnsurePreaggregated(BaseTest):
         # Request Jan 1-3 (Jan 1 exists, Jan 2 missing)
         second_result = ensure_preaggregated(
             team=self.team,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
         )
@@ -955,11 +933,9 @@ class TestEnsurePreaggregated(BaseTest):
 
     def test_respects_custom_ttl(self):
         """Test that ensure_preaggregated respects the ttl_seconds parameter."""
-        query = self._make_manual_insert_query()
-
         result = ensure_preaggregated(
             team=self.team,
-            insert_query=query,
+            insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             ttl_seconds=60 * 60,  # 1 hour
@@ -974,3 +950,48 @@ class TestEnsurePreaggregated(BaseTest):
         expected_expiry = django_timezone.now()
         time_diff = (job.expires_at - expected_expiry).total_seconds()
         assert 3500 < time_diff < 3700  # 1 hour +/- 100 seconds
+
+    def test_accepts_custom_placeholders(self):
+        """Test that ensure_preaggregated accepts custom placeholders."""
+        query_with_placeholder = """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                now() as expires_at,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = {event_name}
+                AND timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+            GROUP BY time_window_start
+        """
+
+        result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query_with_placeholder,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"event_name": ast.Constant(value="$pageleave")},
+        )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+
+    @parameterized.expand(
+        [
+            ("time_window_min",),
+            ("time_window_max",),
+        ]
+    )
+    def test_rejects_reserved_placeholder_names(self, reserved_name):
+        """Test that ensure_preaggregated rejects reserved placeholder names."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Cannot use reserved placeholder names"):
+            ensure_preaggregated(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                placeholders={reserved_name: ast.Constant(value="should_fail")},
+            )

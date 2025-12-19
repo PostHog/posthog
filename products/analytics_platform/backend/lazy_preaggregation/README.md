@@ -5,7 +5,7 @@ Lazy preaggregation speeds up queries by saving and reusing intermediate aggrega
 
 ## How it works
 
-There's 2 ways that this can work
+There are two ways that this can work:
 
 * Automatically transforming HogQL queries
 * Manual API for query runners to consume
@@ -42,65 +42,57 @@ GROUP BY time_window_start
 
 ### Manual API
 
-Let's say that you are writing a query runner for e.g. web analytics, and you want to preaggregate a specific set of data which is too complex
-to automatically transform, you can provide the transformed query to the executor and have it run the necessary INSERTs to cover the time range.
+If you are writing a query runner (e.g., for web analytics) and want to preaggregate a specific set of data which is too complex to automatically transform, you can provide the query string to the executor and have it run the necessary INSERTs to cover the time range.
+
+The query must use `{time_window_min}` and `{time_window_max}` placeholders - these are automatically substituted with the correct time range for each job.
 
 ```python
+from datetime import datetime
+from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import ensure_preaggregated
 
-# ensure that the given query is preaggregated 
-preagg_result = executor.ensure_preaggregated(parse_select("""
-SELECT
-    toStartOfHour(session_start) as time_window_start,
-    count() as num_sessions,
-    sum(pageview_count) as pageview_count,
-    uniqState(person_id) as num_persons,
-    avgState(session_duration) as avg_duration,
-    avgState(is_bounce) as bounce_rate
-    FROM (
-        SELECT 
-        any(session.$start_timestamp) as session_start,
-        any(person_id) as person_id,
-        any(duration) as session_duration,
-        any(session.$is_bounce) as is_bounce
+# Ensure that the given query is preaggregated
+preagg_result = ensure_preaggregated(
+    team=self.team,
+    insert_query="""
+        SELECT
+            toStartOfHour(timestamp) as time_window_start,
+            now() + INTERVAL 1 DAY as expires_at,
+            [] as breakdown_value,
+            uniqExactState(person_id) as uniq_exact_state
         FROM events
-        WHERE and(
-            timestamp >= {time_window_min},
-            timestamp <= dateAdd({time_window_max}, toIntervalDay(1)),
-            session.$start_timestamp >= {time_window_min},
-            session.$start_timestamp <= {time_window_max},
-            {internal_test_user_filters}
-        )
-    )
-    GROUP BY time_window_start
-    HAVING and(time_window_start >= {time_window_min}, time_window_start <={time_window_max})
-"""),
-    time_window_min="2025-12-18",
-    time_window_max="2025-12-25",
-    ttl_seconds = 24 * 60 * 60,
-    preagg_table = "web_preagg", # different teams might want to add their own table design
-    placeholders = {"internal_test_user_filters": _get_filters(self.team)} # time_window_min and time_window_max are added automatically
+        WHERE event = '$pageview'
+            AND timestamp >= {time_window_min}
+            AND timestamp < {time_window_max}
+        GROUP BY time_window_start
+    """,
+    time_range_start=datetime(2025, 12, 18),
+    time_range_end=datetime(2025, 12, 25),
+    ttl_seconds=24 * 60 * 60,
+    table="preaggregation_results",
+    # Custom placeholders can be passed too
+    placeholders={"some_filter": ast.Constant(value="filter_value")},
 )
 
-# then you can query from this table directly
-query = parse_select('''
-select
-    avgMerge(bounce_rate),
-    toStartOfDay(time_window_start) as day
-FROM web_preagg
-WHERE and(
-    time_window_start >= {time_window_min},
-    time_window_start <= {time_window_max},
-    in(job_id, {job_ids})
+# Then query from this table directly using the job_ids
+# Note: You still need to filter by time range since jobs may cover a wider period
+# e.g., job covers all of January but you only want the first week
+query = parse_select(
+    """
+    SELECT
+        uniqExactMerge(uniq_exact_state) as unique_users,
+        toStartOfDay(time_window_start) as day
+    FROM preaggregation_results
+    WHERE job_id IN {job_ids}
+        AND time_window_start >= {time_start}
+        AND time_window_start < {time_end}
+    GROUP BY day
+    """,
+    placeholders={
+        "job_ids": ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in preagg_result.job_ids]),
+        "time_start": ast.Constant(value=datetime(2025, 12, 18)),
+        "time_end": ast.Constant(value=datetime(2025, 12, 25)),
+    },
 )
-GROUP BY day
-''',
-    placeholders = {
-        "job_ids": preagg_result.job_ids,
-        "time_window_min": "2025-12-18",
-        "time_window_max": "2025-12-25"
-    }
-)
-
 ```
 
 ## Limitations
@@ -108,4 +100,4 @@ GROUP BY day
 * Automatic transformation only supports very specific query patterns
 * Person merges and late-arriving events can cause stale data
 * Running the executor and then reading back the results takes about 30% longer than just reading results
-* Storing intermediate results take space, we can't just YOLO this
+* Storing intermediate results takes space, we can't just YOLO this

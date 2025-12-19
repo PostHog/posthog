@@ -10,6 +10,7 @@ from django.utils import timezone as django_timezone
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
@@ -409,11 +410,12 @@ def execute_preaggregation_jobs(
 
 def ensure_preaggregated(
     team: Team,
-    insert_query: ast.SelectQuery,
+    insert_query: str,
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
     table: str = "preaggregation_results",
+    placeholders: dict[str, ast.Expr] | None = None,
 ) -> PreaggregationResult:
     """
     Ensure preaggregated data exists for the given query and time range.
@@ -426,19 +428,27 @@ def ensure_preaggregated(
     - team_id: Added as the first column
     - job_id: Added as the second column
 
-    The query should include (in order):
+    The following placeholders are added automatically per-job:
+    - {time_window_min}: Start of the job's time window (datetime)
+    - {time_window_max}: End of the job's time window (datetime)
+
+    Your query MUST use these placeholders to filter data to the correct time range.
+
+    The query should include (in order after auto-added columns):
     - time_window_start: The time bucket (e.g., toStartOfDay(timestamp))
     - expires_at: When the data expires (use a constant or expression)
     - ... additional columns as needed by the table schema
 
     Args:
         team: The team to create preaggregation for
-        insert_query: A SELECT query that produces columns for the target table.
-                      Should NOT include team_id or job_id - these are added automatically.
-        time_range_start: Start of the time range (inclusive)
-        time_range_end: End of the time range (exclusive)
+        insert_query: A SELECT query string with placeholders. Use {time_window_min}
+                      and {time_window_max} for time filtering.
+        time_range_start: Start of the overall time range (inclusive)
+        time_range_end: End of the overall time range (exclusive)
         ttl_seconds: How long before the data expires (default 7 days)
         table: The target preaggregation table (default "preaggregation_results")
+        placeholders: Additional placeholder values to substitute into the query.
+                      time_window_min and time_window_max are added automatically.
 
     Returns:
         PreaggregationResult with job_ids that can be used to query the data
@@ -446,15 +456,47 @@ def ensure_preaggregated(
     Example:
         result = ensure_preaggregated(
             team=team,
-            insert_query=my_select_query,  # SELECT time_window_start, expires_at, ...
+            insert_query=\"\"\"
+                SELECT
+                    toStartOfDay(timestamp) as time_window_start,
+                    now() + INTERVAL 7 DAY as expires_at,
+                    [] as breakdown_value,
+                    uniqExactState(person_id) as uniq_exact_state
+                FROM events
+                WHERE event = '$pageview'
+                    AND timestamp >= {time_window_min}
+                    AND timestamp < {time_window_max}
+                GROUP BY time_window_start
+            \"\"\",
             time_range_start=datetime(2024, 1, 1),
             time_range_end=datetime(2024, 1, 8),
         )
         # Use result.job_ids to query from preaggregation_results
     """
+    base_placeholders = placeholders or {}
+
+    # Validate that reserved placeholders are not provided
+    reserved_placeholders = {"time_window_min", "time_window_max"}
+    conflicting = reserved_placeholders & set(base_placeholders.keys())
+    if conflicting:
+        raise ValueError(
+            f"Cannot use reserved placeholder names: {conflicting}. "
+            "time_window_min and time_window_max are automatically added per-job."
+        )
+
+    # Parse the query template (without time placeholders) for hashing
+    # We use sentinel values that will produce a stable hash
+    hash_placeholders = {
+        **base_placeholders,
+        "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+        "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+    }
+    parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
+    assert isinstance(parsed_for_hash, ast.SelectQuery)
+
     # Create QueryInfo for hashing (timezone from team)
     query_info = QueryInfo(
-        query=insert_query,
+        query=parsed_for_hash,
         table=table,  # type: ignore
         timezone=team.timezone,
     )
@@ -483,12 +525,13 @@ def ensure_preaggregated(
         try:
             new_job = create_preaggregation_job(team, query_hash, range_start, range_end, ttl_seconds=ttl_seconds)
 
-            # Build and execute the INSERT query
+            # Build and execute the INSERT query with job-specific time placeholders
             insert_sql, values = _build_manual_insert_sql(
                 team=team,
                 job=new_job,
                 insert_query=insert_query,
                 table=table,
+                base_placeholders=base_placeholders,
             )
             sync_execute(insert_sql, values)
 
@@ -512,16 +555,42 @@ def ensure_preaggregated(
 def _build_manual_insert_sql(
     team: Team,
     job: PreaggregationJob,
-    insert_query: ast.SelectQuery,
+    insert_query: str,
     table: str,
+    base_placeholders: dict[str, ast.Expr] | None = None,
 ) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual preaggregation.
 
-    Adds team_id and job_id to the query's SELECT list and applies time range filter.
-    """
-    query = copy.deepcopy(insert_query)
+    Parses the query string with time placeholders for the job's time range,
+    then adds team_id and job_id to the SELECT list.
 
+    The query should use {time_window_min} and {time_window_max} placeholders
+    for time filtering - these are substituted with the job's time range.
+    """
+    # Validate that reserved placeholders are not provided
+    if base_placeholders:
+        reserved_placeholders = {"time_window_min", "time_window_max"}
+        conflicting = reserved_placeholders & set(base_placeholders.keys())
+        if conflicting:
+            raise ValueError(
+                f"Cannot use reserved placeholder names: {conflicting}. "
+                "time_window_min and time_window_max are automatically added per-job."
+            )
+
+    # Build placeholders with job-specific time values
+    all_placeholders = {
+        **(base_placeholders or {}),
+        "time_window_min": ast.Constant(value=job.time_range_start),
+        "time_window_max": ast.Constant(value=job.time_range_end),
+    }
+
+    # Parse the query with all placeholders
+    parsed = parse_select(insert_query, placeholders=all_placeholders)
+    assert isinstance(parsed, ast.SelectQuery)
+
+    # Deep copy to avoid issues
+    query = copy.deepcopy(parsed)
     assert query.select is not None, "SelectQuery must have select expressions"
 
     # Add team_id as the first column
@@ -534,28 +603,6 @@ def _build_manual_insert_sql(
         expr=ast.Call(name="toUUID", args=[ast.Constant(value=str(job.id))]),
     )
     query.select.insert(1, job_id_expr)
-
-    # Build time range filter
-    time_range_filter = ast.And(
-        exprs=[
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=job.time_range_start),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=job.time_range_end),
-            ),
-        ]
-    )
-
-    # Add time range filter to WHERE clause
-    if query.where is not None:
-        query.where = ast.And(exprs=[query.where, time_range_filter])
-    else:
-        query.where = time_range_filter
 
     # Print to SQL
     context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
