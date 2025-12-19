@@ -1615,6 +1615,7 @@ class FileSystemIconType(StrEnum):
     SEARCH = "search"
     FOLDER = "folder"
     FOLDER_OPEN = "folder_open"
+    CONVERSATIONS = "conversations"
 
 
 class FileSystemViewLogEntry(BaseModel):

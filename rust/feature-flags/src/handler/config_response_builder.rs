@@ -120,12 +120,26 @@ async fn apply_config_fields(
 
     // Handle conversations widget config (domains returned for SDK-side filtering)
     response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
-        let settings = team.conversations_settings.as_ref().map(|s| s.0.clone()).unwrap_or_default();
-        let widget_enabled = settings.get("widget_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-        let greeting_text = settings.get("widget_greeting_text").and_then(|v| v.as_str()).unwrap_or("Hey, how can I help you today?");
-        let color = settings.get("widget_color").and_then(|v| v.as_str()).unwrap_or("#1d4aff");
+        let settings = team
+            .conversations_settings
+            .as_ref()
+            .map(|s| s.0.clone())
+            .unwrap_or_default();
+        let widget_enabled = settings
+            .get("widget_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let greeting_text = settings
+            .get("widget_greeting_text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Hey, how can I help you today?");
+        let color = settings
+            .get("widget_color")
+            .and_then(|v| v.as_str())
+            .unwrap_or("#1d4aff");
         let token = settings.get("widget_public_token").and_then(|v| v.as_str());
-        let domains: Vec<&str> = settings.get("widget_domains")
+        let domains: Vec<&str> = settings
+            .get("widget_domains")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|d| d.as_str()).collect())
             .unwrap_or_default();
