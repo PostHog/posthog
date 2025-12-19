@@ -186,7 +186,7 @@ frontend/src/scenes/onboarding/ @PostHog/team-growth
 frontend/src/layout/navigation-3000/sidepanel/panels/_SdkDoctor_ @PostHog/team-growth
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
-.dependabot.yml @PostHog/team-devex
+.github/dependabot.yml @PostHog/team-devex
 Dockerfile @PostHog/team-devex
 docker-compose\*.yml @PostHog/team-devex
 pyproject.toml @PostHog/team-devex
