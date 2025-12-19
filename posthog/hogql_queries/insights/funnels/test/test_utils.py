@@ -1,14 +1,10 @@
-from typing import Any
-
 from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clone_expr
 
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.insights.funnels.utils import alias_columns_in_select
-from posthog.models.team.team import Team
 
 
 class TestUtils(SimpleTestCase):
@@ -33,23 +29,3 @@ class TestUtils(SimpleTestCase):
         )
         assert result[2] == ast.Alias(alias="step_0", expr=ast.Field(chain=["my_table", "step_0"]))
         assert result[3] == ast.Alias(alias="step_1", expr=ast.Field(chain=["my_table", "step_1"]))
-
-
-class PseudoFunnelActors:
-    def __init__(self, person_filter: Any, team: Team):
-        self.filters = person_filter._data
-        self.team = team
-
-    def get_actors(self):
-        actors = get_actors(
-            self.filters,
-            self.team,
-            funnel_step=self.filters.get("funnel_step"),
-            funnel_step_breakdown=self.filters.get("funnel_step_breakdown"),
-        )
-
-        return (
-            None,
-            [{"id": actor[0]} for actor in actors],
-            None,
-        )
