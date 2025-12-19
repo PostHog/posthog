@@ -43,8 +43,12 @@ func DownloadGeoIP() error {
 		return fmt.Errorf("failed to write GeoIP metadata: %w", err)
 	}
 
-	os.Chmod(mmdbFile, 0644)
-	os.Chmod(jsonFile, 0644)
+	if err := os.Chmod(mmdbFile, 0644); err != nil {
+		return fmt.Errorf("failed to set permissions on GeoIP database: %w", err)
+	}
+	if err := os.Chmod(jsonFile, 0644); err != nil {
+		return fmt.Errorf("failed to set permissions on GeoIP metadata: %w", err)
+	}
 
 	return nil
 }
