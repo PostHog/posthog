@@ -37,7 +37,7 @@ jobs:
                   git fetch origin ${{ github.event.pull_request.base.sha }}
 
             - name: Setup Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: '20'
 

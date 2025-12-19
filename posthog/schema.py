@@ -5537,6 +5537,10 @@ class SavedInsightNode(BaseModel):
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
     )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
+    )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showFilters: bool | None = None
     showHeader: bool | None = None
@@ -16114,6 +16118,7 @@ class SessionBatchEventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -16238,6 +16243,7 @@ class EventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -16374,6 +16380,10 @@ class DataTableNode(BaseModel):
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
     )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showHogQLEditor: bool | None = Field(default=None, description="Include a HogQL query editor above HogQL tables")

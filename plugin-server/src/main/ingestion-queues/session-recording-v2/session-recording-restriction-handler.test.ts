@@ -80,8 +80,14 @@ describe('SessionRecordingRestrictionHandler', () => {
 
             expect(result).toEqual(messages)
             expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                token: 'token-1',
                 distinct_id: 'user-1',
                 session_id: undefined,
+                timestamp: undefined,
+                event: undefined,
+                uuid: undefined,
+                force_disable_person_processing: false,
+                historical_migration: false,
             })
             expect(SessionRecordingIngesterMetrics.observeDroppedByRestrictions).not.toHaveBeenCalled()
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
@@ -290,8 +296,14 @@ describe('SessionRecordingRestrictionHandler', () => {
 
             expect(result).toEqual(messages)
             expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                token: 'token-1',
                 distinct_id: 'user-1',
                 session_id: 'session-123',
+                timestamp: undefined,
+                event: undefined,
+                uuid: undefined,
+                force_disable_person_processing: false,
+                historical_migration: false,
             })
         })
 
@@ -349,8 +361,42 @@ describe('SessionRecordingRestrictionHandler', () => {
 
             expect(result).toEqual(messages)
             expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                token: 'token-1',
                 distinct_id: undefined,
                 session_id: 'session-123',
+                timestamp: undefined,
+                event: undefined,
+                uuid: undefined,
+                force_disable_person_processing: false,
+                historical_migration: false,
+            })
+        })
+
+        it('passes event name and uuid to restriction manager when present in headers', () => {
+            const messages: Message[] = [
+                createMessage({
+                    headers: [
+                        { token: 'token-1' },
+                        { distinct_id: 'user-1' },
+                        { session_id: 'session-123' },
+                        { event: '$snapshot' },
+                        { uuid: 'event-uuid-456' },
+                    ],
+                }),
+            ]
+
+            const result = handler.applyRestrictions(messages)
+
+            expect(result).toEqual(messages)
+            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                token: 'token-1',
+                distinct_id: 'user-1',
+                session_id: 'session-123',
+                timestamp: undefined,
+                event: '$snapshot',
+                uuid: 'event-uuid-456',
+                force_disable_person_processing: false,
+                historical_migration: false,
             })
         })
 
