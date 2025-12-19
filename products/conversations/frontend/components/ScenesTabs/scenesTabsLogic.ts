@@ -3,8 +3,8 @@ import { router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { scenesTabsLogicType } from './scenesTabsLogicType'
 import type { SceneTabKey } from '../../types'
+import type { scenesTabsLogicType } from './scenesTabsLogicType'
 
 export type SceneTabConfig = {
     key: SceneTabKey
