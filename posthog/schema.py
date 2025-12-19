@@ -17243,6 +17243,7 @@ class VisualizationArtifactContent(BaseModel):
     )
     description: str | None = None
     name: str | None = None
+    plan: str | None = None
     query: (
         AssistantTrendsQuery
         | AssistantFunnelsQuery

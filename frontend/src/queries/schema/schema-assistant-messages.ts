@@ -277,6 +277,7 @@ export interface VisualizationArtifactContent {
     query: AnyAssistantGeneratedQuery | AssistantQuerySchema
     name?: string | null
     description?: string | null
+    plan?: string | null
 }
 
 export interface NotebookArtifactContent {
