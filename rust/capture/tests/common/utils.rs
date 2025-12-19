@@ -84,6 +84,12 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_s3_bucket: None,
+    ai_s3_prefix: "llma/".to_string(),
+    ai_s3_endpoint: None,
+    ai_s3_region: "us-east-1".to_string(),
+    ai_s3_access_key_id: None,
+    ai_s3_secret_access_key: None,
     request_timeout_seconds: Some(10),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     continuous_profiling: ContinuousProfilingConfig {

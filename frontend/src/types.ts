@@ -350,7 +350,7 @@ export interface UserType extends UserBaseType {
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
-    role_at_organization?: string
+    role_at_organization?: UserRole | null
 }
 
 export type HedgehogColorOptions =
@@ -739,7 +739,14 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
+export type ToolbarUserIntent =
+    | 'add-action'
+    | 'edit-action'
+    | 'heatmaps'
+    | 'add-experiment'
+    | 'edit-experiment'
+    | 'add-product-tour'
+    | 'edit-product-tour'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -759,6 +766,7 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     toolbarFlagsKey?: string
+    productTourId?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -3286,14 +3294,30 @@ export interface StepOrderVersion {
     created_at: string
 }
 
+export interface ProductTourDisplayConditions {
+    url?: string
+    urlMatchType?: SurveyMatchType
+    selector?: string
+    autoShowDelaySeconds?: number
+    actions?: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events?: {
+        repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    cancelEvents?: {
+        values: SurveyEventsWithProperties[]
+    } | null
+}
+
 export interface ProductTourContent {
     steps: ProductTourStep[]
     appearance?: Record<string, any>
-    conditions?: {
-        url?: string
-        urlMatchType?: SurveyMatchType
-        selector?: string
-    }
+    conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
 }
