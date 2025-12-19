@@ -46,7 +46,6 @@ from posthog.temporal.ai.session_summary.types.video import VideoSegmentSpec, Vi
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
-from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_SYNC_MODEL,
@@ -120,7 +119,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
             f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
             extra={"session_id": inputs.session_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
         )
-        raise ExceptionToRetry()
+        return None
     input_data = prepare_single_session_summary_input(
         session_id=inputs.session_id,
         user_id=inputs.user_id,
@@ -237,7 +236,7 @@ async def get_llm_single_session_summary_activity(
     await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
         inputs, session_summary, llm_input
     )
-    # Returning nothing as the data is stored in Redis
+    # Returning nothing as output is stored in Redis + Postgres
     return None
 
 
@@ -381,30 +380,21 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        if inputs.video_validation_enabled == "full":
-            # Full video-based summarization: analyze video directly with Gemini
-            await self._run_video_based_summarization(inputs)
-        else:
-            # Generate a summary using LLM based on events
+        # Generate session summary
+        await ensure_llm_single_session_summary(inputs)
+        # Validate session summary with videos and apply updates
+        if inputs.video_validation_enabled and inputs.video_validation_enabled != "full":
             await temporalio.workflow.execute_activity(
-                get_llm_single_session_summary_activity,
+                validate_llm_single_session_summary_with_videos_activity,
                 inputs,
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            # Validate session summary with videos and apply updates
-            if inputs.video_validation_enabled:
-                await temporalio.workflow.execute_activity(
-                    validate_llm_single_session_summary_with_videos_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
 
-    async def _run_video_based_summarization(self, inputs: SingleSessionSummaryInputs) -> None:
-        """Execute video-based summarization activities.
-        Uploads the full video once to Gemini, then analyzes segments in parallel.
-        """
+
+async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
+    if inputs.video_validation_enabled == "full":
+        # Full video-based summarization: analyze video directly with Gemini
         retry_policy = RetryPolicy(maximum_attempts=3)
         trace_id = temporalio.workflow.info().workflow_id
 
@@ -501,6 +491,13 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             args=(video_inputs, consolidated_analysis),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
+        )
+    else:
+        await temporalio.workflow.execute_activity(
+            get_llm_single_session_summary_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
 
