@@ -328,7 +328,9 @@ class TestTaskAPI(BaseTaskAPITest):
 
         url = "/api/projects/@current/tasks/"
         if filter_user is not None:
-            url += f"?created_by={users[filter_user].id}"
+            user = users[filter_user]
+            assert user is not None
+            url += f"?created_by={user.id}"
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
