@@ -138,6 +138,47 @@ class Command:
         return cmd
 
 
+def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:
+    """Run prechecks and prompt user if issues are found.
+
+    Returns True if prechecks passed or user chose to continue, False if user aborted.
+    """
+    for check in prechecks:
+        check_type = check.get("type")
+
+        if check_type == "migrations":
+            # Check for orphaned migrations (in DB but not in code)
+            # Pending migrations are fine - they'll be applied by manage.py migrate
+            try:
+                from hogli.migrations import _compute_migration_diff, _get_cached_migration
+
+                diff = _compute_migration_diff()
+
+                if diff.orphaned:
+                    click.echo()
+                    click.secho("⚠️  Orphaned migrations detected!", fg="yellow", bold=True)
+                    click.echo("These migrations are applied in the DB but don't exist in code.")
+                    click.echo("They were likely applied on another branch.\n")
+
+                    for m in diff.orphaned:
+                        cached = "cached" if _get_cached_migration(m.app, m.name) else "not cached"
+                        click.echo(f"    {m.app}: {m.name} ({cached})")
+                    click.echo()
+
+                    click.echo("Run 'hogli db:migrations sync' to roll them back.\n")
+
+                    if not yes:
+                        if not click.confirm("Continue anyway?", default=False):
+                            click.echo("Aborted. Run 'hogli db:migrations sync' first.")
+                            return False
+
+            except Exception as e:
+                # Don't block start if migration check fails (e.g., DB not running)
+                click.secho(f"⚠️  Could not check migrations: {e}", fg="yellow", err=True)
+
+    return True
+
+
 class BinScriptCommand(Command):
     """Command that delegates to a shell script in bin/."""
 
@@ -169,6 +210,11 @@ class BinScriptCommand(Command):
         @click.pass_context
         def cmd(ctx: click.Context, yes: bool) -> None:
             try:
+                # Run any prechecks before confirming/executing
+                prechecks = self.config.get("prechecks", [])
+                if prechecks and not _run_prechecks(prechecks, yes=yes):
+                    raise SystemExit(1)
+
                 self._confirm(yes=yes)
                 self.execute(*ctx.args)
             except SystemExit:
