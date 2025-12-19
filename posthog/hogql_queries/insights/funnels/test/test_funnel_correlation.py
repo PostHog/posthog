@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -36,20 +37,11 @@ from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner impo
 )
 from posthog.hogql_queries.insights.funnels.test.test_funnel_correlation_actors import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.action import Action
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):

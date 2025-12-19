@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from hogql_parser import parse_expr
 
@@ -19,9 +19,8 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
+from posthog.hogql_queries.insights.funnels.test.test_utils import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
@@ -29,22 +28,9 @@ from posthog.test.test_journeys import journeys_for
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
-
-
 class TestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.STRICT,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
+    funnel_breakdown_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
     maxDiff = None
 
@@ -179,17 +165,14 @@ class TestFunnelStrictStepsBreakdown(
 
 class TestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        FunnelOrderType.STRICT,
-        PseudoFunnelActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
     maxDiff = None
 
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
 
