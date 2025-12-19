@@ -31,7 +31,7 @@ resource "posthog_alert" "decrease_in_success_rate_for_exports" {
   series_index = 0
   check_ongoing_interval = false
   insight = posthog_insight.export_successes_and_failures_us.id
-  subscribed_users = var.analytics_platform_alert_subscriber_user_ids
+  subscribed_users = var.analytics_platform_alert_subscribed_user_ids
 }
 
 # Terraform configuration for PostHog hog_function

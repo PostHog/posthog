@@ -1,3 +1,7 @@
+# This directory contains team-level configuration that is shared across all dashboards/modules.
+# It is not a runnable module itself - skip it so terragrunt discovers child modules.
+skip = true
+
 include "root" {
   path   = find_in_parent_folders("root.hcl")
   expose = true
@@ -18,4 +22,13 @@ generate "variables_team" {
   path      = "variables_team.tf"
   if_exists = "overwrite"
   contents  = file("variables_team.tf.tpl")
+}
+
+# Team-level inputs shared across all child modules
+# These values are passed down to child modules via terragrunt's input inheritance.
+# Secret values should be stored as env vars in the Github project.
+inputs = {
+  analytics_platform_slack_channel_id         = "C09S5802LMU"
+  analytics_platform_slack_workspace_id       = 54567
+  analytics_platform_alert_subscribed_user_ids = [339134]
 }

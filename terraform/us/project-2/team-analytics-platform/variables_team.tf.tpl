@@ -24,8 +24,8 @@ variable "analytics_platform_slack_workspace_id" {
   sensitive   = true
 }
 
-variable "analytics_platform_alert_subscriber_user_ids" {
-  description = "List of PostHog user IDs to subscribe to alerts"
+variable "analytics_platform_alert_subscribed_user_ids" {
+  description = "List of PostHog user IDs subscribed to alerts"
   type        = list(number)
   sensitive   = true
   default     = []
