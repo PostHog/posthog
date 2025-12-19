@@ -2,7 +2,6 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -17,6 +16,7 @@ import {
 } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import { destinationE2eLagMsSummary } from '../utils'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)
