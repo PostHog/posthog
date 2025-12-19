@@ -11,7 +11,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from pytest import mark
 
 from django.test import override_settings
 
@@ -22,6 +21,7 @@ from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
     EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentQuery,
     FunnelConversionWindowTimeUnit,
@@ -632,29 +632,29 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 expected_results,
             )
 
-    @mark.skip("Funnel metrics on data warehouse tables are not supported yet")
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_funnel_metric(self):
-        # table_name = self.create_data_warehouse_table_with_usage()
+        """Test funnel metrics with data warehouse steps (only supported in new query builder)"""
+        table_name = self.create_data_warehouse_table_with_usage()
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
         )
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": True}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentFunnelMetric(
-            # TODO: fix this once supported
-            # source=ExperimentDataWarehouseNode(
-            #     table_name=table_name,
-            #     events_join_key="properties.$user_id",
-            #     data_warehouse_join_key="userid",
-            #     timestamp_field="ds",
-            # ),
             series=[
                 EventsNode(event="purchase"),
+                ExperimentDataWarehouseNode(
+                    table_name=table_name,
+                    events_join_key="properties.$user_id",
+                    data_warehouse_join_key="userid",
+                    timestamp_field="ds",
+                ),
             ],
         )
         experiment_query = ExperimentQuery(
