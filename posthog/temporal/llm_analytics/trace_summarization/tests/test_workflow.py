@@ -184,7 +184,7 @@ class TestGenerateSummaryActivity:
             mock_runner.calculate.return_value.results = [mock_trace]
 
             mock_to_format.return_value = ({"id": sample_trace_data["trace_id"], "properties": {}}, [])
-            mock_format.return_value = "L1: Test trace\nL2: Content"
+            mock_format.return_value = ("L1: Test trace\nL2: Content", False)
             mock_summarize.return_value = mock_summary
 
             result = await generate_and_save_summary_activity(
@@ -243,7 +243,7 @@ class TestGenerateSummaryActivity:
             )
             mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
             mock_to_format.return_value = ({}, [])
-            mock_format.return_value = "test"
+            mock_format.return_value = ("test", False)
             mock_summarize.return_value = mock_summary
 
             result = await generate_and_save_summary_activity(
@@ -296,7 +296,7 @@ class TestGenerateSummaryActivity:
             )
             mock_runner_class.return_value.calculate.return_value.results = [mock_trace]
             mock_to_format.return_value = ({}, [])
-            mock_format.return_value = "test"
+            mock_format.return_value = ("test", False)
             mock_summarize.return_value = mock_summary
             mock_embedder_class.return_value._embed_document.side_effect = Exception("Kafka connection failed")
 

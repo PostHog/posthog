@@ -249,32 +249,44 @@ def get_team_metadata(team: Team | str | int) -> dict[str, Any] | None:
     return team_metadata_hypercache.get_from_cache(team)
 
 
-def verify_team_metadata(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
+def verify_team_metadata(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    verbose: bool = False,
+) -> dict:
     """
     Verify a team's metadata cache against the database.
 
     Args:
         team: Team to verify (must be a Team object with organization/project loaded)
-        batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        db_batch_data: Pre-loaded DB data from batch_load_fn (keyed by team.id)
+        cache_batch_data: Pre-loaded cache data from batch_get_from_cache (keyed by team.id)
         verbose: If True, include detailed diffs with field-level differences
 
     Returns:
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    cached_data = get_team_metadata(team)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source = cache_batch_data[team.id]
+    else:
+        # Fall back to individual lookup
+        cached_data = get_team_metadata(team)
+        source = "redis" if cached_data else "miss"
 
     # Handle cache miss
-    if not cached_data:
+    if not cached_data or source == "miss":
         return {
             "status": "miss",
             "issue": "CACHE_MISS",
             "details": "No cached data found",
         }
 
-    # Get database comparison data - use batch_data if available to avoid redundant serialization
-    if batch_data and team.id in batch_data:
-        db_data = batch_data[team.id]
+    # Get database comparison data - use db_batch_data if available to avoid redundant serialization
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
     else:
         db_data = _serialize_team_to_metadata(team)
 

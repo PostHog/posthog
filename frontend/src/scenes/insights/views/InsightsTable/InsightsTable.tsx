@@ -2,9 +2,8 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 
-import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -89,39 +88,11 @@ export function InsightsTable({
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned } = useValues(
+        insightsTableDataLogic(insightProps)
+    )
+    const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
-
-    // Pinned breakdown columns state (persisted in localStorage per insight)
-    const storageKey = insight?.short_id
-        ? `insight-pinned-columns-${insight.short_id}`
-        : 'insight-pinned-columns-default'
-    const [pinnedBreakdownColumns, setPinnedBreakdownColumns] = useLocalStorage<string[]>(storageKey, [])
-
-    const pinnedColumns = useMemo(() => {
-        const pinned: string[] = ['label'] // Series column is always pinned
-        return [...pinned, ...pinnedBreakdownColumns]
-    }, [pinnedBreakdownColumns])
-
-    const toggleColumnPin = useCallback(
-        (columnKey: string): void => {
-            setPinnedBreakdownColumns((current) => {
-                if (current.includes(columnKey)) {
-                    return current.filter((k) => k !== columnKey)
-                }
-                return [...current, columnKey]
-            })
-        },
-        [setPinnedBreakdownColumns]
-    )
-
-    const isColumnPinned = useCallback(
-        (columnKey: string): boolean => {
-            return pinnedBreakdownColumns.includes(columnKey)
-        },
-        [pinnedBreakdownColumns]
-    )
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
