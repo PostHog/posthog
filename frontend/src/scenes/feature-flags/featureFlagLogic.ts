@@ -1143,6 +1143,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
         },
+        saveFeatureFlagFailure: ({ error, errorObject }) => {
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                // Redirect to detail page so user can see the CR banner
+                router.actions.replace(urls.featureFlag(values.featureFlag.id))
+                actions.editFeatureFlag(false)
+                return
+            }
+
+            lemonToast.error(`Failed to save flag: ${error}`)
+        },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
