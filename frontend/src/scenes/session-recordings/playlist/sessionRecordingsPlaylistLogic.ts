@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -48,11 +48,12 @@ import {
     SessionRecordingId,
     SessionRecordingType,
     UniversalFilterValue,
+    UniversalFiltersGroup,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
@@ -317,6 +318,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
+        limit: universalFilters.limit,
     }
 }
 
@@ -442,7 +444,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['maybeLoadPropertiesForSessions'],
             playerSettingsLogic,
             ['setHideViewedRecordings'],
-            playlistLogic,
+            playlistFiltersLogic,
             ['setIsFiltersExpanded'],
         ],
         values: [
@@ -460,6 +462,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
+        applyPropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
+            propertyKey,
+            propertyValue,
+        }),
+        togglePropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
+            propertyKey,
+            propertyValue,
+        }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
@@ -520,6 +530,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
+                next_cursor: undefined,
                 order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
                 order_direction: 'DESC',
             } as RecordingsQueryResponse & {
@@ -528,8 +539,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
-                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                        ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
                         // which wouldn't fit in the URL,
@@ -538,7 +550,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // you probably want the person UUID PoE optimisation anyway
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
-                        limit: RECORDINGS_LIMIT,
+                        // Use the limit from filters if set, otherwise use the default limit
+                        limit: convertedQuery.limit ?? RECORDINGS_LIMIT,
+                        // If a recording is selected from URL, ensure it's always included in results
+                        session_recording_id: values.selectedRecordingId ?? undefined,
                     }
 
                     if (values.allowEventPropertyExpansion) {
@@ -550,11 +565,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
 
                     if (direction === 'older') {
-                        params.offset = values.sessionRecordings.length
+                        // Use cursor-based pagination for loading older recordings
+                        if (values.sessionRecordingsResponse?.next_cursor) {
+                            params.after = values.sessionRecordingsResponse.next_cursor
+                        } else {
+                            // Fallback to offset-based pagination if cursor is not available
+                            params.offset = values.sessionRecordings.length
+                        }
                     }
 
                     if (direction === 'newer') {
+                        // Reset pagination for loading newer recordings
                         params.offset = 0
+                        params.after = undefined
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -572,6 +595,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             direction === 'newer'
                                 ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
+                        next_cursor: direction === 'newer' ? undefined : response.next_cursor,
                         results: response.results,
                         order: params.order,
                         order_direction: params.order_direction,
@@ -771,6 +795,182 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             props.onFiltersChange?.(values.filters)
         },
 
+        applyPropertyFilter: ({ propertyKey, propertyValue }) => {
+            // Validate property value
+            if (propertyValue === undefined || propertyValue === null) {
+                return
+            }
+
+            // Determine property filter type
+            // For recordings: $browser, $os, $device_type, etc are Event properties
+            // $geoip_* and custom properties (no $) are Person properties
+            // Everything else with $ is Session property
+            const filterType =
+                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                    ? PropertyFilterType.Person
+                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                      ? PropertyFilterType.Event
+                      : PropertyFilterType.Session
+
+            // Create property filter object
+            const filter = {
+                type: filterType,
+                key: propertyKey,
+                value: propertyValue,
+                operator: PropertyOperator.Exact,
+            }
+
+            // Clone the current filter group structure and add to the first nested group
+            const currentGroup = values.filters.filter_group
+            const newGroup: UniversalFiltersGroup = {
+                ...currentGroup,
+                values: currentGroup.values.map((nestedGroup, index) => {
+                    // Add to the first nested group (index 0)
+                    if (index === 0 && 'values' in nestedGroup) {
+                        return {
+                            ...nestedGroup,
+                            values: [...nestedGroup.values, filter],
+                        } as UniversalFiltersGroup
+                    }
+                    return nestedGroup
+                }),
+            }
+
+            actions.setFilters({ filter_group: newGroup })
+
+            // Show toast notification with human-readable label and view filters button
+            const filterLabel = formatPropertyLabel(filter, {})
+            lemonToast.success(`Filter applied: ${filterLabel}`, {
+                toastId: `filter-applied-${propertyKey}`,
+                button: {
+                    label: 'View filters',
+                    action: () => {
+                        actions.setIsFiltersExpanded(true)
+                    },
+                },
+            })
+        },
+
+        togglePropertyFilter: ({ propertyKey, propertyValue }) => {
+            // Validate property value
+            if (propertyValue === undefined || propertyValue === null) {
+                return
+            }
+
+            // Determine property filter type
+            const filterType =
+                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                    ? PropertyFilterType.Person
+                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                      ? PropertyFilterType.Event
+                      : PropertyFilterType.Session
+
+            const currentGroup = values.filters.filter_group
+            const firstNestedGroup = currentGroup.values[0]
+
+            if (!firstNestedGroup || !('values' in firstNestedGroup)) {
+                return
+            }
+
+            // Check if filter with exact (key, value) exists - if so, remove it
+            const exactMatchIndex = firstNestedGroup.values.findIndex((filter) => {
+                if ('key' in filter && 'value' in filter && 'operator' in filter) {
+                    return (
+                        filter.key === propertyKey &&
+                        filter.value === propertyValue &&
+                        filter.operator === PropertyOperator.Exact
+                    )
+                }
+                return false
+            })
+
+            let newGroup: UniversalFiltersGroup
+            let actionLabel: string
+
+            if (exactMatchIndex !== -1) {
+                // Remove the exact match
+                newGroup = {
+                    ...currentGroup,
+                    values: currentGroup.values.map((nestedGroup, index) => {
+                        if (index === 0 && 'values' in nestedGroup) {
+                            return {
+                                ...nestedGroup,
+                                values: nestedGroup.values.filter((_, i) => i !== exactMatchIndex),
+                            } as UniversalFiltersGroup
+                        }
+                        return nestedGroup
+                    }),
+                }
+                actionLabel = 'Filter removed'
+            } else {
+                // Check if filter with same key but different value exists
+                const sameKeyIndex = firstNestedGroup.values.findIndex((filter) => {
+                    if ('key' in filter && 'operator' in filter) {
+                        return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+                    }
+                    return false
+                })
+
+                const newFilter = {
+                    type: filterType,
+                    key: propertyKey,
+                    value: propertyValue,
+                    operator: PropertyOperator.Exact,
+                }
+
+                if (sameKeyIndex !== -1) {
+                    // Replace the existing filter with same key
+                    newGroup = {
+                        ...currentGroup,
+                        values: currentGroup.values.map((nestedGroup, index) => {
+                            if (index === 0 && 'values' in nestedGroup) {
+                                return {
+                                    ...nestedGroup,
+                                    values: nestedGroup.values.map((filter, i) =>
+                                        i === sameKeyIndex ? newFilter : filter
+                                    ),
+                                } as UniversalFiltersGroup
+                            }
+                            return nestedGroup
+                        }),
+                    }
+                    actionLabel = 'Filter replaced'
+                } else {
+                    // Add new filter
+                    newGroup = {
+                        ...currentGroup,
+                        values: currentGroup.values.map((nestedGroup, index) => {
+                            if (index === 0 && 'values' in nestedGroup) {
+                                return {
+                                    ...nestedGroup,
+                                    values: [...nestedGroup.values, newFilter],
+                                } as UniversalFiltersGroup
+                            }
+                            return nestedGroup
+                        }),
+                    }
+                    actionLabel = 'Filter applied'
+                }
+            }
+
+            actions.setFilters({ filter_group: newGroup })
+
+            // Show toast notification
+            const filterLabel = formatPropertyLabel(
+                { type: filterType, key: propertyKey, value: propertyValue, operator: PropertyOperator.Exact },
+                {}
+            )
+            lemonToast.success(`${actionLabel}: ${filterLabel}`, {
+                toastId: `filter-toggled-${propertyKey}`,
+                button: {
+                    label: 'View filters',
+                    action: () => {
+                        actions.setIsFiltersExpanded(true)
+                    },
+                },
+            })
+        },
+
         maybeLoadSessionRecordings: ({ direction }) => {
             if (direction === 'older' && !values.hasNext) {
                 return // Nothing more to load
@@ -778,6 +978,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (values.sessionRecordingsResponseLoading) {
                 return // We don't want to load if we are currently loading
             }
+
             actions.loadSessionRecordings(direction)
         },
 
@@ -789,8 +990,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             // Close filters when selecting a recording
             actions.setIsFiltersExpanded(false)
 
-            // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+
+            // If recording not found in current list, reload with the new selected recording
+            // The backend will automatically include it via session_recording_id parameter
+            if (recordingIndex === -1 && values.selectedRecordingId) {
+                actions.loadSessionRecordings()
+            }
+
+            // If we are at the end of the list then try to load more
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
             }
@@ -870,7 +1078,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     try {
                         actions.setDeleteConfirmationText('')
                         actions.setIsDeleteSelectedRecordingsDialogOpen(false)
-                        await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
+                        await api.recordings.bulkDeleteRecordings(
+                            values.selectedRecordingsIds,
+                            values.filters.date_from
+                        )
                         actions.setSelectedRecordingsIds([])
 
                         // If it was a collection then we need to reload it, otherwise we need to reload the recordings
@@ -1153,14 +1364,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
 
-        allowReplayGroupsFilters: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_GROUPS_FILTERS],
-        ],
-
         taxonomicGroupTypes: [
-            (s) => [s.allowHogQLFilters, s.allowReplayGroupsFilters, s.groupsTaxonomicTypes],
-            (allowHogQLFilters, allowReplayGroupsFilters, groupsTaxonomicTypes) => {
+            (s) => [s.allowHogQLFilters, s.groupsTaxonomicTypes],
+            (allowHogQLFilters, groupsTaxonomicTypes) => {
                 const taxonomicGroupTypes = [
                     TaxonomicFilterGroupType.Replay,
                     TaxonomicFilterGroupType.Events,
@@ -1169,14 +1375,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
                 ]
 
                 if (allowHogQLFilters) {
                     taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-                }
-
-                if (allowReplayGroupsFilters) {
-                    taxonomicGroupTypes.push(...groupsTaxonomicTypes)
                 }
 
                 return taxonomicGroupTypes

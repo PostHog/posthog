@@ -71,7 +71,7 @@ class VercelRegionProxyMixin:
 
     def _extract_installation_id(self, request: HttpRequest) -> Optional[str]:
         try:
-            if not all([request.META.get("HTTP_AUTHORIZATION"), request.META.get("HTTP_X_VERCEL_AUTH")]):
+            if not all([request.headers.get("authorization"), request.headers.get("x-vercel-auth")]):
                 return None
 
             drf_request = Request(request)
@@ -197,8 +197,20 @@ class VercelRegionProxyMixin:
                 )
 
         # If we can't proxy, nor is the installation found, we return a 404
+        # Exception: upsert operations (PUT) are allowed to create new installations
         elif installation_id and not self._get_cached_installation_status(installation_id):
-            self._handle_missing_installation(installation_id)
+            is_upsert = self._is_upsert_operation(request)
+            logger.info(
+                "Installation not found in current region",
+                current_region=self.current_region,
+                installation_id=installation_id,
+                is_upsert_operation=is_upsert,
+                request_method=request.method,
+                request_path=request.path,
+                integration="vercel",
+            )
+            if not is_upsert:
+                self._handle_missing_installation(installation_id)
 
         # If we can't proxy, and the installation exists, we return the response from the current region
         return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]

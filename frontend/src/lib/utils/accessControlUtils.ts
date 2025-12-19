@@ -17,6 +17,20 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
 }
 
 /**
+ * Returns the maximum allowed access level for a resource.
+ * Matches the backend maximum_access_level function in user_access_control.py
+ *
+ * @param resource - The API scope object to check maximum access for
+ * @returns The maximum access level required, or null if no maximum is set
+ */
+export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
+    if (resource === AccessControlResourceType.ActivityLog) {
+        return AccessControlLevel.Viewer
+    }
+    return null
+}
+
+/**
  * Converts a resource name to its plural form for display purposes.
  * Handles special cases for specific resources that have custom plural forms.
  *
@@ -28,6 +42,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
         return 'web analytics'
+    } else if (resource === AccessControlResourceType.ActivityLog) {
+        return 'activity logs'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -43,6 +59,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
 export const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessControlLevel[] => {
     if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return [AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin]
+    }
+    if (resourceType === AccessControlResourceType.ActivityLog) {
+        return [AccessControlLevel.None, AccessControlLevel.Viewer]
     }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]
 }

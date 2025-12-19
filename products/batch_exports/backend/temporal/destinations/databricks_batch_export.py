@@ -50,14 +50,13 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, TransformerProtocol
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ChunkTransformerProtocol,
+    ParquetStreamTransformer,
+)
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import (
-    JsonType,
-    cast_record_batch_schema_json_columns,
-    handle_non_retryable_errors,
-)
+from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -446,11 +445,19 @@ class DatabricksClient:
 
         await self.acreate_table(table_name=table_name, fields=fields)
 
-        yield table_name
-
-        if delete is True:
-            self.logger.info("Deleting Databricks table %s", table_name)
-            await self.adelete_table(table_name)
+        try:
+            yield table_name
+        finally:
+            if delete is True:
+                self.logger.info("Deleting Databricks table %s", table_name)
+                try:
+                    await self.adelete_table(table_name)
+                except DatabricksInsufficientPermissionsError as err:
+                    self.external_logger.warning(
+                        "Table '%s' may not be properly cleaned up due to missing necessary permissions: %s",
+                        table_name,
+                        err,
+                    )
 
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
@@ -552,9 +559,18 @@ class DatabricksClient:
         """Manage a volume in Databricks by ensuring it exists while in context."""
         self.logger.info("Creating Databricks volume %s", volume)
         await self.acreate_volume(volume)
-        yield volume
-        self.logger.info("Deleting Databricks volume %s", volume)
-        await self.adelete_volume(volume)
+        try:
+            yield volume
+        finally:
+            self.logger.info("Deleting Databricks volume %s", volume)
+            try:
+                await self.adelete_volume(volume)
+            except DatabricksInsufficientPermissionsError as err:
+                self.external_logger.warning(
+                    "Volume '%s' may not be properly cleaned up due to missing necessary permissions: %s",
+                    volume,
+                    err,
+                )
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
@@ -587,7 +603,9 @@ class DatabricksClient:
         """
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                await asyncio.to_thread(
+                    cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
+                )
                 results = await asyncio.to_thread(cursor.fetchall)
                 try:
                     column_names = [row.name for row in results]
@@ -655,7 +673,19 @@ class DatabricksClient:
         try:
             await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
         except TimeoutError:
+            self.logger.exception(
+                "Merge timed-out",
+                with_schema_evolution=with_schema_evolution,
+                query="MERGE",
+                query_details=merge_query,
+                timeout=timeout,
+            )
             raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
+        except Exception:
+            self.logger.exception(
+                "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
+            )
+            raise
 
     def _get_merge_query_with_schema_evolution(
         self,
@@ -1074,22 +1104,17 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     volume_path=volume_path,
                 )
 
-                transformer: TransformerProtocol = ParquetStreamTransformer(
-                    schema=cast_record_batch_schema_json_columns(
-                        record_batch_schema, json_columns=known_variant_columns
-                    ),
+                transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
                     compression="zstd",
                     include_inserted_at=False,
+                    max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                 )
 
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
-                    schema=record_batch_schema,
                     transformer=transformer,
-                    max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_variant_columns,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

@@ -82,7 +82,7 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deduplication_processor::DeduplicationConfig;
+    use crate::deduplication_batch_processor::DeduplicationConfig;
     use rdkafka::config::ClientConfig;
     use std::time::Duration;
     use tempfile::TempDir;

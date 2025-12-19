@@ -49,6 +49,18 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
+export const workflowE2eLagMsSummary = new Summary({
+    name: 'workflow_e2e_lag_ms',
+    help: 'Time difference in ms between event capture time and workflow finishing time',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const destinationE2eLagMsSummary = new Summary({
+    name: 'destination_e2e_lag_ms',
+    help: 'Time difference in ms between event capture time and destination finishing time',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
 export const cookielessRedisErrorCounter = new Counter({
     name: 'cookieless_redis_error',
     help: 'Count redis errors.',
@@ -59,4 +71,10 @@ export const kafkaHeaderStatusCounter = new Counter({
     name: 'kafka_header_status_total',
     help: 'Count of events by header name and presence status',
     labelNames: ['header', 'status'],
+})
+
+export const ingestionLagGauge = new Gauge({
+    name: 'ingestion_lag_ms',
+    help: 'Time difference in ms between event capture time (now header) and ingestion time',
+    labelNames: ['topic', 'partition', 'groupId'],
 })

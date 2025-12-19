@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db import models, transaction
 
@@ -21,7 +21,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 
 logger = structlog.get_logger(__name__)
 
@@ -34,11 +35,8 @@ class ExpectedView:
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    class Kind(models.TextChoices):
-        REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=Kind.choices)
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
 
     class Meta:
         constraints = [
@@ -48,6 +46,13 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             )
         ]
         db_table = "posthog_datawarehousemanagedviewset"
+
+    class UnsupportedViewsetKind(ValueError):
+        kind: DataWarehouseManagedViewSetKind
+
+        def __init__(self, kind: DataWarehouseManagedViewSetKind):
+            self.kind = kind
+            super().__init__(f"Unsupported viewset kind: {self.kind}")
 
     def __str__(self) -> str:
         return f"DataWarehouseManagedViewSet({self.kind}) for Team {self.team.id}"
@@ -62,13 +67,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Deletes views that are no longer referenced.
         Materializes views by default.
         """
-        from products.data_warehouse.backend.data_load.saved_query_service import sync_saved_query_workflow
 
         expected_views: list[ExpectedView] = []
-        if self.kind == self.Kind.REVENUE_ANALYTICS:
+        if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
             expected_views = self._get_expected_views_for_revenue_analytics()
         else:
-            raise ValueError(f"Unsupported viewset kind: {self.kind}")
+            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
 
         # NOTE: Views that depend on other views MUST be placed AFTER the views they depend on
         # or else we'll fail to build the paths properly.
@@ -86,7 +90,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 if saved_query:
                     created = False
                 else:
-                    saved_query = DataWarehouseSavedQuery(name=view.name, team=self.team, managed_viewset=self)
+                    saved_query = DataWarehouseSavedQuery(
+                        name=view.name,
+                        team=self.team,
+                        managed_viewset=self,
+                        origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                    )
                     created = True
 
                 # Do NOT use get_columns because it runs the query, and these are possibly heavy
@@ -95,37 +104,14 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.external_tables = saved_query.s3_tables
                 saved_query.is_materialized = True
                 saved_query.sync_frequency_interval = timedelta(hours=12)
-                saved_query.save()
 
-                # Make sure paths properly exist both on creation and update
-                # This is required for Temporal to properly build the DAG
-                if not DataWarehouseModelPath.objects.filter(team=saved_query.team, saved_query=saved_query).exists():
-                    DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
-                else:
-                    DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
+                saved_query.save()
+                saved_query.schedule_materialization()
 
                 if created:
                     views_created += 1
                 else:
                     views_updated += 1
-
-                if created:
-                    try:
-                        sync_saved_query_workflow(saved_query, create=True)
-                    except Exception as e:
-                        capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
-                        logger.warning(
-                            "failed_to_schedule_saved_query",
-                            team_id=self.team_id,
-                            saved_query_id=str(saved_query.id),
-                            error=str(e),
-                        )
-
-                        # Disable materialization for this view if we failed to schedule the workflow
-                        # TODO: Should we have a cron job that re-enables materialization for managed viewset-based views
-                        # that failed to schedule?
-                        saved_query.is_materialized = False
-                        saved_query.save(update_fields=["is_materialized"])
 
             views_deleted = 0
             orphaned_views = self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
@@ -187,6 +173,22 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             self.delete()
         return views_deleted
 
+    def to_saved_query_metadata(self, name: str):
+        if self.kind != DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
+
+        return {
+            "managed_viewset_kind": self.kind,
+            "revenue_analytics_kind": next(
+                (
+                    schema.kind
+                    for schema in REVENUE_ANALYTICS_SCHEMAS.values()
+                    if name.endswith(schema.events_suffix) or name.endswith(schema.source_suffix)
+                ),
+                None,
+            ),
+        }
+
     def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
         """
         Reuses build_all_revenue_analytics_views() from Database.create_for logic.
@@ -230,7 +232,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # If the types here prove to be wrong, we can easily run the following script to update the types:
         # ```python
         # from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        # for viewset in DataWarehouseManagedViewSet.objects.():
+        # for viewset in DataWarehouseManagedViewSet.objects.iterator():
         #     viewset.sync_views()
         # ```
 

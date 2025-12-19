@@ -3,6 +3,7 @@ import os
 import pytest
 
 import aioboto3
+import pytest_asyncio
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
@@ -12,15 +13,11 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
 )
-from products.batch_exports.backend.tests.temporal.destinations.s3.utils import run_s3_batch_export_workflow
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    has_valid_gcs_credentials,
+    run_s3_batch_export_workflow,
+)
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
-
-
-def has_valid_gcs_credentials() -> bool:
-    return (
-        "GCS_TEST_BUCKET" in os.environ and "AWS_ACCESS_KEY_ID" in os.environ and "AWS_SECRET_ACCESS_KEY" in os.environ
-    )
-
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -32,7 +29,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def s3_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with a GCS bucket.
 
@@ -48,7 +45,7 @@ async def s3_client(bucket_name, s3_key_prefix):
         await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def gcs_batch_export(
     ateam,
     s3_key_prefix,

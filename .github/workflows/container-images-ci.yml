@@ -2,16 +2,17 @@ name: Container Images CI
 
 on:
     pull_request:
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
         name: Determine need to run Docker checks
         # Set job outputs to values from filter step
         outputs:
@@ -36,24 +37,9 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
         # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true' }}
+        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true') || github.event_name == 'merge_group' }}
 
         steps:
-            # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
-            # cancel previous runs of snapshot update-inducing workflows
-
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-                  workflow: .github/workflows/ci-storybook.yml
-
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-                  workflow: .github/workflows/ci-backend.yml
-
             - name: Check out
               uses: actions/checkout@v4
 
@@ -62,8 +48,7 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
-                  aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
@@ -72,6 +57,11 @@ jobs:
     deploy_preview:
         name: Deploy preview environment
         uses: ./.github/workflows/pr-preview-deploy.yml
+        # these permissions are required by pr-preview-deploy.yml
+        permissions:
+            id-token: write
+            contents: read
+            deployments: write
         needs: [posthog_build, changes]
         secrets: inherit
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
@@ -84,6 +74,7 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
+                  filter: blob:none
 
             - name: Check if any Dockerfile has changed
               id: changed-files

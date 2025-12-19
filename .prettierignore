@@ -6,6 +6,7 @@ staticfiles
 .env
 *.code-workspace
 .mypy_cache
+.cache/
 *Type.ts
 .idea
 .yalc
@@ -15,8 +16,7 @@ common/storybook/dist/
 dist/
 node_modules/
 pnpm-lock.yaml
-posthog/templates/email/*
-posthog/templates/**/*.html
+posthog/templates/**/*
 common/hogvm/typescript/src/stl/bytecode.ts
 common/hogvm/__tests__/__snapshots__/*
 rust/
@@ -24,5 +24,13 @@ livestream/
 cli/target/
 cli/tests/_cases/**/*
 frontend/src/products.tsx
+frontend/src/products.json
 frontend/src/layout.html
 **/fixtures/**
+products/mcp/schema/**/*
+products/mcp/python/**/*
+products/mcp/**/generated.ts
+products/mcp/typescript/worker-configuration.d.ts
+frontend/src/taxonomy/core-filter-definitions-by-group.json
+frontend/dist/
+frontend/**/*LogicType.ts

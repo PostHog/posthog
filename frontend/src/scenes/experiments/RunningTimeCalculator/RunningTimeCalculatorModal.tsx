@@ -18,11 +18,9 @@ export function RunningTimeCalculatorModal(): JSX.Element {
      * Modal open/close is controlled from parent component.
      * This is a candidate for props (onClose, onSave)
      */
-    const { experimentId } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { isCalculateRunningTimeModalOpen } = useValues(modalsLogic)
     const {
-        // Experiment Object
-        experiment,
         // Running Time Calculator Object. Saved inside the experiment parameters.
         minimumDetectableEffect,
         recommendedSampleSize,
@@ -32,11 +30,11 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         metricResultLoading,
         // Queried value depending on the exposureEstimateConfig
         uniqueUsers,
-    } = useValues(runningTimeCalculatorLogic({ experimentId }))
+    } = useValues(runningTimeCalculatorLogic({ experiment }))
 
     const { updateExperiment } = useActions(experimentLogic)
     const { setMinimumDetectableEffect, setExposureEstimateConfig } = useActions(
-        runningTimeCalculatorLogic({ experimentId })
+        runningTimeCalculatorLogic({ experiment })
     )
     const { closeCalculateRunningTimeModal } = useActions(modalsLogic)
 

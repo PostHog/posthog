@@ -27,7 +27,6 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             <LemonSelect
                                 options={[
                                     { value: 'ses', label: 'AWS SES' },
-                                    { value: 'mailjet', label: 'Mailjet' },
                                     { value: 'maildev', label: 'Maildev' },
                                 ]}
                             />

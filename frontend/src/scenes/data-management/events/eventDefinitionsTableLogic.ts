@@ -5,7 +5,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
@@ -29,16 +29,15 @@ export interface Filters {
     properties: AnyPropertyFilter[]
     event_type: EventDefinitionType
     ordering?: string
+    tags?: string[]
 }
 
-function cleanFilters(filter: Partial<Filters>): Filters {
-    return {
-        event: '',
-        properties: [],
-        event_type: EventDefinitionType.Event,
-        ordering: 'event',
-        ...filter,
-    }
+const DEFAULT_FILTERS: Filters = {
+    event: '',
+    properties: [],
+    event_type: EventDefinitionType.Event,
+    ordering: 'event',
+    tags: undefined,
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -104,7 +103,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     }),
     reducers({
         filters: [
-            cleanFilters({}),
+            DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
@@ -131,58 +130,58 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             } as EventDefinitionsPaginatedResponse,
             {
                 loadEventDefinitions: async ({ url: _url }, breakpoint) => {
-                    let url = normalizeEventDefinitionEndpointUrl({
-                        url: _url,
-                        eventTypeFilter: values.filters.event_type,
-                    })
+                    let url = _url
+
+                    if (!url) {
+                        url = api.eventDefinitions.determineListEndpoint(values.paramsFromFilters)
+                    }
+
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
-                    if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint({
-                            event_type: values.filters.event_type,
-                        })
-                    }
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
                     breakpoint()
 
+                    const result = {
+                        ...response,
+                        previous: normalizeEventDefinitionEndpointUrl({
+                            url: response.previous,
+                            eventTypeFilter: values.filters.event_type,
+                        }),
+                        next: normalizeEventDefinitionEndpointUrl({
+                            url: response.next,
+                            eventTypeFilter: values.filters.event_type,
+                        }),
+                        current: url,
+                        page: Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [url]: {
-                            ...response,
-                            previous: normalizeEventDefinitionEndpointUrl({
-                                url: response.previous,
-                                eventTypeFilter: values.filters.event_type,
-                            }),
-                            next: normalizeEventDefinitionEndpointUrl({
-                                url: response.next,
-                                eventTypeFilter: values.filters.event_type,
-                            }),
-                            current: url,
-                            page:
-                                Math.floor((combineUrl(url).searchParams.offset ?? 0) / EVENT_DEFINITIONS_PER_PAGE) + 1,
-                        },
+                        [url]: result,
                     }
-                    return cache.apiCache[url]
+
+                    return result
                 },
                 setLocalEventDefinition: ({ definition }) => {
                     if (!values.eventDefinitions.current) {
                         return values.eventDefinitions
                     }
-                    // Update cache as well
+                    const result = {
+                        ...values.eventDefinitions,
+                        results: values.eventDefinitions.results.map((d) => (d.id === definition.id ? definition : d)),
+                    }
+
+                    // Update cache
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [values.eventDefinitions.current]: {
-                            ...values.eventDefinitions,
-                            results: values.eventDefinitions.results.map((d) =>
-                                d.id === definition.id ? definition : d
-                            ),
-                        },
+                        [values.eventDefinitions.current]: result,
                     }
-                    return cache.apiCache[values.eventDefinitions.current]
+
+                    return result
                 },
             },
         ],
@@ -213,36 +212,40 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     const response = await api.get(url)
                     breakpoint()
 
-                    // Fetch one event as example and cache
-                    let exampleEventProperties: Record<string, string>
-                    const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
-                    if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
-                        exampleEventProperties = cache.apiCache[exampleUrl]
-                    } else {
-                        exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
-                        cache.apiCache = {
-                            ...cache.apiCache,
-                            [exampleUrl]: exampleEventProperties,
+                    // Fetch one event as example and cache (only if events have been captured)
+                    let exampleEventProperties: Record<string, string> = {}
+                    if (definition.last_seen_at) {
+                        const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
+                        if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
+                            exampleEventProperties = cache.apiCache[exampleUrl]
+                        } else {
+                            exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
+                            cache.apiCache = {
+                                ...cache.apiCache,
+                                [exampleUrl]: exampleEventProperties,
+                            }
                         }
                     }
 
                     const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
+                    const propertyResult = {
+                        count: response.count,
+                        previous: normalizePropertyDefinitionEndpointUrl(response.previous),
+                        next: normalizePropertyDefinitionEndpointUrl(response.next),
+                        current: currentUrl,
+                        page:
+                            Math.floor(
+                                (combineUrl(currentUrl).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
+                            ) + 1,
+                        results: response.results.map((prop: PropertyDefinition) => ({
+                            ...prop,
+                            example: exampleEventProperties?.[prop.name]?.toString(),
+                        })),
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [currentUrl]: {
-                            count: response.count,
-                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
-                            next: normalizePropertyDefinitionEndpointUrl(response.next),
-                            current: currentUrl,
-                            page:
-                                Math.floor(
-                                    (combineUrl(currentUrl).searchParams.offset ?? 0) / PROPERTY_DEFINITIONS_PER_EVENT
-                                ) + 1,
-                            results: response.results.map((prop: PropertyDefinition) => ({
-                                ...prop,
-                                example: exampleEventProperties?.[prop.name]?.toString(),
-                            })),
-                        },
+                        [currentUrl]: propertyResult,
                     }
 
                     actions.setEventDefinitionPropertiesLoading(
@@ -250,7 +253,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     )
                     return {
                         ...values.eventPropertiesCacheMap,
-                        [definition.id]: cache.apiCache[currentUrl],
+                        [definition.id]: propertyResult,
                     }
                 },
                 setLocalPropertyDefinition: ({ event, definition }) => {
@@ -259,38 +262,46 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     }
                     // Update cache as well
                     const eventCacheKey = values.eventPropertiesCacheMap[event.id].current as string
+                    const updatedProperties = {
+                        ...values.eventPropertiesCacheMap[event.id],
+                        results: values.eventPropertiesCacheMap[event.id].results.map((p) =>
+                            p.id === definition.id ? definition : p
+                        ),
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
-                        [eventCacheKey]: {
-                            ...values.eventPropertiesCacheMap[event.id],
-                            results: values.eventPropertiesCacheMap[event.id].results.map((p) =>
-                                p.id === definition.id ? definition : p
-                            ),
-                        },
+                        [eventCacheKey]: updatedProperties,
                     }
 
                     return {
                         ...values.eventPropertiesCacheMap,
-                        [event.id]: cache.apiCache[eventCacheKey],
+                        [event.id]: updatedProperties,
                     }
                 },
             },
         ],
     })),
-    selectors(({ cache }) => ({
-        // Expose for testing
-        apiCache: [() => [], () => cache.apiCache],
+    selectors(() => ({
+        // Convert filters to API params
+        paramsFromFilters: [
+            (s) => [s.filters],
+            (filters: Filters) => {
+                const params: Record<string, any> = {
+                    search: filters.event,
+                    ordering: filters.ordering,
+                    event_type: filters.event_type,
+                }
+                if (filters.tags && filters.tags.length > 0) {
+                    params.tags = JSON.stringify(filters.tags)
+                }
+                return params
+            },
+        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: async () => {
-            actions.loadEventDefinitions(
-                normalizeEventDefinitionEndpointUrl({
-                    url: values.eventDefinitions.current,
-                    searchParams: { search: values.filters.event, ordering: values.filters.ordering },
-                    full: true,
-                    eventTypeFilter: values.filters.event_type,
-                })
-            )
+            actions.loadEventDefinitions()
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {
@@ -338,20 +349,24 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
-            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
-                actions.setFilters(searchParams as Filters)
+            const { event, event_type, ordering, tags } = searchParams
+
+            const filtersFromUrl: Filters = {
+                ...DEFAULT_FILTERS,
+                ...(event !== undefined && { event }),
+                ...(event_type !== undefined && { event_type }),
+                ...(ordering !== undefined && { ordering }),
+                ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
+            }
+
+            if (!objectsEqual(values.filters, filtersFromUrl)) {
+                actions.setFilters(filtersFromUrl)
             } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
                 actions.loadEventDefinitions()
             }
         },
     })),
     actionToUrl(({ values }) => ({
-        setFilters: () => {
-            const nextValues = cleanFilters(values.filters)
-            const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [router.values.location.pathname, nextValues]
-            }
-        },
+        setFilters: () => [router.values.location.pathname, values.filters],
     })),
 ])

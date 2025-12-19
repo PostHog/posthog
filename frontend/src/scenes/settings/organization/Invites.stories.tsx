@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +16,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: Object.values(FEATURE_FLAGS),
+        featureFlags: STORYBOOK_FEATURE_FLAGS,
         pageUrl: urls.settings('organization-members'),
     },
     decorators: [

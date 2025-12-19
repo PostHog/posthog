@@ -1,7 +1,9 @@
 import uuid
 import dataclasses
-from typing import Any, Optional
+from contextlib import contextmanager
+from typing import Any, NoReturn, Optional
 
+from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
 
@@ -11,6 +13,8 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
+from posthog.redis import get_client
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -19,6 +23,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
@@ -44,6 +51,29 @@ class ImportDataActivityInputs:
             "run_id": self.run_id,
             "reset_pipeline": self.reset_pipeline,
         }
+
+
+@contextmanager
+def _get_redis():
+    try:
+        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
+            raise Exception(
+                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
+            )
+
+        redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        redis.ping()
+
+        yield redis
+    except Exception as e:
+        capture_exception(e)
+        yield None
+
+
+def _non_retryable_errors_key(job_inputs: PipelineInputs) -> str:
+    return (
+        f"posthog:data_warehouse:non_retryable_errors:{job_inputs.team_id}:{job_inputs.source_id}:{job_inputs.run_id}"
+    )
 
 
 def _trim_source_job_inputs(source: ExternalDataSource) -> None:
@@ -82,8 +112,10 @@ def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: Filterin
             return
 
         heartbeat_details = info.heartbeat_details
-        if not isinstance(heartbeat_details, tuple) or len(heartbeat_details) < 1:
-            logger.debug(f"No heartbeat details found to analyze for timeout: {heartbeat_details}")
+        if not isinstance(heartbeat_details, tuple | list) or len(heartbeat_details) < 1:
+            logger.debug(
+                f"No heartbeat details found to analyze for timeout: {heartbeat_details}. Class: {heartbeat_details.__class__.__name__}"
+            )
             return
 
         last_heartbeat = heartbeat_details[-1]
@@ -230,7 +262,13 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
-            source = new_source.source_for_pipeline(config, source_inputs)
+
+            resumable_source_manager: ResumableSourceManager | None = None
+            if isinstance(new_source, ResumableSource):
+                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                source = new_source.source_for_pipeline(config, resumable_source_manager, source_inputs)
+            else:
+                source = new_source.source_for_pipeline(config, source_inputs)
 
             return _run(
                 job_inputs=job_inputs,
@@ -238,9 +276,30 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 logger=logger,
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
+                resumable_source_manager=resumable_source_manager,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
+
+
+def _handle_non_retryable_error(
+    job_inputs: PipelineInputs, error_msg: str, logger: FilteringBoundLogger, error: Exception
+) -> NoReturn:
+    with _get_redis() as redis_client:
+        if redis_client is None:
+            logger.debug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
+            raise NonRetryableException() from error
+
+        retry_key = _non_retryable_errors_key(job_inputs)
+        attempts = redis_client.incr(retry_key)
+
+        if attempts <= 3:
+            redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+            logger.debug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
+            raise
+
+    logger.debug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
+    raise NonRetryableException() from error
 
 
 def _run(
@@ -249,8 +308,26 @@ def _run(
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
+    resumable_source_manager: ResumableSourceManager | None,
 ):
-    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
-    pipeline.run()
-    logger.debug("Finished running pipeline")
-    del pipeline
+    try:
+        pipeline = PipelineNonDLT(
+            source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+        )
+        pipeline.run()
+        logger.debug("Finished running pipeline")
+        del pipeline
+    except Exception as e:
+        source_cls = SourceRegistry.get_source(job_inputs.job_type)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        error_msg = str(e)
+        is_non_retryable_error = any(
+            non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
+        )
+        if is_non_retryable_error:
+            _handle_non_retryable_error(job_inputs, error_msg, logger, e)
+        else:
+            logger.debug(
+                "Error encountered during import_data_activity_sync - re-raising",
+            )
+            raise

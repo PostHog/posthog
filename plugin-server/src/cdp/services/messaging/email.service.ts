@@ -4,11 +4,11 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Integr
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
-import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
+import { addPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 
 export class EmailService {
@@ -52,12 +52,9 @@ export class EmailService {
 
             this.validateEmailDomain(integration, params)
 
-            switch (integration.config.provider ?? 'mailjet') {
+            switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
                     await this.sendEmailWithMaildev(result, params)
-                    break
-                case 'mailjet':
-                    await this.sendEmailWithMailjet(result, params)
                     break
                 case 'ses':
                     await this.sendEmailWithSES(result, params)
@@ -109,49 +106,6 @@ export class EmailService {
         params.from.name = integration.config.name
     }
 
-    private async sendEmailWithMailjet(
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): Promise<void> {
-        // First we need to lookup the email sending domain of the given team
-        const response = await fetch('https://api.mailjet.com/v3.1/send', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Basic ${Buffer.from(
-                    `${this.hub.MAILJET_PUBLIC_KEY}:${this.hub.MAILJET_SECRET_KEY}`
-                ).toString('base64')}`,
-            },
-            body: JSON.stringify({
-                Messages: [
-                    {
-                        From: {
-                            Email: params.from.email,
-                            Name: params.from.name,
-                        },
-                        To: [
-                            {
-                                Email: params.to.email,
-                                Name: params.to.name,
-                            },
-                        ],
-                        Subject: params.subject,
-                        TextPart: params.text,
-                        HTMLPart: params.html,
-                        EventPayload: generateEmailTrackingCode(result.invocation),
-                    },
-                ],
-            }),
-        })
-
-        // TODO: Add support for retries - in fact if it fails should we actually crash out the service?
-        if (response.status >= 400) {
-            throw new Error(
-                `Failed to send email to ${params.to.email} (status ${response.status}): ${await response.text()}`
-            )
-        }
-    }
-
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
@@ -179,8 +133,11 @@ export class EmailService {
     ): Promise<void> {
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
+        const htmlWithTrackingAndPreheader = params.preheader
+            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
+            : htmlWithTracking
 
-        const sendEmailParams = {
+        const sendEmailParams: AWS.SES.SendEmailRequest = {
             Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
@@ -192,7 +149,7 @@ export class EmailService {
                 },
                 Body: {
                     Html: {
-                        Data: htmlWithTracking,
+                        Data: htmlWithTrackingAndPreheader,
                         Charset: 'UTF-8',
                     },
                     Text: {
@@ -203,6 +160,13 @@ export class EmailService {
             },
             ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
             Tags: [{ Name: 'ph_id', Value: trackingCode }],
+        }
+
+        if (params.replyTo && params.replyTo.trim()) {
+            sendEmailParams.ReplyToAddresses = params.replyTo
+                .split(',')
+                .map((addr) => addr.trim())
+                .filter((addr) => addr.length > 0)
         }
 
         try {

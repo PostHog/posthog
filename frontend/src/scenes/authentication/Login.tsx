@@ -7,15 +7,20 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { isEmail } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { LoginMethod } from '~/types'
 
 import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
@@ -55,13 +60,15 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     sso_enforced: "Please log in with your organization's required SSO method.",
 }
 
+const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
+
 export const scene: SceneExport = {
     component: Login,
     logic: loginLogic,
 }
 
 export function Login(): JSX.Element {
-    const { precheck, resendEmailMFA, clearGeneralError } = useActions(loginLogic)
+    const { precheck, resendEmailMFA, clearGeneralError, resetLogin } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -75,14 +82,35 @@ export function Login(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
+    const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const wasPasswordHiddenRef = useRef(isPasswordHidden)
+
+    const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
+    const prevEmail = usePrevious(login.email)
 
     useEffect(() => {
+        const wasPasswordHidden = wasPasswordHiddenRef.current
+        wasPasswordHiddenRef.current = isPasswordHidden
+
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
+        } else if (!wasPasswordHidden) {
+            // clear form when transitioning from visible to hidden
+            resetLogin()
         }
-    }, [isPasswordHidden])
+    }, [isPasswordHidden, resetLogin])
+
+    // Trigger precheck for password manager autofill/paste (detected by large character delta)
+    useEffect(() => {
+        const charDelta = login.email.length - (prevEmail?.length ?? 0)
+        const isAutofill = charDelta > 1
+
+        if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
+            precheck({ email: login.email })
+        }
+    }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
         <BridgePage
@@ -149,7 +177,19 @@ export function Login(): JSX.Element {
                         </div>
                     </div>
                 ) : (
-                    <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">
+                    <Form
+                        logic={loginLogic}
+                        formKey="login"
+                        enableFormOnSubmit
+                        onSubmitCapture={(e) => {
+                            if (isPasswordHidden || preventPasswordError.current) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                preventPasswordError.current = false
+                            }
+                        }}
+                        className="deprecated-space-y-4"
+                    >
                         <RegionSelect />
                         <LemonField name="email" label="Email">
                             <LemonInput
@@ -160,12 +200,12 @@ export function Login(): JSX.Element {
                                 type="email"
                                 onBlur={() => precheck({ email: login.email })}
                                 onPressEnter={(e) => {
-                                    precheck({ email: login.email })
                                     if (isPasswordHidden) {
                                         e.preventDefault() // Don't trigger submission if password field is still hidden
                                         passwordInputRef.current?.focus()
                                     }
                                 }}
+                                badgeText={lastLoginMethod === 'password' ? 'Last used' : undefined}
                             />
                         </LemonField>
                         <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
@@ -177,6 +217,7 @@ export function Login(): JSX.Element {
                                         <Link
                                             to={[urls.passwordReset(), { email: login.email }]}
                                             data-attr="forgot-password"
+                                            tabIndex={-1}
                                         >
                                             Forgot your password?
                                         </Link>
@@ -205,6 +246,12 @@ export function Login(): JSX.Element {
                                 center
                                 loading={isLoginSubmitting || precheckResponseLoading}
                                 size="large"
+                                onMouseDown={() => {
+                                    if (isPasswordHidden) {
+                                        // prevent empty password error
+                                        preventPasswordError.current = true
+                                    }
+                                }}
                             >
                                 Log in
                             </LemonButton>
@@ -212,12 +259,20 @@ export function Login(): JSX.Element {
 
                         {/* Show enforced SSO button if required */}
                         {precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                            <SSOEnforcedLoginButton
+                                provider={precheckResponse.sso_enforcement}
+                                email={login.email}
+                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
+                            />
                         )}
 
                         {/* Show optional SAML SSO button if available */}
                         {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton provider="saml" email={login.email} />
+                            <SSOEnforcedLoginButton
+                                provider="saml"
+                                email={login.email}
+                                isLastUsed={lastLoginMethod === 'saml'}
+                            />
                         )}
                     </Form>
                 )}
@@ -230,7 +285,7 @@ export function Login(): JSX.Element {
                     </div>
                 )}
                 {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons caption="Or log in with" topDivider />
+                    <SocialLoginButtons caption="Or log in with" topDivider lastUsedProvider={lastLoginMethod} />
                 )}
             </div>
         </BridgePage>

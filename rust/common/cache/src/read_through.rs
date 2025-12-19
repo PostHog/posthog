@@ -193,7 +193,9 @@ impl ReadThroughCache {
                 );
                 self.handle_corrupted_cache(key, cache_key, loader).await
             }
-            CustomRedisError::Timeout | CustomRedisError::Other(_) => {
+            CustomRedisError::Timeout
+            | CustomRedisError::Redis(_)
+            | CustomRedisError::InvalidConfiguration(_) => {
                 // Redis infrastructure issues - use loader without caching
                 tracing::warn!(
                     "Redis infrastructure issue for key {}: {:?}. Operating without cache.",
@@ -365,7 +367,7 @@ impl ReadThroughCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_redis::MockRedisClient;
+    use common_redis::{MockRedisClient, RedisErrorKind};
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
 
@@ -557,10 +559,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_redis_other_error_skips_cache_write() {
-        test_redis_infrastructure_error_skips_cache_write_impl(CustomRedisError::Other(
-            "connection refused".to_string(),
-        ))
-        .await;
+        let error =
+            CustomRedisError::from_redis_kind(RedisErrorKind::IoError, "connection refused");
+        test_redis_infrastructure_error_skips_cache_write_impl(error).await;
     }
 
     async fn test_redis_infrastructure_error_not_found_impl(redis_error: CustomRedisError) {
@@ -592,10 +593,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_redis_other_error_not_found() {
-        test_redis_infrastructure_error_not_found_impl(CustomRedisError::Other(
-            "network error".to_string(),
-        ))
-        .await;
+        let error = CustomRedisError::from_redis_kind(RedisErrorKind::IoError, "network error");
+        test_redis_infrastructure_error_not_found_impl(error).await;
     }
 
     #[tokio::test]

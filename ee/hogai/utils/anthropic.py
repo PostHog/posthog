@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from langchain_core import messages
 from langchain_core.messages import BaseMessage
@@ -8,24 +8,32 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMe
 
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
+# The blocks below MUST be preserved as in the original Anthropic responses, in order for thinking signatures to match up
+SUPPORTED_ANTHROPIC_BLOCKS = ("thinking", "redacted_thinking", "server_tool_use", "web_search_tool_result")
+
 
 def get_anthropic_thinking_from_assistant_message(message: AssistantMessage) -> list[dict[str, Any]]:
     if message.meta and message.meta.thinking:
-        return [item for item in message.meta.thinking if item["type"] in ("thinking", "redacted_thinking")]
+        return [item for item in message.meta.thinking if item["type"] in SUPPORTED_ANTHROPIC_BLOCKS]
     return []
 
 
-def add_cache_control(message: BaseMessage) -> BaseMessage:
+def add_cache_control(message: BaseMessage, ttl: Literal["5m", "1h"] | None = None) -> BaseMessage:
+    ttl = ttl or "5m"
     if isinstance(message.content, str):
         message.content = [
-            {"type": "text", "text": message.content, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": message.content, "cache_control": {"type": "ephemeral", "ttl": ttl}},
         ]
     if message.content:
         last_content = message.content[-1]
         if isinstance(last_content, str):
-            message.content[-1] = {"type": "text", "text": last_content, "cache_control": {"type": "ephemeral"}}
+            message.content[-1] = {
+                "type": "text",
+                "text": last_content,
+                "cache_control": {"type": "ephemeral", "ttl": ttl},
+            }
         else:
-            last_content["cache_control"] = {"type": "ephemeral"}
+            last_content["cache_control"] = {"type": "ephemeral", "ttl": ttl}
     return message
 
 

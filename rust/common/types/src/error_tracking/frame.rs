@@ -133,6 +133,8 @@ pub struct FrameData {
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_variables: Option<serde_json::Value>, // Variables and their values used in the code within that frame context
 }
 
 #[cfg(test)]

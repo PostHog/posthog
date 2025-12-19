@@ -1,13 +1,15 @@
+import type { z } from 'zod'
+
 import { InsightDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
+
 import { resolveInsightId } from './utils'
-import type { z } from 'zod'
 
 const schema = InsightDeleteSchema
 
 type Params = z.infer<typeof schema>
 
-export const deleteHandler = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { insightId } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -18,7 +20,7 @@ export const deleteHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to delete insight: ${result.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(result.data) }] }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

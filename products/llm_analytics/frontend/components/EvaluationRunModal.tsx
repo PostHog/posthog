@@ -10,6 +10,8 @@ interface EvaluationRunModalProps {
     visible: boolean
     targetEventId: string
     timestamp: string
+    event: string
+    distinctId?: string
     onClose: () => void
 }
 
@@ -17,6 +19,8 @@ export function EvaluationRunModal({
     visible,
     targetEventId,
     timestamp,
+    event,
+    distinctId,
     onClose,
 }: EvaluationRunModalProps): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
@@ -27,7 +31,7 @@ export function EvaluationRunModal({
 
     const handleRun = (): void => {
         if (selectedEvaluationId) {
-            runEvaluation(selectedEvaluationId, targetEventId, timestamp)
+            runEvaluation(selectedEvaluationId, targetEventId, timestamp, event, distinctId)
             onClose()
         }
     }

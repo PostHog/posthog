@@ -7,7 +7,7 @@ from posthog.models import Dashboard
 
 from products.dashboards.backend.max_tools import EditCurrentDashboardTool
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.utils.types.base import InsightQuery
 
 
@@ -25,9 +25,7 @@ class TestEditCurrentDashboardTool:
         configurable = {"team": mock_team, "user": mock_user}
         if context:
             configurable["contextual_tools"] = {"edit_current_dashboard": context}
-        tool = EditCurrentDashboardTool(
-            team=mock_team, user=mock_user, config={"configurable": configurable}, tool_call_id="test-tool-call-id"
-        )
+        tool = EditCurrentDashboardTool(team=mock_team, user=mock_user, config={"configurable": configurable})
         return tool
 
     @pytest.mark.asyncio

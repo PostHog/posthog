@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
@@ -14,7 +14,7 @@ import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { capitalizeFirstLetter, debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -23,10 +23,11 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { BusinessModelConfig } from './BusinessModelConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
 
-export function TeamDisplayName(): JSX.Element {
+export function TeamDisplayName({ updateInline = false }: { updateInline?: boolean }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -35,17 +36,27 @@ export function TeamDisplayName(): JSX.Element {
 
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
+    const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
+    const handleChange = (value: string): void => {
+        setName(value)
+        if (updateInline) {
+            debouncedUpdateCurrentTeam({ name: value })
+        }
+    }
+
     return (
         <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
-            <LemonButton
-                type="primary"
-                onClick={() => updateCurrentTeam({ name })}
-                disabled={!name || !currentTeam || name === currentTeam.name}
-                loading={currentTeamLoading}
-            >
-                Rename {displayNoun}
-            </LemonButton>
+            <LemonInput value={name} onChange={handleChange} />
+            {!updateInline && (
+                <LemonButton
+                    type="primary"
+                    onClick={() => updateCurrentTeam({ name })}
+                    disabled={!name || !currentTeam || name === currentTeam.name}
+                    loading={currentTeamLoading}
+                >
+                    Rename {displayNoun}
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -226,18 +237,35 @@ export function TeamVariables(): JSX.Element {
     )
 }
 
-export function TeamTimezone(): JSX.Element {
+export function TeamTimezone({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
     return (
         <>
             <p>
-                These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
-                refresh insights for new settings to apply.
+                The timezone config affect how PostHog displays, buckets, and filters time-series data.{' '}
+                {displayWarning && 'You may need to refresh insights for new settings to apply.'}
             </p>
+            <div className="flex flex-col sm:flex-row gap-8">
+                <div className="flex flex-col gap-2 flex-1 max-w-160">
+                    <LemonLabel id="timezone">Time zone</LemonLabel>
+                    <TimezoneConfig displayWarning={displayWarning} />
+                </div>
+                <div className="flex flex-col gap-2">
+                    <LemonLabel id="timezone">Week starts on</LemonLabel>
+                    <WeekStartConfig displayWarning={displayWarning} />
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function TeamBusinessModel({ bare }: { bare?: boolean }): JSX.Element {
+    return (
+        <>
+            <p>Set your business model if you want tailored UI, recommendations, and insights to your use case.</p>
             <div className="deprecated-space-y-2">
-                <LemonLabel id="timezone">Time zone</LemonLabel>
-                <TimezoneConfig />
-                <LemonLabel id="timezone">Week starts on</LemonLabel>
-                <WeekStartConfig />
+                {!bare && <LemonLabel id="business-model">Business model</LemonLabel>}
+                <BusinessModelConfig />
+                {!bare && <p className="text-muted text-xs">Whether this project serves B2B or B2C customers.</p>}
             </div>
         </>
     )

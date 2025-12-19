@@ -91,6 +91,10 @@ class TrendsActorsQueryBuilder:
         self.compare_value = compare_value
         self.include_recordings = include_recordings
 
+    @property
+    def exact_timerange(self):
+        return self.trends_query.dateRange and self.trends_query.dateRange.explicitDate
+
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
         return QueryDateRange(
@@ -98,6 +102,7 @@ class TrendsActorsQueryBuilder:
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
@@ -109,12 +114,14 @@ class TrendsActorsQueryBuilder:
                 interval=self.trends_query.interval,
                 now=datetime.now(),
                 compare_to=typing.cast(str, typing.cast(CompareFilter, self.trends_query.compareFilter).compare_to),
+                exact_timerange=self.exact_timerange,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.trends_query.dateRange,
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
@@ -177,6 +184,7 @@ class TrendsActorsQueryBuilder:
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
                 *self._get_event_distinct_ids_expr(),
                 *self._get_matching_recordings_expr(),
+                *self._get_last_seen_expr(),
             ],
             select_from=ast.JoinExpr(table=self._get_events_query()),
             group_by=[ast.Field(chain=["actor_id"])],
@@ -241,6 +249,13 @@ class TrendsActorsQueryBuilder:
 
     def _get_actor_value_expr(self) -> ast.Expr:
         return parse_expr("count()")
+
+    def _get_last_seen_expr(self) -> list[ast.Expr]:
+        if self.trends_aggregation_operations.is_first_time_ever_math():
+            # first time ever math doesn't select `timestamp`, so we should not calculate `last_seen`
+            return []
+
+        return [ast.Alias(alias="last_seen", expr=parse_expr("max(timestamp)"))]
 
     def _get_matching_recordings_expr(self) -> list[ast.Expr]:
         if not self.include_recordings:

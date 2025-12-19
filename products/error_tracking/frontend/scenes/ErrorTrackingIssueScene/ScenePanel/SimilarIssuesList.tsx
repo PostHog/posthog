@@ -7,7 +7,6 @@ import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { LemonModalContent, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SimilarIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionCard } from '../../../components/ExceptionCard'
@@ -40,14 +39,15 @@ export const SimilarIssuesList = (): JSX.Element => {
     }
 
     return (
-        <ScenePanelLabel title="Similar issues">
+        <>
             {similarIssuesLoading ? (
                 <Spinner />
             ) : similarIssues.length > 0 ? (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 divide-y">
                     {similarIssues.map((similarIssue: SimilarIssue) => {
                         return (
                             <SimilarIssueCard
+                                key={similarIssue.id}
                                 issue={similarIssue}
                                 onClick={() => setSelectedIssue(similarIssue)}
                                 actions={
@@ -80,25 +80,22 @@ export const SimilarIssuesList = (): JSX.Element => {
                     {selectedIssue && <IssueModalContent issueId={selectedIssue.id} />}
                 </LemonModalContent>
             </LemonModal>
-        </ScenePanelLabel>
+        </>
     )
 }
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
-    const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
-        errorTrackingIssueSceneLogic(logicProps)
-    )
+    const { issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
         <div className="ErrorTrackingIssue">
             <div className="space-y-2">
                 <ExceptionCard
-                    issue={issue ?? undefined}
-                    issueLoading={issueLoading}
+                    issueId={issueId}
+                    loading={issueLoading || initialEventLoading}
                     event={selectedEvent ?? undefined}
-                    eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
             </div>

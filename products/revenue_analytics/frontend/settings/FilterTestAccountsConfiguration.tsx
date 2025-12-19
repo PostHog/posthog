@@ -15,7 +15,7 @@ export function FilterTestAccountsConfiguration(): JSX.Element {
     const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
     return (
         <SceneSection
-            title="Filter test accounts out of revenue analytics"
+            title="Filter out internal and test users from revenue analytics"
             description={
                 <>
                     When enabled, events from test accounts will be excluded from Revenue analytics. You can configure
@@ -31,7 +31,7 @@ export function FilterTestAccountsConfiguration(): JSX.Element {
                 <LemonSwitch
                     onChange={updateFilterTestAccounts}
                     checked={filterTestAccounts}
-                    label="Filter test accounts out of revenue analytics"
+                    label="Filter out internal and test users"
                     bordered
                 />
             </AccessControlAction>

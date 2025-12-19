@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+# Wrapper script for the MinIO to SeaweedFS migration tool
+# This allows calling the migration from the root directory
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_ROOT/plugin-server"
+exec node bin/migrate-minio-to-seaweedfs.js "$@"
+

@@ -68,6 +68,7 @@ interface RowDetailsModalProps {
     onClose: () => void
     row: Record<string, any> | null
     columns: string[]
+    columnKeys: string[]
 }
 
 const CLICKHOUSE_TYPES = [
@@ -156,7 +157,7 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     return type.replace(/\(.+\)+/, '')
 }
 
-function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
     const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
     const [wordWrap, setWordWrap] = useState<Record<string, boolean>>({})
 
@@ -173,8 +174,9 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
         }
     }
 
-    const tableData = columns.map((column) => {
-        const value = row[column]
+    const tableData = columns.map((column, index) => {
+        const columnKey = columnKeys[index]
+        const value = row[columnKey]
         const isStringifiedJson = typeof value === 'string' && isJsonString(value)
         const isJson = typeof value === 'object' || isStringifiedJson
         const jsonValue = isStringifiedJson ? JSON.parse(value) : value
@@ -358,7 +360,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 const finalWidth = isLongContent ? 600 : undefined
 
                 const baseColumn: DataGridProps<Record<string, any>>['columns'][0] = {
-                    key: column,
+                    key: `${column}_${index}`,
                     name: (
                         <>
                             {column}{' '}
@@ -399,10 +401,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     return {
                         ...baseColumn,
                         renderCell: (props: any) => {
-                            if (props.row[column] === null) {
+                            const columnKey = `${column}_${index}`
+                            if (props.row[columnKey] === null) {
                                 return null
                             }
-                            return props.row[column].toString()
+                            return props.row[columnKey].toString()
                         },
                     }
                 }
@@ -410,7 +413,8 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 return {
                     ...baseColumn,
                     renderCell: (props: any) => {
-                        const value = props.row[column]
+                        const columnKey = `${column}_${index}`
+                        const value = props.row[columnKey]
                         if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
                             try {
                                 const parsedHogQLX = JSON.parse(value)
@@ -437,11 +441,12 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
         let processedRows = response.results.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
             response.columns?.forEach((column: string, i: number) => {
+                const columnKey = `${column}_${i}`
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
-                    rowObject[column] = JSON.stringify(row[i])
+                    rowObject[columnKey] = JSON.stringify(row[i])
                 } else {
-                    rowObject[column] = row[i]
+                    rowObject[columnKey] = row[i]
                 }
             })
             return rowObject
@@ -681,6 +686,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 onClose={() => setSelectedRow(null)}
                 row={selectedRow}
                 columns={response?.columns || []}
+                columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
             />
         </div>
     )
@@ -860,7 +866,7 @@ const Content = ({
         }
         return (
             <TabScroller>
-                <div className="px-6 py-4 border-t max-w-1/2">
+                <div className="px-6 py-4 border-t">
                     <QueryVariables />
                 </div>
             </TabScroller>

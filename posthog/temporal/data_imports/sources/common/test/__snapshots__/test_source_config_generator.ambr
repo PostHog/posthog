@@ -43,9 +43,12 @@
   
   def get_config_for_source(source: ExternalDataSourceType):
       return {
+          ExternalDataSourceType.ASHBY: AshbySourceConfig,
           ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+          ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+          ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,
           ExternalDataSourceType.GITHUB: GithubSourceConfig,
           ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
@@ -68,6 +71,7 @@
           ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
           ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
+          ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
           ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
           ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
           ExternalDataSourceType.VITALLY: VitallySourceConfig,

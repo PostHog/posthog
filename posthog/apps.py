@@ -31,6 +31,7 @@ class PostHogConfig(AppConfig):
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("SENTRY_ENVIRONMENT"),
         }
+        posthoganalytics.capture_exception_code_variables = True
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
@@ -75,11 +76,14 @@ class PostHogConfig(AppConfig):
         else:
             setup_async_migrations()
 
+        from posthog.api.file_system import registrations as file_system_registrations
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
         # Skip during tests since we handle this in conftest.py
         if not settings.TEST:
             queue_sync_hog_function_templates()
+
+        file_system_registrations.register_core_file_system_types()
 
     def _setup_lazy_admin(self):
         """Set up lazy loading of admin classes to avoid importing all at startup."""

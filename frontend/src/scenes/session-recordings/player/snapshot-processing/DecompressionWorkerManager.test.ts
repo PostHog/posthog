@@ -4,6 +4,8 @@ import {
     terminateDecompressionWorker,
 } from './DecompressionWorkerManager'
 
+jest.mock('snappy-wasm')
+
 describe('DecompressionWorkerManager', () => {
     let manager: DecompressionWorkerManager
 
@@ -61,7 +63,25 @@ describe('DecompressionWorkerManager', () => {
         })
     })
 
+    describe('stats', () => {
+        it('tracks decompression stats', async () => {
+            const data = new Uint8Array([1, 2, 3, 4, 5])
+            await manager.decompress(data)
+            await manager.decompress(data)
+
+            const stats = manager.getStats()
+
+            expect(stats.count).toBe(2)
+            expect(stats.totalSize).toBe(10)
+            expect(stats.totalTime).toBeGreaterThan(0)
+        })
+    })
+
     describe('singleton functions', () => {
+        afterEach(() => {
+            terminateDecompressionWorker()
+        })
+
         it('getDecompressionWorkerManager returns singleton instance', () => {
             const instance1 = getDecompressionWorkerManager()
             const instance2 = getDecompressionWorkerManager()
@@ -75,6 +95,25 @@ describe('DecompressionWorkerManager', () => {
             const instance2 = getDecompressionWorkerManager()
 
             expect(instance1).not.toBe(instance2)
+        })
+
+        it('recreates instance when posthog config changes', () => {
+            const mockPosthog1 = {} as any
+            const mockPosthog2 = {} as any
+
+            const instance1 = getDecompressionWorkerManager(mockPosthog1)
+            const instance2 = getDecompressionWorkerManager(mockPosthog2)
+
+            expect(instance1).not.toBe(instance2)
+        })
+
+        it('returns same instance when config has not changed', () => {
+            const mockPosthog = {} as any
+
+            const instance1 = getDecompressionWorkerManager(mockPosthog)
+            const instance2 = getDecompressionWorkerManager(mockPosthog)
+
+            expect(instance1).toBe(instance2)
         })
     })
 })

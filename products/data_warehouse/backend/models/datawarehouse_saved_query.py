@@ -8,15 +8,17 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
+import structlog
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
 
@@ -26,6 +28,8 @@ from products.data_warehouse.backend.models.util import (
     clean_type,
     remove_named_tuples,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def validate_saved_query_name(value):
@@ -58,11 +62,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         RUNNING = "Running"
 
     class Origin(models.TextChoices):
-        """Possible origin of this SavedQuery."""
+        """Possible origin of this SavedQuery"""
 
-        DATA_WAREHOUSE = "data_warehouse"
-        ENDPOINT = "endpoint"
-        REVENUE_ANALYTICS = "revenue_analytics"
+        DATA_WAREHOUSE = DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE
+        ENDPOINT = DataWarehouseSavedQueryOrigin.ENDPOINT
+        MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -117,9 +121,53 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     def name_chain(self) -> list[str]:
         return self.name.split(".")
 
+    def setup_model_paths(self):
+        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+
+        if not DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self).exists():
+            DataWarehouseModelPath.objects.create_from_saved_query(self)
+        else:
+            DataWarehouseModelPath.objects.update_from_saved_query(self)
+
+    def schedule_materialization(self, unpause: bool = False):
+        """
+        It will schedule the saved query workflow to run at the configured frequency.
+        If unpause is True, it will unpause the saved query workflow if it already exists.
+
+        If the workflow fails to schedule, it will disable materialization for this view.
+        This also guarantees model paths are properly created or updated.
+        """
+        from products.data_warehouse.backend.data_load.saved_query_service import (
+            saved_query_workflow_exists,
+            sync_saved_query_workflow,
+            unpause_saved_query_schedule,
+        )
+
+        try:
+            self.setup_model_paths()
+
+            schedule_exists = saved_query_workflow_exists(str(self.id))
+            if schedule_exists and unpause:
+                unpause_saved_query_schedule(str(self.id))
+            sync_saved_query_workflow(self, create=not schedule_exists)
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.warning(
+                "failed_to_schedule_saved_query",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+                error=str(e),
+            )
+
+            # Disable materialization for this view if we failed to schedule the workflow
+            # TODO: Should we have a cron job that re-enables materialization for managed viewset-based views
+            # that failed to schedule?
+            self.is_materialized = False
+            self.save(update_fields=["is_materialized"])
+
     def revert_materialization(self):
         from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
-        from products.data_warehouse.backend.models import DataWarehouseModelPath
+        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
         with transaction.atomic():
             self.sync_frequency_interval = None
@@ -264,6 +312,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             name=self.name,
             query=self.query["query"],
             fields=fields,
+            # Currently only storing metadata related to the managed viewset, but we can expand this in the future
+            # This is basically just a bag of props that can be used by other methods to properly identify this query
+            metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
         )
 
 

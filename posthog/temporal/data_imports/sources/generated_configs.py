@@ -31,6 +31,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class BigQueryUseCustomRegionConfig(config.Config):
+    region: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class GoogleAdsIsMccAccountConfig(config.Config):
     mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -39,9 +45,9 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 @config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
-    password: str
-    private_key: str
     selection: Literal["password", "keypair"] = "password"
+    password: str | None = None
+    private_key: str | None = None
     passphrase: str | None = None
 
 
@@ -52,13 +58,25 @@ class VitallyRegionConfig(config.Config):
 
 
 @config.config
+class AshbySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
         alias="temporary-dataset", default_factory=lambda: None
     )
+    use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
+
+
+@config.config
+class BingAdsSourceConfig(config.Config):
+    account_id: str
+    bing_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -70,6 +88,11 @@ class BrazeSourceConfig(config.Config):
 class ChargebeeSourceConfig(config.Config):
     api_key: str
     site_name: str
+
+
+@config.config
+class CustomerIOSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -135,6 +158,7 @@ class MailjetSourceConfig(config.Config):
 class MetaAdsSourceConfig(config.Config):
     account_id: str
     meta_ads_integration_id: int = config.value(converter=config.str_to_int)
+    sync_lookback_days: int | None = config.value(converter=int, default_factory=lambda: None)
 
 
 @config.config
@@ -195,7 +219,8 @@ class SalesforceSourceConfig(config.Config):
 @config.config
 class ShopifySourceConfig(config.Config):
     shopify_store_id: str
-    shopify_access_token: str
+    shopify_client_id: str
+    shopify_client_secret: str
 
 
 @config.config
@@ -212,6 +237,18 @@ class SnowflakeSourceConfig(config.Config):
 class StripeSourceConfig(config.Config):
     stripe_secret_key: str
     stripe_account_id: str | None = None
+
+
+@config.config
+class SupabaseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -246,9 +283,12 @@ class ZendeskSourceConfig(config.Config):
 
 def get_config_for_source(source: ExternalDataSourceType):
     return {
+        ExternalDataSourceType.ASHBY: AshbySourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+        ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
@@ -271,6 +311,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
+        ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,

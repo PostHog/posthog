@@ -12,6 +12,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -176,6 +177,7 @@ export function GoalsConfiguration(): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
     const { revenueAnalyticsConfig, goals } = useValues(revenueAnalyticsSettingsLogic)
     const { addGoal, updateGoal, deleteGoal } = useActions(revenueAnalyticsSettingsLogic)
+    const { reportRevenueAnalyticsGoalConfigured } = useActions(eventUsageLogic)
 
     // It's not adding by default, but we want to show the form in storybook and test runner
     // so that they show up in the snapshots
@@ -185,6 +187,7 @@ export function GoalsConfiguration(): JSX.Element {
     const handleAddGoal = (): void => {
         if (temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
             addGoal(temporaryGoal)
+            reportRevenueAnalyticsGoalConfigured()
             setTemporaryGoal(EMPTY_GOAL)
             setIsAdding(false)
         }
@@ -199,6 +202,7 @@ export function GoalsConfiguration(): JSX.Element {
     const handleSaveEdit = (): void => {
         if (editingIndex !== null && temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
             updateGoal(editingIndex, temporaryGoal)
+            reportRevenueAnalyticsGoalConfigured()
             setEditingIndex(null)
             setTemporaryGoal(EMPTY_GOAL)
         }
@@ -210,7 +214,10 @@ export function GoalsConfiguration(): JSX.Element {
     }
 
     const handleDeleteGoal = (index: number): void => {
-        deleteGoal(index)
+        const goal = goals[index]
+        if (window.confirm(`Are you sure you want to delete the goal "${goal.name}"?`)) {
+            deleteGoal(index)
+        }
     }
 
     const handleCancelAdd = (): void => {

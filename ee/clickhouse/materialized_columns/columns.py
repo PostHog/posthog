@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+import random
 import logging
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
 
+from django.core.cache import cache
 from django.utils.timezone import now
 
 from clickhouse_driver import Client
@@ -16,13 +18,22 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns import (
+    MATERIALIZATION_VALID_TABLES,
+    ColumnName,
+    TablesWithMaterializedColumns,
+)
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_DATABASE, TEST
+from posthog.settings import (
+    CLICKHOUSE_DATABASE,
+    MATERIALIZED_COLUMNS_CACHE_TIMEOUT,
+    MATERIALIZED_COLUMNS_USE_CACHE,
+    TEST,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +51,12 @@ SHORT_TABLE_COLUMN_NAME = {
     "group3_properties": "gp3",
     "group4_properties": "gp4",
 }
+
+
+def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> None:
+    """Clear the cache for materialized columns after mutations."""
+    cache_key = f"materialized_columns:{table}"
+    cache.delete(cache_key)
 
 
 @dataclass
@@ -68,21 +85,49 @@ class MaterializedColumn:
             )
 
     @staticmethod
-    def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
+    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool]]:
+        refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
+        if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
+            cache_key: str = f"materialized_columns:{table}"
+
+            try:
+                cached_result = cache.get(cache_key)
+                if cached_result is not None:
+                    return cached_result
+            except Exception:
+                # If cache fails, continue to query ClickHouse
+                pass
+
         with tags_context(name="get_all_materialized_columns"):
-            rows = sync_execute(
+            result = sync_execute(
                 """
                 SELECT name, comment, type like 'Nullable(%%)' as is_nullable
                 FROM system.columns
                 WHERE database = %(database)s
-                    AND table = %(table)s
-                    AND comment LIKE '%%column_materializer::%%'
-                    AND comment not LIKE '%%column_materializer::elements_chain::%%'
-            """,
+                  AND table = %(table)s
+                  AND comment LIKE '%%column_materializer::%%'
+                  AND comment not LIKE '%%column_materializer::elements_chain::%%'
+                """,
                 {"database": CLICKHOUSE_DATABASE, "table": table},
                 ch_user=ClickHouseUser.HOGQL,
             )
 
+        if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:
+            try:
+                cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
+            except Exception:
+                # If cache set fails, log but don't fail the request
+                logger.warning("Failed to cache materialized columns for table %s", table)
+
+        return result
+
+    @staticmethod
+    def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
+        if table not in MATERIALIZATION_VALID_TABLES:
+            logger.error("HogQL trying to get materialized columns for table: %s", table)
+            return
+
+        rows = MaterializedColumn._get_all(table)
         for name, comment, is_nullable in rows:
             yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
 
@@ -278,6 +323,7 @@ def materialize(
             ).execute
         ).result()
 
+    _clear_materialized_columns_cache(table)
     return column
 
 
@@ -316,13 +362,17 @@ def update_column_is_disabled(
         ).execute
     ).result()
 
+    _clear_materialized_columns_cache(table)
+
 
 def check_index_exists(client: Client, table: str, index: str) -> bool:
     [(count,)] = client.execute(
         """
         SELECT count()
         FROM system.data_skipping_indices
-        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        WHERE database = currentDatabase()
+          AND table = %(table)s
+          AND name = %(name)s
         """,
         {"table": table, "name": index},
     )
@@ -335,7 +385,9 @@ def check_column_exists(client: Client, table: str, column: str) -> bool:
         """
         SELECT count()
         FROM system.columns
-        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        WHERE database = currentDatabase()
+          AND table = %(table)s
+          AND name = %(name)s
         """,
         {"table": table, "name": column},
     )
@@ -396,6 +448,8 @@ def drop_column(table: TablesWithMaterializedColumns, column_names: Iterable[str
             try_drop_index=True,
         ).execute,
     ).result()
+
+    _clear_materialized_columns_cache(table)
 
 
 @dataclass

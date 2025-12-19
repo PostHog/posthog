@@ -8,7 +8,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
@@ -105,18 +104,19 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                         type="primary"
                         to={urls.llmAnalyticsDataset('new')}
                         data-testid="create-dataset-button"
+                        data-attr="create-dataset-button"
                         size="small"
                     >
                         New dataset
                     </LemonButton>
                 }
             />
-            <SceneDivider />
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
                 <LemonInput
                     type="search"
                     placeholder="Search datasets..."
                     value={filters.search}
+                    data-attr="datasets-search-input"
                     onChange={(value) => setFilters({ search: value })}
                     className="max-w-md"
                     data-testid="search-datasets-input"

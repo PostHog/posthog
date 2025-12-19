@@ -1,19 +1,18 @@
 import uuid
 from datetime import datetime
-from typing import Any, cast
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
-    BaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
@@ -42,24 +41,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.funnels import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
-    funnel_breakdown_group_test_factory,
-    funnel_breakdown_test_factory,
-)
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import assert_funnel_results_equal
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element, Team
+from posthog.models import Action, Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
@@ -67,69 +57,7 @@ from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
-class PseudoFunnelActors:
-    def __init__(self, person_filter: Any, team: Team):
-        self.filters = person_filter._data
-        self.team = team
-
-    def get_actors(self):
-        actors = get_actors(
-            self.filters,
-            self.team,
-            funnel_step=self.filters.get("funnel_step"),
-            funnel_step_breakdown=self.filters.get("funnel_step_breakdown"),
-        )
-
-        return (
-            None,
-            [{"id": x[0]} for x in actors],
-            None,
-        )
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelBreakdown(
-    ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.ORDERED,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
-):
-    maxDiff = None
-    pass
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelGroupBreakdown(
-    ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        FunnelOrderType.ORDERED,
-        PseudoFunnelActors,
-    ),
-):
-    pass
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelConversionTime(
-    ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
-):
-    maxDiff = None
-    pass
-
-
-def funnel_test_factory(Funnel, event_factory, person_factory):
+def funnel_test_factory(event_factory, person_factory):
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
         def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
             funnels_query = cast(FunnelsQuery, filter_to_query(filters))
@@ -5083,192 +5011,3 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
     return TestGetFunnel
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFOSSFunnel(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
-    maxDiff = None
-
-
-class TestFunnelStepCountsWithoutAggregationQuery(BaseTest):
-    maxDiff = None
-
-    def test_smoke(self):
-        with freeze_time("2024-01-10T12:01:00"):
-            query = FunnelsQuery(series=[EventsNode(), EventsNode()])
-            funnel_class = Funnel(context=FunnelQueryContext(query=query, team=self.team))
-
-        query_ast = funnel_class.get_step_counts_without_aggregation_query()
-        response = execute_hogql_query(query_type="FunnelsQuery", query=query_ast, team=self.team)
-
-        self.assertEqual(
-            response.hogql,
-            """SELECT
-    aggregation_target,
-    timestamp,
-    step_0,
-    latest_0,
-    step_1,
-    latest_1,
-    if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), 2, 1) AS steps,
-    if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
-FROM
-    (SELECT
-        aggregation_target,
-        timestamp,
-        step_0,
-        latest_0,
-        step_1,
-        min(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
-    FROM
-        (SELECT
-            e.timestamp AS timestamp,
-            person_id AS aggregation_target,
-            if(1, 1, 0) AS step_0,
-            if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-            if(1, 1, 0) AS step_1,
-            if(equals(step_1, 1), timestamp, NULL) AS latest_1
-        FROM
-            events AS e
-        WHERE
-            and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
-WHERE
-    equals(step_0, 1)
-LIMIT 100""",
-        )
-
-
-class TestFunnelStepCountsQuery(BaseTest):
-    maxDiff = None
-
-    def test_smoke(self):
-        with freeze_time("2024-01-10T12:01:00"):
-            query = FunnelsQuery(series=[EventsNode(), EventsNode()])
-            funnel_class = Funnel(context=FunnelQueryContext(query=query, team=self.team))
-
-        query_ast = funnel_class.get_step_counts_query()
-        response = execute_hogql_query(query_type="FunnelsQuery", query=query_ast, team=self.team)
-
-        self.assertEqual(
-            response.hogql,
-            """SELECT
-    aggregation_target,
-    steps,
-    avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-    median(step_1_conversion_time) AS step_1_median_conversion_time_inner
-FROM
-    (SELECT
-        aggregation_target,
-        steps,
-        max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
-        step_1_conversion_time
-    FROM
-        (SELECT
-            aggregation_target,
-            timestamp,
-            step_0,
-            latest_0,
-            step_1,
-            latest_1,
-            if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), 2, 1) AS steps,
-            if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
-        FROM
-            (SELECT
-                aggregation_target,
-                timestamp,
-                step_0,
-                latest_0,
-                step_1,
-                min(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
-            FROM
-                (SELECT
-                    e.timestamp AS timestamp,
-                    person_id AS aggregation_target,
-                    if(1, 1, 0) AS step_0,
-                    if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-                    if(1, 1, 0) AS step_1,
-                    if(equals(step_1, 1), timestamp, NULL) AS latest_1
-                FROM
-                    events AS e
-                WHERE
-                    and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
-        WHERE
-            equals(step_0, 1)))
-GROUP BY
-    aggregation_target,
-    steps
-HAVING
-    equals(steps, max(max_steps))
-LIMIT 100""",
-        )
-
-
-class TestFunnelQuery(BaseTest):
-    maxDiff = None
-
-    def test_smoke(self):
-        with freeze_time("2024-01-10T12:01:00"):
-            query = FunnelsQuery(series=[EventsNode(), EventsNode()])
-            funnel_class = Funnel(context=FunnelQueryContext(query=query, team=self.team))
-
-        query_ast = funnel_class.get_query()
-        response = execute_hogql_query(query_type="FunnelsQuery", query=query_ast, team=self.team)
-
-        self.assertEqual(
-            response.hogql,
-            """SELECT
-    countIf(equals(steps, 1)) AS step_1,
-    countIf(equals(steps, 2)) AS step_2,
-    avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
-    median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
-FROM
-    (SELECT
-        aggregation_target,
-        steps,
-        avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
-        median(step_1_conversion_time) AS step_1_median_conversion_time_inner
-    FROM
-        (SELECT
-            aggregation_target,
-            steps,
-            max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
-            step_1_conversion_time
-        FROM
-            (SELECT
-                aggregation_target,
-                timestamp,
-                step_0,
-                latest_0,
-                step_1,
-                latest_1,
-                if(and(less(latest_0, latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), 2, 1) AS steps,
-                if(and(isNotNull(latest_1), lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14)))), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
-            FROM
-                (SELECT
-                    aggregation_target,
-                    timestamp,
-                    step_0,
-                    latest_0,
-                    step_1,
-                    min(latest_1) OVER (PARTITION BY aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS latest_1
-                FROM
-                    (SELECT
-                        e.timestamp AS timestamp,
-                        person_id AS aggregation_target,
-                        if(1, 1, 0) AS step_0,
-                        if(equals(step_0, 1), timestamp, NULL) AS latest_0,
-                        if(1, 1, 0) AS step_1,
-                        if(equals(step_1, 1), timestamp, NULL) AS latest_1
-                    FROM
-                        events AS e
-                    WHERE
-                        and(and(greaterOrEquals(e.timestamp, toDateTime('2024-01-03 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2024-01-10 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))))
-            WHERE
-                equals(step_0, 1)))
-    GROUP BY
-        aggregation_target,
-        steps
-    HAVING
-        equals(steps, max(max_steps)))
-LIMIT 100""",
-        )

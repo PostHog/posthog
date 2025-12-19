@@ -3,11 +3,10 @@ import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 
@@ -62,13 +61,14 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
 
     return (
         <LemonButton
-            to={urls.heatmaps(`pageURL=${url}`)}
+            to={urls.heatmapNew(`pageURL=${url}&dataURL=${url}`)}
             icon={<IconHeatmap />}
             type="tertiary"
             size="xsmall"
             tooltip="View heatmap for this page"
             className="no-underline"
             targetBlank
+            hideExternalLinkIcon={true}
             onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 void addProductIntentForCrossSell({

@@ -5,12 +5,14 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
 import { DataPipelinesSceneTab } from 'scenes/data-pipelines/DataPipelinesScene'
@@ -25,7 +27,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ActivityScope,
@@ -36,6 +37,7 @@ import {
 } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
+import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import {
     HogFunctionConfigurationClearChangesButton,
@@ -44,7 +46,7 @@ import {
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelinesSceneTab>> = {
@@ -248,14 +250,12 @@ function HogFunctionHeader(): JSX.Element {
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (
-                        <span className="ml-2 flex">
-                            <HogFunctionIconEditable
-                                logicKey={logicProps.id ?? 'new'}
-                                src={configuration.icon_url}
-                                onChange={(val) => setConfigurationValue('icon_url', val)}
-                                size="small"
-                            />
-                        </span>
+                        <HogFunctionIconEditable
+                            logicKey={logicProps.id ?? 'new'}
+                            src={configuration.icon_url}
+                            onChange={(val) => setConfigurationValue('icon_url', val)}
+                            size="small"
+                        />
                     ),
                 }}
                 isLoading={loading}
@@ -298,6 +298,7 @@ export function HogFunctionScene(): JSX.Element {
     const { currentTab, loading, loaded, logicProps, type, teamHasCohortFilters, currentProjectId } =
         useValues(hogFunctionSceneLogic)
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { id, templateId } = logicProps
 
@@ -353,6 +354,15 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'testing',
                   content: <HogFunctionTesting />,
               },
+
+        type === 'destination' && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
+            ? {
+                  label: 'Backfills',
+                  key: 'backfills',
+                  content: <HogFunctionBackfills id={id} />,
+              }
+            : null,
+
         {
             label: 'History',
             key: 'history',
@@ -375,7 +385,6 @@ export function HogFunctionScene(): JSX.Element {
                         to use inline expressions instead of cohorts.
                     </LemonBanner>
                 )}
-                <SceneDivider />
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} />
                 ) : (

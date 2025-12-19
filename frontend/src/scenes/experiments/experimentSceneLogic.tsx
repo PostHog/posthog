@@ -196,9 +196,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners, values }) => ({
+    listeners(({ actions, sharedListeners, values }) => ({
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            actions.loadExperimentData()
         },
         setEditMode: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
@@ -246,6 +247,12 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
+            // Ignore sub-routes like /experiments/shared-metrics/new
+            // The :id parameter should only be 'new' or a number, not strings like 'shared-metrics'
+            if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
+                return
+            }
+
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditMode(false)
@@ -284,6 +291,12 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             }
         },
         '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
+            // Ignore routes where id is not a valid experiment identifier (number or 'new')
+            // This prevents matching routes like /experiments/shared-metrics/new
+            if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
+                return
+            }
+
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             if (id && didPathChange) {

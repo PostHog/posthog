@@ -20,6 +20,7 @@ pub struct RawPythonFrame {
     pub pre_context: Vec<String>, // The lines of code before the context line
     #[serde(default)]
     pub post_context: Vec<String>, // The lines of code after the context line
+    pub code_variables: Option<serde_json::Value>,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
@@ -61,13 +62,13 @@ impl RawPythonFrame {
             .pre_context
             .iter()
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno - i as u32 - 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
         let after = self
             .post_context
             .iter()
             .enumerate()
-            .map(|(i, line)| ContextLine::new(lineno + i as u32 + 1, line.clone()))
+            .map(|(i, line)| ContextLine::new_rel(lineno, (i as i32) + 1, line.clone()))
             .collect();
         Some(Context {
             before,
@@ -96,6 +97,7 @@ impl From<&RawPythonFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
+            code_variables: raw.code_variables.clone(),
         }
     }
 }

@@ -1,5 +1,7 @@
 import './LemonCard.scss'
 
+import { forwardRef } from 'react'
+
 import { IconX } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -17,18 +19,13 @@ export interface LemonCardProps {
     onClose?: () => void
 }
 
-export function LemonCard({
-    hoverEffect = true,
-    className,
-    children,
-    onClick,
-    focused,
-    closeable,
-    onClose,
-    ...props
-}: LemonCardProps): JSX.Element {
+export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function LemonCard(
+    { hoverEffect = true, className, children, onClick, focused, closeable, onClose, ...props },
+    ref
+): JSX.Element {
     return (
         <div
+            ref={ref}
             className={cn(
                 'LemonCard border rounded p-6 bg-surface-primary relative',
                 {
@@ -58,4 +55,4 @@ export function LemonCard({
             {children}
         </div>
     )
-}
+})

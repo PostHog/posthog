@@ -31,7 +31,7 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created personal API key{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created personal API key{' '}
                     <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                 </>
             ),
@@ -42,8 +42,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> revoked access for personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> revoked access for personal
+                    API key <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -56,7 +56,7 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> rolled personal API key{' '}
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> rolled personal API key{' '}
                         <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                     </>
                 ),
@@ -66,7 +66,7 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated personal API key{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated personal API key{' '}
                     <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                 </>
             ),
@@ -77,7 +77,7 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted personal API key{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted personal API key{' '}
                     <strong>{getKeyTitle()}</strong> for access to <strong>{getScopeDescription()}</strong>
                 </>
             ),

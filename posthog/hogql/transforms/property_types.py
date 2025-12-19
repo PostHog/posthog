@@ -20,9 +20,18 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
+# Mapping from PropertyType enum values to column name suffixes for dynamic materialized columns
+PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
+    "String": "string",
+    "Numeric": "numeric",
+    "Boolean": "bool",
+    "DateTime": "datetime",
+}
+
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
+    from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 
     if not context or not context.team_id:
         return
@@ -37,7 +46,8 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    event_property_values = (
+    # Load event property definitions with their materialized slots in a single query
+    event_property_definitions = (
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
@@ -46,11 +56,31 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             name__in=property_finder.event_properties,
             type__in=[None, PropertyDefinition.Type.EVENT],
         )
-        .values_list("name", "property_type")
+        .prefetch_related(
+            models.Prefetch(
+                "materialized_column_slots",
+                queryset=MaterializedColumnSlot.objects.filter(
+                    team_id=context.team_id, state=MaterializedColumnSlotState.READY
+                ),
+            )
+        )
         if property_finder.event_properties
         else []
     )
-    event_properties = {name: property_type for name, property_type in event_property_values if property_type}
+
+    event_properties: dict[str, dict[str, str | None]] = {}
+    for prop_def in event_property_definitions:
+        if not prop_def.property_type:
+            continue
+
+        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
+        slot = prop_def.materialized_column_slots.first()
+        if slot:
+            type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
+            if type_name:
+                prop_info["dmat"] = f"dmat_{type_name}_{slot.slot_index}"
+
+        event_properties[prop_def.name] = prop_info
 
     person_property_values = (
         PropertyDefinition.objects.alias(
@@ -65,9 +95,11 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         if property_finder.person_properties
         else []
     )
-    person_properties = {name: property_type for name, property_type in person_property_values if property_type}
+    person_properties: dict[str, dict[str, str | None]] = {
+        name: {"type": property_type} for name, property_type in person_property_values if property_type
+    }
 
-    group_properties = {}
+    group_properties: dict[str, dict[str, str | None]] = {}
     for group_id, properties in property_finder.group_properties.items():
         if not properties:
             continue
@@ -84,7 +116,11 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             .values_list("name", "property_type")
         )
         group_properties.update(
-            {f"{group_id}_{name}": property_type for name, property_type in group_property_values if property_type}
+            {
+                f"{group_id}_{name}": {"type": property_type}
+                for name, property_type in group_property_values
+                if property_type
+            }
         )
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
@@ -153,9 +189,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: dict[str, str],
-        person_properties: dict[str, str],
-        group_properties: dict[str, str],
+        event_properties: dict[str, dict[str, str | None]],
+        person_properties: dict[str, dict[str, str | None]],
+        group_properties: dict[str, dict[str, str | None]],
         context: HogQLContext,
         setTimeZones: bool,
     ):
@@ -245,15 +281,21 @@ class PropertySwapper(CloningVisitor):
         property_type: Literal["event", "person", "group"],
         property_name: str,
     ):
-        if property_type == "person":
-            posthog_field_type = self.person_properties.get(property_name)
-        elif property_type == "group":
-            posthog_field_type = self.group_properties.get(property_name)
-        else:
-            posthog_field_type = self.event_properties.get(property_name)
+        properties_by_type = {
+            "event": self.event_properties,
+            "person": self.person_properties,
+            "group": self.group_properties,
+        }
+        prop_info = properties_by_type[property_type].get(property_name, {})
+        field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
-        field_type = "Float" if posthog_field_type == "Numeric" else posthog_field_type or "String"
-        self._add_property_notice(node, property_type, field_type)
+        # Add notice about the property type and materialization status
+        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
+
+        if "dmat" in prop_info:
+            # Don't rewrite the AST - let the printer substitute the dmat column
+            # The printer will check context.property_swapper and use the dmat column
+            return node
 
         return self._field_type_to_property_call(node, field_type)
 
@@ -284,6 +326,7 @@ class PropertySwapper(CloningVisitor):
         node: ast.Field,
         property_type: Literal["event", "person", "group"],
         field_type: str,
+        dmat_column: str | None = None,
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
@@ -302,7 +345,9 @@ class PropertySwapper(CloningVisitor):
         message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
         if self.context.debug:
             if materialized_column is not None:
-                message += " This property is materialized ⚡️."
+                message += " This property is materialized (mat_*) ⚡️."
+            elif dmat_column is not None:
+                message += f" This property is materialized ({dmat_column}) ⚡️."
             else:
                 message += " This property is not materialized 🐢."
 

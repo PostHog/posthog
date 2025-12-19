@@ -47,29 +47,21 @@
     
     <fieldset class="module aligned">
         <h2>Configuration</h2>
-        
+
         <div class="form-row">
-            <label for="{{ form.days.id_for_label }}" class="required">
-                {{ form.days.label }}:
-            </label>
-            {{ form.days }}
-            {% if form.days.help_text %}
-                <p class="help">{{ form.days.help_text }}</p>
-            {% endif %}
-            {{ form.days.errors }}
+            <label for="{{ form.team_id.id_for_label }}">{{ form.team_id.label }}:</label>
+            {{ form.team_id }}
+            {% if form.team_id.help_text %}<p class="help">{{ form.team_id.help_text }}</p>{% endif %}
+            {{ form.team_id.errors }}
         </div>
-        
+
         <div class="form-row">
-            <label for="{{ form.min_matches.id_for_label }}" class="required">
-                {{ form.min_matches.label }}:
-            </label>
-            {{ form.min_matches }}
-            {% if form.min_matches.help_text %}
-                <p class="help">{{ form.min_matches.help_text }}</p>
-            {% endif %}
-            {{ form.min_matches.errors }}
+            <label for="{{ form.cohort_id.id_for_label }}">{{ form.cohort_id.label }}:</label>
+            {{ form.cohort_id }}
+            {% if form.cohort_id.help_text %}<p class="help">{{ form.cohort_id.help_text }}</p>{% endif %}
+            {{ form.cohort_id.errors }}
         </div>
-        
+
         <div class="form-row">
             <label for="{{ form.parallelism.id_for_label }}" class="required">
                 {{ form.parallelism.label }}:

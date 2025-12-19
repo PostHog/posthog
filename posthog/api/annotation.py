@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 
 
 @dataclasses.dataclass(frozen=True)
@@ -166,7 +166,7 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
 
 
-@receiver(model_activity_signal, sender=Annotation)
+@mutable_receiver(model_activity_signal, sender=Annotation)
 def handle_annotation_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

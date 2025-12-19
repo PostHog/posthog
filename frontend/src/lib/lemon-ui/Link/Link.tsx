@@ -6,14 +6,23 @@ import React from 'react'
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { urlToResource } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -67,6 +76,10 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
+
+    /** Skip the context menu */
+    skipContext?: boolean
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -121,8 +134,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltip,
             tooltipDocLink,
             tooltipPlacement,
+            tooltipCloseDelayMs,
             role,
             tabIndex,
+            skipContext,
             ...props
         },
         ref
@@ -197,6 +212,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 : '#'
             : undefined
 
+        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
+
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)
             : `Link ${subtle ? 'Link--subtle' : ''}`
@@ -215,6 +232,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 tabIndex={tabIndex}
                 {...props}
                 {...draggableProps}
+                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
                 {children}
                 {targetBlankIcon &&
@@ -228,11 +246,30 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
+        // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
         if ((tooltip && to) || tooltipDocLink) {
             element = (
-                <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
+                <Tooltip
+                    title={tooltip}
+                    docLink={tooltipDocLink}
+                    placement={tooltipPlacement}
+                    closeDelayMs={tooltipCloseDelayMs}
+                >
                     {element}
                 </Tooltip>
+            )
+        }
+
+        if (href && !externalLink && !skipContext) {
+            element = (
+                <ContextMenu key={props.key}>
+                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
+                    <ContextMenuContent className="max-w-[300px]">
+                        <ContextMenuGroup>
+                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                        </ContextMenuGroup>
+                    </ContextMenuContent>
+                </ContextMenu>
             )
         }
 
@@ -241,6 +278,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <Tooltip
                     title={disabledReason ? <span className="italic">{disabledReason}</span> : tooltip || undefined}
                     placement={tooltipPlacement}
+                    closeDelayMs={tooltipCloseDelayMs}
                 >
                     <span>
                         <button

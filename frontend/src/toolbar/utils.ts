@@ -12,6 +12,8 @@ import { ActionStepType } from '~/types'
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+
+const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 
@@ -38,6 +40,16 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
         return
     }
 
+    if (elementToQueryCache.has(element)) {
+        return elementToQueryCache.get(element)
+    }
+
+    const result = computeElementQuery(element, dataAttributes)
+    elementToQueryCache.set(element, result)
+    return result
+}
+
+function computeElementQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     for (const { name, value } of Array.from(element.attributes)) {
         if (!dataAttributes.includes(name)) {
             continue
@@ -57,7 +69,8 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     try {
         const foundSelector = finder(element, {
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
-            seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+            // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+            seedMinLength: 5,
             attr: (name) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above

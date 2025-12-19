@@ -15,6 +15,9 @@ procs:
         shell: './bin/start-frontend 2>&1 | tee /tmp/posthog-frontend.log'
         autorestart: true
 
+    typegen:
+        shell: 'if [ -n "$SKIP_TYPEGEN" ]; then exit 0; fi && cd frontend && pnpm run typegen:watch 2>&1 | tee /tmp/posthog-typegen.log'
+
     temporal-worker:
         shell: |-
             bin/check_kafka_clickhouse_up && \

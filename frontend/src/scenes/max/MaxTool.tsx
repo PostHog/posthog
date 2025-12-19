@@ -22,6 +22,7 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
 export function MaxTool({
     identifier,
     context,
+    contextDescription,
     introOverride,
     callback,
     suggestions,
@@ -35,6 +36,7 @@ export function MaxTool({
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
         context,
+        contextDescription,
         introOverride,
         callback,
         suggestions,

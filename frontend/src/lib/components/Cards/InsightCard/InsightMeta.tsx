@@ -27,9 +27,14 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
+import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -66,6 +71,7 @@ interface InsightMetaProps
         | 'filtersOverride'
         | 'variablesOverride'
         | 'placement'
+        | 'surveyOpportunity'
     > {
     tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
@@ -97,11 +103,12 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
     placement,
+    surveyOpportunity,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps, insightFeedback } = useValues(insightLogic)
     const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -130,7 +137,7 @@ export function InsightMeta({
           )
         : true
 
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
+    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES]
 
     const summary = useSummarizeInsight()(insight.query)
 
@@ -153,6 +160,18 @@ export function InsightMeta({
                     disabledReason={insightFeedback === 'disliked' ? 'Already disliked' : ''}
                 />
             </div>
+        ) : null
+
+    const surveyOpportunityButton =
+        surveyOpportunity &&
+        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
+        isSurveyableFunnelInsight(insight) ? (
+            <SurveyOpportunityButton
+                insight={insight}
+                disableAutoPromptSubmit={true}
+                source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
+                fromProduct={ProductKey.PRODUCT_ANALYTICS}
+            />
         ) : null
 
     // If user can't view the insight, show minimal interface
@@ -203,6 +222,7 @@ export function InsightMeta({
                     query={insight.query}
                     lastRefresh={insight.last_refresh}
                     hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                    resolvedDateRange={insightData?.resolved_date_range}
                 />
             }
             content={
@@ -238,6 +258,7 @@ export function InsightMeta({
                                         : urls.insightEdit(short_id)
                                 }
                                 fullWidth
+                                {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                             >
                                 Edit
                             </LemonButton>
@@ -413,7 +434,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
-            extraControls={feedbackButtons}
+            extraControls={surveyOpportunityButton ?? feedbackButtons}
         />
     )
 }

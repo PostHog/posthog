@@ -5,11 +5,13 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
+    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
+    isSessionsQuery,
     isTracesQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
@@ -25,6 +27,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     groupPropertyFilters,
+    sessionPropertyFilters,
     linkDataButton,
     personsSearch,
     groupsSearch,
@@ -35,7 +38,10 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    supportTracesFilters,
     highlightExceptionEventRows,
+    /** Enables cell and row actions for non-integrated conversions mapping */
+    nonIntegratedConversionsActions,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -53,6 +59,19 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)
+    }
+
+    if (isSessionsQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.sessionPropertyFilters)
+        features.add(QueryFeature.eventNameFilter)
+        features.add(QueryFeature.eventPropertyFilters)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.selectAndOrderByColumns)
     }
 
     if (isRevenueExampleDataWarehouseTablesQuery(query)) {
@@ -110,10 +129,19 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.selectAndOrderByColumns)
     }
 
+    if (isNonIntegratedConversionsTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.nonIntegratedConversionsActions)
+    }
+
     if (isTracesQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.supportTracesFilters)
         features.add(QueryFeature.columnConfigurator)
     }
 

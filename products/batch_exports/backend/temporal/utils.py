@@ -181,6 +181,9 @@ class JsonType(pa.ExtensionType):
     def __arrow_ext_serialize__(self):
         return b""
 
+    def __hash__(self):
+        return pa.DataType.__hash__(self)
+
     @classmethod
     def __arrow_ext_deserialize__(self, storage_type, serialized):
         return JsonType()
@@ -248,7 +251,7 @@ _P = typing.ParamSpec("_P")
 def make_retryable_with_exponential_backoff(
     func: typing.Callable[_P, collections.abc.Awaitable[_Result]],
     timeout: float | int | None = None,
-    max_attempts: int = 5,
+    max_attempts: int | None = 5,
     initial_retry_delay: float | int = 2,
     max_retry_delay: float | int = 32,
     exponential_backoff_coefficient: int = 2,
@@ -268,7 +271,7 @@ def make_retryable_with_exponential_backoff(
             except retryable_exceptions as err:
                 attempt += 1
 
-                if is_exception_retryable(err) is False or attempt >= max_attempts:
+                if is_exception_retryable(err) is False or (max_attempts is not None and attempt >= max_attempts):
                     raise
 
                 await asyncio.sleep(

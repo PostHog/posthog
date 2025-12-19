@@ -1,8 +1,10 @@
 import re
 import ssl
+import sys
 import enum
 import json
 import uuid
+import socket
 import typing
 import asyncio
 import datetime as dt
@@ -159,6 +161,13 @@ class ClickHouseQueryNotFound(ClickHouseError):
         super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
+class ClickHouseMemoryLimitExceededError(ClickHouseError):
+    """Exception raised when a query exceeds the memory limit."""
+
+    def __init__(self, query, error_message):
+        super().__init__(query, error_message)
+
+
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
     """
     Updates query_tags with a temporal workflow's properties.
@@ -256,8 +265,8 @@ class ClickHouseClient:
             **kwargs,
         )
 
-    async def is_alive(self) -> bool:
-        """Check if the connection is alive by sending a SELECT 1 query.
+    async def is_alive(self, timeout: float = 30.0) -> bool:
+        """Check if the connection is alive by sending a ping request.
 
         Returns:
             A boolean indicating whether the connection is alive.
@@ -272,9 +281,13 @@ class ClickHouseClient:
                 url=ping_url,
                 headers=self.headers,
                 raise_for_status=True,
+                timeout=aiohttp.ClientTimeout(total=timeout),
             )
         except aiohttp.ClientResponseError as exc:
             self.logger.exception("Failed ClickHouse liveness check", exc_info=exc)
+            return False
+        except TimeoutError:
+            self.logger.exception("ClickHouse liveness check timed out after %s seconds", timeout)
             return False
         return True
 
@@ -316,12 +329,16 @@ class ClickHouseClient:
             ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
                 "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
                 and fallback_to_stale_replicas_for_distributed_queries=0
+            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
+                "MEMORY_LIMIT_EXCEEDED".
             ClickHouseError: If the status code is not 200.
         """
         if response.status != 200:
             error_message = await response.text()
             if "ALL_REPLICAS_ARE_STALE" in error_message:
                 raise ClickHouseAllReplicasAreStaleError(query, error_message)
+            if "MEMORY_LIMIT_EXCEEDED" in error_message:
+                raise ClickHouseMemoryLimitExceededError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     def check_response(self, response, query) -> None:
@@ -331,12 +348,16 @@ class ClickHouseClient:
             ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
                 "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
                 and fallback_to_stale_replicas_for_distributed_queries=0
+            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
+                "MEMORY_LIMIT_EXCEEDED".
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
             error_message = response.text
             if "ALL_REPLICAS_ARE_STALE" in error_message:
                 raise ClickHouseAllReplicasAreStaleError(query, error_message)
+            if "MEMORY_LIMIT_EXCEEDED" in error_message:
+                raise ClickHouseMemoryLimitExceededError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
@@ -526,6 +547,32 @@ class ClickHouseClient:
     ) -> ClickHouseQueryStatus:
         """Check the status of a query in ClickHouse.
 
+        This method first checks the query log to see if the query has finished, failed, or is still running.
+        If it's not found in the query log for whatever reason (we've seen this happen many times in production), it
+        checks the process list to see if the query is still running.
+
+        Arguments:
+            query_id: The ID of the query to check.
+            raise_on_error: Whether to raise an exception if the query has
+                failed.
+        """
+        try:
+            return await self.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
+        except ClickHouseQueryNotFound:
+            is_running = await self.acheck_query_in_process_list(query_id)
+            if is_running:
+                return ClickHouseQueryStatus.RUNNING
+            else:
+                self.logger.warning("Expected query not found in query log or process list", query_id=query_id)
+                raise
+
+    async def acheck_query_in_query_log(
+        self,
+        query_id: str,
+        raise_on_error: bool = True,
+    ) -> ClickHouseQueryStatus:
+        """Check the status of a query in the ClickHouse query log.
+
         Arguments:
             query_id: The ID of the query to check.
             raise_on_error: Whether to raise an exception if the query has
@@ -536,13 +583,13 @@ class ClickHouseClient:
                 FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
                 WHERE query_id = {{query_id:String}}
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
-                    FORMAT JSONEachRow \
+                FORMAT JSONEachRow
                 """
 
         resp = await self.read_query(
             query,
             query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK",
+            query_id=f"{query_id}-CHECK-QUERY-LOG",
         )
 
         if not resp:
@@ -578,6 +625,50 @@ class ClickHouseClient:
             return ClickHouseQueryStatus.RUNNING
         else:
             raise ClickHouseQueryNotFound(query, query_id)
+
+    async def acheck_query_in_process_list(self, query_id: str) -> bool:
+        """Check if a query is running in the ClickHouse process list.
+
+        Arguments:
+            query_id: The ID of the query to check.
+
+        Returns:
+            True if the query is running, False otherwise.
+        """
+        query = """
+                SELECT 1
+                FROM clusterAllReplicas({{cluster_name:String}}, system.processes)
+                WHERE query_id = {{query_id:String}}
+                    AND NOT is_cancelled
+                LIMIT 1
+                """
+
+        resp = await self.read_query(
+            query,
+            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+            query_id=f"{query_id}-CHECK-PROCESS-LIST",
+        )
+        if not resp:
+            return False
+
+        result = resp.decode("utf-8").strip()
+        return result == "1"
+
+    async def acancel_query(self, query_id: str) -> None:
+        """Cancel a running query in ClickHouse.
+
+        Arguments:
+            query_id: The ID of the query to cancel.
+        """
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+
+        await self.execute_query(
+            query,
+            query_parameters={"query_id": query_id},
+            query_id=f"{query_id}-KILL",
+        )
+
+        self.logger.info("Cancelled query", query_id=query_id)
 
     async def stream_query_as_jsonl(
         self,
@@ -656,7 +747,34 @@ class ClickHouseClient:
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
-        self.connector = aiohttp.TCPConnector(ssl=self.ssl)
+
+        def socket_factory(addr_info):
+            family, type_, proto, _, _ = addr_info
+            sock = socket.socket(family=family, type=type_, proto=proto)
+            # Enable keepalive in the socket
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
+
+            if sys.platform == "linux":
+                # Start sending keepalive probes after 60s
+                # Ensure that any idle timeouts allow at least 60s
+                tcp_keepidle = 60
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, tcp_keepidle)
+                # Send keepalive probes every 10s
+                tcp_keepintvl = 10
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, tcp_keepintvl)
+                # Give up after 5 failed probes
+                tcp_keepcnt = 5
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, tcp_keepcnt)
+                self.logger.debug(
+                    "Configured keepalive probes",
+                    tcp_keepidle=tcp_keepidle,
+                    tcp_keepintvl=tcp_keepintvl,
+                    tcp_keepcnt=tcp_keepcnt,
+                )
+
+            return sock
+
+        self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
         self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout)
         return self
 

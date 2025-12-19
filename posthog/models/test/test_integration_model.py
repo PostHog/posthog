@@ -5,7 +5,7 @@ from typing import Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, override_settings
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -24,6 +24,7 @@ from posthog.models.integration import (
     OauthIntegration,
     SlackIntegration,
 )
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 
@@ -107,6 +108,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
+        "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
     }
 
     def create_integration(
@@ -248,6 +251,54 @@ class TestOauthIntegrationModel(BaseTest):
                 "access_token": "FAKES_ACCESS_TOKEN",
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "id_token": None,
+            }
+
+    @patch("posthog.models.integration.requests.post")
+    def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
+        """
+        LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
+        so we extract user info from the id_token JWT instead.
+        """
+        import json
+        import base64
+
+        # Create a mock JWT id_token with sub and email in the payload
+        jwt_payload = {"sub": "linkedin_user_123", "email": "user@example.com", "iat": 1704110400}
+        encoded_payload = base64.urlsafe_b64encode(json.dumps(jwt_payload).encode()).decode().rstrip("=")
+        mock_id_token = f"eyJhbGciOiJSUzI1NiJ9.{encoded_payload}.fake_signature"
+
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
+                "expires_in": 3600,
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "linkedin-ads",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            assert integration.team == self.team
+            assert integration.created_by == self.user
+            # Verify sub and email were extracted from JWT
+            assert integration.config["sub"] == "linkedin_user_123"
+            assert integration.config["email"] == "user@example.com"
+            assert integration.config["refreshed_at"] == 1704110400
+            assert integration.config["expires_in"] == 3600
+
+            assert integration.sensitive_config == {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
             }
 
     def test_integration_access_token_expired(self):
@@ -691,7 +742,9 @@ class TestEmailIntegrationDomainValidation(BaseTest):
     def test_successful_domain_creation_ses(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
-        integration = EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        integration = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
         assert integration.team == self.team
         assert integration.config["email"] == "user@successdomain.com"
         assert integration.config["provider"] == "ses"
@@ -699,25 +752,54 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["name"] == "Test User"
         assert integration.config["verified"] is False
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_duplicate_domain_in_another_team(self):
-        # Create an integration with a domain in another team
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
+    def test_duplicate_domain_in_another_organization(self, mock_create_email_domain, mock_verify_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
+        # Create an integration with a domain in another organization
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        config = {"email": "user@example.com", "name": "Test User"}
+        EmailIntegration.create_native_integration(
+            config, team_id=other_team.id, organization_id=str(other_org.id), created_by=self.user
+        )
+
+        # Attempt to create the same domain in a different organization should raise ValidationError
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
+        assert "already exists in another organization" in str(exc.value)
+
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_duplicate_domain_in_same_organization_allowed(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
+        # Create an integration with a domain in one team
         other_team = Team.objects.create(organization=self.organization, name="other team")
         config = {"email": "user@example.com", "name": "Test User"}
-        EmailIntegration.create_native_integration(config, team_id=other_team.id, created_by=self.user)
+        integration1 = EmailIntegration.create_native_integration(
+            config, team_id=other_team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
 
-        # Attempt to create the same domain in this team should raise ValidationError
-        with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
-        assert "already exists in another project" in str(exc.value)
+        # Creating the same domain in a different team in the same organization should succeed
+        integration2 = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
 
-    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+        assert integration1.config["domain"] == "example.com"
+        assert integration2.config["domain"] == "example.com"
+        assert integration1.team_id == other_team.id
+        assert integration2.team_id == self.team.id
+
     def test_unsupported_email_domain(self):
         # Test with a free email domain
         config = {"email": "user@gmail.com", "name": "Test User"}
 
         with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
         assert "not supported" in str(exc.value)
 
         # Test with a disposable email domain
@@ -725,6 +807,8 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         config = {"email": f"user@{disposable_domain}", "name": "Test User"}
 
         with pytest.raises(ValidationError) as exc:
-            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)

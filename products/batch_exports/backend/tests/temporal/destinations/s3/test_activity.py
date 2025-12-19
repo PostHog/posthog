@@ -3,7 +3,6 @@ import uuid
 import pytest
 
 from django.conf import settings
-from django.test import override_settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
@@ -15,83 +14,16 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
     S3InsertInputs,
-    insert_into_s3_activity_from_stage,
     s3_default_fields,
 )
-from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    BatchExportInsertIntoInternalStageInputs,
-    insert_into_internal_stage_activity,
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    TEST_S3_MODELS,
+    _run_activity,
+    assert_clickhouse_records_in_s3,
 )
-from products.batch_exports.backend.tests.temporal.destinations.s3.utils import assert_clickhouse_records_in_s3
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3, read_json_file_from_s3
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
-
-
-TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="a-custom-model",
-        schema={
-            "fields": [
-                {"expression": "uuid", "alias": "uuid"},
-                {"expression": "event", "alias": "my_event_name"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-                {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-                {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-            ],
-            "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-        },
-    ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(
-        name="events",
-        schema=None,
-        filters=[
-            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
-            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
-        ],
-    ),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
-    {
-        "fields": [
-            {"expression": "uuid", "alias": "uuid"},
-            {"expression": "event", "alias": "my_event_name"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
-            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
-            {"expression": "nullIf(properties, '')", "alias": "all_properties"},
-        ],
-        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
-    },
-    None,
-]
-
-
-async def _run_activity(activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
-    with override_settings(
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
-    ):
-        assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
-            insert_into_internal_stage_activity,
-            BatchExportInsertIntoInternalStageInputs(
-                team_id=insert_inputs.team_id,
-                batch_export_id=insert_inputs.batch_export_id,
-                data_interval_start=insert_inputs.data_interval_start,
-                data_interval_end=insert_inputs.data_interval_end,
-                exclude_events=insert_inputs.exclude_events,
-                include_events=None,
-                run_id=None,
-                backfill_details=None,
-                batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
-                destination_default_fields=s3_default_fields(),
-            ),
-        )
-
-        result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
-
-    return result
 
 
 @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)

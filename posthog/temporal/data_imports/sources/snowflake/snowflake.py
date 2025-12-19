@@ -260,4 +260,4 @@ def snowflake_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys, rows_to_sync=rows_to_sync)
+    return SourceResponse(name=name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync)

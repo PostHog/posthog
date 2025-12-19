@@ -4,22 +4,30 @@ use std::time::Duration;
 
 use crate::kafka::batch_context::BatchConsumerContext;
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
-use crate::kafka::metrics_consts::{BATCH_CONSUMER_KAFKA_ERRORS, BATCH_CONSUMER_MESSAGES_RECEIVED};
+use crate::kafka::metrics_consts::{
+    BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
+};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
 use anyhow::anyhow;
 use anyhow::{Context, Result};
+use axum::async_trait;
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
-use rdkafka::error::KafkaResult;
+use rdkafka::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::oneshot::Receiver;
+use tokio::time::sleep;
 use tracing::{error, info, warn};
+
+#[async_trait]
+pub trait BatchConsumerProcessor<T>: Send + Sync {
+    async fn process_batch(&self, messages: Vec<KafkaMessage<T>>) -> Result<()>;
+}
 
 pub struct BatchConsumer<T> {
     consumer: StreamConsumer<BatchConsumerContext>,
@@ -34,12 +42,12 @@ pub struct BatchConsumer<T> {
     batch_timeout: Duration,
 
     // where we send batches after consuming them
-    sender: UnboundedSender<Batch<T>>,
+    processor: Arc<dyn BatchConsumerProcessor<T>>,
 
     // shutdown signal from parent process which
     // we assume will be wrapping start_consumption
     // in a spawned thread
-    shutdown_token: CancellationToken,
+    shutdown_rx: Receiver<()>,
 }
 
 impl<T> BatchConsumer<T>
@@ -50,8 +58,8 @@ where
     pub fn new(
         config: &ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
-        sender: UnboundedSender<Batch<T>>,
-        shutdown_token: CancellationToken,
+        processor: Arc<dyn BatchConsumerProcessor<T>>,
+        shutdown_rx: Receiver<()>,
         topic: &str,
         batch_size: usize,
         batch_timeout: Duration,
@@ -76,35 +84,32 @@ where
             commit_interval,
             batch_size,
             batch_timeout,
-            sender,
-            shutdown_token,
+            processor,
+            shutdown_rx,
         })
     }
 
     /// Start consuming messages in a loop with graceful shutdown support
-    pub async fn start_consumption(self) -> Result<()> {
+    pub async fn start_consumption(mut self) -> Result<()> {
         info!("Starting batch Kafka message consumption...");
 
         let batch_timeout = self.batch_timeout;
         let batch_size = self.batch_size;
         let mut commit_interval = tokio::time::interval(self.commit_interval);
 
-        // consume the clients and channels needed to operate the loop
-        let shutdown_token = self.shutdown_token.clone();
-        let sender = self.sender;
         let consumer = self.consumer;
         let mut stream = consumer.stream();
 
         loop {
             tokio::select! {
                 // Check for shutdown signal
-                _ = shutdown_token.cancelled() => {
+                _ = &mut self.shutdown_rx => {
                     info!("Shutdown signal received, starting graceful shutdown");
                     break;
                 }
 
                 // Poll for messages
-                batch_result = Self::consume_batch(&mut stream, shutdown_token.clone(), batch_size, batch_timeout) => {
+                batch_result = Self::consume_batch(&mut stream, batch_size, batch_timeout) => {
                     match batch_result {
                         Ok(batch) => {
                             // track latest offsets with rdkafka consumer
@@ -113,20 +118,24 @@ where
                             if batch.is_empty() {
                                 continue;
                             }
+                            let message_count = batch.message_count();
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "success")
-                            .increment(batch.message_count() as u64);
+                            .increment(message_count as u64);
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "error")
                             .increment(batch.error_count() as u64);
+                            metrics::histogram!(BATCH_CONSUMER_BATCH_SIZE)
+                            .record(message_count as f64);
 
-                            if let Err(e) = sender.send(batch) {
+                            let (messages, _errors) = batch.unpack();
+                            if let Err(e) = self.processor.process_batch(messages).await {
                                 // TODO: stat this
-                                error!("Error sending Batch for processing: {e}");
+                                error!("Error processing batch: {e}");
                             }
                         }
 
                         Err(e) => {
-                            metrics::counter!(BATCH_CONSUMER_KAFKA_ERRORS).increment(1);
-                            error!("Error consuming Batch from stream: {e}");
+                            // Kafka error handler logs/stats these in detail prior to bubbling up here
+                            return Err(e.into());
                         }
                     }
                 }
@@ -145,11 +154,134 @@ where
         }
         info!("Batch consumer loop shutting down...");
 
-        // Drop the sender to signal no more messages
-        drop(sender);
         info!("Graceful shutdown completed");
 
         Ok(())
+    }
+
+    async fn handle_kafka_error(e: KafkaError, current_count: u64) -> Option<KafkaError> {
+        match &e {
+            KafkaError::MessageConsumption(code) => {
+                match code {
+                    RDKafkaErrorCode::PartitionEOF => {
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "info"), ("error", "partition_eof"),]
+                        )
+                        .increment(1);
+                    }
+                    RDKafkaErrorCode::OperationTimedOut => {
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "info"), ("error", "op_timed_out"),]
+                        )
+                        .increment(1);
+                    }
+                    RDKafkaErrorCode::OffsetOutOfRange => {
+                        // "auto.offset.reset" will trigger a seek to head or tail
+                        // of the partition in coordination with the broker
+                        warn!("Offset out of range - seeking to configured offset reset policy",);
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "info"), ("error", "offset_out_of_range"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_millis(500)).await;
+                    }
+                    _ => {
+                        warn!("Kafka consumer error: {code:?}");
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "warn"), ("error", "consumer"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_millis(100 * current_count.min(10))).await;
+                    }
+                }
+
+                None
+            }
+
+            KafkaError::MessageConsumptionFatal(code) => {
+                error!("Fatal Kafka consumer error: {code:?}");
+                metrics::counter!(
+                    BATCH_CONSUMER_KAFKA_ERROR,
+                    &[("level", "fatal"), ("error", "consumer"),]
+                )
+                .increment(1);
+
+                Some(e)
+            }
+
+            // Connection issues
+            KafkaError::Global(code) => {
+                match code {
+                    RDKafkaErrorCode::AllBrokersDown => {
+                        warn!("All brokers down: {code:?} - waiting for reconnect");
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "warn"), ("error", "all_brokers_down"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_secs(current_count.min(5))).await;
+                    }
+                    RDKafkaErrorCode::BrokerTransportFailure => {
+                        warn!("Broker transport failure: {code:?} - waiting for reconnect");
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "warn"), ("error", "broker_transport"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_secs(current_count.min(3))).await;
+                    }
+                    RDKafkaErrorCode::Authentication => {
+                        error!("Authentication failed: {code:?}");
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "fatal"), ("error", "authentication"),]
+                        )
+                        .increment(1);
+                        return Some(e);
+                    }
+                    _ => {
+                        warn!("Global Kafka error: {code:?}");
+                        metrics::counter!(
+                            BATCH_CONSUMER_KAFKA_ERROR,
+                            &[("level", "warn"), ("error", "global"),]
+                        )
+                        .increment(1);
+                        sleep(Duration::from_millis(500 * current_count.min(6))).await;
+                    }
+                }
+
+                None
+            }
+
+            // Shutdown signal
+            KafkaError::Canceled => {
+                info!("Consumer canceled - shutting down");
+                metrics::counter!(
+                    BATCH_CONSUMER_KAFKA_ERROR,
+                    &[("level", "info"), ("error", "canceled"),]
+                )
+                .increment(1);
+
+                Some(e)
+            }
+
+            // Other errors
+            _ => {
+                error!("Unexpected error: {:?}", e);
+                metrics::counter!(
+                    BATCH_CONSUMER_KAFKA_ERROR,
+                    &[("level", "fatal"), ("error", "unexpected"),]
+                )
+                .increment(1);
+                sleep(Duration::from_millis(100 * current_count.min(10))).await;
+
+                None
+            }
+        }
     }
 
     // NOT FOR PROD - handy for integration smoke tests
@@ -157,7 +289,8 @@ where
         &self.consumer
     }
 
-    /// best-effort attempt to store latest offsets seen in the supplied Batch
+    /// best-effort attempt to store latest offsets seen in the supplied Batch.
+    /// TODO: move calls to this method downstream so processors can trigger this.
     fn store_offsets(consumer: &StreamConsumer<BatchConsumerContext>, batch: &Batch<T>) {
         let mut offsets = HashMap::<Partition, i64>::new();
         for kmsg in batch.get_messages() {
@@ -203,20 +336,15 @@ where
     /// Consumes a batch of messages based on the configured batch size and timeout
     async fn consume_batch(
         stream: &mut MessageStream<'_, BatchConsumerContext>,
-        shutdown_token: CancellationToken,
         batch_size: usize,
         batch_timeout: Duration,
     ) -> KafkaResult<Batch<T>> {
         let mut batch = Batch::new_with_size_hint(batch_size);
         let mut batch_complete = tokio::time::interval(batch_timeout);
+        let mut kafka_error_count = 0;
 
         loop {
             tokio::select! {
-                // Exit if the parent process signalled shutdown
-                _ = shutdown_token.cancelled() => {
-                    break;
-                }
-
                 // Exit if the batch timeout is reached before a full batch is collected
                 _ = batch_complete.tick() => {
                     break;
@@ -229,6 +357,7 @@ where
                             match KafkaMessage::<T>::from_borrowed_message(&borrowed_message) {
                                 Ok(kafka_message) => {
                                     batch.push_message(kafka_message);
+                                    kafka_error_count = 0;
                                 }
                                 Err(e) => {
                                     let wrapped_err = anyhow!("Error deserializing message: {e}");
@@ -244,14 +373,20 @@ where
                             }
                         }
                         Some(Err(e)) => {
-                            // KafkaError - for now, let's return these and fail fast
-                            return Err(e);
+                            kafka_error_count += 1;
+                            if let Some(ke) = Self::handle_kafka_error(e, kafka_error_count).await {
+                                // only fatal, unhandleable, or retriable errors that have
+                                // exhausted attempts will be returned, which breaks the
+                                // consume loop and ends processing, causing pod to reset
+                                return Err(ke);
+                            }
                         }
                         None => {
                             // Stream ended - return what we have
                             break;
                         }
                     }
+
                     // if the batch is now at size, bail out and return it
                     if batch.message_count() >= batch_size {
                         break;

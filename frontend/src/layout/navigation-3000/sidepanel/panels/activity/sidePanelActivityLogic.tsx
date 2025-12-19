@@ -42,13 +42,19 @@ export enum SidePanelActivityTab {
     Unread = 'unread',
     All = 'all',
     Metalytics = 'metalytics',
-    Subscriptions = 'subscriptions',
 }
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect(() => ({
-        values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
+        values: [
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            projectLogic,
+            ['currentProjectId'],
+            sidePanelStateLogic,
+            ['selectedTabOptions'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
@@ -172,5 +178,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
         actions.setContextFromPage(newFilters)
         actions.setActiveFilters(newFilters)
+        if (values.selectedTabOptions) {
+            actions.setActiveTab(values.selectedTabOptions as SidePanelActivityTab)
+        }
     }),
 ])

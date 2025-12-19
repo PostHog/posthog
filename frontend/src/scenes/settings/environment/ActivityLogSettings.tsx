@@ -4,11 +4,12 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
@@ -27,10 +28,11 @@ export function ActivityLogSettings(): JSX.Element {
 }
 
 export function ActivityLogOrgLevelSettings(): JSX.Element {
-    const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportActivityLogSettingToggled } = useActions(eventUsageLogic)
+
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     const handleToggle = (checked: boolean): void => {
         updateCurrentTeam({ receive_org_level_activity_logs: checked })
@@ -41,13 +43,13 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
         <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
             <div>
                 <p className="flex items-center gap-1">
-                    Enable organization-level activity logs notifications for this project.
+                    Include organization-level activity logs in this project.
                     <Tooltip
                         title={
                             <>
                                 When enabled, activity logs from organization-level changes (such as organization
-                                settings, domains, and members) will also be sent to this project, allowing you to view
-                                them in the activity logs page and create notifications for these events.
+                                settings, domains, and members) will be included in this project's activity logs page,
+                                exports, and notifications subscriptions.
                             </>
                         }
                     >
@@ -59,8 +61,8 @@ export function ActivityLogOrgLevelSettings(): JSX.Element {
                     id="posthog-activity-log-org-level-switch"
                     onChange={handleToggle}
                     checked={!!currentTeam?.receive_org_level_activity_logs}
-                    disabled={userLoading}
-                    label="Receive organization-level activity logs"
+                    disabledReason={restrictionReason || undefined}
+                    label="Include organization-level activity"
                     bordered
                 />
             </div>

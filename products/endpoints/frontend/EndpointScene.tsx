@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPause, IconTrash } from '@posthog/icons'
+import { IconPause, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -15,11 +15,11 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
-import { EndpointCodeExamples } from './EndpointCodeExamples'
-import { EndpointConfiguration } from './EndpointConfiguration'
 import { EndpointSceneHeader } from './EndpointHeader'
-import { EndpointOverview } from './EndpointOverview'
 import { EndpointQuery } from './EndpointQuery'
+import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
+import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
+import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 
@@ -37,10 +37,8 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         throw new Error('<EndpointScene /> must receive a tabId prop')
     }
     const { endpoint, endpointLoading, activeTab } = useValues(endpointSceneLogic({ tabId }))
-    const { deleteEndpoint, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
     const { searchParams } = useValues(router)
-
-    const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -60,11 +58,11 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 : undefined,
         },
         {
-            key: EndpointTab.CODE,
-            label: 'Code',
-            content: <EndpointCodeExamples tabId={tabId} />,
+            key: EndpointTab.PLAYGROUND,
+            label: 'Playground',
+            content: <EndpointPlayground tabId={tabId} />,
             link: endpoint
-                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CODE }).url
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.PLAYGROUND }).url
                 : undefined,
         },
         {
@@ -108,36 +106,10 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     }
 
     const handleToggleActive = (): void => {
-        if (!endpoint?.name) {
+        if (!endpoint) {
             return
         }
-
-        if (endpoint.is_active) {
-            LemonDialog.open({
-                title: 'Deactivate endpoint?',
-                content: (
-                    <div className="text-sm text-secondary">
-                        Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.
-                    </div>
-                ),
-                primaryButton: {
-                    children: 'Deactivate',
-                    type: 'primary',
-                    status: 'danger',
-                    onClick: () => {
-                        updateEndpoint(endpoint.name, { is_active: false })
-                    },
-                    size: 'small',
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                    type: 'tertiary',
-                    size: 'small',
-                },
-            })
-        } else {
-            updateEndpoint(endpoint.name, { is_active: true })
-        }
+        confirmToggleActive(endpoint)
     }
 
     return (
@@ -147,11 +119,11 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 {!endpointLoading && <EndpointOverview tabId={tabId} />}
                 <LemonTabs activeKey={activeTab} tabs={tabs} />
             </SceneContent>
-            {endpoint && !isNewEndpoint && (
+            {endpoint && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={handleToggleActive}>
-                            <IconPause />
+                            {endpoint.is_active ? <IconPause /> : <IconPlay />}
                             {endpoint.is_active ? 'Deactivate' : 'Activate'}
                         </ButtonPrimitive>
                         <LemonDivider />

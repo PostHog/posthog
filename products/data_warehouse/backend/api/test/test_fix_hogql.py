@@ -7,7 +7,7 @@ from products.data_warehouse.backend.hogql_fixer_ai import HogQLQueryFixerTool
 class TestFixHogQL(APIBaseTest):
     def test_create(self):
         with (
-            mock.patch("products.data_warehouse.backend.hogql_fixer_ai.ChatOpenAI"),
+            mock.patch("products.data_warehouse.backend.hogql_fixer_ai.MaxChatOpenAI"),
             mock.patch.object(HogQLQueryFixerTool, "_parse_output", return_value="select timestamp from events"),
         ):
             response = self.client.post(
@@ -33,7 +33,7 @@ class TestFixHogQL(APIBaseTest):
             return wrapper
 
         with (
-            mock.patch("products.data_warehouse.backend.hogql_fixer_ai.ChatOpenAI"),
+            mock.patch("products.data_warehouse.backend.hogql_fixer_ai.MaxChatOpenAI"),
             mock.patch.object(HogQLQueryFixerTool, "_parse_output", return_value="select timestamp from events"),
             mock.patch.object(HogQLQueryFixerTool, "__init__", capture_tool_init(HogQLQueryFixerTool.__init__)),
         ):

@@ -154,6 +154,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Bool": BooleanDatabaseField,
     "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
+    "Enum8": StringDatabaseField,
 }
 
 STR_TO_HOGQL_MAPPING = {

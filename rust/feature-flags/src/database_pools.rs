@@ -13,6 +13,7 @@ pub struct DatabasePools {
     pub non_persons_writer: Arc<PgPool>,
     pub persons_reader: Arc<PgPool>,
     pub persons_writer: Arc<PgPool>,
+    pub test_before_acquire: bool,
 }
 
 impl DatabasePools {
@@ -252,6 +253,7 @@ impl DatabasePools {
             non_persons_writer,
             persons_reader,
             persons_writer,
+            test_before_acquire: *config.test_before_acquire,
         })
     }
 }

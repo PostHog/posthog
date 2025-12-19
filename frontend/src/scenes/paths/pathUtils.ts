@@ -1,5 +1,7 @@
 import { RGBColor } from 'd3'
 
+import { tryDecodeURIComponent } from 'lib/utils'
+
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
@@ -83,7 +85,7 @@ export function roundedRect(
     return retval
 }
 
-export function pageUrl(d: PathNodeData, display?: boolean): string {
+export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boolean): string {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
         .filter((a) => {
@@ -109,8 +111,14 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         if (url.hash?.includes('/')) {
             name += url.hash
         }
+        // Decode URL-encoded characters (e.g., %3C becomes <) to display path cleaning aliases correctly
+        name = tryDecodeURIComponent(name)
     } catch {
         // discard if invalid url
+    }
+
+    if (showFullUrls) {
+        return name
     }
     return name.length > 15
         ? name.substring(0, 6) + '...' + name.slice(-8)

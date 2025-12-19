@@ -4,6 +4,7 @@ import express from 'ultimate-express'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
+import { createRedisV2Pool } from '~/common/redis/redis-v2'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -14,7 +15,6 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
-import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -73,7 +73,7 @@ export class CdpApi {
         )
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
-        this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
+        this.hogWatcher = new HogWatcherService(hub, createRedisV2Pool(hub, 'cdp'))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
@@ -125,7 +125,6 @@ export class CdpApi {
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
@@ -439,6 +438,7 @@ export class CdpApi {
                 event: globals.event,
                 person: globals.person,
                 groups: globals.groups,
+                variables: globals.variables || {},
             })
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
@@ -506,17 +506,6 @@ export class CdpApi {
                 if (error instanceof SourceWebhookError) {
                     return res.status(error.status).json({ error: error.message })
                 }
-                return res.status(500).json({ error: 'Internal error' })
-            }
-        }
-
-    private postMailjetWebhook =
-        () =>
-        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            try {
-                const { status, message } = await this.emailTrackingService.handleMailjetWebhook(req)
-                return res.status(status).json({ message })
-            } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
             }
         }

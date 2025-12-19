@@ -42,6 +42,9 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     assert!(json.quota_limited.is_none());
     assert_eq!(json.config.supported_compression, vec!["gzip", "gzip-js"]);
 
+    // Verify evaluated_at field is present and is a valid timestamp
+    assert!(json.evaluated_at > 0);
+
     // Test GET request with token in query params
     let get_response = reqwest::get(format!(
         "http://{}/flags?v=2&api_key={}",
@@ -100,13 +103,7 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -172,13 +169,7 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -260,13 +251,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -534,7 +519,7 @@ async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id(), None)
+    insert_flags_for_team_in_redis(client.clone(), team.id, None)
         .await
         .unwrap();
 
@@ -690,13 +675,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -767,13 +746,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -867,13 +840,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -992,13 +959,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1032,7 +993,7 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
@@ -1101,13 +1062,8 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     ]);
 
     // Insert the feature flags into Redis
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags_json.to_string()))
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1237,13 +1193,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1336,13 +1286,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1496,13 +1440,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1583,7 +1521,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
             team.id,
             distinct_id.clone(),
             Some(json!({
-                "$feature_enrollment/artificial-hog": true,
+                "$feature_enrollment/my-flag": true,
                 "$feature_enrollment/error-tracking": true,
                 "$feature_enrollment/llm-observability": false,
                 "$feature_enrollment/messaging-product": true,
@@ -1595,7 +1533,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     // Create the same flag as in production
     let flag_json = json!([{
         "id": 13651,
-        "key": "artificial-hog",
+        "key": "my-flag",
         "name": "Generate HogQL with AI in Insights",
         "active": true,
         "deleted": false,
@@ -1613,7 +1551,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
             ],
             "super_groups": [{
                 "properties": [{
-                    "key": "$feature_enrollment/artificial-hog",
+                    "key": "$feature_enrollment/my-flag",
                     "type": "person",
                     "value": ["true"],
                     "operator": "exact"
@@ -1623,13 +1561,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1669,7 +1601,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
         expected: json!({
             "errorsWhileComputingFlags": false,
             "featureFlags": {
-                "artificial-hog": true
+                "my-flag": true
             }
         })
     );
@@ -1716,13 +1648,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1836,13 +1762,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1902,13 +1822,7 @@ async fn test_config_basic_fields() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2236,13 +2150,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2384,151 +2292,12 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
-    // Configure rrweb script for all teams
-    config.session_replay_rrweb_script =
-        "console.log('Custom session recording script')".to_string();
-    config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
-
-    let distinct_id = "user_distinct_id".to_string();
-
-    let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token.clone();
-
-    // Enable session recording on the team object
-    team.session_recording_opt_in = true;
-
-    // Update the team in Redis with session recording enabled
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
-        .await
-        .unwrap();
-
-    // Insert team in PG
-    let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
-
-    context
-        .insert_person(team.id, distinct_id.clone(), None)
-        .await
-        .unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    let payload = json!({
-        "token": token,
-        "distinct_id": distinct_id,
-    });
-
-    let res = server
-        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
-        .await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let json_data = res.json::<Value>().await?;
-
-    // Session recording should be configured
-    assert!(json_data["sessionRecording"].is_object());
-    let session_recording = &json_data["sessionRecording"];
-
-    assert_eq!(session_recording["endpoint"], "/s/");
-    assert_eq!(session_recording["recorderVersion"], "v2");
-
-    // Should include the custom rrweb script
-    assert!(session_recording["scriptConfig"].is_object());
-    assert_eq!(
-        session_recording["scriptConfig"]["script"],
-        "console.log('Custom session recording script')"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_config_session_recording_team_not_allowed_for_script() -> Result<()> {
-    let mut config = DEFAULT_TEST_CONFIG.clone();
-    // Configure rrweb script only for specific teams (not including our test team)
-    config.session_replay_rrweb_script = "console.log('Restricted script')".to_string();
-    config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".parse().unwrap(); // Our team won't be in this list
-
-    let distinct_id = "user_distinct_id".to_string();
-
-    let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token.clone();
-
-    // Enable session recording on the team object
-    team.session_recording_opt_in = true;
-
-    // Update the team in Redis with session recording enabled
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
-        .await
-        .unwrap();
-
-    // Insert team in PG
-    let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
-
-    context
-        .insert_person(team.id, distinct_id.clone(), None)
-        .await
-        .unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    let payload = json!({
-        "token": token,
-        "distinct_id": distinct_id,
-    });
-
-    let res = server
-        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
-        .await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let json_data = res.json::<Value>().await?;
-
-    // Session recording should be configured but WITHOUT the script
-    assert!(json_data["sessionRecording"].is_object());
-    let session_recording = &json_data["sessionRecording"];
-
-    assert_eq!(session_recording["endpoint"], "/s/");
-    assert_eq!(session_recording["recorderVersion"], "v2");
-
-    // Should NOT include the script config since team is not allowed
-    assert!(session_recording["scriptConfig"].is_null());
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.debug = FlexBool(false);
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None;
     config.element_chain_as_string_excluded_teams = TeamIdCollection::None;
-    config.session_replay_rrweb_script = "console.log('Enterprise script')".to_string();
-    config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
 
     let distinct_id = "enterprise_user".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -2672,16 +2441,11 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     assert_eq!(json_data["flagsPersistenceDefault"], json!(true));
     assert_eq!(json_data["captureDeadClicks"], json!(true));
 
-    // Session recording should be fully configured with script
+    // Session recording should be fully configured
     assert!(json_data["sessionRecording"].is_object());
     let session_recording = &json_data["sessionRecording"];
     assert_eq!(session_recording["endpoint"], "/s/");
     assert_eq!(session_recording["recorderVersion"], "v2");
-    assert!(session_recording["scriptConfig"].is_object());
-    assert_eq!(
-        session_recording["scriptConfig"]["script"],
-        "console.log('Enterprise script')"
-    );
 
     // Site apps should be populated
     assert!(json_data["siteApps"].is_array());
@@ -2702,7 +2466,6 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     config.new_analytics_capture_excluded_team_ids = TeamIdCollection::All; // Exclude all teams
     config.element_chain_as_string_excluded_teams = TeamIdCollection::All; // Exclude all teams
-    config.session_replay_rrweb_script = "".to_string(); // No script
 
     let distinct_id = "minimal_user".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -2805,7 +2568,6 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
     config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None;
     config.element_chain_as_string_excluded_teams = TeamIdCollection::TeamIds(vec![999]); // Different team excluded
-    config.session_replay_rrweb_script = "console.log('Mixed script')".to_string();
 
     let distinct_id = "mixed_user".to_string();
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -2823,9 +2585,6 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     team.flags_persistence_default = None; // Default (should be false)
     team.capture_dead_clicks = None; // Default (should be null)
     team.autocapture_opt_out = None; // Default (should be false)
-
-    // Only allow script for specific teams (include our team)
-    config.session_replay_rrweb_script_allowed_teams = format!("{},5,10", team.id).parse().unwrap();
 
     // Update team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -2892,16 +2651,11 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     assert!(json_data["captureDeadClicks"].is_null()); // None -> null
     assert_eq!(json_data["autocapture_opt_out"], json!(false)); // None -> false
 
-    // Session recording should be enabled with script (team is allowed)
+    // Session recording should be enabled
     assert!(json_data["sessionRecording"].is_object());
     let session_recording = &json_data["sessionRecording"];
     assert_eq!(session_recording["endpoint"], "/s/");
     assert_eq!(session_recording["recorderVersion"], "v2");
-    assert!(session_recording["scriptConfig"].is_object());
-    assert_eq!(
-        session_recording["scriptConfig"]["script"],
-        "console.log('Mixed script')"
-    );
 
     // Site apps should be empty (inject_web_apps is false)
     assert_eq!(json_data["siteApps"], json!([]));
@@ -2931,8 +2685,6 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         TeamIdCollection::TeamIds(vec![team.id, 999, 1000]);
     config.element_chain_as_string_excluded_teams =
         TeamIdCollection::TeamIds(vec![team.id, 999, 1000]);
-    config.session_replay_rrweb_script = "console.log('Excluded script')".to_string();
-    config.session_replay_rrweb_script_allowed_teams = "999,1000,1001".parse().unwrap(); // Team not allowed
 
     // Update team in Redis
     let serialized_team = serde_json::to_string(&team).unwrap();
@@ -2987,12 +2739,11 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         json!({"endpoint": "/e/"})
     );
 
-    // Session recording should be enabled but without script (team not allowed for script)
+    // Session recording should be enabled
     assert!(json_data["sessionRecording"].is_object());
     let session_recording = &json_data["sessionRecording"];
     assert_eq!(session_recording["endpoint"], "/s/");
     assert_eq!(session_recording["recorderVersion"], "v2");
-    assert!(session_recording["scriptConfig"].is_null()); // No script for excluded team
 
     Ok(())
 }
@@ -3252,13 +3003,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3323,13 +3068,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3393,13 +3132,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3465,13 +3198,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3524,11 +3251,10 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
     let distinct_id = "user_distinct_id".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token.clone();
 
     let context = TestContext::new(None).await;
-    context.insert_new_team(Some(team.id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
+    let token = team.api_token.clone();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -3553,13 +3279,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3640,13 +3360,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3687,7 +3401,7 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1..10_000_000);
+    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(Some(team_id)).await.unwrap();
 
@@ -3728,13 +3442,8 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags_json.to_string()))
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3906,13 +3615,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4124,13 +3827,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4242,13 +3939,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4435,13 +4126,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4544,13 +4229,7 @@ async fn test_group_key_property_matching() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4725,13 +4404,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4960,13 +4633,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5148,14 +4815,9 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags.to_string()),
-    )
-    .await
-    .unwrap();
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags.to_string()))
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5491,13 +5153,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5753,13 +5409,7 @@ async fn test_empty_distinct_id_flag_matching() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -6007,13 +5657,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -6211,14 +5855,9 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await
-    .unwrap();
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flag_json.to_string()))
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -6257,6 +5896,153 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
         variant.is_none() || variant == Some("control"),
         "Variant should be control or null, not 'experimental'. Got: {variant:?}",
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_includes_evaluated_at_timestamp_in_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test v2 response format
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let before_request = chrono::Utc::now().timestamp_millis();
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    let after_request = chrono::Utc::now().timestamp_millis();
+
+    assert_eq!(StatusCode::OK, res.status());
+
+    let v2_response = res.json::<FlagsResponse>().await?;
+
+    // Verify evaluated_at field exists and is a valid timestamp
+    assert!(
+        v2_response.evaluated_at >= before_request,
+        "evaluated_at should be >= request time: {} >= {}",
+        v2_response.evaluated_at,
+        before_request
+    );
+    assert!(
+        v2_response.evaluated_at <= after_request,
+        "evaluated_at should be <= after request time: {} <= {}",
+        v2_response.evaluated_at,
+        after_request
+    );
+
+    // Also test with raw JSON to ensure it's serialized in the response
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    let json_value: Value = res.json().await?;
+
+    assert!(
+        json_value.get("evaluatedAt").is_some(),
+        "evaluatedAt field should be present in JSON response"
+    );
+    assert!(
+        json_value["evaluatedAt"].is_i64(),
+        "evaluatedAt should be an integer"
+    );
+
+    // Test v1 legacy response format also includes evaluatedAt
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+    let legacy_json: Value = res.json().await?;
+
+    assert!(
+        legacy_json.get("evaluatedAt").is_some(),
+        "evaluatedAt field should be present in v1 legacy response"
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::no_extra_settings(None, None)]
+#[case::empty_recorder_script(Some(json!({"recorder_script": ""})), None)]
+#[case::null_recorder_script(Some(json!({"recorder_script": null})), None)]
+#[case::missing_recorder_script(Some(json!({"other_setting": "value"})), None)]
+#[case::valid_recorder_script(Some(json!({"recorder_script": "posthog-recorder"})), Some(json!({"script": "posthog-recorder"})))]
+#[tokio::test]
+async fn test_session_recording_script_config(
+    #[case] extra_settings: Option<Value>,
+    #[case] expected_script_config: Option<Value>,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "recorder_script_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    team.session_recording_opt_in = true;
+    team.extra_settings = extra_settings.map(sqlx::types::Json);
+
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+
+    match expected_script_config {
+        Some(expected) => {
+            assert_eq!(session_recording["scriptConfig"], expected);
+        }
+        None => {
+            assert!(
+                session_recording.get("scriptConfig").is_none()
+                    || session_recording["scriptConfig"].is_null()
+            );
+        }
+    }
 
     Ok(())
 }

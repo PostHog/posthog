@@ -7,16 +7,16 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { PropertyDefinitionType } from '~/types'
+
+import { NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupPropertiesAttributes>): JSX.Element | null => {
-    const { groupKey, groupTypeIndex } = attributes
+const Component = (): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
 
-    const logic = groupLogic({ groupKey, groupTypeIndex })
-    const { groupData, groupDataLoading } = useValues(logic)
+    const { groupData, groupDataLoading } = useValues(groupLogic)
     const { pinnedGroupProperties } = useValues(userPreferencesLogic)
     const { pinGroupProperty, unpinGroupProperty } = useActions(userPreferencesLogic)
 
@@ -30,26 +30,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupProperties
         return null
     }
 
-    const pinnedProperties = Object.fromEntries(
-        Object.entries(groupData.group_properties).filter(([key, _]) => pinnedGroupProperties.includes(key))
-    )
-    const unpinnedProperties = Object.fromEntries(
-        Object.entries(groupData.group_properties).filter(([key, _]) => !pinnedGroupProperties.includes(key))
-    )
-
     return (
         <Properties
-            pinnedProperties={pinnedProperties}
-            unpinnedProperties={unpinnedProperties}
+            properties={groupData.group_properties || {}}
+            pinnedProperties={pinnedGroupProperties}
             onPin={pinGroupProperty}
             onUnpin={unpinGroupProperty}
+            type={PropertyDefinitionType.Group}
         />
     )
-}
-
-type NotebookNodeGroupPropertiesAttributes = {
-    groupKey: string
-    groupTypeIndex: number
 }
 
 export const NotebookNodeGroupProperties = createPostHogWidgetNode({
@@ -59,8 +48,5 @@ export const NotebookNodeGroupProperties = createPostHogWidgetNode({
     resizeable: false,
     expandable: true,
     startExpanded: true,
-    attributes: {
-        groupKey: {},
-        groupTypeIndex: {},
-    },
+    attributes: {},
 })

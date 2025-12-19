@@ -113,6 +113,18 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             order_by=order_by,
         )
 
+    def innermost_frame_attribute(self, materialized_col):
+        return ast.Call(
+            name="argMax",
+            args=[
+                ast.TupleAccess(
+                    tuple=ast.Field(chain=["properties", materialized_col]),
+                    index=-1,
+                ),
+                ast.Field(chain=["timestamp"]),
+            ],
+        )
+
     def select_pairs(self):
         expr_pairs = [
             [ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])), ast.Field(chain=["id"])],
@@ -123,6 +135,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             [
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])])),
+            ],
+            [
+                ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
+                ast.Alias(alias="function", expr=ast.Call(name="max", args=[ast.Field(chain=["function"])])),
+            ],
+            [
+                ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
+                ast.Alias(alias="source", expr=ast.Call(name="max", args=[ast.Field(chain=["source"])])),
             ],
         ]
 
@@ -190,6 +210,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                                 ast.Tuple(
                                     exprs=[
                                         ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["distinct_id"]),
                                         ast.Field(chain=["timestamp"]),
                                         ast.Field(chain=["properties"]),
                                     ]
@@ -222,6 +243,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                                 ast.Tuple(
                                     exprs=[
                                         ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["distinct_id"]),
                                         ast.Field(chain=["timestamp"]),
                                         ast.Field(chain=["properties"]),
                                     ]
@@ -592,6 +614,8 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         | {
                             "last_seen": result_dict.get("last_seen"),
                             "library": result_dict.get("library"),
+                            "function": result_dict.get("function"),
+                            "source": result_dict.get("source"),
                             "first_event": (
                                 self.extract_event(result_dict.get("first_event"))
                                 if self.query.withFirstEvent
@@ -613,10 +637,13 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if event_tuple is None:
             return None
         else:
+            properties = event_tuple[3]
+
             return {
                 "uuid": str(event_tuple[0]),
-                "timestamp": str(event_tuple[1]),
-                "properties": event_tuple[2],
+                "distinct_id": str(event_tuple[1]),
+                "timestamp": str(event_tuple[2]),
+                "properties": properties,
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:

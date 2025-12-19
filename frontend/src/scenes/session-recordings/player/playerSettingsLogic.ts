@@ -170,11 +170,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        // intentionally locked to replay/* to prevent other pages from setting the tab
-        // this is a debug affordance
-        ['**/replay/*']: (_, searchParams) => {
-            // this is a debug affordance, so we only listen to whether it should be open, not also closed
-            const inspectorSideBarOpen = searchParams.inspectorSideBar === true
+        '*': (_, searchParams, hashParams) => {
+            const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
             }
@@ -188,6 +185,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             const inspectorSideBarOpen = 'showInspector' in searchParams && (searchParams.showInspector ?? true)
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setURLOverrideSidebarOpen(inspectorSideBarOpen)
+            }
+        },
+        ['**/exporter']: (_, searchParams) => {
+            const playerSpeed = Number(searchParams.playerSpeed ?? 1)
+            if (values.speed !== playerSpeed) {
+                actions.setSpeed(playerSpeed)
             }
         },
     })),

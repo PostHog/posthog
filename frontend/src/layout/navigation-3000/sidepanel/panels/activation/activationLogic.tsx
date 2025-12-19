@@ -17,10 +17,7 @@ import {
 
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -28,11 +25,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     ActivationTaskStatus,
     EventDefinitionType,
     OnboardingStepKey,
-    ProductKey,
     ReplayTabs,
     TeamBasicType,
     type TeamPublicType,
@@ -68,16 +65,7 @@ const CACHE_PREFIX = 'v1'
 export const activationLogic = kea<activationLogicType>([
     path(['lib', 'components', 'ActivationSidebar', 'activationLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            membersLogic,
-            ['memberCount'],
-            sidePanelStateLogic,
-            ['modalMode'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [teamLogic, ['currentTeam'], membersLogic, ['memberCount'], sidePanelStateLogic, ['modalMode']],
         actions: [
             teamLogic,
             ['loadCurrentTeam', 'updateCurrentTeam'],
@@ -97,6 +85,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: (id: ActivationTask) => ({ id }),
         markTaskAsCompleted: (id: ActivationTask) => ({ id }),
         markTaskAsSkipped: (id: ActivationTask) => ({ id }),
+        unmarkTaskAsSkipped: (id: ActivationTask) => ({ id }),
         toggleShowHiddenSections: () => ({}),
         addIntentForSection: (section: ActivationSection) => ({ section }),
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
@@ -187,30 +176,17 @@ export const activationLogic = kea<activationLogicType>([
                 ),
         ],
         hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.visible).length > 0],
-        showSaveInsightTask: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.SAVE_INSIGHT_TASK] === 'test',
-        ],
         tasks: [
-            (s) => [s.savedOnboardingTasks, s.showSaveInsightTask],
-            (savedOnboardingTasks, showSaveInsightTask) => {
-                const tasks: ActivationTaskType[] = ACTIVATION_TASKS.map((task) => {
-                    const title =
-                        task.id === ActivationTask.CreateFirstInsight && showSaveInsightTask
-                            ? 'Save an insight'
-                            : task.title
-                    return {
-                        ...task,
-                        skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
-                        completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
-                        lockedReason: task.dependsOn?.find(
-                            (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
-                        )?.reason,
-                        title,
-                    }
-                })
-
-                return tasks
+            (s) => [s.savedOnboardingTasks],
+            (savedOnboardingTasks) => {
+                return ACTIVATION_TASKS.map((task) => ({
+                    ...task,
+                    skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
+                    completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
+                    lockedReason: task.dependsOn?.find(
+                        (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
+                    )?.reason,
+                }))
             },
         ],
         visibleTasks: [
@@ -357,6 +333,22 @@ export const activationLogic = kea<activationLogicType>([
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
+        },
+        unmarkTaskAsSkipped: ({ id }) => {
+            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
+
+            if (!skipped) {
+                return
+            }
+
+            posthog.capture('activation sidebar task unskipped', {
+                task: id,
+            })
+
+            const onboardingTasks = { ...values.currentTeam?.onboarding_tasks }
+            delete onboardingTasks[id]
+
+            actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
         markTaskAsCompleted: ({ id }) => {
             const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED

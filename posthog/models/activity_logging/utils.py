@@ -1,10 +1,14 @@
 import traceback
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
+from django.db.models import Q, QuerySet
 
 import structlog
 from asgiref.local import Local
+
+if TYPE_CHECKING:
+    from posthog.models.activity_logging.activity_log import ActivityLog, ActivityScope
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +47,76 @@ class ActivityLoggingStorage:
 
 
 activity_storage = ActivityLoggingStorage()
+
+
+class ActivityLogVisibilityManager:
+    """
+    Manages visibility restrictions for activity logs.
+
+    Controls which activity logs can be seen by users and which should be
+    filtered out from external destinations and user-facing interfaces.
+
+    Configuration is defined in activity_log.py as `activity_visibility_restrictions`.
+    """
+
+    @classmethod
+    def _get_restrictions(cls) -> dict["ActivityScope", dict[str, Any]]:
+        from posthog.models.activity_logging.activity_log import activity_visibility_restrictions
+
+        return activity_visibility_restrictions
+
+    @classmethod
+    def is_restricted(cls, instance: "ActivityLog", restrict_for_staff: bool = False) -> bool:
+        for restriction_scope, config in cls._get_restrictions().items():
+            if not restrict_for_staff and config.get("allow_staff"):
+                continue
+            if instance.scope != restriction_scope:
+                continue
+            if instance.activity not in config.get("activities", []):
+                continue
+            exclude_conditions = config.get("exclude_when", {})
+            if all(getattr(instance, field, None) == value for field, value in exclude_conditions.items()):
+                return True
+        return False
+
+    @classmethod
+    def build_exclusion_query(cls, is_staff: bool = False) -> Q | None:
+        """
+        Build a Q object that excludes restricted activity logs.
+
+        Returns None if no exclusions apply (e.g., staff user with allow_staff restrictions).
+        """
+        exclusion_queries: list[Q] = []
+
+        for scope, config in cls._get_restrictions().items():
+            if config.get("allow_staff") and is_staff:
+                continue
+
+            activities = config.get("activities", [])
+            exclude_conditions = config.get("exclude_when", {})
+
+            query = Q(scope=scope) & Q(activity__in=activities)
+            for field, value in exclude_conditions.items():
+                query &= Q(**{field: value})
+            exclusion_queries.append(query)
+
+        if not exclusion_queries:
+            return None
+
+        combined = exclusion_queries[0]
+        for q in exclusion_queries[1:]:
+            combined |= q
+        return combined
+
+    @classmethod
+    def apply_to_queryset(cls, queryset: QuerySet, is_staff: bool = False) -> QuerySet:
+        exclusion_query = cls.build_exclusion_query(is_staff)
+        if exclusion_query is not None:
+            return queryset.exclude(exclusion_query)
+        return queryset
+
+
+activity_visibility_manager = ActivityLogVisibilityManager()
 
 
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:

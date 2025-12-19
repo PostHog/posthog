@@ -1,7 +1,15 @@
 import posthog from 'posthog-js'
+import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+
+export const SDK_DEFAULTS_DATE = '2025-11-30'
+
+const shouldDefer = (): boolean => {
+    const sessionId = posthog.get_session_id()
+    return sampleOnProperty(sessionId, 0.5)
+}
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
@@ -9,12 +17,15 @@ export function loadPostHogJS(): void {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
-            rageclick: true,
+            defaults: SDK_DEFAULTS_DATE,
             persistence: 'localStorage+cookie',
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
-            api_transport: 'fetch',
             disable_surveys: window.IMPERSONATED_SESSION,
+            __preview_deferred_init_extensions: shouldDefer(),
+            error_tracking: {
+                __capturePostHogExceptions: true,
+            },
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -103,12 +114,13 @@ export function loadPostHogJS(): void {
             autocapture: {
                 capture_copied_text: true,
             },
-            capture_performance: { web_vitals: true },
+            session_recording: {
+                blockSelector: '.ph-replay-block',
+            },
             person_profiles: 'always',
             __preview_remote_config: true,
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
-            __preview_eager_load_replay: false,
             __preview_disable_xhr_credentials: true,
         })
 

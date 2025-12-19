@@ -5,7 +5,7 @@ import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -17,7 +17,8 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
 
@@ -30,8 +31,8 @@ interface ProjectNoticeBlueprint {
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(dayjs())
+    const { isVisible: isPageVisible } = usePageVisibility()
 
-    // Format the time difference as 00:00:00
     const duration = dayjs.duration(datetime.diff(now))
     const pastCountdown = duration.seconds() < 0
 
@@ -41,10 +42,15 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
           ? duration.format('HH:mm:ss')
           : duration.format('mm:ss')
 
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
+        setNow(dayjs())
         const interval = setInterval(() => setNow(dayjs()), 1000)
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     useEffect(() => {
         if (pastCountdown) {
@@ -81,7 +87,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                             {' '}
                             When you're ready, head on over to the{' '}
                             <Link
-                                to={urls.project(altTeamForIngestion.id, urls.products())}
+                                to={urls.project(altTeamForIngestion.id, urls.useCaseSelection())}
                                 data-attr="demo-project-alt-team-ingestion_link"
                             >
                                 onboarding wizard

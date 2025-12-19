@@ -1,7 +1,9 @@
 import { Message } from 'node-rdkafka'
 import { z } from 'zod'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '../../config/kafka-topics'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -11,10 +13,11 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
-    personId: z.string().uuid(),
-    cohortId: z.number(),
-    teamId: z.number(),
-    cohort_membership_changed: z.enum(['entered', 'left']),
+    person_id: z.string().uuid(),
+    cohort_id: z.number(),
+    team_id: z.number(),
+    status: z.enum(['entered', 'left', 'member', 'not_member']),
+    last_updated: z.string().optional(),
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
@@ -31,7 +34,23 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         })
     }
 
-    private async handleBatchCohortMembership(changes: CohortMembershipChange[]): Promise<void> {
+    private async publishCohortMembershipTriggers(changes: CohortMembershipChange[]): Promise<void> {
+        if (!this.kafkaProducer || changes.length === 0) {
+            return
+        }
+
+        const messages = changes.map((change) => ({
+            value: JSON.stringify(change),
+            key: change.person_id,
+        }))
+
+        await this.kafkaProducer.queueMessages({
+            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
+            messages,
+        })
+    }
+
+    private async persistCohortMembershipChanges(changes: CohortMembershipChange[]): Promise<void> {
         if (changes.length === 0) {
             return
         }
@@ -43,11 +62,11 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             let paramIndex = 1
 
             for (const change of changes) {
-                const inCohort = change.cohort_membership_changed === 'entered'
+                const inCohort = change.status === 'entered'
                 placeholders.push(
                     `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
                 )
-                values.push(change.teamId, change.cohortId, change.personId, inCohort)
+                values.push(change.team_id, change.cohort_id, change.person_id, inCohort)
                 paramIndex += 4
             }
 
@@ -76,7 +95,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         }
     }
 
-    private async handleBatch(messages: Message[]): Promise<void> {
+    private _parseAndValidateBatch(messages: Message[]): CohortMembershipChange[] {
         const cohortMembershipChanges: CohortMembershipChange[] = []
 
         // Process and validate all messages
@@ -111,7 +130,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             }
         }
 
-        await this.handleBatchCohortMembership(cohortMembershipChanges)
+        return cohortMembershipChanges
     }
 
     public async start(): Promise<void> {
@@ -124,10 +143,20 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            await this.handleBatch(messages)
-        })
+            return instrumentFn('cdpCohortMembershipConsumer.handleEachBatch', async () => {
+                const cohortMembershipChanges = this._parseAndValidateBatch(messages)
 
-        logger.info('✅', `${this.name} started successfully`)
+                // First persist changes to the database
+                await this.persistCohortMembershipChanges(cohortMembershipChanges)
+
+                // Then publish trigger events as a background task
+                const backgroundTask = this.publishCohortMembershipTriggers(cohortMembershipChanges).catch((error) => {
+                    logger.error('Failed to publish cohort membership triggers', { error })
+                })
+
+                return { backgroundTask }
+            })
+        })
     }
 
     public async stop(): Promise<void> {

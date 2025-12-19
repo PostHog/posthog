@@ -1,4 +1,4 @@
-import { kea, path, selectors } from 'kea'
+import { BindLogic, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -9,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Breadcrumb } from '~/types'
 
 import { SessionRecordingsPageTabs } from '../SessionRecordings'
+import { sessionReplaySceneLogic } from '../sessionReplaySceneLogic'
 import type { sessionRecordingsSettingsSceneLogicType } from './SessionRecordingsSettingsSceneType'
 
 export const SETTINGS_LOGIC_KEY = 'replaySettings'
@@ -42,9 +43,16 @@ export const scene: SceneExport = {
     settingSectionId: 'environment-replay',
 }
 
-export function SessionRecordingsSettingsScene(): JSX.Element {
+export interface SessionRecordingsSettingsSceneProps {
+    tabId?: string
+}
+
+export function SessionRecordingsSettingsScene({ tabId }: SessionRecordingsSettingsSceneProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<SessionRecordingsSettingsScene /> must receive a tabId prop')
+    }
     return (
-        <>
+        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
             <SceneContent className="-mb-14">
                 <SessionRecordingsPageTabs />
                 <Settings
@@ -54,6 +62,6 @@ export function SessionRecordingsSettingsScene(): JSX.Element {
                     handleLocally
                 />
             </SceneContent>
-        </>
+        </BindLogic>
     )
 }

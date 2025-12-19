@@ -3,7 +3,14 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+    TeamId,
+} from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
@@ -52,9 +59,10 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
     // a read, just use the primary as the source of truth
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
-        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons)
+        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
     }
 
     /*
@@ -69,7 +77,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         let result!: CreatePersonResult
         try {
@@ -84,7 +93,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     isUserId,
                     isIdentified,
                     uuid,
-                    distinctIds,
+                    primaryDistinctId,
+                    extraDistinctIds,
                     leftTx
                 )
                 if (!p.success) {
@@ -103,7 +113,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     isUserId,
                     isIdentified,
                     uuid,
-                    distinctIds,
+                    primaryDistinctId,
+                    extraDistinctIds,
                     rightTx,
                     forcedId
                 )
@@ -132,7 +143,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         // Enforce version parity across primary/secondary: run primary first, then set secondary to primary's new version
@@ -142,11 +153,12 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             primaryOut = p
 
             const primaryUpdated = p[0]
-            const secondaryUpdate: Partial<InternalPerson> = {
+            const secondaryUpdate: PersonUpdateFields = {
                 properties: primaryUpdated.properties,
                 properties_last_updated_at: primaryUpdated.properties_last_updated_at,
                 properties_last_operation: primaryUpdated.properties_last_operation,
                 is_identified: primaryUpdated.is_identified,
+                created_at: primaryUpdated.created_at,
                 version: primaryUpdated.version,
             }
 
@@ -198,6 +210,43 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     this.compareTopicMessages('updatePersonAssertVersion', p[1], s[1])
                 }
             }
+            return true
+        })
+        return primaryOut
+    }
+
+    async updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
+        let primaryOut!: Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>
+        await this.coordinator.run('updatePersonsBatch', async () => {
+            // Run on primary first
+            const p = await this.primaryRepo.updatePersonsBatch(personUpdates.map((u) => ({ ...u })))
+            primaryOut = p
+
+            // Run on secondary with the same updates
+            const s = await this.secondaryRepo.updatePersonsBatch(personUpdates.map((u) => ({ ...u })))
+
+            // Compare results if enabled
+            if (this.comparisonEnabled) {
+                let hasMismatch = false
+                for (const [uuid, pResult] of p.entries()) {
+                    const sResult = s.get(uuid)
+                    if (!sResult) {
+                        hasMismatch = true
+                        continue
+                    }
+                    if (pResult.success !== sResult.success || pResult.version !== sResult.version) {
+                        hasMismatch = true
+                    }
+                }
+                dualWriteComparisonCounter.inc({
+                    operation: 'updatePersonsBatch',
+                    comparison_type: 'batch_comparison',
+                    result: hasMismatch ? 'mismatch' : 'match',
+                })
+            }
+
             return true
         })
         return primaryOut
@@ -342,8 +391,12 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return isMerged
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
-        return await this.primaryRepo.personPropertiesSize(personId)
+    addPersonlessDistinctIdsBatch(_entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>> {
+        throw new Error('addPersonlessDistinctIdsBatch is not implemented for dual-write repository')
+    }
+
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
+        return await this.primaryRepo.personPropertiesSize(personId, teamId)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

@@ -30,7 +30,8 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created <strong>{getDisplayName(logItem)}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created{' '}
+                    <strong>{getDisplayName(logItem)}</strong>
                 </>
             ),
         }
@@ -40,7 +41,8 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted <strong>{getDisplayName(logItem)}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
+                    <strong>{getDisplayName(logItem)}</strong>
                 </>
             ),
         }
@@ -50,7 +52,8 @@ export function batchImportActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated <strong>{getDisplayName(logItem)}</strong>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated{' '}
+                    <strong>{getDisplayName(logItem)}</strong>
                 </>
             ),
         }

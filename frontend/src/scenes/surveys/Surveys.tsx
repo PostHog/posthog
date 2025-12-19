@@ -9,7 +9,6 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -21,10 +20,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -49,9 +49,7 @@ function NewSurveyButton(): JSX.Element {
                 'Create a product-market fit survey for trial users',
                 'Create a quick satisfaction survey for support interactions',
             ]}
-            context={{
-                user_id: user?.uuid,
-            }}
+            context={{}}
             callback={(toolOutput: {
                 survey_id?: string
                 survey_name?: string
@@ -99,7 +97,6 @@ function Surveys(): JSX.Element {
 
     return (
         <SceneContent>
-            <SurveysDisabledBanner />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Surveys].name}
                 description={sceneConfigurations[Scene.Surveys].description}
@@ -113,7 +110,7 @@ function Surveys(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
+            <SurveysDisabledBanner />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
@@ -142,6 +139,7 @@ function Surveys(): JSX.Element {
                     <SurveysTable />
                 </>
             )}
+            <DuplicateToProjectModal />
         </SceneContent>
     )
 }

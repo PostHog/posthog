@@ -51,7 +51,7 @@ export function HogFunctionIconEditable({
 
     const content = (
         <span
-            className="p-1 -m-1 rounded-sm transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
+            className="-m-1 rounded-lg transition-colors cursor-pointer hover:bg-fill-button-tertiary-hover"
             onClick={() => setShowPopover(!showPopover)}
         >
             <HogFunctionIcon size={size} src={props.src} />
@@ -147,7 +147,7 @@ export function HogFunctionIcon({
             className={clsx(
                 'relative flex items-center justify-center',
                 {
-                    'w-8 h-8 text-2xl': size === 'small',
+                    'w-[30px] h-[30px] text-2xl': size === 'small',
                     'w-10 h-10 text-4xl': size === 'medium',
                     'w-12 h-12 text-6xl': size === 'large',
                 },

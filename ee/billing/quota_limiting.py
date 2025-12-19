@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
@@ -57,7 +58,8 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
-# These quota resource identifiers match billing default_plans_config.yml usage_key
+# These quota resource identifiers match billing default_plans_config.yml usage_key.
+# These keys should match OrganizationUsageInfo and UsageCounters.
 class QuotaResource(Enum):
     EVENTS = "events"
     EXCEPTIONS = "exceptions"
@@ -69,6 +71,7 @@ class QuotaResource(Enum):
     LLM_EVENTS = "llm_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
+    AI_CREDITS = "ai_credits"
 
 
 class QuotaLimitingCaches(Enum):
@@ -87,34 +90,28 @@ OVERAGE_BUFFER = {
     QuotaResource.LLM_EVENTS: 0,
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
+    QuotaResource.AI_CREDITS: 0,
 }
 
-# These trust score keys match billing default_plans_config.yml product keys (top level key)
-TRUST_SCORE_KEYS = {
-    QuotaResource.EVENTS: "events",
-    QuotaResource.EXCEPTIONS: "exceptions",
-    QuotaResource.RECORDINGS: "recordings",
-    QuotaResource.ROWS_SYNCED: "rows_synced",
-    QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
-    QuotaResource.API_QUERIES: "api_queries",
-    QuotaResource.SURVEY_RESPONSES: "surveys",
-    QuotaResource.LLM_EVENTS: "llm_events",
-    QuotaResource.CDP_TRIGGER_EVENTS: "realtime_destinations",
-    QuotaResource.ROWS_EXPORTED: "rows_exported",
+# These resources are exempt from any grace periods, whether trust-based or never_drop_data
+GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
+    QuotaResource.AI_CREDITS,
 }
 
 
+# These should be kept in sync with OrganizationUsageInfo and QuotaResource values.
 class UsageCounters(TypedDict):
     events: int
     exceptions: int
     recordings: int
     rows_synced: int
-    feature_flags: int
+    feature_flag_requests: int
     api_queries_read_bytes: int
     survey_responses: int
     llm_events: int
     cdp_trigger_events: int
     rows_exported: int
+    ai_credits: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -168,6 +165,11 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     return [x.decode("utf-8") for x in results]
 
 
+def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
+    limited_team_attributes = list_limited_team_attributes(resource, cache_key)
+    return team_api_token in limited_team_attributes
+
+
 # -------------------------------------------------------------------------------------------------
 # MAIN FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -194,11 +196,12 @@ def org_quota_limited_until(
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-    # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
-    # should be removed once all existing customers have this field set.
-    trust_score = (
-        organization.customer_trust_scores.get(TRUST_SCORE_KEYS[resource]) if organization.customer_trust_scores else 0
-    )
+
+    # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
+    # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
+    # - The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
+    #   when syncing billing_customer to posthog_organization
+    trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
 
     # Flow for checking quota limits:
     # 1. ignore the limits
@@ -232,7 +235,7 @@ def org_quota_limited_until(
         return None
 
     # 1b. never drop
-    if organization.never_drop_data:
+    if resource not in GRACE_PERIOD_EXEMPT_RESOURCES and organization.never_drop_data:
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -310,7 +313,7 @@ def org_quota_limited_until(
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if not trust_score and minimum_grace_period == 0:
+    if (not trust_score or resource in GRACE_PERIOD_EXEMPT_RESOURCES) and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
@@ -590,15 +593,19 @@ def update_all_orgs_billing_quotas(
     period_start, period_end = period
 
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
+    _, exception_metrics = get_teams_with_exceptions_captured_in_period(period_start, period_end)
+
+    # Check if AI billing usage report is enabled
+    is_ai_billing_enabled = posthoganalytics.feature_enabled(
+        "posthog-ai-billing-usage-report", "internal_billing_events"
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_billable_event_count_in_period(period_start, period_end)
         ),
-        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(
-            get_teams_with_exceptions_captured_in_period(period_start, period_end)
-        ),
+        "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_recording_count_in_period(period_start, period_end)
         ),
@@ -625,6 +632,11 @@ def update_all_orgs_billing_quotas(
         ),
         "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_ai_event_count_in_period(period_start, period_end)
+        ),
+        "teams_with_ai_credits_used_in_period": (
+            convert_team_usage_rows_to_dict(get_teams_with_ai_credits_used_in_period(period_start, period_end))
+            if is_ai_billing_enabled
+            else {}
         ),
     }
 
@@ -654,10 +666,12 @@ def update_all_orgs_billing_quotas(
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
-            feature_flags=decide_requests + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
+            feature_flag_requests=decide_requests
+            + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+            ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0) if is_ai_billing_enabled else 0,
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         )

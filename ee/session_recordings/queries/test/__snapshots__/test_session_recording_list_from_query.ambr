@@ -29,10 +29,11 @@
                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                 HAVING 1
                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_14)s)) DESC
-                                                                                                                                                                                                                                                                                LIMIT 10000)))
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 50000
   '''
 # ---
@@ -78,10 +79,11 @@
                                                                                                                                                                                                                                                                                  GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                  HAVING 1
                                                                                                                                                                                                                                                                                  ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_17)s)) DESC
-                                                                                                                                                                                                                                                                                 LIMIT 10000)))
+                                                                                                                                                                                                                                                                                 LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 50000
   '''
 # ---
@@ -127,10 +129,11 @@
                                                                                                                                                                                                                                                                                  GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                  HAVING 1
                                                                                                                                                                                                                                                                                  ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_17)s)) DESC
-                                                                                                                                                                                                                                                                                 LIMIT 10000)))
+                                                                                                                                                                                                                                                                                 LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 50000
   '''
 # ---
@@ -164,10 +167,11 @@
                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                 HAVING 1
                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_14)s)) DESC
-                                                                                                                                                                                                                                                                                LIMIT 10000)))
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 50000
   '''
 # ---
@@ -201,10 +205,11 @@
                                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                 HAVING 1
                                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, %(hogql_val_14)s)) DESC
-                                                                                                                                                                                                                                                                                LIMIT 10000)))
+                                                                                                                                                                                                                                                                                LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
+  ORDER BY start_time DESC,
+           s.session_id DESC
   LIMIT 50000
   '''
 # ---
@@ -234,9 +239,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -278,12 +283,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -321,9 +326,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -365,12 +370,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -408,9 +413,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -452,12 +457,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -495,9 +500,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -535,16 +540,16 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                                                            (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                             FROM events
-                                                                                                                                                                                                                                                            WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(nullIf(nullIf(events.mat_pp_email, ''), 'null'), 'bla'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                            WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-28 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -582,9 +587,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -641,12 +646,12 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -684,9 +689,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -743,12 +748,12 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -786,9 +791,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -845,12 +850,12 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -888,9 +893,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -947,12 +952,12 @@
                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                              HAVING 1
                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                             LIMIT 10000)))
+                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -990,9 +995,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1034,12 +1039,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1077,9 +1082,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1121,12 +1126,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1164,9 +1169,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1208,12 +1213,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1251,9 +1256,9 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1295,12 +1300,12 @@
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                             HAVING 1
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
-                                                                                                                                                                                                                                                            LIMIT 10000)))
+                                                                                                                                                                                                                                                            LIMIT 1000000)))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1341,9 +1346,9 @@
                                                   WHERE and(equals(events.team_id, 99999), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1384,9 +1389,9 @@
                                                   WHERE and(equals(events.team_id, 99999), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1427,9 +1432,9 @@
                                                   WHERE and(equals(events.team_id, 99999), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1470,9 +1475,9 @@
                                                   WHERE and(equals(events.team_id, 99999), equals(events.person_id, '00000000-0000-0000-0000-000000000000'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-29 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1519,9 +1524,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1568,9 +1573,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1617,9 +1622,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1666,9 +1671,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1715,9 +1720,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1764,9 +1769,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1813,9 +1818,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1862,9 +1867,9 @@
                                                   WHERE and(equals(events.team_id, 99999), ifNull(equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000'), 0), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), notEmpty(events.`$session_id`)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')))
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0 SETTINGS readonly=2,
+  ORDER BY start_time DESC,
+           s.session_id DESC
+  LIMIT 51 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,

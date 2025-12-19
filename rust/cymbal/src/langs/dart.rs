@@ -54,6 +54,7 @@ impl From<&RawDartFrame> for Frame {
             context: None,
             suspicious: false,
             module: None,
+            code_variables: None,
         };
 
         add_raw_to_junk(&mut f, raw);

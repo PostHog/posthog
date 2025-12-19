@@ -5,7 +5,7 @@ from posthog.schema import (
     SourceConfig,
 )
 
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.generated_configs import MailchimpSourceConfig
 
@@ -13,7 +13,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MailchimpSource(BaseSource[MailchimpSourceConfig]):
+class MailchimpSource(SimpleSource[MailchimpSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MAILCHIMP

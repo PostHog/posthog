@@ -10,7 +10,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
@@ -25,10 +25,18 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
+class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLESHEETS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
+            "can't be found": None,
+            "SpreadsheetNotFound": None,
+            "must be real number, not str": "Import failed: all cells in a numerical column must have a value and not be blank",
+        }
 
     def get_schemas(
         self, config: GoogleSheetsSourceConfig, team_id: int, with_counts: bool = False
@@ -96,4 +104,5 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
                     )
                 ],
             ),
+            featured=True,
         )

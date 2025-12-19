@@ -8,9 +8,13 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
+import * as incidentIoStatusPageWarning from '~/mocks/fixtures/_incident_io_status_page_warning.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { SidePanelTab } from '~/types'
 
+import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
+import { INCIDENT_IO_STATUS_PAGE_BASE } from './panels/sidePanelStatusIncidentIoLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
@@ -21,7 +25,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
-        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA],
+        featureFlags: [FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -55,7 +59,20 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 }
 
 export const SidePanelDocs: StoryFn = () => {
+    const { setIframeReady } = useActions(sidePanelDocsLogic({ iframeRef: { current: null } }))
+
+    // Directly set iframeReady to skip waiting for external iframe to load
+    useOnMountEffect(() => {
+        setIframeReady(true)
+    })
+
     return <BaseTemplate panel={SidePanelTab.Docs} />
+}
+SidePanelDocs.parameters = {
+    testOptions: {
+        // Skip iframe wait since the external docs iframe fails to load in CI
+        skipIframeWait: true,
+    },
 }
 
 export const SidePanelSettings: StoryFn = () => {
@@ -113,4 +130,33 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
     })
 
     return <BaseTemplate panel={SidePanelTab.Support} />
+}
+
+export const SidePanelStatusWarning: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    useOnMountEffect(() => closeSidePanel())
+    const summary = Object.assign({}, incidentIoStatusPageWarning)
+
+    useStorybookMocks({
+        get: {
+            [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: summary,
+        },
+    })
+
+    return <App />
+}
+
+export const SidePanelStatusCritical: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    useOnMountEffect(() => closeSidePanel())
+
+    const summary = Object.assign({}, incidentIoStatusPageCritical)
+
+    useStorybookMocks({
+        get: {
+            [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: summary,
+        },
+    })
+
+    return <App />
 }

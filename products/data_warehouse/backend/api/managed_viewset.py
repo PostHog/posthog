@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 
@@ -26,10 +27,10 @@ class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         GET /api/environments/{team_id}/managed_viewsets/{kind}/
         """
 
-        if kind not in dict(DataWarehouseManagedViewSet.Kind.choices):
+        if kind not in dict(DataWarehouseManagedViewSetKind.choices):
             return Response(
                 {
-                    "detail": f"Invalid kind. Must be one of: {', '.join(dict(DataWarehouseManagedViewSet.Kind.choices).keys())}"
+                    "detail": f"Invalid kind. Must be one of: {', '.join(dict(DataWarehouseManagedViewSetKind.choices).keys())}"
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -54,10 +55,10 @@ class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         Enable or disable a managed viewset by kind.
         PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
         """
-        if kind not in dict(DataWarehouseManagedViewSet.Kind.choices):
+        if kind not in dict(DataWarehouseManagedViewSetKind.choices):
             return Response(
                 {
-                    "detail": f"Invalid kind. Must be one of: {', '.join(dict(DataWarehouseManagedViewSet.Kind.choices).keys())}"
+                    "detail": f"Invalid kind. Must be one of: {', '.join(dict(DataWarehouseManagedViewSetKind.choices).keys())}"
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

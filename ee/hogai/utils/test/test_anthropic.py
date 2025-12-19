@@ -53,7 +53,7 @@ class TestAnthropicUtils(BaseTest):
         assert isinstance(message.content[0], dict)
         self.assertEqual(message.content[0]["type"], "text")
         self.assertEqual(message.content[0]["text"], "Test message")
-        self.assertEqual(message.content[0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(message.content[0]["cache_control"], {"type": "ephemeral", "ttl": "5m"})
 
     def test_add_cache_control_list_content_with_string_last(self):
         """Test adding cache control to message with list content ending in string"""
@@ -79,7 +79,7 @@ class TestAnthropicUtils(BaseTest):
         assert isinstance(message.content[1], dict)
         self.assertEqual(message.content[1]["type"], "text")
         self.assertEqual(message.content[1]["text"], "Second part as string")
-        self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral", "ttl": "5m"})
 
     def test_add_cache_control_list_content_with_dict_last(self):
         """Test adding cache control to message with list content ending in dict"""
@@ -103,4 +103,4 @@ class TestAnthropicUtils(BaseTest):
         assert isinstance(message.content[1], dict)
         self.assertEqual(message.content[1]["type"], "image")
         self.assertEqual(message.content[1]["url"], "http://example.com/image.jpg")
-        self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral", "ttl": "5m"})

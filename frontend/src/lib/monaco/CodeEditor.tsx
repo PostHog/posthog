@@ -2,7 +2,7 @@ import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import * as monaco from 'monaco-editor'
+import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -23,7 +23,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 if (loader) {
-    loader.config({ monaco })
+    loader.config({ monaco: monacoModule })
 }
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
@@ -76,48 +76,46 @@ function initEditor(
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
     }
-    if (options.tabFocusMode || editorProps.onPressUpNoValue) {
-        editor.onKeyDown((evt) => {
-            if (options.tabFocusMode) {
-                if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
-                    const selection = editor.getSelection()
-                    if (
-                        selection &&
-                        (selection.startColumn !== selection.endColumn ||
-                            selection.startLineNumber !== selection.endLineNumber)
-                    ) {
-                        return
-                    }
-                    evt.preventDefault()
-                    evt.stopPropagation()
 
-                    const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
-                    if (!element) {
-                        return
-                    }
-                    const nextElement = evt.shiftKey
-                        ? findPreviousFocusableElement(element)
-                        : findNextFocusableElement(element)
+    editor.onKeyDown((evt) => {
+        if (evt.keyCode === monaco.KeyCode.Space) {
+            evt.stopPropagation()
+        }
 
-                    if (nextElement && 'focus' in nextElement) {
-                        nextElement.focus()
-                    }
-                }
-            }
-            if (editorProps.onPressUpNoValue) {
+        if (options.tabFocusMode) {
+            if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
+                const selection = editor.getSelection()
                 if (
-                    evt.keyCode === monaco.KeyCode.UpArrow &&
-                    !evt.metaKey &&
-                    !evt.ctrlKey &&
-                    editor.getValue() === ''
+                    selection &&
+                    (selection.startColumn !== selection.endColumn ||
+                        selection.startLineNumber !== selection.endLineNumber)
                 ) {
-                    evt.preventDefault()
-                    evt.stopPropagation()
-                    editorProps.onPressUpNoValue()
+                    return
+                }
+                evt.preventDefault()
+                evt.stopPropagation()
+
+                const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                if (!element) {
+                    return
+                }
+                const nextElement = evt.shiftKey
+                    ? findPreviousFocusableElement(element)
+                    : findNextFocusableElement(element)
+
+                if (nextElement && 'focus' in nextElement) {
+                    nextElement.focus()
                 }
             }
-        })
-    }
+        }
+        if (editorProps.onPressUpNoValue) {
+            if (evt.keyCode === monaco.KeyCode.UpArrow && !evt.metaKey && !evt.ctrlKey && editor.getValue() === '') {
+                evt.preventDefault()
+                evt.stopPropagation()
+                editorProps.onPressUpNoValue()
+            }
+        }
+    })
 }
 
 export function CodeEditor({
@@ -180,10 +178,10 @@ export function CodeEditor({
         if (!monaco) {
             return
         }
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+        monacoModule.typescript.typescriptDefaults.setCompilerOptions({
             jsx: editorProps?.path?.endsWith('.tsx')
-                ? monaco.languages.typescript.JsxEmit.React
-                : monaco.languages.typescript.JsxEmit.Preserve,
+                ? monacoModule.typescript.JsxEmit.React
+                : monacoModule.typescript.JsxEmit.Preserve,
             esModuleInterop: true,
         })
     }, [monaco, editorProps.path])
@@ -192,7 +190,7 @@ export function CodeEditor({
         if (!monaco) {
             return
         }
-        monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+        monacoModule.json.jsonDefaults.setDiagnosticsOptions({
             validate: true,
             schemas: schema
                 ? [

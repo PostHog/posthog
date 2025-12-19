@@ -1,15 +1,18 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useRef, useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconEye } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { urls } from 'scenes/urls'
@@ -25,7 +28,7 @@ export type EmailEditorMode = 'full' | 'preview'
  * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
  */
 export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
-type EmailMetaFieldKey = 'from' | 'preheader' | 'to' | 'subject'
+type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'subject' | 'preheader'
 type EmailMetaField = {
     key: EmailMetaFieldKey
     label: string
@@ -36,13 +39,19 @@ type EmailMetaField = {
 
 const EMAIL_META_FIELDS = {
     FROM: { key: 'from', label: 'From', optional: false },
+    TO: { key: 'to', label: 'To', optional: false },
+    REPLY_TO: {
+        key: 'replyTo',
+        label: 'Reply-To',
+        optional: true,
+        helpText: 'Optional reply-to email address. You can comma separate multiple reply-to addresses.',
+    },
     PREHEADER: {
         key: 'preheader',
         label: 'Preheader',
         optional: true,
         helpText: 'This is the preview text that appears below the subject line in an inbox.',
     },
-    TO: { key: 'to', label: 'To', optional: false },
     SUBJECT: { key: 'subject', label: 'Subject', optional: false },
 } as const
 
@@ -51,6 +60,7 @@ const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> 
     native_email: [
         EMAIL_META_FIELDS.FROM,
         EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.REPLY_TO,
         EMAIL_META_FIELDS.SUBJECT,
         EMAIL_META_FIELDS.PREHEADER,
     ],
@@ -222,6 +232,8 @@ function LiquidSupportedText({
     const { templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
 
+    const templating = templatingEngine ?? 'hog'
+
     return (
         <span className="flex grow group relative justify-between">
             <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
@@ -234,18 +246,34 @@ function LiquidSupportedText({
                     }}
                 />
             </span>
-            <CodeEditorInline embedded className="flex-1" globals={globals} value={value} onChange={onChange} />
+            <CodeEditorInline
+                embedded
+                className="flex-1"
+                globals={globals}
+                value={value}
+                language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
+                onChange={onChange}
+            />
         </span>
     )
 }
 
-function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+function NativeEmailTemplaterForm({
+    mode,
+    onSaveAsTemplate,
+}: {
+    mode: EmailEditorMode
+    onSaveAsTemplate?: () => void
+}): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
         useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isWorkflowsProductEnabled = featureFlags[FEATURE_FLAGS.WORKFLOWS]
+
+    const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
+    const isPreviewClick = useRef(false)
 
     return (
         <>
@@ -306,19 +334,56 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                     size="xsmall"
                                     placeholder="Choose template"
                                     loading={templatesLoading}
-                                    value={appliedTemplate?.id}
-                                    options={templates.map((template) => ({
-                                        label: template.name,
-                                        value: template.id,
-                                    }))}
+                                    value={appliedTemplate?.id ?? null}
+                                    options={[
+                                        {
+                                            title: 'Templates',
+                                            options: templates.map((template) => ({
+                                                label: template.name,
+                                                labelInMenu: (
+                                                    <div className="flex items-center justify-between w-full gap-2">
+                                                        <span className="flex-1">{template.name}</span>
+                                                        <span
+                                                            className="cursor-pointer text-muted hover:text-default"
+                                                            onClick={() => {
+                                                                isPreviewClick.current = true
+                                                                setPreviewTemplate(template)
+                                                            }}
+                                                            title="Preview template"
+                                                        >
+                                                            <IconEye className="text-lg" />
+                                                        </span>
+                                                    </div>
+                                                ),
+                                                value: template.id,
+                                            })),
+                                        },
+                                        {
+                                            options: [
+                                                {
+                                                    label: 'Save as new template',
+                                                    value: 'save-as-template',
+                                                },
+                                            ],
+                                        },
+                                    ]}
                                     onChange={(id) => {
+                                        // Check if this was a preview click
+                                        if (isPreviewClick.current) {
+                                            isPreviewClick.current = false
+                                            return
+                                        }
+
+                                        if (id === 'save-as-template') {
+                                            onSaveAsTemplate?.()
+                                            return
+                                        }
                                         const template = templates.find((t) => t.id === id)
                                         if (template) {
                                             applyTemplate(template)
                                         }
                                     }}
                                     data-attr="email-template-selector"
-                                    disabledReason={templates.length > 0 ? undefined : 'No templates created yet'}
                                 />
                             </div>
                         )}
@@ -336,8 +401,39 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 },
                                 projectId: unlayerEditorProjectId,
                                 customJS: isWorkflowsProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
+                                fonts: unlayerEditorProjectId
+                                    ? {
+                                          showDefaultFonts: true,
+                                          customFonts: [
+                                              {
+                                                  label: 'Ubuntu',
+                                                  value: "'Ubuntu',sans-serif",
+                                                  url: 'https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap',
+                                                  weights: [
+                                                      { label: 'Light', value: 300 },
+                                                      { label: 'Regular', value: 400 },
+                                                      { label: 'Medium', value: 500 },
+                                                      { label: 'Bold', value: 700 },
+                                                  ],
+                                              },
+                                          ],
+                                      }
+                                    : undefined,
                             }}
                         />
+                        <LemonModal
+                            isOpen={!!previewTemplate}
+                            onClose={() => setPreviewTemplate(null)}
+                            title={`Preview: ${previewTemplate?.name}`}
+                            width="90vw"
+                        >
+                            <div className="h-[80vh] overflow-auto">
+                                <iframe
+                                    srcDoc={previewTemplate?.content.email.html}
+                                    className="w-full h-full border-0"
+                                />
+                            </div>
+                        </LemonModal>
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
@@ -365,7 +461,13 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
     )
 }
 
-function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
+function EmailTemplaterForm({
+    mode,
+    onSaveAsTemplate,
+}: {
+    mode: EmailEditorMode
+    onSaveAsTemplate?: () => void
+}): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
@@ -373,41 +475,117 @@ function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
             return <DestinationEmailTemplaterForm mode={mode} />
         case 'native_email_template':
         case 'native_email':
-            return <NativeEmailTemplaterForm mode={mode} />
+            return <NativeEmailTemplaterForm mode={mode} onSaveAsTemplate={onSaveAsTemplate} />
     }
 }
 
-function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, emailTemplateChanged } = useValues(emailTemplaterLogic)
-    const { closeWithConfirmation, submitEmailTemplate } = useActions(emailTemplaterLogic)
+function SaveTemplateModal({
+    isOpen,
+    onClose,
+    onSave,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    onSave: (name: string, description: string) => void
+}): JSX.Element {
+    const [templateName, setTemplateName] = useState('')
+    const [templateDescription, setTemplateDescription] = useState('')
+
+    const handleClose = (): void => {
+        setTemplateName('')
+        setTemplateDescription('')
+        onClose()
+    }
 
     return (
         <LemonModal
-            isOpen={isModalOpen}
-            width="90vw"
-            onClose={() => closeWithConfirmation()}
-            hasUnsavedInput={emailTemplateChanged}
+            isOpen={isOpen}
+            onClose={handleClose}
+            title="Save as template"
+            description="Create a reusable template from this email"
+            footer={
+                <>
+                    <LemonButton onClick={handleClose}>Cancel</LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            if (templateName) {
+                                onSave(templateName, templateDescription)
+                                setTemplateName('')
+                                setTemplateDescription('')
+                            }
+                        }}
+                        disabledReason={!templateName ? 'Please enter a template name' : undefined}
+                    >
+                        Save template
+                    </LemonButton>
+                </>
+            }
         >
-            <div className="h-[80vh] flex">
-                <div className="flex flex-col flex-1">
-                    <div className="shrink-0">
-                        <h2>Editing email template</h2>
-                    </div>
-                    <EmailTemplaterForm mode="full" />
-                    <div className="flex gap-2 items-center mt-2">
-                        <div className="flex-1" />
-                        <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => submitEmailTemplate()}
-                            disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Template name</LemonLabel>
+                    <LemonInput
+                        placeholder="My Email Template"
+                        value={templateName}
+                        onChange={setTemplateName}
+                        autoFocus
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel showOptional>Description</LemonLabel>
+                    <LemonTextArea
+                        placeholder="Describe when to use this template..."
+                        value={templateDescription}
+                        onChange={setTemplateDescription}
+                        rows={3}
+                    />
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+function EmailTemplaterModal(): JSX.Element {
+    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, isSaveTemplateModalOpen } =
+        useValues(emailTemplaterLogic)
+    const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
+        useActions(emailTemplaterLogic)
+
+    return (
+        <>
+            <LemonModal
+                isOpen={isModalOpen}
+                width="90vw"
+                onClose={() => closeWithConfirmation()}
+                hasUnsavedInput={emailTemplateChanged}
+            >
+                <div className="h-[80vh] flex">
+                    <div className="flex flex-col flex-1">
+                        <div className="shrink-0">
+                            <h2>Editing email template</h2>
+                        </div>
+                        <EmailTemplaterForm mode="full" onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)} />
+                        <div className="flex gap-2 items-center mt-2">
+                            <div className="flex-1" />
+                            <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => submitEmailTemplate()}
+                                disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                </div>
+            </LemonModal>
+            <SaveTemplateModal
+                isOpen={isSaveTemplateModalOpen}
+                onClose={() => setIsSaveTemplateModalOpen(false)}
+                onSave={(name, description) => saveAsTemplate(name, description)}
+            />
+        </>
     )
 }
 

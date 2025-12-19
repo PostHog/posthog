@@ -6,14 +6,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../../../config/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import {
-    HealthCheckResult,
-    Hub,
-    PluginServerService,
-    RedisPool,
-    SessionRecordingV2MetadataSwitchoverDate,
-    ValueMatcher,
-} from '../../../types'
+import { HealthCheckResult, Hub, PluginServerService, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
@@ -21,7 +14,6 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { parseSessionRecordingV2MetadataSwitchoverDate } from '../../utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
     KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
@@ -43,6 +35,7 @@ import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
+import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
@@ -65,6 +58,8 @@ export class SessionRecordingIngester {
     private restrictionHandler?: SessionRecordingRestrictionHandler
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
+    private readonly topTracker: TopTracker
+    private topTrackerLogInterval?: NodeJS.Timeout
 
     constructor(
         private hub: Hub,
@@ -79,9 +74,6 @@ export class SessionRecordingIngester {
         this.overflowTopic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(hub.SESSION_RECORDING_DEBUG_PARTITION, true)
-
-        const metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate =
-            parseSessionRecordingV2MetadataSwitchoverDate(hub.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
 
         this.promiseScheduler = new PromiseScheduler()
 
@@ -116,7 +108,8 @@ export class SessionRecordingIngester {
             s3Client = new S3Client(s3Config)
         }
 
-        this.kafkaParser = new KafkaMessageParser()
+        this.topTracker = new TopTracker()
+        this.kafkaParser = new KafkaMessageParser(this.topTracker)
 
         this.redisPool = createRedisPool(this.hub, 'session-recording')
 
@@ -164,7 +157,6 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
-            metadataSwitchoverDate,
         })
     }
 
@@ -245,6 +237,8 @@ export class SessionRecordingIngester {
     }
 
     private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
+        const consumeStartTime = performance.now()
+
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
@@ -272,7 +266,17 @@ export class SessionRecordingIngester {
         }
 
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
+
+        // Track message size per session_id
+        const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${parsedMessage.session_id}`
+        this.topTracker.increment('message_size_by_session_id', trackingKey, parsedMessage.metadata.rawSize)
+
         await batch.record(message)
+
+        // Track consume time per session_id
+        const consumeEndTime = performance.now()
+        const consumeDurationMs = consumeEndTime - consumeStartTime
+        this.topTracker.increment('consume_time_ms_by_session_id', trackingKey, consumeDurationMs)
     }
 
     public async start(): Promise<void> {
@@ -283,7 +287,7 @@ export class SessionRecordingIngester {
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {
-            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'CONSUMER')
+            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'WARPSTREAM_PRODUCER')
         }
 
         // Initialize restriction handler with the overflow producer
@@ -331,11 +335,22 @@ export class SessionRecordingIngester {
         this.kafkaConsumer.on('event.stats', (stats) => {
             logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
         })
+
+        // Start periodic logging of top tracked metrics (every 60 seconds)
+        this.topTrackerLogInterval = setInterval(() => {
+            this.topTracker.logAndReset(10)
+        }, 60000)
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
         logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
+
+        // Stop the top tracker interval and log final results
+        if (this.topTrackerLogInterval) {
+            clearInterval(this.topTrackerLogInterval)
+            this.topTracker.logAndReset(10)
+        }
 
         const assignedPartitions = this.assignedTopicPartitions
         await this.kafkaConsumer.disconnect()

@@ -1,35 +1,28 @@
+import type { z } from 'zod'
+
 import { FeatureFlagGetDefinitionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = FeatureFlagGetDefinitionSchema
 
 type Params = z.infer<typeof schema>
 
-export const getDefinitionHandler = async (context: Context, { flagId, flagKey }: Params) => {
+export const getDefinitionHandler: ToolBase<typeof schema>['handler'] = async (
+    context: Context,
+    { flagId, flagKey }: Params
+) => {
     if (!flagId && !flagKey) {
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: 'Error: Either flagId or flagKey must be provided.',
-                },
-            ],
-        }
+        return { error: 'Either flagId or flagKey must be provided.' }
     }
 
     const projectId = await context.stateManager.getProjectId()
 
     if (flagId) {
-        const flagResult = await context.api
-            .featureFlags({ projectId })
-            .get({ flagId: String(flagId) })
+        const flagResult = await context.api.featureFlags({ projectId }).get({ flagId: String(flagId) })
         if (!flagResult.success) {
             throw new Error(`Failed to get feature flag: ${flagResult.error.message}`)
         }
-        return {
-            content: [{ type: 'text', text: JSON.stringify(flagResult.data) }],
-        }
+        return flagResult.data
     }
 
     if (flagKey) {
@@ -39,28 +32,12 @@ export const getDefinitionHandler = async (context: Context, { flagId, flagKey }
             throw new Error(`Failed to find feature flag: ${flagResult.error.message}`)
         }
         if (flagResult.data) {
-            return {
-                content: [{ type: 'text', text: JSON.stringify(flagResult.data) }],
-            }
+            return flagResult.data
         }
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Error: Flag with key "${flagKey}" not found.`,
-                },
-            ],
-        }
+        return { error: `Flag with key "${flagKey}" not found.` }
     }
 
-    return {
-        content: [
-            {
-                type: 'text',
-                text: 'Error: Could not determine or find the feature flag.',
-            },
-        ],
-    }
+    return { error: 'Could not determine or find the feature flag.' }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

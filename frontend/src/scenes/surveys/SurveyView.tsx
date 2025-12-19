@@ -36,7 +36,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -45,20 +44,21 @@ import {
     ActivityScope,
     PropertyFilterType,
     PropertyOperator,
+    Survey,
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyHeadline } from './SurveyHeadline'
 import { SurveysDisabledBanner } from './SurveySettings'
 
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
-        useActions(surveyLogic)
-    const { deleteSurvey } = useActions(surveysLogic)
+    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey } = useActions(surveyLogic)
+    const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -97,10 +97,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             <SceneDuplicate
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => {
+                                    // SurveyView is only rendered for existing surveys, so we can safely cast
+                                    const existingSurvey = survey as Survey
                                     if (hasMultipleProjects) {
-                                        setIsDuplicateToProjectModalOpen(true)
+                                        setSurveyToDuplicate(existingSurvey)
                                     } else {
-                                        duplicateSurvey()
+                                        duplicateSurvey(existingSurvey)
                                     }
                                 }}
                             />
@@ -259,7 +261,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
-                    <SceneDivider />
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -323,7 +324,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             },
                         ]}
                     />
-                    {hasMultipleProjects && <DuplicateToProjectModal />}
+                    <DuplicateToProjectModal />
                 </SceneContent>
             )}
         </div>
@@ -351,12 +352,20 @@ function SurveyResponsesByQuestionV2(): JSX.Element {
 }
 
 export function SurveyResult({ disableEventsTable }: { disableEventsTable?: boolean }): JSX.Element {
-    const { dataTableQuery, surveyLoading, surveyAsInsightURL, isAnyResultsLoading, processedSurveyStats } =
-        useValues(surveyLogic)
+    const {
+        dataTableQuery,
+        surveyLoading,
+        surveyAsInsightURL,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        archivedResponseUuids,
+        isSurveyHeadlineEnabled,
+    } = useValues(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
         <div className="deprecated-space-y-4">
+            {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (
@@ -376,7 +385,26 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                             <LemonSkeleton />
                         ) : (
                             <div className="survey-table-results">
-                                <Query query={dataTableQuery} />
+                                <Query
+                                    query={dataTableQuery}
+                                    context={{
+                                        rowProps: (record: unknown) => {
+                                            // "mute" archived records
+                                            if (typeof record !== 'object' || !record || !('result' in record)) {
+                                                return {}
+                                            }
+                                            const result = record.result
+                                            if (!Array.isArray(result)) {
+                                                return {}
+                                            }
+                                            return {
+                                                className: archivedResponseUuids.has(result[0].uuid)
+                                                    ? 'opacity-50'
+                                                    : undefined,
+                                            }
+                                        },
+                                    }}
+                                />
                             </div>
                         ))}
                 </>

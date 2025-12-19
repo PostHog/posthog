@@ -8,6 +8,7 @@ import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 
 import { RawInputAutosize } from './RawInputAutosize'
@@ -46,7 +47,9 @@ interface LemonInputPropsBase
     /** @deprecated Use `disabledReason` instead and provide a reason. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null | false
+    disabledReason?: React.ReactNode | null | false
+    /** Whether the disabled reason tooltip is interactive (e.g., contains a link) */
+    disabledReasonInteractive?: boolean
     /** Whether input field is full width. Cannot be used in conjuction with `autoWidth`. */
     fullWidth?: boolean
     /** Whether input field should be as wide as its content. Cannot be used in conjuction with `fullWidth`. */
@@ -60,6 +63,8 @@ interface LemonInputPropsBase
     'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
+    /** Small label shown above the top-right corner, e.g. "last used" */
+    badgeText?: string
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -79,6 +84,12 @@ export interface LemonInputPropsNumber
 }
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
+
+// Delay for interactive tooltips to close after mouse leave.
+// This allows some grace period in case the user moves the
+// cursor out of the tooltip briefly while intending to
+// interact with it.
+export const INTERACTIVE_CLOSE_DELAY_MS = 750
 
 export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function LemonInput(
     {
@@ -101,6 +112,8 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         inputRef,
         disabled,
         disabledReason,
+        disabledReasonInteractive,
+        badgeText,
         ...props
     },
     ref
@@ -172,12 +185,16 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     }
 
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
-
     return (
-        <Tooltip title={disabledReason ?? undefined}>
+        <Tooltip
+            title={disabledReason ?? undefined}
+            interactive={disabledReasonInteractive}
+            closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
+        >
             <span
                 className={clsx(
                     'LemonInput',
+                    'input-like',
                     status !== 'default' && `LemonInput--status-${status}`,
                     type && `LemonInput--type-${type}`,
                     size && `LemonInput--${size}`,
@@ -185,6 +202,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     value && 'LemonInput--has-content',
                     !disabled && !disabledReason && focused && 'LemonInput--focused',
                     transparentBackground && 'LemonInput--transparent-background',
+                    badgeText && 'relative',
                     className
                 )}
                 aria-disabled={disabled || !!disabledReason}
@@ -233,6 +251,11 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     {...props}
                 />
                 {suffix}
+                {badgeText && (
+                    <LemonTag className="absolute -top-3 -right-2 pointer-events-none" size="small" type="muted">
+                        {badgeText}
+                    </LemonTag>
+                )}
             </span>
         </Tooltip>
     )

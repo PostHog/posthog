@@ -23,14 +23,11 @@ export class PersonCreateService {
         isUserId: number | null,
         isIdentified: boolean,
         creatorEventUuid: string,
-        distinctIds: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonsStoreTransaction
     ): Promise<[InternalPerson, boolean]> {
-        if (distinctIds.length < 1) {
-            throw new Error('at least 1 distinctId is required in `createPerson`')
-        }
-
-        const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
+        const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}
@@ -54,7 +51,8 @@ export class PersonCreateService {
                 isUserId,
                 isIdentified,
                 uuid,
-                distinctIds
+                primaryDistinctId,
+                extraDistinctIds
             )
 
             if (result.success) {
@@ -65,7 +63,8 @@ export class PersonCreateService {
             // Handle creation conflict - another process created the person concurrently
             if (result.error === 'CreationConflict') {
                 // Try to fetch the person that was created concurrently
-                for (const distinctIdInfo of distinctIds) {
+                const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
+                for (const distinctIdInfo of allDistinctIds) {
                     const existingPerson = await this.context.personStore.fetchForUpdate(
                         teamId,
                         distinctIdInfo.distinctId
@@ -89,7 +88,7 @@ export class PersonCreateService {
             if (error instanceof PersonPropertiesSizeViolationError) {
                 await captureIngestionWarning(this.context.kafkaProducer, teamId, 'person_properties_size_violation', {
                     personId: error.personId,
-                    distinctId: distinctIds[0]?.distinctId,
+                    distinctId: primaryDistinctId.distinctId,
                     teamId: teamId,
                     eventUuid: creatorEventUuid,
                     message: 'Person properties exceeds size limit and was rejected',

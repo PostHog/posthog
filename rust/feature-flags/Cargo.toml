@@ -11,6 +11,7 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+common-cache = { path = "../common/cache" }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
@@ -42,6 +43,7 @@ uuid = { workspace = true }
 common-compression = { path = "../common/compression" }
 common-hypercache = { path = "../common/hypercache" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
@@ -70,3 +72,5 @@ assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
+tokio = { workspace = true, features = ["test-util"] }
+metrics-util = { workspace = true }

@@ -1,20 +1,16 @@
-import { IncomingEventWithTeam } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    restrictions: ReadonlySet<Restriction>,
+    team_person_processing_opt_out: boolean
 ): void {
-    const { event, team } = eventWithTeam
+    const { event } = eventWithTeam
 
-    const shouldSkipPersonRestriction = eventIngestionRestrictionManager.shouldSkipPerson(
-        event.token,
-        event.distinct_id
-    )
-    const shouldSkipPersonOptOut = team.person_processing_opt_out
-    const shouldSkipPerson = shouldSkipPersonRestriction || shouldSkipPersonOptOut
+    const shouldSkipPerson = restrictions.has(Restriction.SKIP_PERSON_PROCESSING) || team_person_processing_opt_out
 
     if (shouldSkipPerson) {
         if (event.properties) {
@@ -25,13 +21,17 @@ function applyPersonProcessingRestrictions(
     }
 }
 
-// TODO: Refactor this to use just headers and the team before parsing the event
-export function createApplyPersonProcessingRestrictionsStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
-    eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): ProcessingStep<T, T> {
+export function createApplyPersonProcessingRestrictionsStep<
+    T extends { eventWithTeam: IncomingEventWithTeam; headers: EventHeaders },
+>(eventIngestionRestrictionManager: EventIngestionRestrictionManager): ProcessingStep<T, T> {
     return async function applyPersonProcessingRestrictionsStep(input) {
-        const { eventWithTeam } = input
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const { eventWithTeam, headers } = input
+        const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(headers.token, headers)
+        applyPersonProcessingRestrictions(
+            eventWithTeam,
+            restrictions,
+            eventWithTeam.team.person_processing_opt_out ?? false
+        )
         return Promise.resolve(ok(input))
     }
 }

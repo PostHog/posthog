@@ -6,7 +6,6 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
-from django.dispatch import receiver
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
 
@@ -15,7 +14,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from opentelemetry import trace
-from rest_framework import exceptions, serializers, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -41,14 +40,16 @@ from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
+
+from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -306,13 +307,34 @@ class DashboardSerializer(DashboardMetadataSerializer):
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        existing_dashboard: Dashboard | None = None
+        if use_dashboard:
+            try:
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+
         request_filters = request.data.get("filters")
         if request_filters:
             if not isinstance(request_filters, dict):
                 raise serializers.ValidationError("Filters must be a dictionary")
             filters = request_filters
+        elif existing_dashboard:
+            filters = existing_dashboard.filters
         else:
             filters = {}
+
+        if existing_dashboard and existing_dashboard.variables:
+            validated_data["variables"] = existing_dashboard.variables
+
+        if existing_dashboard and existing_dashboard.breakdown_colors:
+            validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
+
+        if existing_dashboard and existing_dashboard.data_color_theme_id:
+            validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
@@ -328,24 +350,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
                 raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
-        elif use_dashboard:
-            try:
-                existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
-                )
-                existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=existing_dashboard)
-                    .exclude(deleted=True)
-                    .select_related("insight")
-                )
-                for existing_tile in existing_tiles:
-                    if self.initial_data.get("duplicate_tiles", False):
-                        self._deep_duplicate_tiles(dashboard, existing_tile)
-                    else:
-                        existing_tile.copy_to_dashboard(dashboard)
-
-            except Dashboard.DoesNotExist:
-                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+        elif existing_dashboard:
+            existing_tiles = (
+                DashboardTile.objects.filter(dashboard=existing_dashboard)
+                .exclude(deleted=True)
+                .select_related("insight")
+            )
+            for existing_tile in existing_tiles:
+                if self.initial_data.get("duplicate_tiles", False):
+                    self._deep_duplicate_tiles(dashboard, existing_tile)
+                else:
+                    existing_tile.copy_to_dashboard(dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
@@ -428,10 +443,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
-                group_type_mapping.detail_dashboard = None
+                group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
@@ -608,6 +623,8 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
+    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -647,15 +664,14 @@ class DashboardsViewSet(
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
-        include_deleted = (
-            self.action == "partial_update"
-            and "deleted" in self.request.data
-            and not self.request.data.get("deleted")
-            and len(self.request.data) == 1
-        )
+        include_deleted = False
+        if self.action in ("partial_update", "update") and hasattr(self, "request"):
+            deleted_value = self.request.data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
 
         if not include_deleted:
-            # a dashboard can be un-deleted by patching {"deleted": False}
+            # a dashboard can be restored by patching {"deleted": False}
             queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
@@ -694,6 +710,15 @@ class DashboardsViewSet(
         # Filter out generated dashboards if requested (for list action only)
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
+
+        # Allow filtering by creation_mode query param
+        creation_mode = self.request.query_params.get("creation_mode")
+        if creation_mode:
+            queryset = queryset.filter(creation_mode=creation_mode)
+        # Filter unlisted dashboards from general list unless explicitly requested
+        # Direct ID lookups (detail action) are allowed through retrieve()
+        elif self.action == "list":
+            queryset = queryset.exclude(creation_mode="unlisted")
 
         return queryset
 
@@ -877,6 +902,61 @@ class DashboardsViewSet(
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
+    @action(methods=["POST"], detail=False)
+    def create_unlisted_dashboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Creates an unlisted dashboard from template by tag.
+        Enforces uniqueness (one per tag per team).
+        Returns 409 if unlisted dashboard with this tag already exists.
+        """
+        from django.db import transaction
+
+        from posthog.models.team import Team
+
+        tag = request.data.get("tag")
+
+        if not tag:
+            return Response(
+                {"error": "tag is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tag not in self.TEMPLATE_MAP:
+            return Response(
+                {"error": f"Unknown template tag: {tag}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            Team.objects.select_for_update().filter(id=self.team_id).first()
+
+            existing = Dashboard.objects.filter(
+                team=self.team, deleted=False, creation_mode="unlisted", tagged_items__tag__name=tag
+            ).first()
+
+            if existing:
+                return Response(
+                    {"error": f"Unlisted dashboard with tag '{tag}' already exists"},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            template = self.TEMPLATE_MAP[tag]()
+            dashboard = Dashboard.objects.create(
+                team_id=self.team_id,
+                name=template.template_name,
+                description=template.dashboard_description or "",
+                filters={**(template.dashboard_filters or {}), "__template_version": 1},
+                created_by=cast(User, request.user),
+                creation_mode="unlisted",
+            )
+
+            create_from_template(dashboard, template, cast(User, request.user), force_system_tags=True)
+
+            return Response(
+                DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+                status=status.HTTP_201_CREATED,
+            )
+
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
     param_derived_from_user_current_team = "project_id"
@@ -891,10 +971,16 @@ class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
 
 
-@receiver(model_activity_signal, sender=Dashboard)
+@mutable_receiver(model_activity_signal, sender=Dashboard)
 def handle_dashboard_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    if before_update and after_update:
+        before_deleted = getattr(before_update, "deleted", None)
+        after_deleted = getattr(after_update, "deleted", None)
+        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
+            activity = "restored" if after_deleted is False else "deleted"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,

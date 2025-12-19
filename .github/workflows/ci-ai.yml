@@ -24,6 +24,11 @@ jobs:
                 github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
             )
 
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+
         steps:
             - uses: actions/checkout@v4
               with:
@@ -31,6 +36,13 @@ jobs:
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
                   fetch-depth: 0
+                  filter: blob:none
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -46,11 +58,23 @@ jobs:
               uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install python dependencies
               shell: bash
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.88.0
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -74,80 +98,9 @@ jobs:
             - name: Post eval summary to PR
               # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
               if: always() && github.event_name == 'pull_request'
-              uses: actions/github-script@v6
+              uses: actions/github-script@v8
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
-
-                      // Read the eval results
-                      const evalResults = fs
-                          .readFileSync("eval_results.jsonl", "utf8")
-                          .trim()
-                          .split("\n")
-                          .map((line) => JSON.parse(line))
-
-                      if (evalResults.length === 0) {
-                          console.log("No eval results found")
-                          return
-                      }
-
-                      // Generate concise experiment summaries
-                      const experimentSummaries = evalResults.map((result) => {
-                          // Format scores as bullet points with improvements/regressions and baseline comparison
-                          const scoresList = Object.entries(result.scores || {})
-                              .map(([key, value]) => {
-                                  const score = typeof value.score === "number" ? `${(value.score * 100).toFixed(2)}%` : value.score
-                                  let baselineComparison = null
-                                  const diffHighlight = Math.abs(value.diff) > 0.01 ? "**" : ""
-                                  let diffEmoji = "🆕"
-                                  if (result.comparison_experiment_name?.startsWith("master-")) {
-                                      baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
-                                          value.diff * 100
-                                      ).toFixed(2)}%${diffHighlight} (improvements: ${value.improvements}, regressions: ${value.regressions})`
-                                      diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
-                                  }
-                                  return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
-                              })
-                              .join("\n")
-
-                          // Format key metrics concisely
-                          const metrics = result.metrics || {}
-                          const duration = metrics.duration ? `⏱️ ${metrics.duration.metric.toFixed(2)} s` : null
-                          const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
-                          const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
-                          const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
-                          const baselineLink = `[${result.comparison_experiment_name}](${result.project_url}/experiments/${result.comparison_experiment_name})`
-
-                          // Create concise experiment summary with header only showing experiment name
-                          const experimentName = result.project_name.replace(/^max-ai-/, "")
-
-                          return [
-                              `### [${experimentName}](${result.experiment_url})`,
-                              scoresList,
-                              `Baseline: ${baselineLink} • Avg. case performance: ${metricsText}`,
-                          ].join("\n\n")
-                      })
-
-                      const totalExperiments = evalResults.length
-                      const totalMetrics = evalResults.reduce((acc, result) => acc + Object.keys(result.scores || {}).length, 0)
-
-                      const body = [
-                          `## 🧠 AI eval results`,
-                          `Evaluated **${totalExperiments}** experiments, comprising **${totalMetrics}** metrics.`,
-                          ...experimentSummaries,
-                          `_Triggered by [this commit](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}/commits/${context.payload.pull_request.head.sha})._`,
-                      ].join("\n\n")
-
-                      // Post comment on PR
-                      if (context.payload.pull_request) {
-                          github.rest.issues.createComment({
-                              issue_number: context.issue.number,
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              body: body,
-                          })
-                      } else {
-                          // Just log the summary if this is a push to master
-                          console.log(body)
-                      }
+                      const script = require('.github/scripts/post-eval-summary.js')
+                      script({ github, context, fs })

@@ -116,6 +116,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
+        setHoveredDatasetIndex: (index: number | null) => ({ index }),
+        setIsShiftPressed: (isPressed: boolean) => ({ isPressed }),
     }),
 
     reducers({
@@ -123,6 +125,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             false,
             {
                 setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
+        hoveredDatasetIndex: [
+            null as number | null,
+            {
+                setHoveredDatasetIndex: (_, { index }) => index,
+            },
+        ],
+        isShiftPressed: [
+            false,
+            {
+                setIsShiftPressed: (_, { isPressed }) => isPressed,
             },
         ],
     }),
@@ -170,7 +184,22 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
                 const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
-                if (
+
+                // want the previous bars to show before current bars
+                if (display === ChartDisplayType.ActionsUnstackedBar && indexedResults.some((x) => x.compare)) {
+                    indexedResults.sort((a, b) => {
+                        if (a.compare_label === b.compare_label) {
+                            return 0
+                        }
+                        if (a.compare_label === 'previous') {
+                            return -1
+                        }
+                        if (b.compare_label === 'previous') {
+                            return 1
+                        }
+                        return 0
+                    })
+                } else if (
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {

@@ -13,26 +13,11 @@ import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
-import {
-    generateEmailTrackingCode,
-    generateEmailTrackingPixelUrl,
-    parseEmailTrackingCode,
-} from './helpers/tracking-code'
-import { MailjetEventType, MailjetWebhookEvent } from './types'
+import { generateEmailTrackingCode, generateEmailTrackingPixelUrl } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
-
-const EVENT_TYPE_TO_CATEGORY: Record<MailjetEventType, MinimalAppMetric['metric_name'] | undefined> = {
-    sent: 'email_sent',
-    open: 'email_opened',
-    click: 'email_link_clicked',
-    bounce: 'email_bounced',
-    blocked: 'email_blocked',
-    spam: 'email_spam',
-    unsub: 'email_unsubscribed',
-}
 
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
@@ -90,7 +75,7 @@ export class EmailTrackingService {
         functionId?: string
         invocationId?: string
         metricName: MinimalAppMetric['metric_name']
-        source: 'mailjet' | 'direct' | 'ses'
+        source: 'direct' | 'ses'
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -141,40 +126,6 @@ export class EmailTrackingService {
             invocationId,
             metricName,
         })
-    }
-
-    public async handleMailjetWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
-        const okResponse = { status: 200, message: 'OK' }
-
-        if (!req.rawBody) {
-            return { status: 403, message: 'Missing request body' }
-        }
-
-        try {
-            const event = req.body as MailjetWebhookEvent
-
-            const { functionId, invocationId } = parseEmailTrackingCode(event.Payload || '') || {}
-            const category = EVENT_TYPE_TO_CATEGORY[event.event]
-
-            if (!category) {
-                logger.error('[EmailTrackingService] trackMetric: Unmapped event type', { event })
-                emailTrackingErrorsCounter.inc({ error_type: 'unmapped_event_type' })
-                return { status: 400, message: 'Unmapped event type' }
-            }
-
-            await this.trackMetric({
-                functionId,
-                invocationId,
-                metricName: category,
-                source: 'mailjet',
-            })
-
-            return okResponse
-        } catch (error) {
-            emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: Mailjet webhook error', { error })
-            throw error
-        }
     }
 
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {

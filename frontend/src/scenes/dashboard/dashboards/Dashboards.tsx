@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -15,7 +17,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -65,19 +66,27 @@ export function Dashboards(): JSX.Element {
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                size="small"
-                                data-attr="new-dashboard"
-                                onClick={showNewDashboardModal}
-                                type="primary"
+                            <AppShortcut
+                                name="NewDashboard"
+                                keybind={[keyBinds.new]}
+                                intent="New dashboard"
+                                interaction="click"
+                                asChild
+                                scope={Scene.Dashboards}
                             >
-                                New dashboard
-                            </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    data-attr="new-dashboard"
+                                    onClick={showNewDashboardModal}
+                                    type="primary"
+                                >
+                                    New dashboard
+                                </LemonButton>
+                            </AppShortcut>
                         </AccessControlAction>
                     </>
                 }
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(newKey) => setCurrentTab(newKey)}

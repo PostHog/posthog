@@ -3,7 +3,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
+import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'

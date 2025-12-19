@@ -166,7 +166,8 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created action {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created action{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -176,7 +177,8 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted action {nameAndLink(logItem)}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted action{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -212,7 +214,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),

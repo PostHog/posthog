@@ -25,9 +25,11 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Action, FeatureFlag, Person, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -71,10 +73,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         # Sort 'changes' lists for order-insensitive comparison
         for item in activity:
-            if "detail" in item and "changes" in item["detail"]:
+            if "detail" in item and item["detail"].get("changes") is not None:
                 item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
         for item in expected:
-            if "detail" in item and "changes" in item["detail"]:
+            if "detail" in item and item["detail"].get("changes") is not None:
                 item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
 
         assert activity == expected
@@ -345,7 +347,7 @@ email@example.org
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -374,7 +376,7 @@ User ID
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         # Verify CSV update worked - 456 should now be included
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -392,7 +394,7 @@ User ID
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.name, "test2")
         # Verify distinct_ids remain the same after name-only update
-        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
         distinct_ids = set()
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
@@ -460,7 +462,7 @@ email@example.org
         cohort.refresh_from_db()
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
@@ -495,7 +497,7 @@ Zero User,0,zero@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify all three persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 3)
 
         # Verify specific persons are in the cohort
@@ -563,7 +565,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -606,7 +608,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
@@ -653,7 +655,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
@@ -680,10 +682,17 @@ Jane Smith,user456,jane@example.com
         )
 
         self.assertEqual(response.status_code, 201)
-        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response_data = response.json()
+        cohort = Cohort.objects.get(pk=response_data["id"])
+
+        # Verify the response contains a valid count (not a CombinedExpression or None)
+        self.assertIn("count", response_data)
+        self.assertIsInstance(response_data["count"], int)
+        self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -721,7 +730,7 @@ John Doe,{person1.uuid},john@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -1413,7 +1422,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -1475,7 +1484,130 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "created_at": mock.ANY,
+                },
+            ],
+        )
+
+    def test_create_static_cohort_activity_log(self):
+        """
+        Test that creating a static cohort creates an activity log entry that does not include 'changes' in the detail.
+        Previously, 'changes' included all the users added to the cohort, which could be very large and cause exceptions
+        while propagating the activity log entry.
+        """
+
+        num_people = 3
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my static cohort", "is_static": True, "_create_static_person_ids": person_uuids[:num_people]},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my static cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                }
+            ],
+        )
+
+    def test_update_static_cohort_activity_log(self):
+        """
+        Test that updating a static cohort with people does not load all people into memory.
+        Previously, updating cohorts called to_dict() which loaded all people, causing timeouts
+        and database connection errors for large cohorts.
+        """
+        num_people = 10
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my large cohort", "is_static": True, "_create_static_person_ids": person_uuids},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        # Update the cohort - this should not load all people into memory
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            {"name": "renamed large cohort", "description": "A cohort with many people"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        # Verify the activity log was created with changes tracked
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": [
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "my large cohort",
+                                "after": "renamed large cohort",
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "description",
+                                "before": "",
+                                "after": "A cohort with many people",
+                            },
+                        ],
+                        "name": "renamed large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
                     "created_at": mock.ANY,
                 },
             ],
@@ -2522,6 +2654,41 @@ email@example.org,
         new_cohort.refresh_from_db()
         self.assertEqual(new_cohort.count, 2)
 
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
+    def test_duplicating_static_cohort_sets_is_calculating(self, mock_insert_cohort):
+        """Test that is_calculating is set to True when duplicating static cohort via async task"""
+        p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        p2 = _create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        flush_persons_and_events()
+
+        # Create static cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort A",
+            is_static=True,
+        )
+        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.pk)
+
+        # Duplicate static cohort as static
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+
+        # Verify is_calculating is True immediately (before async task completes)
+        self.assertTrue(
+            new_cohort.is_calculating, "is_calculating should be True while async duplication is in progress"
+        )
+
+        # Verify the async task was called with correct parameters
+        mock_insert_cohort.assert_called_once()
+        call_args = mock_insert_cohort.call_args
+        self.assertEqual(call_args[0][0], new_cohort_id)  # cohort_id
+        self.assertEqual(call_args[0][1]["from_cohort_id"], cohort.pk)  # filter_data contains source cohort
+        self.assertEqual(call_args[0][2], self.team.pk)  # team_id
+
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
             distinct_ids=["p1"],
@@ -3054,6 +3221,61 @@ email@example.org,
             "Special Folder/Cohorts" in fs_entry.path
         ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
 
+    def test_cohort_delete_restore_logs_activity(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Activities",
+            groups=[{"properties": {"prop": "5"}}],
+            created_by=self.user,
+        )
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        latest_activity = (
+            ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.pk)).order_by("-created_at").first()
+        )
+        assert latest_activity is not None
+        assert latest_activity.activity == "deleted"
+
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": False}, format="json"
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+
+        restored_activity = (
+            ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.pk)).order_by("-created_at").first()
+        )
+        assert restored_activity is not None
+        assert restored_activity.activity == "restored"
+
+    def test_cohort_restore_can_target_folder(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Foldered",
+            groups=[{"properties": {"prop": "5"}}],
+            created_by=self.user,
+        )
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", {"deleted": True}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+        assert FileSystem.objects.filter(team=self.team, type="cohort", ref=str(cohort.pk)).count() == 0
+
+        restore_folder = "Restored/Cohorts"
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            {"deleted": False, "_create_in_folder": restore_folder},
+            format="json",
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+
+        fs_entry = FileSystem.objects.get(team=self.team, type="cohort", ref=str(cohort.pk))
+        assert fs_entry.path.startswith(f"{restore_folder}/"), fs_entry.path
+
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_with_hogql_event_filter_and_null_value(self, patch_capture):
         payload = {
@@ -3486,6 +3708,544 @@ email@example.org,
         cohort = Cohort.objects.get(id=cohort_id)
         self.assertTrue(cohort.deleted)
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_test_account_filters(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Add cohort to test_account_filters
+        self.team.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        self.team.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used in 'Filter out internal and test users' for 1 environment(s):",
+            response.json()["detail"],
+        )
+        self.assertIn(self.team.name, response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_teams_test_account_filters(
+        self, patch_calculate_cohort, patch_capture
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Add cohort to test_account_filters for multiple teams
+        self.team.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        self.team.save()
+
+        team2 = Team.objects.create(organization=self.organization, project=self.team.project, name="Team 2")
+        team2.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        team2.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 'Filter out internal and test users' for 2 environment(s):", detail)
+        self.assertIn(self.team.name, detail)
+        self.assertIn(team2.name, detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_test_account_filters(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Add a different cohort to test_account_filters
+        other_cohort = Cohort.objects.create(
+            team=self.team, name="Other Cohort", groups=[{"properties": {"team_id": 6}}]
+        )
+        self.team.test_account_filters = [{"key": "id", "value": other_cohort.id, "type": "cohort"}]
+        self.team.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_insight(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight that uses the cohort
+        Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"properties": [{"type": "cohort", "value": cohort_id}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used in 1 insight(s): Test Insight", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_insights(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create multiple insights that use the cohort
+        Insight.objects.create(
+            team=self.team,
+            name="First Insight",
+            query={"properties": [{"type": "cohort", "value": cohort_id}]},
+        )
+        Insight.objects.create(
+            team=self.team,
+            name="Second Insight",
+            query={"properties": [{"type": "cohort", "value": cohort_id}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 2 insight(s):", detail)
+        self.assertIn("First Insight", detail)
+        self.assertIn("Second Insight", detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_more_than_five_insights(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create 7 insights that use the cohort in breakdown filter
+        for i in range(7):
+            Insight.objects.create(
+                team=self.team,
+                name=f"Insight {i + 1}",
+                query={"source": {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]}}},
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 7 insight(s):", detail)
+        # Should list first 5 insights
+        self.assertIn("Insight 1", detail)
+        self.assertIn("Insight 2", detail)
+        self.assertIn("Insight 3", detail)
+        self.assertIn("Insight 4", detail)
+        self.assertIn("Insight 5", detail)
+        # Should cap at 5 and mention the remaining
+        self.assertIn("and 2 more", detail)
+        # Should NOT list insights 6 and 7 individually
+        self.assertNotIn("Insight 6", detail)
+        self.assertNotIn("Insight 7", detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_insights(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight that uses a different cohort
+        other_cohort = Cohort.objects.create(
+            team=self.team, name="Other Cohort", groups=[{"properties": {"team_id": 6}}]
+        )
+        Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"properties": [{"type": "cohort", "value": other_cohort.id}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_breakdown_filter(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight that uses the cohort in breakdown filter
+        Insight.objects.create(
+            team=self.team,
+            name="Breakdown Insight",
+            query={"source": {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]}}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used in 1 insight(s): Breakdown Insight", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_deeply_nested_properties(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight with cohort deeply nested in series properties
+        Insight.objects.create(
+            team=self.team,
+            name="Nested Properties Insight",
+            query={
+                "source": {
+                    "series": [
+                        {
+                            "event": "$pageview",
+                            "properties": [{"type": "cohort", "value": cohort_id}],
+                        }
+                    ]
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used in 1 insight(s): Nested Properties Insight", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_another_cohort(self, patch_calculate_cohort, patch_capture):
+        # Create base cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Base Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        base_cohort_id = response.json()["id"]
+
+        # Create dependent cohort that references the base cohort
+        dependent_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Dependent Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "cohort", "key": "id", "value": base_cohort_id}],
+                    }
+                },
+            },
+        )
+        self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+
+        # Try to delete the base cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used as criteria in 1 other cohort(s): Dependent Cohort", response.json()["detail"]
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_cohorts(self, patch_calculate_cohort, patch_capture):
+        # Create base cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Base Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        base_cohort_id = response.json()["id"]
+
+        # Create multiple dependent cohorts
+        for i in range(3):
+            dependent_response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={
+                    "name": f"Dependent Cohort {i + 1}",
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"type": "cohort", "key": "id", "value": base_cohort_id}],
+                        }
+                    },
+                },
+            )
+            self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+
+        # Try to delete the base cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used as criteria in 3 other cohort(s):", response.json()["detail"])
+        self.assertIn("Dependent Cohort", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_nested_cohort_filters(self, patch_calculate_cohort, patch_capture):
+        # Create base cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Base Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        base_cohort_id = response.json()["id"]
+
+        # Create dependent cohort with nested AND/OR structure
+        dependent_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Complex Dependent Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"type": "cohort", "key": "id", "value": base_cohort_id},
+                                    {
+                                        "type": "person",
+                                        "key": "email",
+                                        "operator": "icontains",
+                                        "value": "@posthog.com",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(dependent_response.status_code, status.HTTP_201_CREATED)
+
+        # Try to delete the base cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{base_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used as criteria in 1 other cohort(s): Complex Dependent Cohort", response.json()["detail"]
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_other_cohorts(self, patch_calculate_cohort, patch_capture):
+        # Create two independent cohorts
+        response1 = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Cohort 1", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort1_id = response1.json()["id"]
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Cohort 2", "groups": [{"properties": {"team_id": 6}}]},
+        )
+
+        # Delete cohort 1 should succeed since cohort 2 doesn't reference it
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort1_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort1_id)
+        self.assertTrue(cohort.deleted)
+
+    def test_cohort_last_error_message_from_calculation_history(self):
+        """Test that API returns friendly error message from failed calculation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="ClickHouse query timeout after 1200 seconds",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.json()["last_error_message"])
+        self.assertIn("taking too long", response.json()["last_error_message"].lower())
+
+    def test_cohort_last_error_message_in_list_view(self):
+        """Test that list view includes last_error_message via annotation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in response.json()["results"] if c["id"] == cohort.id)
+        self.assertIsNotNone(cohort_data["last_error_message"])
+        self.assertIn("too much memory", cohort_data["last_error_message"].lower())
+
+    def test_cohort_last_error_message_none_when_successful(self):
+        """Test that successful cohorts return None for last_error_message"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            count=100,
+            error=None,
+            error_code=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["last_error_message"])
+
+    def test_cohort_last_error_message_uses_most_recent_failure(self):
+        """Test that only the most recent failed calculation's error is returned"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        # Older failure - timeout
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=2),
+            finished_at=timezone.now() - timedelta(hours=2),
+            error="Timeout",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        # Newer failure - memory limit (should be returned)
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(hours=1),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("too much memory", response.json()["last_error_message"].lower())
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
@@ -3818,7 +4578,7 @@ jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort
@@ -3861,7 +4621,7 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
@@ -3908,7 +4668,7 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)

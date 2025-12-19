@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models
+from django.http import HttpRequest
 
 import jwt
 import requests
@@ -39,9 +40,29 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
-from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
+from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+
+
+def _decode_jwt_payload(token: str) -> dict | None:
+    """
+    Decode JWT payload without signature verification.
+
+    Used to extract claims from OAuth tokens (id_token, access_token) where
+    we trust the token source (received directly from provider over HTTPS).
+
+    Returns None if JWT doesn't have enough parts. Raises on decode errors
+    so callers can log exceptions with full traceback.
+    """
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    # Handle missing base64 padding
+    decoded = base64.urlsafe_b64decode(payload + "===")
+    return json.loads(decoded)
+
 
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
@@ -76,6 +97,7 @@ class Integration(models.Model):
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
         TIKTOK_ADS = "tiktok-ads"
+        BING_ADS = "bing-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -171,6 +193,7 @@ class OauthIntegration:
         "linkedin-ads",
         "reddit-ads",
         "tiktok-ads",
+        "bing-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -306,16 +329,30 @@ class OauthIntegration:
             if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
                 raise NotImplementedError("LinkedIn Ads app not configured")
 
+            # Note: We extract user info from id_token JWT instead of calling token_info_url
+            # because LinkedIn's /v2/userinfo endpoint has intermittent issues returning
+            # REVOKED_ACCESS_TOKEN errors for valid tokens. See JWT extraction below.
             return OauthConfig(
                 authorize_url="https://www.linkedin.com/oauth/v2/authorization",
-                token_info_url="https://api.linkedin.com/v2/userinfo",
-                token_info_config_fields=["sub", "email"],
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "bing-ads":
+            if not settings.BING_ADS_CLIENT_ID or not settings.BING_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Bing Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                client_id=settings.BING_ADS_CLIENT_ID,
+                client_secret=settings.BING_ADS_CLIENT_SECRET,
+                scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
+                id_path="id",
+                name_path="userPrincipalName",
             )
         elif kind == "intercom":
             if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
@@ -537,19 +574,31 @@ class OauthIntegration:
 
         integration_id = dot_get(config, oauth_config.id_path)
 
+        # Bing Ads id_token is a JWT, extract user ID from it
+        if kind == "bing-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
+                        bing_user_id = jwt_data.get("oid")
+                        bing_username = jwt_data.get("preferred_username")
+                        if bing_user_id:
+                            config["id"] = bing_user_id
+                            config["userPrincipalName"] = bing_username
+                            integration_id = bing_user_id
+                else:
+                    logger.error("Bing Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Bing Ads JWT")
+
         # Reddit access token is a JWT, extract user ID from it
         if kind == "reddit-ads" and not integration_id:
             try:
                 access_token = config.get("access_token")
                 if access_token:
-                    # Split JWT and get payload (middle part)
-                    parts = access_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        # Decode JWT payload (handle missing padding)
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
                         # Extract user ID from JWT (lid = login ID)
                         reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
                         if reddit_user_id:
@@ -557,6 +606,25 @@ class OauthIntegration:
                             integration_id = reddit_user_id
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
+
+        # LinkedIn id_token is a JWT, extract user ID and email from it
+        # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
+        if kind == "linkedin-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
+                        linkedin_user_id = jwt_data.get("sub")
+                        linkedin_email = jwt_data.get("email")
+                        if linkedin_user_id:
+                            config["sub"] = linkedin_user_id
+                            config["email"] = linkedin_email
+                            integration_id = linkedin_user_id
+                else:
+                    logger.error("LinkedIn Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode LinkedIn JWT")
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
@@ -657,6 +725,18 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        elif self.integration.kind == "bing-ads":
+            # Microsoft Azure AD requires scope parameter on token refresh
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                },
             )
         else:
             res = requests.post(
@@ -781,7 +861,7 @@ class SlackIntegration:
         return channels
 
     @classmethod
-    def validate_request(cls, request: Request):
+    def validate_request(cls, request: HttpRequest | Request):
         """
         Based on https://api.slack.com/authentication/verifying-requests-from-slack
         """
@@ -1146,40 +1226,38 @@ class EmailIntegration:
         self.integration = integration
 
     @property
-    def mailjet_provider(self) -> MailjetProvider:
-        return MailjetProvider()
-
-    @property
     def ses_provider(self) -> SESProvider:
         return SESProvider()
 
     @classmethod
-    def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
+    def create_native_integration(
+        cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
+    ) -> Integration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
-        provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
+        provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
-        # Check if any other integration already exists in a different team with the same domain
-        if Integration.objects.filter(kind="email", config__domain=domain).exclude(team_id=team_id).exists():
-            raise ValidationError(
-                f"An email integration with domain {domain} already exists in another project. Try a different domain or contact support if you believe this is a mistake."
-            )
+        # Check if any other integration already exists in a different team with the same domain,
+        # if so, ensure this team is part of the same organization. If not, we block creation.
+        same_domain_integrations = Integration.objects.filter(kind="email", config__domain=domain)
+        for integration in same_domain_integrations:
+            if str(integration.team.organization.id) != str(organization_id):
+                raise ValidationError(
+                    f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
+                )
 
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
             ses.create_email_domain(domain, team_id=team_id)
-        elif provider == "mailjet":
-            mailjet = MailjetProvider()
-            mailjet.create_email_domain(domain, team_id=team_id)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
-            raise ValueError(f"Invalid provider: must be either 'ses' or 'mailjet'")
+            raise ValueError(f"Invalid provider: must be 'ses'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1203,40 +1281,13 @@ class EmailIntegration:
 
         return integration
 
-    @classmethod
-    def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: User | None = None
-    ) -> Integration:
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=api_key,
-            defaults={
-                "config": {
-                    "api_key": api_key,
-                    "vendor": "mailjet",
-                },
-                "sensitive_config": {
-                    "secret_key": secret_key,
-                },
-                "created_by": created_by,
-            },
-        )
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
-        return integration
-
     def verify(self):
         domain = self.integration.config.get("domain")
-        provider = self.integration.config.get("provider", "mailjet")
+        provider = self.integration.config.get("provider", "ses")
 
         # Use the appropriate provider for verification
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
-        elif provider == "mailjet":
-            verification_result = self.mailjet_provider.verify_email_domain(domain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",

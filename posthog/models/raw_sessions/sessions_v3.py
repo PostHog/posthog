@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
     -- urls
-    urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
     entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
     last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -156,10 +156,15 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- As a performance optimisation, also keep track of the uniq events for all of these combined.
     -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+    page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+    has_autocapture SimpleAggregateFunction(max, Boolean),
 
     -- Flags - store every seen value for each flag
     flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+    flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+
+    -- Event names - store unique event names seen in this session
+    event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -171,9 +176,26 @@ def SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3():
     return AggregatingMergeTree(TABLE_BASE_NAME_V3, replication_scheme=ReplicationScheme.SHARDED)
 
 
+def SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3():
+    # try to make the backfill self-regulating by leaning on insert delays
+    return "parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000"
+
+
 def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
+    # For the sharded table, we need to add the index definition in the column list
+    # Remove the closing parenthesis and ENGINE from base SQL
+    base_sql = RAW_SESSIONS_TABLE_BASE_SQL_V3.replace(
+        ") ENGINE = {engine}",
+        """,
+
+    -- Indexes
+    INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+) ENGINE = {engine}""",
+    )
+
     return (
-        RAW_SESSIONS_TABLE_BASE_SQL_V3
+        base_sql
         + """
 PARTITION BY toYYYYMM(session_timestamp)
 ORDER BY (
@@ -181,10 +203,18 @@ ORDER BY (
     session_timestamp,
     session_id_v7
 )
+SETTINGS {settings}
 """
     ).format(
         table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
+        settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
+    )
+
+
+def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
+    return (
+        f"ALTER TABLE {SHARDED_RAW_SESSIONS_TABLE_V3()} MODIFY SETTING {SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3()}"
     )
 
 
@@ -338,10 +368,15 @@ SELECT
     initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
-    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
+    event = '$autocapture' as has_autocapture,
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+    mapKeys(properties_group_feature_flags) as flag_keys,
+
+    -- event names
+    [event] as event_names,
 
     false as has_replay_events
 FROM {source_table} AS source_table
@@ -455,10 +490,15 @@ SELECT
     initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
 
     -- perf
-    initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_autocapture_uniq_up_to,
+    initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
+    false as has_autocapture,
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+    CAST([], 'Array(String)') as flag_keys,
+
+    -- event names
+    CAST([], 'Array(String)') as event_names,
 
     -- replay
     true as has_replay_events
@@ -489,17 +529,48 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE"):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from events.
+
+    Each shard should call this with its own shard_index to only SELECT events
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where,
-            # use sharded_events for the source table, this means that the backfill MUST run on every shard
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
+        ),
+    )
+
+
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from session replay events.
+
+    Each shard should call this with its own shard_index to only SELECT recordings
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
+    return """
+INSERT INTO {database}.{target_table}
+{select_sql}
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 
@@ -552,7 +623,7 @@ SELECT
     max(max_inserted_at) as max_inserted_at,
 
     -- urls
-    arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+    groupUniqArrayArray(2000)(urls) AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
     argMaxMerge(last_external_click_url) as last_external_click_url,
@@ -598,10 +669,15 @@ SELECT
     uniqExactMerge(screen_uniq) as screen_uniq,
 
     -- perf
-    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
+    uniqUpToMerge(1)(page_screen_uniq_up_to) as page_screen_uniq_up_to,
+    max(has_autocapture) as has_autocapture,
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,
+    groupUniqArrayArray(flag_keys) as flag_keys,
+
+    -- event names
+    groupUniqArrayArray(2000)(event_names) as event_names,
 
     -- replay
     max(has_replay_events) as has_replay_events
@@ -650,3 +726,28 @@ GROUP BY value
 ORDER BY count(value) DESC
 LIMIT 20
 """
+
+
+def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions: list[str]) -> str:
+    """Get the maximum number of active parts across specified partitions and all nodes.
+
+    Args:
+        partitions: List of partition names in YYYYMM format (e.g., ['202501', '202412'])
+    """
+    if not partitions:
+        raise ValueError("partitions list cannot be empty")
+    # Format partitions for SQL IN clause: ('202501', '202412')
+    partitions_sql = ", ".join(f"'{p}'" for p in partitions)
+
+    return f"""
+        SELECT coalesce(max(parts_count), 0), argMax(partition, parts_count), argMax(host, parts_count)
+        FROM (
+            SELECT hostName() as host, count() as parts_count, partition
+            FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
+            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+              AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+              AND partition IN ({partitions_sql})
+              AND active = 1
+            GROUP BY host, partition
+        )
+    """

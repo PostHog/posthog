@@ -104,6 +104,33 @@ class TestCompositeCommandExecution:
         # Should only call first two steps before failure
         assert mock_run.call_count == 2
 
+    @patch("hogli.core.command_types._run")
+    def test_inline_steps_execute_directly(self, mock_run: MagicMock) -> None:
+        """Test inline dict steps execute as shell commands."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
+        cmd = CompositeCommand(
+            "nuke",
+            {
+                "steps": [
+                    {"name": "announce", "cmd": "echo hello"},
+                    {"name": "cleanup", "cmd": "rm -rf /tmp/test"},
+                    "dev:reset",
+                ]
+            },
+        )
+
+        cmd.execute()
+
+        assert mock_run.call_count == 3
+        # First two are inline shell commands
+        assert mock_run.call_args_list[0][0][0] == ["bash", "-c", "echo hello"]
+        assert mock_run.call_args_list[1][0][0] == ["bash", "-c", "rm -rf /tmp/test"]
+        # Third is a hogli command
+        assert mock_run.call_args_list[2][0][0] == [bin_hogli, "dev:reset"]
+
 
 class TestRunFunctionErrorHandling:
     """Test _run() handles command failures correctly."""
@@ -129,3 +156,99 @@ class TestRunFunctionErrorHandling:
             _run(["some-command"])
 
         assert exc_info.value.code == 1
+
+
+class TestConfirmationFeature:
+    """Test confirmation prompts for destructive commands."""
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_destructive_prompts_user(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test command with destructive prompts user."""
+        mock_confirm.return_value = True
+
+        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
+
+        cmd._confirm(yes=False)
+
+        mock_confirm.assert_called_once_with("Are you sure you want to continue?", default=False)
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_destructive_skips_with_yes_flag(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test --yes flag skips confirmation prompt."""
+        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
+
+        cmd._confirm(yes=True)
+
+        mock_confirm.assert_not_called()
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_no_confirmation_for_normal_commands(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test commands without destructive don't prompt."""
+        cmd = DirectCommand("test:safe", {"cmd": "echo hello"})
+
+        cmd._confirm(yes=False)
+
+        mock_confirm.assert_not_called()
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_confirmation_abort_exits_gracefully(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test aborting confirmation exits with code 0."""
+        mock_confirm.return_value = False
+
+        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd._confirm(yes=False)
+
+        assert exc_info.value.code == 0
+        mock_run.assert_not_called()
+
+    @patch("hogli.core.command_types._run")
+    def test_composite_command_passes_yes_flag_to_steps(self, mock_run: MagicMock) -> None:
+        """Test CompositeCommand passes --yes to child commands when confirmed."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
+        cmd = CompositeCommand(
+            "reset",
+            {"steps": ["docker:services:down", "docker:services:up"], "destructive": True},
+        )
+        cmd._confirmed = True
+
+        cmd.execute()
+
+        assert mock_run.call_count == 2
+        calls = [call[0][0] for call in mock_run.call_args_list]
+        assert calls == [
+            [bin_hogli, "docker:services:down", "--yes"],
+            [bin_hogli, "docker:services:up", "--yes"],
+        ]
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_composite_command_passes_yes_after_user_confirms(
+        self, mock_run: MagicMock, mock_confirm: MagicMock
+    ) -> None:
+        """Test CompositeCommand passes --yes to children after user confirms via prompt."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+        mock_confirm.return_value = True
+
+        cmd = CompositeCommand(
+            "reset",
+            {"steps": ["docker:services:down"], "destructive": True},
+        )
+        # Simulate user confirming via prompt (not --yes flag)
+        confirmed = cmd._confirm(yes=False)
+        cmd._confirmed = confirmed
+
+        cmd.execute()
+
+        # Should pass --yes to child even though user didn't pass --yes flag
+        mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"], env={})

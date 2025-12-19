@@ -8,7 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
@@ -23,14 +23,20 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewed: false,
         recording_duration: 10,
         start_time: '2023-10-12T16:55:36.404000Z',
+        end_time: '2023-10-12T16:55:46.404000Z',
         console_error_count: 50,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
     const bRecording = {
         id: 'def',
         viewed: false,
         recording_duration: 10,
         start_time: '2023-05-12T16:55:36.404000Z',
+        end_time: '2023-05-12T16:55:46.404000Z',
         console_error_count: 100,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
     const listOfSessionRecordings = [aRecording, bRecording]
     const offsetRecording = {
@@ -38,7 +44,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
         viewed: false,
         recording_duration: 10,
         start_time: '2023-08-12T16:55:36.404000Z',
+        end_time: '2023-08-12T16:55:46.404000Z',
         console_error_count: 75,
+        viewers: [],
+        snapshot_source: 'web' as const,
     }
 
     beforeEach(() => {
@@ -128,12 +137,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('global logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
+                logicKey: 'tests',
                 updateSearchParams: true,
             })
             logic.mount()
-            playlistLogic.mount()
-            playlistLogic.actions.setIsFiltersExpanded(false)
+            playlistFiltersLogic.mount()
+            playlistFiltersLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
@@ -271,7 +280,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('reads filters from the logic props', async () => {
                 logic = sessionRecordingsPlaylistLogic({
-                    key: 'tests-with-props',
+                    logicKey: 'tests-with-props',
                     filters: {
                         duration: [],
                         filter_group: {
@@ -387,7 +396,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 router.actions.push('/replay/recent', { sessionRecordingId: 'abc' })
 
                 logic = sessionRecordingsPlaylistLogic({
-                    key: 'hash-recording-tests',
+                    logicKey: 'hash-recording-tests',
                     updateSearchParams: true,
                 })
                 logic.mount()
@@ -395,8 +404,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
                     selectedRecordingId: 'abc',
                 })
-
-                logic.actions.setSelectedRecordingId('1234')
             })
         })
 
@@ -553,7 +560,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -570,14 +577,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
             router.actions.push('/person/123', { sessionRecordingId: 'abc' })
             expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
+            await expectLogic(logic)
+                .toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
+                .toFinishAllListeners()
         })
     })
 
     describe('total filters count', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -637,7 +646,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('resetting filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
@@ -672,7 +681,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     describe('set filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'cool_user_99',
+                logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })

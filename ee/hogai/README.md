@@ -127,71 +127,30 @@ For a _lot_ of great detail on prompting, check out the [GPT-4.1 prompting guide
 
 ## Support new query types
 
-Max can now read from frontend context multiple query types like trends, funnels, retention, and HogQL queries. To add support for new query types, you need to extend both the QueryExecutor and the Root node.
+PostHog AI can now read from frontend context multiple query types like trends, funnels, retention, and HogQL queries. To add support for new query types, you need to extend both the QueryExecutor and the Root node.
 
-NOTE: this won't extend query types generation. For that, talk to the Max AI team.
+NOTE: this won't extend query types generation. For that, talk to the PostHog AI team.
 
 ### Adding a new query type
 
-1. **Update the schema to include the new query types**
-   - Update `AnyAssistantSupportedQuery` in [`schema-assistant-messages.ts`](frontend/src/queries/schema/schema-assistant-messages.ts)
-
-     ```typescript
-     AnyAssistantSupportedQuery =
-         | TrendsQuery
-         | FunnelsQuery
-         | RetentionQuery
-         | HogQLQuery
-         | YourNewQuery           // Add your query type
-     ```
-
-   - Add your new query type to the `SupportedQueryTypes` union in [`query_executor.py`](ee/hogai/graph/query_executor/query_executor.py):
-
-     ```python
-     SupportedQueryTypes = (
-         AssistantTrendsQuery
-         | TrendsQuery
-         | AssistantFunnelsQuery
-         | FunnelsQuery
-         | AssistantRetentionQuery
-         | RetentionQuery
-         | AssistantHogQLQuery
-         | HogQLQuery
-         | YourNewQuery           # Add your query type
-     )
-     ```
-
-2. **Update the query executor and formatters** (`@ee/hogai/graph/query_executor/`):
-   - Add a new formatter class in `query_executor/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `query_executor/format/__init__.py`. See below (Step 3) for more information.
-   - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+1. **Update the query executor and formatters** (`@ee/hogai/context/insight/`):
+   - Add a new formatter class in `context/insight/format/` that implements query result formatting for AI consumption. Make sure it's imported and exported from `context/insight/format/__init__.py`. See below (Step 3) for more information.
+   - Add formatting logic to `_compress_results()` method in `context/insight/query_executor.py`:
 
      ```python
      elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
          return YourNewResultsFormatter(query, response["results"]).format()
      ```
 
-   - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
-   - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+   - Add example prompts for your query type in `context/insight/prompts.py`, this explains to the LLM the query results formatting
+   - Update `get_example_prompt()` function in `context/insight/query_executor.py` to handle your new query type:
 
      ```python
      if isinstance(viz_message.answer, YourNewAssistantQuery):
          return YOUR_NEW_EXAMPLE_PROMPT
      ```
 
-3. **Update the root node** (`@ee/hogai/graph/root/`):
-   - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
-
-     ```python
-     MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
-         "TrendsQuery": TrendsQuery,
-         "FunnelsQuery": FunnelsQuery,
-         "RetentionQuery": RetentionQuery,
-         "HogQLQuery": HogQLQuery,
-         "YourNewQuery": YourNewQuery,  # Add your query mapping
-     }
-     ```
-
-4. **Create the formatter class**:
+2. **Create the formatter class**:
 
    Create a new formatter in `format/your_formatter.py` following the pattern of existing formatters:
 
@@ -209,7 +168,7 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
            pass
    ```
 
-5. **Add tests**:
+3. **Add tests**:
    - Add test cases in `test/test_query_executor.py` for your new query type
    - Add test cases in `test/format/test_format.py` for your new formatter
    - Ensure tests cover both successful execution and error handling
@@ -234,8 +193,8 @@ class MaxToolTaxonomyOutput(BaseModel):
 
 ```python
 from pydantic import BaseModel, Field
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
 from posthog.models import Team
 
 
@@ -276,9 +235,9 @@ class YourToolkit(TaxonomyAgentToolkit):
 ```python
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 
 class LoopNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxToolTaxonomyOutput]]):
     def __init__(self, team: Team, user: User, toolkit_class: type[YourToolkit]):
@@ -320,7 +279,7 @@ class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[Max
 4. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
 
 ```python
-graph = YourTaxonomyGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+graph = YourTaxonomyGraph(team=self._team, user=self._user)
 
 graph_context = {
     "change": "Show me recordings of users in Germany that used a mobile device while performing a payment",

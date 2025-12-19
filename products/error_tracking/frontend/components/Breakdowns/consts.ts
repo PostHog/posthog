@@ -7,8 +7,6 @@ export interface BreakdownPreset {
     title: string
 }
 
-export const POSTHOG_BREAKDOWN_NULL_VALUE = '$$_posthog_breakdown_null_$$'
-
 export const ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID = 'error-tracking-breakdowns'
 
 export const LIMIT_ITEMS = 3
@@ -30,3 +28,9 @@ export const TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
 ]
+
+export const BreakdownsEvents = {
+    MiniBreakdownsLoaded: 'error tracking mini breakdowns loaded',
+    MiniBreakdownsPropertySelected: 'error tracking mini breakdowns property selected',
+    PropertySelected: 'error tracking breakdowns property selected',
+}

@@ -12,11 +12,12 @@ use anyhow::Error;
 use axum::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub fn random_string(prefix: &str, length: usize) -> String {
@@ -31,11 +32,10 @@ pub fn random_string(prefix: &str, length: usize) -> String {
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(1..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: Some(i64::from(id)),
         name: "team".to_string(),
         api_token: token,
         cookieless_server_hash_mode: Some(0),
@@ -57,7 +57,6 @@ pub async fn insert_new_team_in_redis(
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
-    project_id: ProjectId,
     json_value: Option<String>,
 ) -> Result<(), Error> {
     let payload = match json_value {
@@ -87,7 +86,7 @@ pub async fn insert_flags_for_team_in_redis(
     };
 
     client
-        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
+        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}"), payload)
         .await?;
 
     Ok(())
@@ -98,9 +97,19 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    let client = RedisClient::new(redis_url)
-        .await
-        .expect("Failed to create redis client");
+    // Use reasonable test timeout defaults
+    const TEST_RESPONSE_TIMEOUT_MS: u64 = 1000; // 1s for tests - longer than production to avoid flaky tests
+    const TEST_CONNECTION_TIMEOUT_MS: u64 = 5000; // 5s connection timeout
+
+    let client = RedisClient::with_config(
+        redis_url,
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(TEST_RESPONSE_TIMEOUT_MS)),
+        Some(Duration::from_millis(TEST_CONNECTION_TIMEOUT_MS)),
+    )
+    .await
+    .expect("Failed to create redis client");
     Arc::new(client)
 }
 
@@ -256,9 +265,9 @@ async fn insert_organization_if_not_exists(
 
     sqlx::query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
         VALUES
-        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
+        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true, false)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(org_id)
@@ -293,7 +302,7 @@ async fn insert_team_group_mappings(
         .bind(group_type)
         .bind(group_type_index)
         .bind(team.id)
-        .bind(team.project_id())
+        .bind(team.id)
         .execute(&mut *persons_conn)
         .await?;
         assert_eq!(res.rows_affected(), 1);
@@ -313,12 +322,11 @@ pub async fn insert_new_team_in_pg(
     // Create team model
     let id = match team_id {
         Some(value) => value,
-        None => rand::thread_rng().gen_range(0..10_000_000),
+        None => rand::thread_rng().gen_range(1_000_000..100_000_000),
     };
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: Some(id as i64),
         name: "Test Team".to_string(),
         api_token: token.clone(),
         cookieless_server_hash_mode: Some(0),
@@ -336,7 +344,7 @@ pub async fn insert_new_team_in_pg(
         (id, organization_id, name, created_at) VALUES
         ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
     )
-    .bind(team.project_id())
+    .bind(team.id)
     .bind(org_id)
     .bind(&team.name)
     .execute(&mut *non_persons_conn)
@@ -348,7 +356,7 @@ pub async fn insert_new_team_in_pg(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id()).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
+    ).bind(team.id).bind(uuid).bind(org_id).bind(team.id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -362,7 +370,7 @@ pub async fn insert_flag_for_team_in_pg(
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
     let payload_flag = match flag {
         Some(mut value) => {
@@ -394,6 +402,7 @@ pub async fn insert_flag_for_team_in_pg(
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         },
     };
 
@@ -557,22 +566,10 @@ pub async fn get_person_id_by_distinct_id(
     distinct_id: &str,
 ) -> Result<PersonId, Error> {
     let mut conn = client.get_connection().await?;
-    let row: (PersonId,) = sqlx::query_as(
-        r#"SELECT id FROM posthog_person
-           WHERE team_id = $1 AND id = (
-               SELECT person_id FROM posthog_persondistinctid
-               WHERE team_id = $1 AND distinct_id = $2
-               LIMIT 1
-           )
-           LIMIT 1"#,
-    )
-    .bind(team_id)
-    .bind(distinct_id)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|_| anyhow::anyhow!("Person not found"))?;
-
-    Ok(row.0)
+    Person::from_distinct_id(&mut conn, team_id, distinct_id)
+        .await?
+        .map(|p| p.id)
+        .ok_or_else(|| anyhow::anyhow!("Person not found"))
 }
 
 pub async fn add_person_to_cohort(
@@ -682,6 +679,7 @@ pub fn create_test_flag(
         version: Some(1),
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
+        bucketing_identifier: None,
     }
 }
 
@@ -1117,10 +1115,9 @@ impl TestContext {
         const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
         // Create team model
-        let id = rand::thread_rng().gen_range(0..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let team = Team {
             id,
-            project_id: Some(id as i64),
             name: "Test Team".to_string(),
             api_token: public_token.clone(),
             cookieless_server_hash_mode: Some(0),
@@ -1138,7 +1135,7 @@ impl TestContext {
             (id, organization_id, name, created_at) VALUES
             ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
         )
-        .bind(team.project_id())
+        .bind(team.id)
         .bind(ORG_ID)
         .bind(&team.name)
         .execute(&mut *conn)
@@ -1169,7 +1166,7 @@ impl TestContext {
             .bind(team.id)
             .bind(uuid)
             .bind(ORG_ID)
-            .bind(team.project_id())
+            .bind(team.id)
             .bind(&team.api_token)
             .bind(&secret_token);
 
@@ -1213,7 +1210,7 @@ impl TestContext {
         redis
             .set(cache_key, payload)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to set cache: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to set cache: {e}"))?;
 
         Ok(())
     }
@@ -1223,7 +1220,7 @@ impl TestContext {
         let mut conn = self.non_persons_reader.get_connection().await?;
         let org_id: uuid::Uuid =
             sqlx::query_scalar("SELECT organization_id FROM posthog_project WHERE id = $1")
-                .bind(team.project_id())
+                .bind(team.id)
                 .fetch_one(&mut *conn)
                 .await?;
         Ok(org_id)

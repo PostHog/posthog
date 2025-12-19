@@ -12,9 +12,11 @@ import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -110,7 +112,7 @@ export const workflowLogic = kea<workflowLogicType>([
     props({ id: 'new' } as WorkflowLogicProps),
     key((props) => props.id || 'new'),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
@@ -123,8 +125,17 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: true,
+        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
+        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
+        duplicate: true,
+        deleteWorkflow: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -265,7 +276,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                     email: combinedErrors,
                                 }
                             }
-                        } else if (isFunctionAction(action) || isTriggerFunction(action)) {
+                        }
+
+                        if (isFunctionAction(action) || isTriggerFunction(action)) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
                                 result.valid = false
@@ -281,13 +294,22 @@ export const workflowLogic = kea<workflowLogicType>([
                                 result.valid = configValidation.valid
                                 result.errors = configValidation.errors
                             }
-                        } else if (action.type === 'trigger') {
+                        }
+
+                        if (action.type === 'trigger') {
                             // custom validation here that we can't easily express in the schema
                             if (action.config.type === 'event') {
                                 if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
+                                    }
+                                }
+                            } else if (action.config.type === 'schedule') {
+                                if (!action.config.scheduled_at) {
+                                    result.valid = false
+                                    result.errors = {
+                                        scheduled_at: 'A scheduled time is required',
                                     }
                                 }
                             }
@@ -392,7 +414,58 @@ export const workflowLogic = kea<workflowLogicType>([
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
         },
-        triggerManualWorkflow: async () => {
+        duplicate: async () => {
+            const workflow = values.originalWorkflow
+            if (!workflow) {
+                return
+            }
+            const newWorkflow = {
+                ...workflow,
+                name: `${workflow.name} (copy)`,
+                status: 'draft' as const,
+            }
+            delete (newWorkflow as any).id
+            delete (newWorkflow as any).team_id
+            delete (newWorkflow as any).created_at
+            delete (newWorkflow as any).updated_at
+
+            const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
+            lemonToast.success('Workflow duplicated')
+            router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
+        },
+        deleteWorkflow: async () => {
+            const workflow = values.originalWorkflow
+            if (!workflow) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Delete workflow?',
+                description: `Are you sure you want to delete "${workflow.name}"? This action cannot be undone.${
+                    workflow.status === 'active' ? ' In-progress workflows will end immediately.' : ''
+                }`,
+                primaryButton: {
+                    children: 'Delete',
+                    type: 'primary',
+                    status: 'danger',
+                    onClick: async () => {
+                        try {
+                            await api.hogFlows.deleteHogFlow(workflow.id)
+                            lemonToast.success(`Workflow "${workflow.name}" deleted`)
+                            router.actions.push(urls.workflows())
+                            deleteFromTree('hog_flow/', workflow.id)
+                        } catch (error: any) {
+                            lemonToast.error(
+                                `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
+                            )
+                        }
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        triggerManualWorkflow: async ({ variables, scheduledAt }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -400,25 +473,44 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            lemonToast.info('Triggering workflow...')
+            lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
+
             try {
-                await api.create(webhookUrl, {
-                    user_id: values.user?.id,
+                await fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: values.user?.email,
+                        $variables: variables,
+                        $scheduled_at: scheduledAt,
+                    }),
+                    credentials: 'omit',
+                })
+
+                lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
                 })
             } catch (e) {
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
-                // return
+                return
+            }
+        },
+        triggerBatchWorkflow: async ({}) => {
+            if (!values.workflow.id || values.workflow.id === 'new') {
+                lemonToast.error('You need to save the workflow before triggering it manually.')
+                return
             }
 
-            lemonToast.success('Workflow triggered', {
-                button: {
-                    label: 'View logs',
-                    action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
-                },
-            })
+            lemonToast.info('Batch workflow runs coming soon...')
         },
     })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
+        actions.loadHogFunctionTemplatesById()
     }),
 ])

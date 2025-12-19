@@ -84,6 +84,30 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
+def _get_breakdown_info(
+    item: dict, breakdown_filter: Optional[dict]
+) -> tuple[list[str | int | None], list[dict], bool]:
+    """Extract breakdown info from query results.
+
+    Supports both breakdown formats from BreakdownFilter (posthog/schema.py)
+    """
+    breakdown_values: list[str | int | None] = []
+    breakdowns: list[dict] = []
+
+    if "breakdown_value" in item:
+        breakdown_value = item.get("breakdown_value")
+        breakdown_values = breakdown_value if isinstance(breakdown_value, list) else [breakdown_value]
+
+        breakdowns = breakdown_filter.get("breakdowns", []) if breakdown_filter else []
+        # Fallback to simplified breakdown field if breakdowns array not present
+        if not breakdowns and breakdown_filter and "breakdown" in breakdown_filter:
+            breakdowns = [{"property": breakdown_filter.get("breakdown")}]
+
+    has_breakdown_columns = bool(breakdowns)
+
+    return breakdown_values, breakdowns, has_breakdown_columns
+
+
 def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
@@ -185,38 +209,38 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
             for index, item in enumerate(results):
                 label = item.get("label", f"Series #{index + 1}")
                 compare_label = item.get("compare_label", "")
-                series_name = f"{label} - {compare_label}" if compare_label else label
+                action = item.get("action")
+
+                breakdown_values, breakdowns, has_breakdown_columns = _get_breakdown_info(item, breakdown_filter)
+
+                if has_breakdown_columns and isinstance(action, dict) and action.get("name"):
+                    series_name = action["name"]
+                else:
+                    series_name = label
+
+                if compare_label:
+                    series_name = f"{series_name} - {compare_label}"
 
                 line = {"series": series_name}
 
                 label_item = date_labels_item if is_comparison else item
-                action = item.get("action")
 
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
 
-                if "breakdown_value" in item:
-                    breakdown_value = item.get("breakdown_value")
-                    breakdown_values = breakdown_value if isinstance(breakdown_value, list) else [breakdown_value]
-
-                    # Get breakdown property names from filter
-                    breakdowns = breakdown_filter.get("breakdowns", []) if breakdown_filter else []
-                    # For single breakdown, check legacy "breakdown" field
-                    if not breakdowns and breakdown_filter and "breakdown" in breakdown_filter:
-                        breakdowns = [{"property": breakdown_filter.get("breakdown")}]
-
-                    for idx, val in enumerate(breakdown_values):
-                        # Get the property name from the breakdown filter
-                        prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
-                        if not prop_name:
-                            continue
-                        # Format special breakdown values for display
-                        formatted_val = str(val) if val is not None else ""
-                        if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
-                            formatted_val = BREAKDOWN_OTHER_DISPLAY
-                        elif formatted_val == BREAKDOWN_NULL_STRING_LABEL:
-                            formatted_val = BREAKDOWN_NULL_DISPLAY
-                        line[prop_name] = formatted_val
+                for idx, val in enumerate(breakdown_values):
+                    prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
+                    if not prop_name:
+                        continue
+                    # Convert list property names to string (e.g., HogQL expressions)
+                    if isinstance(prop_name, list):
+                        prop_name = ", ".join(str(p) for p in prop_name)
+                    formatted_val = str(val) if val is not None else ""
+                    if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
+                        formatted_val = BREAKDOWN_OTHER_DISPLAY
+                    elif formatted_val == BREAKDOWN_NULL_STRING_LABEL:
+                        formatted_val = BREAKDOWN_NULL_DISPLAY
+                    line[prop_name] = formatted_val
 
                 if item.get("aggregated_value") is not None:
                     line["Total Sum"] = item.get("aggregated_value")

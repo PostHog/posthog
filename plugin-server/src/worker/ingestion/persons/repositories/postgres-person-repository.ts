@@ -8,6 +8,7 @@ import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
+    PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawPerson,
@@ -24,7 +25,11 @@ import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../util
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../../utils/db/utils'
 import { logger } from '../../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
-import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
+import {
+    oversizedPersonPropertiesTrimmedCounter,
+    personJsonFieldSizeHistogram,
+    personPropertiesSizeViolationCounter,
+} from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
 import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
@@ -63,10 +68,10 @@ export class PostgresPersonRepository
 
     private async handleOversizedPersonProperties(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const currentSize = await this.personPropertiesSize(person.id)
+        const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
         if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
             try {
@@ -109,7 +114,7 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         try {
@@ -121,7 +126,7 @@ export class PostgresPersonRepository
                 { teamId: person.team_id, personId: person.id }
             )
 
-            const trimmedUpdate: Partial<InternalPerson> = {
+            const trimmedUpdate: PersonUpdateFields = {
                 ...update,
                 properties: trimmedProperties,
             }
@@ -229,7 +234,10 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
             WHERE
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
@@ -253,20 +261,29 @@ export class PostgresPersonRepository
     }
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
         }
 
-        // Build the WHERE clause for multiple team_id, distinct_id pairs
-        const conditions = teamPersons
-            .map((_, index) => {
-                const teamIdParam = index * 2 + 1
-                const distinctIdParam = index * 2 + 2
-                return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
-            })
-            .join(' OR ')
+        // Deduplicate inputs to avoid duplicate rows in results
+        const seen = new Set<string>()
+        const uniqueTeamPersons = teamPersons.filter((p) => {
+            const key = `${p.teamId}:${p.distinctId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+
+        // Use UNNEST with two arrays to keep query structure constant for prepared statement reuse.
+        // This is more efficient than building dynamic OR conditions because PostgreSQL can
+        // prepare and cache the execution plan regardless of batch size.
+        const teamIds = uniqueTeamPersons.map((p) => p.teamId)
+        const distinctIds = uniqueTeamPersons.map((p) => p.distinctId)
 
         const queryString = `SELECT
                 posthog_person.id,
@@ -281,16 +298,18 @@ export class PostgresPersonRepository
                 posthog_person.is_identified,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
-            WHERE ${conditions}`
-
-        // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
-        const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
+            JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                ON posthog_persondistinctid.team_id = batch.team_id
+                AND posthog_persondistinctid.distinct_id = batch.distinct_id`
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
-            PostgresUse.PERSONS_READ,
+            useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
-            params,
+            [teamIds, distinctIds],
             'fetchPersonsByDistinctIds'
         )
 
@@ -309,13 +328,13 @@ export class PostgresPersonRepository
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[],
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds: { distinctId: string; version?: number }[] = [],
         tx?: TransactionClient,
         // Used to support dual-write; we want to force the id a person is created with to prevent drift
         forcedId?: number
     ): Promise<CreatePersonResult> {
-        distinctIds = distinctIds || []
-
+        const distinctIds = [primaryDistinctId, ...extraDistinctIds]
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
         }
@@ -336,14 +355,35 @@ export class PostgresPersonRepository
                 'version',
             ]
             const columns = forcedId ? ['id', ...baseColumns] : baseColumns
-
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+
+            // Sanitize and measure JSON field sizes
+            const sanitizedProperties = sanitizeJsonbValue(properties)
+            const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
+            const sanitizedPropertiesLastOperation = sanitizeJsonbValue(propertiesLastOperation)
+
+            // Record JSON field sizes (using string length as approximation)
+            if (typeof sanitizedProperties === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties' })
+                    .observe(sanitizedProperties.length)
+            }
+            if (typeof sanitizedPropertiesLastUpdatedAt === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
+                    .observe(sanitizedPropertiesLastUpdatedAt.length)
+            }
+            if (typeof sanitizedPropertiesLastOperation === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_operation' })
+                    .observe(sanitizedPropertiesLastOperation.length)
+            }
 
             const baseParams = [
                 createdAt.toISO(),
-                sanitizeJsonbValue(properties),
-                sanitizeJsonbValue(propertiesLastUpdatedAt),
-                sanitizeJsonbValue(propertiesLastOperation),
+                sanitizedProperties,
+                sanitizedPropertiesLastUpdatedAt,
+                sanitizedPropertiesLastOperation,
                 teamId,
                 isUserId,
                 isIdentified,
@@ -668,35 +708,25 @@ export class PostgresPersonRepository
     }
 
     async addPersonlessDistinctId(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean> {
+        // Use ON CONFLICT DO UPDATE with a no-op to always get the RETURNING clause.
+        // This eliminates the need for a fallback SELECT query on conflict (~10k queries/min saved).
+        // The no-op update on is_merged (not indexed) results in a HOT update, which is very cheap:
+        // - No index maintenance required
+        // - Creates a dead tuple that gets cleaned up by autovacuum
         const result = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
-                ON CONFLICT (team_id, distinct_id) DO NOTHING
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = posthog_personlessdistinctid.is_merged
                 RETURNING is_merged
             `,
             [teamId, distinctId],
             'addPersonlessDistinctId'
         )
 
-        if (result.rows.length === 1) {
-            return result.rows[0]['is_merged']
-        }
-
-        // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
-        const existingResult = await this.postgres.query(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            `
-                SELECT is_merged
-                FROM posthog_personlessdistinctid
-                WHERE team_id = $1 AND distinct_id = $2
-            `,
-            [teamId, distinctId],
-            'addPersonlessDistinctId'
-        )
-
-        return existingResult.rows[0]['is_merged']
+        return result.rows[0]['is_merged']
     }
 
     async addPersonlessDistinctIdForMerge(
@@ -720,16 +750,58 @@ export class PostgresPersonRepository
         return result.rows[0].inserted
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
+    async addPersonlessDistinctIdsBatch(
+        entries: { teamId: number; distinctId: string }[]
+    ): Promise<Map<string, boolean>> {
+        if (entries.length === 0) {
+            return new Map()
+        }
+
+        // Deduplicate entries to avoid PostgreSQL "ON CONFLICT DO UPDATE command cannot affect row a second time" error
+        const seen = new Set<string>()
+        const uniqueEntries: { teamId: number; distinctId: string }[] = []
+        for (const entry of entries) {
+            const key = `${entry.teamId}|${entry.distinctId}`
+            if (!seen.has(key)) {
+                seen.add(key)
+                uniqueEntries.push(entry)
+            }
+        }
+
+        const teamIds = uniqueEntries.map((e) => e.teamId)
+        const distinctIds = uniqueEntries.map((e) => e.distinctId)
+
+        const result = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                SELECT team_id, distinct_id, false, now()
+                FROM UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = posthog_personlessdistinctid.is_merged
+                RETURNING team_id, distinct_id, is_merged
+            `,
+            [teamIds, distinctIds],
+            'addPersonlessDistinctIdsBatch'
+        )
+
+        const resultMap = new Map<string, boolean>()
+        for (const row of result.rows) {
+            resultMap.set(`${row.team_id}|${row.distinct_id}`, row.is_merged)
+        }
+        return resultMap
+    }
+
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         const queryString = `
             SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
             FROM posthog_person
-            WHERE id = $1`
+            WHERE id = $1 AND team_id = $2`
 
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
             PostgresUse.PERSONS_READ,
             queryString,
-            [personId],
+            [personId, teamId],
             'personPropertiesSize'
         )
 
@@ -743,7 +815,7 @@ export class PostgresPersonRepository
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
@@ -753,14 +825,29 @@ export class PostgresPersonRepository
             delete update['version']
         }
 
-        const updateValues = Object.values(unparsePersonPartial(update))
+        const unparsedUpdate = unparsePersonPartial(update)
+        const updateValues = Object.values(unparsedUpdate)
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
             return [person, [], false]
         }
 
-        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
+        const values = [...updateValues, person.id, person.team_id].map(sanitizeJsonbValue)
+
+        // Measure JSON field sizes after sanitization (using already sanitized values)
+        const updateKeys = Object.keys(unparsedUpdate)
+        for (let i = 0; i < updateKeys.length; i++) {
+            const key = updateKeys[i]
+            if (key === 'properties' || key === 'properties_last_updated_at' || key === 'properties_last_operation') {
+                const sanitizedValue = values[i] // Already sanitized in the map above
+                if (typeof sanitizedValue === 'string') {
+                    personJsonFieldSizeHistogram
+                        .labels({ operation: 'updatePerson', field: key })
+                        .observe(sanitizedValue.length)
+                }
+            }
+        }
 
         const calculatePropertiesSize = this.options.calculatePropertiesSize
 
@@ -770,18 +857,20 @@ export class PostgresPersonRepository
          * but we can't add that constraint check until we know the impact of adding that constraint check for every update/insert on Persons.
          * Added benefit, we can get more observability into the sizes of properties field, if we can turn this up to 100%
          */
+        const idParamIndex = Object.values(update).length + 1
+        const teamIdParamIndex = Object.values(update).length + 2
         const queryStringWithPropertiesSize = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(
             update
-        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
-            Object.values(update).length + 1
-        }
+        ).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${Object.values(update).length + 1}
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
@@ -899,6 +988,138 @@ export class PostgresPersonRepository
             // Re-throw other errors
             throw error
         }
+    }
+
+    /**
+     * Batch update multiple persons in a single query using UNNEST.
+     * This uses a fixed query structure regardless of batch size, enabling prepared statement reuse.
+     *
+     * The method updates all mutable fields (properties, is_identified, created_at) and increments version.
+     * It does NOT assert version - it always overwrites with the provided values.
+     */
+    async updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>> {
+        const results = new Map<
+            string,
+            { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }
+        >()
+
+        if (personUpdates.length === 0) {
+            return results
+        }
+
+        // Prepare arrays for UNNEST - one array per column we're updating/filtering on
+        const uuids: string[] = []
+        const teamIds: number[] = []
+        const properties: string[] = []
+        const propertiesLastUpdatedAt: string[] = []
+        const propertiesLastOperation: string[] = []
+        const isIdentified: boolean[] = []
+        const createdAt: string[] = []
+
+        for (const update of personUpdates) {
+            uuids.push(update.uuid)
+            teamIds.push(update.team_id)
+
+            // Calculate final properties by applying set and unset operations
+            const finalProperties = { ...update.properties }
+            Object.entries(update.properties_to_set).forEach(([key, value]) => {
+                finalProperties[key] = value
+            })
+            update.properties_to_unset.forEach((key) => {
+                delete finalProperties[key]
+            })
+
+            // sanitizeJsonbValue already returns JSON.stringify(value) for objects, so don't double-stringify
+            properties.push(sanitizeJsonbValue(finalProperties))
+            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
+            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
+            isIdentified.push(update.is_identified)
+            createdAt.push(update.created_at.toISO()!)
+        }
+
+        try {
+            // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
+            // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
+            const { rows } = await this.postgres.query<RawPerson>(
+                PostgresUse.PERSONS_WRITE,
+                `
+                UPDATE posthog_person AS p SET
+                    properties = batch.new_properties::jsonb,
+                    properties_last_updated_at = batch.new_properties_last_updated_at::jsonb,
+                    properties_last_operation = batch.new_properties_last_operation::jsonb,
+                    is_identified = batch.new_is_identified,
+                    created_at = batch.new_created_at::timestamp with time zone,
+                    version = COALESCE(p.version, 0)::numeric + 1
+                FROM UNNEST(
+                    $1::uuid[],
+                    $2::integer[],
+                    $3::text[],
+                    $4::text[],
+                    $5::text[],
+                    $6::boolean[],
+                    $7::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at)
+                WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id
+                RETURNING p.*
+                `,
+                [uuids, teamIds, properties, propertiesLastUpdatedAt, propertiesLastOperation, isIdentified, createdAt],
+                'updatePersonsBatch'
+            )
+
+            // Build a map of uuid -> updated person for quick lookup
+            const updatedPersonsByUuid = new Map<string, InternalPerson>()
+            for (const row of rows) {
+                const person = this.toPerson(row)
+                updatedPersonsByUuid.set(person.uuid, person)
+            }
+
+            // Process results for each input update
+            for (const update of personUpdates) {
+                const updatedPerson = updatedPersonsByUuid.get(update.uuid)
+                if (updatedPerson) {
+                    results.set(update.uuid, {
+                        success: true,
+                        version: updatedPerson.version,
+                        kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
+                    })
+                } else {
+                    // Person was not found/updated - likely deleted or merged
+                    results.set(update.uuid, {
+                        success: false,
+                        error: new NoRowsUpdatedError(
+                            `Person with uuid="${update.uuid}" and team_id="${update.team_id}" was not updated`
+                        ),
+                    })
+                }
+            }
+        } catch (error) {
+            // If the batch update fails due to properties size constraint, we need to handle it
+            // For now, mark all as failed - the caller can fall back to individual updates
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                for (const update of personUpdates) {
+                    results.set(update.uuid, {
+                        success: false,
+                        error: new PersonPropertiesSizeViolationError(
+                            `Batch update failed due to properties size constraint`,
+                            update.team_id,
+                            update.id
+                        ),
+                    })
+                }
+            } else {
+                // For other errors, mark all as failed with the original error
+                for (const update of personUpdates) {
+                    results.set(update.uuid, {
+                        success: false,
+                        error: error instanceof Error ? error : new Error(String(error)),
+                    })
+                }
+            }
+        }
+
+        return results
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

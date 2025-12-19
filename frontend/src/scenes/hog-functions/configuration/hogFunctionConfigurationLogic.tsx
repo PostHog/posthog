@@ -478,6 +478,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         enabled: res.enabled,
                     })
 
+                    // Capture error tracking specific alert event
+                    if (
+                        res.template?.id === 'error-tracking-issue-created' ||
+                        res.template?.id === 'error-tracking-issue-reopened'
+                    ) {
+                        const triggerEvent =
+                            res.template.id === 'error-tracking-issue-created'
+                                ? '$error_tracking_issue_created'
+                                : '$error_tracking_issue_reopened'
+
+                        posthog.capture('error_tracking_alert_created', {
+                            trigger_event: triggerEvent,
+                            subtemplate_id: res.template.id,
+                            has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
+                            enabled: res.enabled,
+                        })
+                    }
+
                     lemonToast.success('Configuration saved')
                     refreshTreeItem('hog_function/', res.id)
 
@@ -1411,6 +1429,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
+            }
+        },
+        configuration: (configuration, oldConfiguration) => {
+            if (
+                typeof configuration?.filters?.source === 'string' &&
+                typeof oldConfiguration?.filters?.source === 'string' &&
+                configuration?.filters?.source !== oldConfiguration?.filters?.source
+            ) {
+                actions.setConfigurationValue('filters', {
+                    ...configuration.filters,
+                    events: [],
+                    actions: [],
+                    data_warehouse: [],
+                })
             }
         },
     })),

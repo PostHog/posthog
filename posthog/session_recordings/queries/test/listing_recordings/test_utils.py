@@ -50,7 +50,7 @@ def assert_query_matches_session_ids(
     sort_results_when_asserting: bool = True,
     allow_event_property_expansion: bool = False,
 ) -> None:
-    (session_recordings, more_recordings_available, _) = filter_recordings_by(
+    (session_recordings, more_recordings_available, _, _) = filter_recordings_by(
         team=team, recordings_filter=query, allow_event_property_expansion=allow_event_property_expansion
     )
 

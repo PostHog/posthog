@@ -1,9 +1,8 @@
 from datetime import datetime
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_action, _create_event, _create_person
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_strict import ClickhouseFunnelStrict
@@ -13,14 +12,6 @@ from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestFunnelStrictStepsBreakdown(
@@ -95,42 +86,9 @@ class TestFunnelStrictStepsBreakdown(
         )
 
         result = funnel.run()
-        assert_funnel_results_equal(
-            result[0],
-            [
-                {
-                    "action_id": "sign up",
-                    "name": "sign up",
-                    "custom_name": None,
-                    "order": 0,
-                    "people": [],
-                    "count": 1,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-                {
-                    "action_id": "play movie",
-                    "name": "play movie",
-                    "custom_name": None,
-                    "order": 1,
-                    "people": [],
-                    "count": 0,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-            ],
-        )
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [people["person1"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
         assert_funnel_results_equal(
-            result[1],
+            result[0],
             [
                 {
                     "action_id": "sign up",
@@ -162,6 +120,40 @@ class TestFunnelStrictStepsBreakdown(
         )
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari"]), [people["person2"].uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari"]), [people["person2"].uuid])
+
+        assert_funnel_results_equal(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
 
 class TestFunnelStrictStepsConversionTime(

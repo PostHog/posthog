@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { ErrorTrackingDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = ErrorTrackingDetailsSchema
 
 type Params = z.infer<typeof schema>
 
-export const errorDetailsHandler = async (context: Context, params: Params) => {
+export const errorDetailsHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { issueId, dateFrom, dateTo } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -26,9 +27,7 @@ export const errorDetailsHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(errorsResult.data.results) }],
-    }
+    return errorsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -8,6 +8,7 @@ from django.db.models import OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
@@ -15,6 +16,8 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
+
+from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -38,13 +41,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
-    delete_saved_query_schedule,
     pause_saved_query_schedule,
-    recreate_model_paths,
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
     trigger_saved_query_schedule,
-    unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -62,62 +60,31 @@ from products.data_warehouse.backend.models.external_data_schema import (
 logger = structlog.get_logger(__name__)
 
 
-class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    columns = serializers.SerializerMethodField(read_only=True)
-    sync_frequency = serializers.SerializerMethodField()
-    latest_history_id = serializers.SerializerMethodField(read_only=True)
-    last_run_at = serializers.SerializerMethodField(read_only=True)
-    edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
-    soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
+class DataWarehouseSavedQuerySerializerMixin:
+    """Shared methods for DataWarehouseSavedQuery serializers.
 
-    class Meta:
-        model = DataWarehouseSavedQuery
-        fields = [
-            "id",
-            "deleted",
-            "name",
-            "query",
-            "created_by",
-            "created_at",
-            "sync_frequency",
-            "columns",
-            "status",
-            "last_run_at",
-            "latest_error",
-            "edited_history_id",
-            "latest_history_id",
-            "soft_update",
-            "is_materialized",
-        ]
-        read_only_fields = [
-            "id",
-            "created_by",
-            "created_at",
-            "columns",
-            "status",
-            "last_run_at",
-            "latest_error",
-            "latest_history_id",
-            "is_materialized",
-        ]
-        extra_kwargs = {
-            "soft_update": {"write_only": True},
-        }
+    This mixin is intended to be used with serializers.ModelSerializer subclasses.
+    """
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
             jobs = view.jobs  # type: ignore
             if len(jobs) > 0:
                 return jobs[0].last_run_at
-        except:
+        except Exception:
             pass
 
         return view.last_run_at
 
+    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
+        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+
+    def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
+        return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
+
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        team_id = self.context["team_id"]
-        database = self.context.get("database", None)
+        team_id = self.context["team_id"]  # type: ignore[attr-defined]
+        database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
             database = Database.create_for(team_id=team_id)
 
@@ -137,8 +104,83 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             for field in fields
         ]
 
-    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+
+class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+    """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
+
+    created_by = UserBasicSerializer(read_only=True)
+    columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DataWarehouseSavedQuery
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "created_by",
+            "created_at",
+            "sync_frequency",
+            "columns",
+            "status",
+            "last_run_at",
+            "managed_viewset_kind",
+            "latest_error",
+            "is_materialized",
+            "origin",
+        ]
+        read_only_fields = fields
+
+
+class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
+    latest_history_id = serializers.SerializerMethodField(read_only=True)
+    last_run_at = serializers.SerializerMethodField(read_only=True)
+    managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
+    soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
+
+    class Meta:
+        model = DataWarehouseSavedQuery
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "query",
+            "created_by",
+            "created_at",
+            "sync_frequency",
+            "columns",
+            "status",
+            "last_run_at",
+            "managed_viewset_kind",
+            "latest_error",
+            "edited_history_id",
+            "latest_history_id",
+            "soft_update",
+            "is_materialized",
+            "origin",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "columns",
+            "status",
+            "last_run_at",
+            "managed_viewset_kind",
+            "latest_error",
+            "latest_history_id",
+            "is_materialized",
+            "origin",
+        ]
+        extra_kwargs = {
+            "soft_update": {"write_only": True},
+        }
 
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
@@ -186,7 +228,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         with transaction.atomic():
             view.save()
             try:
-                DataWarehouseModelPath.objects.create_from_saved_query(view)
+                view.setup_model_paths()
             except Exception:
                 # For now, do not fail saved query creation if we cannot model-ize it.
                 # Later, after bugs and errors have been ironed out, we may tie these two
@@ -224,6 +266,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        if instance.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot update a query from a managed viewset")
+
         try:
             before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
         except DataWarehouseSavedQuery.DoesNotExist:
@@ -293,7 +338,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 view.save()
 
             try:
-                DataWarehouseModelPath.objects.update_from_saved_query(view)
+                view.setup_model_paths()
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
 
@@ -322,15 +367,17 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
-
             if sync_frequency and sync_frequency != "never":
-                recreate_model_paths(view)
+                try:
+                    view.setup_model_paths()
+                except Exception as e:
+                    posthoganalytics.capture_exception(e)
+                    logger.exception("Failed to update model path when updating view %s", view.name)
 
         if was_sync_frequency_updated:
-            schedule_exists = saved_query_workflow_exists(str(instance.id))
-            if schedule_exists and before_update and before_update.sync_frequency_interval is None:
-                unpause_saved_query_schedule(str(instance.id))
-            sync_saved_query_workflow(view, create=not schedule_exists)
+            view.schedule_materialization(
+                unpause=before_update is not None and before_update.sync_frequency_interval is None
+            )
 
         return view
 
@@ -404,18 +451,45 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
+    def get_serializer_class(self):
+        if self.action == "list":
+            return DataWarehouseSavedQueryMinimalSerializer
+        return DataWarehouseSavedQuerySerializer
+
     def safely_get_queryset(self, queryset):
         base_queryset = (
             queryset.prefetch_related(
                 "created_by",
+                "managed_viewset",
                 Prefetch(
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
             )
-            .filter(managed_viewset__isnull=True)  # Ignore managed views for now
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
+
+        # Detect whether we should include managed views in the queryset
+        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+            "managed-viewsets",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            send_feature_flag_events=False,
+        )
+
+        if not is_managed_viewset_enabled:
+            base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         # Only annotate with latest activity ID for list operations, not for single object retrieves
         # This avoids the annotation when we're getting a single object for update/create/etc.
@@ -457,16 +531,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
 
-        delete_saved_query_schedule(str(instance.id))
+        if instance.managed_viewset is not None:
+            raise serializers.ValidationError(
+                "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
+            )
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
         ).exclude(deleted=True):
             join.soft_delete()
 
-        if instance.table is not None:
-            instance.table.soft_delete()
-
+        instance.revert_materialization()
         instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -487,6 +562,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         (i.e. delete the materialized table and the schedule)
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.managed_viewset is not None:
+            raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
+
         saved_query.revert_materialization()
 
         return response.Response(status=status.HTTP_200_OK)
@@ -624,6 +703,57 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return response.Response(
                 {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(methods=["GET"], detail=True)
+    def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the count of immediate upstream and downstream dependencies for this saved query."""
+        saved_query = self.get_object()
+        saved_query_id = saved_query.id.hex
+
+        # Count immediate upstream (parents) - get unique parents from all paths to this node
+        upstream_paths = DataWarehouseModelPath.objects.filter(
+            team=saved_query.team, path__lquery=f"*.{saved_query_id}"
+        )
+        upstream_ids: set[str] = set()
+        for path in upstream_paths:
+            if len(path.path) >= 2:
+                # Get the immediate parent (second to last in path)
+                parent_id = path.path[-2]
+                upstream_ids.add(parent_id)
+
+        # Count immediate downstream (children) - get unique children that reference this node
+        downstream_paths = DataWarehouseModelPath.objects.filter(
+            team=saved_query.team, path__lquery=f"*.{saved_query_id}.*"
+        )
+        downstream_ids: set[str] = set()
+        for path in downstream_paths:
+            # Find position of current view in path
+            try:
+                idx = path.path.index(saved_query_id)
+                if idx + 1 < len(path.path):
+                    # Get immediate child (next node after current)
+                    child_id = path.path[idx + 1]
+                    downstream_ids.add(child_id)
+            except ValueError:
+                continue
+
+        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
+
+    @action(methods=["GET"], detail=True)
+    def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Return the recent run history (up to 5 most recent) for this materialized view."""
+        saved_query = self.get_object()
+
+        # Get the 5 most recent runs
+        jobs = (
+            DataModelingJob.objects.filter(saved_query=saved_query)
+            .order_by("-last_run_at")[:5]
+            .values("status", "last_run_at")
+        )
+
+        run_history = [{"status": job["status"], "timestamp": job["last_run_at"]} for job in jobs]
+
+        return response.Response({"run_history": run_history})
 
 
 def try_convert_to_uuid(s: str) -> uuid.UUID | str:

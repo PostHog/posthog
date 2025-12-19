@@ -9,7 +9,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
@@ -20,10 +20,17 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
+class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            "Ad account owner has NOT": None,
+            "cannot be loaded due to missing permissions": None,
+        }
 
     def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
@@ -71,6 +78,13 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
                         label="Meta Ads account",
                         required=True,
                         kind="meta-ads",
+                    ),
+                    SourceFieldInputConfig(
+                        name="sync_lookback_days",
+                        label="Sync history for insights (days) - applies to AdStats, AdsetStats, CampaignStats",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="90",
                     ),
                 ],
             ),

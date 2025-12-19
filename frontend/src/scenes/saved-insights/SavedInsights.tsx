@@ -12,6 +12,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLineGraph,
     IconLive,
     IconLlmAnalytics,
     IconPerson,
@@ -47,7 +48,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
-import { isNonEmptyObject } from 'lib/utils'
+import { isNonEmptyObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -61,7 +62,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
@@ -378,6 +378,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.SessionsQuery]: {
+        name: 'Sessions',
+        description: 'List and explore sessions.',
+        icon: IconTableChart,
+        inMenu: false,
+    },
     [NodeKind.RevenueExampleEventsQuery]: {
         name: 'Revenue Example Events',
         description: 'Revenue Example Events Query.',
@@ -405,6 +411,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ErrorTrackingSimilarIssuesQuery]: {
         name: 'Error Tracking Similar Issues',
         description: 'Explore issues similar to the selected one.',
+        icon: IconWarning,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingBreakdownsQuery]: {
+        name: 'Error Tracking Breakdowns',
+        description: 'Break down error tracking issues by properties.',
         icon: IconWarning,
         inMenu: false,
     },
@@ -503,6 +515,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.LogAttributesQuery]: {
+        name: 'LogAttributes',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.LogValuesQuery]: {
+        name: 'LogValues',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
@@ -515,6 +537,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.MarketingAnalyticsAggregatedQuery]: {
         name: 'Marketing Analytics Aggregated',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.NonIntegratedConversionsTableQuery]: {
+        name: 'Non-Integrated Conversions Table',
         icon: IconHogQL,
         inMenu: false,
     },
@@ -549,6 +576,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use Hog to query your data.',
         icon: IconHogQL,
         inMenu: true,
+    },
+    [InsightType.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        description: 'Web analytics insights from your website data.',
+        icon: IconLineGraph,
+        inMenu: false,
     },
 }
 
@@ -845,7 +878,6 @@ export function SavedInsights(): JSX.Element {
                 }}
                 actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
             />
-            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
@@ -873,9 +905,7 @@ export function SavedInsights(): JSX.Element {
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
                         <span className="text-secondary">
                             {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                                      count === 1 ? '' : 's'
-                                  }`
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
                                 : null}
                         </span>
                         <div>

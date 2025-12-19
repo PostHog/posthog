@@ -323,8 +323,9 @@ class TestOAuthModels(TestCase):
             code_challenge_method="S256",
             expires=timezone.now() + timedelta(minutes=5),
         )
+        app_id = app.id
         app.delete()
-        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+        self.assertFalse(OAuthGrant.objects.filter(application_id=app_id).exists())
 
     def test_user_and_organization_association(self):
         app = OAuthApplication.objects.create(

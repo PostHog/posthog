@@ -18,6 +18,8 @@ describe('eventDefinitionsTableLogic', () => {
     const startingUrl = `api/projects/${MOCK_TEAM_ID}/event_definitions${
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
+            search: '',
+            ordering: 'event',
             event_type: EventDefinitionType.Event,
         }).search
     }`
@@ -26,7 +28,10 @@ describe('eventDefinitionsTableLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': (req) => {
-                    if (req.url.searchParams.get('limit') === '50' && !req.url.searchParams.get('offset')) {
+                    const limit = req.url.searchParams.get('limit')
+                    const offset = req.url.searchParams.get('offset')
+
+                    if (limit === '50' && !offset) {
                         return [
                             200,
                             {
@@ -35,7 +40,6 @@ describe('eventDefinitionsTableLogic', () => {
                                 previous: null,
                                 next: `api/projects/${MOCK_TEAM_ID}/event_definitions${
                                     combineUrl(req.url.pathname, {
-                                        ...req.url.searchParams,
                                         limit: 50,
                                         offset: 50,
                                         event_type: EventDefinitionType.Event,
@@ -44,7 +48,7 @@ describe('eventDefinitionsTableLogic', () => {
                             },
                         ]
                     }
-                    if (req.url.searchParams.get('limit') === '50' && req.url.searchParams.get('offset') === '50') {
+                    if (limit === '50' && offset === '50') {
                         return [
                             200,
                             {
@@ -52,9 +56,7 @@ describe('eventDefinitionsTableLogic', () => {
                                 count: 6,
                                 previous: `api/projects/${MOCK_TEAM_ID}/event_definitions${
                                     combineUrl(req.url.pathname, {
-                                        ...req.url.searchParams,
                                         limit: 50,
-                                        offset: undefined,
                                         event_type: EventDefinitionType.Event,
                                     }).search
                                 }`,
@@ -64,7 +66,10 @@ describe('eventDefinitionsTableLogic', () => {
                     }
                 },
                 '/api/projects/:team/property_definitions': (req) => {
-                    if (req.url.searchParams.get('limit') === '5' && !req.url.searchParams.get('offset')) {
+                    const limit = req.url.searchParams.get('limit')
+                    const offset = req.url.searchParams.get('offset')
+
+                    if (limit === '5' && !offset) {
                         return [
                             200,
                             {
@@ -81,7 +86,7 @@ describe('eventDefinitionsTableLogic', () => {
                             },
                         ]
                     }
-                    if (req.url.searchParams.get('limit') === '5' && req.url.searchParams.get('offset') === '5') {
+                    if (limit === '5' && offset === '5') {
                         return [
                             200,
                             {
@@ -150,12 +155,14 @@ describe('eventDefinitionsTableLogic', () => {
                         previous: null,
                         next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
-                    apiCache: partial({
-                        [startingUrl]: partial({
-                            count: 50,
-                        }),
-                    }),
                 })
+
+            // Check cache directly
+            expect(logic.cache.apiCache).toMatchObject({
+                [startingUrl]: expect.objectContaining({
+                    count: 50,
+                }),
+            })
 
             expect(api.get).toHaveBeenCalledTimes(1)
             expect(api.get).toHaveBeenCalledWith(startingUrl)
@@ -253,16 +260,20 @@ describe('eventDefinitionsTableLogic', () => {
                             next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=5&offset=5`,
                         }),
                     }),
-                    apiCache: partial({
-                        [startingUrl]: partial({
-                            count: 50,
-                        }),
-                        [propertiesStartingUrl]: partial({
-                            count: 5,
-                        }),
-                        [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
-                    }),
                 })
+
+            // Check cache directly
+            expect(logic.cache.apiCache).toMatchObject({
+                [startingUrl]: expect.objectContaining({
+                    count: 50,
+                }),
+                [propertiesStartingUrl]: expect.objectContaining({
+                    count: 5,
+                }),
+                [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: expect.objectContaining(
+                    mockEvent.properties
+                ),
+            })
 
             expect(api.get).toHaveBeenCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
@@ -309,7 +320,13 @@ describe('eventDefinitionsTableLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition)
             })
-                .toDispatchActions(['loadPropertiesForEvent', 'loadPropertiesForEventSuccess'])
+                .toDispatchActionsInAnyOrder([
+                    router.actionCreators.push(url),
+                    'loadEventDefinitions',
+                    'loadEventDefinitionsSuccess',
+                    'loadPropertiesForEvent',
+                    'loadPropertiesForEventSuccess',
+                ])
                 .toMatchValues({
                     eventPropertiesCacheMap: partial({
                         [eventDefinition.id]: partial({
@@ -318,7 +335,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(3)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(
@@ -336,7 +353,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(4)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertiesForEvent(eventDefinition, propertiesStartingUrl)
@@ -350,7 +367,7 @@ describe('eventDefinitionsTableLogic', () => {
                         }),
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(4)
         })
     })
 })

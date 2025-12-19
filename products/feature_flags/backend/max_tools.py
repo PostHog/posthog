@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -10,18 +11,29 @@ from posthog.models import FeatureFlag, GroupTypeMapping, Tag, TaggedItem, Team,
 from posthog.models.property_definition import PropertyDefinition
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
+
+
+class MultivariateVariant(BaseModel):
+    """Schema for a multivariate flag variant."""
+
+    key: str = Field(description="Variant key (e.g., 'control', 'test', 'variant_a')")
+    name: str | None = Field(default=None, description="Optional human-readable variant name")
+    rollout_percentage: int = Field(ge=0, le=100, description="Percentage of users assigned to this variant (0-100)")
 
 
 class FeatureFlagCreationSchema(BaseModel):
     """Structured schema for AI-powered feature flag creation using PostHog's native types."""
 
-    key: str = Field(description="Unique flag key in kebab-case (e.g., 'new-dashboard', 'dark-mode')")
+    key: str = Field(
+        description="Unique flag key in kebab-case (e.g., 'new-dashboard', 'dark-mode'). "
+        "Must only contain letters, numbers, underscores, and hyphens. Pattern: ^[a-zA-Z0-9_-]+$"
+    )
     name: str = Field(description="Human-readable flag name")
     description: str | None = Field(default=None, description="Optional description of what the flag controls")
     active: bool = Field(default=True, description="Whether the flag is active")
@@ -34,6 +46,13 @@ class FeatureFlagCreationSchema(BaseModel):
         "Uses PostHog's native FeatureFlagGroupType schema.",
     )
     tags: list[str] = Field(default_factory=list, description="Tags for organizing and categorizing the flag")
+    variants: list[MultivariateVariant] | None = Field(
+        default=None,
+        description="Multivariate variants for A/B testing. If provided, creates a multivariate flag. "
+        "Variant rollout percentages should sum to 100. "
+        "Common example: [{'key': 'control', 'name': 'Control', 'rollout_percentage': 50}, "
+        "{'key': 'test', 'name': 'Test', 'rollout_percentage': 50}]",
+    )
 
 
 FEATURE_FLAG_CREATION_SYSTEM_PROMPT = """
@@ -147,6 +166,75 @@ Multiple filters (AND logic - all must match):
 ]
 ```
 
+# Multivariate Flags (A/B Testing / Experiments)
+
+When creating a flag for A/B testing or experiments with multiple variants:
+- Set the `variants` field with a list of variants
+- Each variant needs: `key`, `name`, and `rollout_percentage`
+- Variant rollout percentages control how traffic is SPLIT between variants and MUST sum to 100
+- Common patterns:
+  - Two variants (A/B test): control (50%) + test (50%)
+  - Three variants (A/B/C test): control (33%) + test_a (33%) + test_b (34%)
+- Variants are mutually exclusive - each user sees exactly one variant
+- You can combine variants with property filters for targeted experiments
+
+**IMPORTANT - Two types of rollout:**
+1. **Variant rollout_percentage** (in variants array): How traffic is SPLIT between variants (must sum to 100)
+2. **Group rollout_percentage** (in groups array): What % of users see the experiment AT ALL (0-100)
+
+**Example: Simple A/B test (100% of users)**
+```json
+{
+  "key": "new-checkout",
+  "name": "New Checkout Flow Test",
+  "variants": [
+    {"key": "control", "name": "Current Checkout", "rollout_percentage": 50},
+    {"key": "new_flow", "name": "New Checkout Flow", "rollout_percentage": 50}
+  ],
+  "groups": [{"properties": [], "rollout_percentage": null}]
+}
+```
+
+**Example: A/B test at 50% rollout (only 50% of users see the experiment)**
+```json
+{
+  "key": "new-checkout",
+  "name": "New Checkout Flow Test",
+  "variants": [
+    {"key": "control", "name": "Current Checkout", "rollout_percentage": 50},
+    {"key": "new_flow", "name": "New Checkout Flow", "rollout_percentage": 50}
+  ],
+  "groups": [{"properties": [], "rollout_percentage": 50}]
+}
+```
+
+**Example: Targeted A/B test (only for accounts with an enterprise plan)**
+```json
+{
+  "key": "pricing-test",
+  "name": "Pricing Test for Enterprise",
+  "group_type": "organization",
+  "variants": [
+    {"key": "control", "name": "Current Pricing", "rollout_percentage": 50},
+    {"key": "new_pricing", "name": "New Pricing Page", "rollout_percentage": 50}
+  ],
+  "groups": [
+    {
+      "properties": [
+        {
+          "key": "plan",
+          "value": "enterprise",
+          "operator": "exact",
+          "type": "group",
+          "group_type_index": 0
+        }
+      ],
+      "rollout_percentage": null
+    }
+  ]
+}
+```
+
 # Important Rules
 
 - **ALWAYS** use `retrieve_entity_properties` BEFORE creating property filters
@@ -159,7 +247,18 @@ Multiple filters (AND logic - all must match):
 - Rollout percentage in each group applies AFTER property filtering in that group (e.g., "10% of users where email contains X")
 - Always create a `groups` array with at least one group (even if properties is empty)
 - Use `ask_user_for_help` if requirements are unclear or ambiguous
-- Generate keys in kebab-case (e.g., "new-dashboard" not "new_dashboard" or "NewDashboard")
+- **Key Format Requirements**:
+  - Keys must only contain letters (a-z, A-Z), numbers (0-9), underscores (_), and hyphens (-)
+  - Valid pattern: ^[a-zA-Z0-9_-]+$
+  - Invalid characters include spaces, dots, @, #, $, %, etc.
+  - Generate keys in kebab-case (e.g., "new-dashboard" not "new_dashboard" or "NewDashboard")
+  - If the user requests a key with invalid characters, sanitize it by replacing invalid characters with hyphens
+- For multivariate flags:
+  - Variant rollout percentages MUST sum to 100
+  - If the user provides percentages that don't sum to 100, use `ask_user_for_help` to explain the issue and ask for correction
+  - Use descriptive variant keys (e.g., "control", "test", not "a", "b")
+  - Default to 50/50 split unless user specifies otherwise
+- For experiments, always create a multivariate flag with a control and test variant.
 
 # Common Patterns
 
@@ -190,7 +289,21 @@ Input: "Create a flag for 25% of enterprise organizations"
 - Validate filter
 - Create one group with the property filter and `rollout_percentage: 25` (25% of orgs that match the filter)
 
-**Pattern 5: Multiple property conditions (AND logic)**
+**Pattern 5: A/B test at 100% rollout**
+Input: "Create an A/B test flag for new checkout with control and test variants"
+- Creates a multivariate flag with 50/50 split of variants
+- 100% of users will see the experiment (some get control, some get test)
+- Create variants array with control (50%) and test (50%)
+- Create one group with `properties: []` and `rollout_percentage: null` or `100`
+
+**Pattern 6: A/B test at partial rollout**
+Input: "Create an A/B test flag for new checkout at 50% rollout"
+- Creates a multivariate flag with 50/50 split of variants
+- Only 50% of users will see the experiment (the other 50% won't see any variant)
+- Create variants array with control (50%) and test (50%)
+- Create one group with `properties: []` and `rollout_percentage: 50`
+
+**Pattern 7: Multiple property conditions (AND logic)**
 Input: "Create a flag for US users over 25 years old"
 - Targets only users where country=US AND age>=25
 - Discover "country" and "age" properties
@@ -439,11 +552,10 @@ class FeatureFlagGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentS
     4. Generate structured feature flag configuration
     """
 
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=FeatureFlagCreationNode,
             tools_node_class=FeatureFlagCreationToolsNode,
             toolkit_class=FeatureFlagToolkit,
@@ -490,23 +602,27 @@ The tool will automatically:
 - "Create a flag for 25% of organizations where plan is enterprise"
 - "Create a flag for US users over 25 years old at 50% rollout"
 
+**Multivariate / A/B testing:**
+- "Create an A/B test flag for new checkout with control and test variants"
+- "Create a multivariate flag for pricing test with 3 variants"
+- "Create an experiment flag for enterprise users testing new onboarding"
+
 **Group-based:**
 - "Create a flag targeting organizations"
 - "Create a flag for companies where employee count > 100"
     """.strip()
-    context_system_prompt_template: str = (
-        "Creates a new feature flag in the project with optional property-based targeting"
-    )
+    context_prompt_template: str = "Creates a new feature flag in the project with optional property-based targeting and multivariate variants for A/B testing"
     args_schema: type[BaseModel] = CreateFeatureFlagArgs
 
     async def _create_flag_from_instructions(self, instructions: str) -> FeatureFlagCreationSchema:
         """Use TaxonomyAgent graph to generate structured flag configuration."""
-        graph = FeatureFlagGeneratorGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = FeatureFlagGeneratorGraph(team=self._team, user=self._user)
 
         graph_context = {
             "change": f"Create a feature flag based on these instructions: {instructions}",
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
 
@@ -514,6 +630,9 @@ The tool will automatically:
 
         if isinstance(result["output"], FeatureFlagCreationSchema):
             return result["output"]
+        elif isinstance(result["output"], str):
+            # Agent returned an error message or asked for help
+            raise ValueError(result["output"])
         else:
             # Fallback if graph didn't return expected output
             capture_exception(
@@ -527,6 +646,13 @@ The tool will automatically:
         try:
             # Use graph to generate structured configuration
             flag_schema = await self._create_flag_from_instructions(instructions)
+
+            # Validate feature flag key format
+            if not re.match(r"^[a-zA-Z0-9_-]+$", flag_schema.key):
+                return (
+                    f"Invalid feature flag key '{flag_schema.key}'. Keys must contain only letters, numbers, underscores, and hyphens (matching pattern: ^[a-zA-Z0-9_-]+$)",
+                    {"error": "invalid_key", "key": flag_schema.key},
+                )
 
             # Validate and enrich group type if specified
             aggregation_group_type_index = None
@@ -557,6 +683,21 @@ The tool will automatically:
 
             # Convert Pydantic models to dicts for JSON storage
             filters["groups"] = [group.model_dump(exclude_none=True) for group in flag_schema.groups]
+
+            # Add multivariate configuration if variants are specified
+            if flag_schema.variants:
+                # Validate that variant percentages sum to 100
+                total_percentage = sum(v.rollout_percentage for v in flag_schema.variants)
+                if total_percentage != 100:
+                    return (
+                        f"Variant rollout percentages must sum to 100, but got {total_percentage}. "
+                        f"Please adjust the percentages.",
+                        {"error": "invalid_variant_percentages"},
+                    )
+
+                filters["multivariate"] = {
+                    "variants": [variant.model_dump(exclude_none=True) for variant in flag_schema.variants]
+                }
 
             # Create the flag
             @database_sync_to_async
@@ -619,6 +760,14 @@ The tool will automatically:
     def _format_targeting_info(self, schema: FeatureFlagCreationSchema, group_display_name: str | None) -> str:
         """Format targeting information for success message."""
         parts = []
+
+        # Add multivariate info first if present
+        if schema.variants:
+            variant_count = len(schema.variants)
+            if variant_count == 2:
+                parts.append("A/B test with 2 variants")
+            else:
+                parts.append(f"multivariate with {variant_count} variants")
 
         # Count total property filters across all groups
         total_properties = sum(len(group.properties or []) for group in schema.groups)

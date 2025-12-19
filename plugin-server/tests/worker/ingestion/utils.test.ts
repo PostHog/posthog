@@ -29,7 +29,7 @@ describe('captureIngestionWarning()', () => {
 
         expect(warnings).toEqual([
             expect.objectContaining({
-                team_id: '2',
+                team_id: 2,
                 source: 'plugin-server',
                 type: 'some_type',
                 details: '{"foo":"bar"}',

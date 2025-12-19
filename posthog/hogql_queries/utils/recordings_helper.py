@@ -7,50 +7,19 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 
 class RecordingsHelper:
     def __init__(self, team: Team):
         self.team = team
-        self._ttl_days = ttl_days(team)
 
     def _matching_clickhouse_recordings(
         self,
         session_ids: Iterable[str],
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
     ) -> set[str]:
         if not session_ids:
             # no need to query if we get invalid input
             return set()
-
-        current_now = datetime.now()
-
-        # we always want to clamp to TTL
-        # technically technically technically we should do what replay listing does and check in postgres too
-        # but pinning to TTL is good enough for 90% of cases
-        starts_since_fixed_date_or_ttl_before_now = ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(chain=["min_first_timestamp"]),
-            right=ast.Constant(value=date_from)
-            if date_from
-            else ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub,
-                left=ast.Constant(value=current_now),
-                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=self._ttl_days)]),
-            ),
-        )
-
-        # TRICKY: really we should clamp before now, but we can't do that
-        # because the tests set "now" and then setup test data in the future
-        # it's only an optimization though
-        # TODO: let's fix this now since customers are reporting it, and then make test setup sensible
-        # starts_before_fixed_date_or_now = ast.CompareOperation(
-        #     op=ast.CompareOperationOp.LtEq,
-        #     left=ast.Field(chain=["min_first_timestamp"]),
-        #     right=ast.Constant(value=date_to if date_to and date_to <= current_now else current_now),
-        # )
 
         matches_provided_session_ids = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
@@ -58,22 +27,33 @@ class RecordingsHelper:
             right=ast.Array(exprs=[ast.Constant(value=s) for s in session_ids]),
         )
 
+        current_now = datetime.now()
+
+        not_expired = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["expiry_time"]), right=ast.Constant(value=current_now)
+        )
+
         query = """
-          SELECT DISTINCT session_id
-          FROM raw_session_replay_events
-          WHERE {where_predicates}
-          """
+                SELECT
+                    session_id,
+                    min(min_first_timestamp) as start_time,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
+                FROM
+                    raw_session_replay_events
+                WHERE
+                    {where_predicates}
+                GROUP BY
+                    session_id
+                HAVING
+                    {having_predicates}
+                """
 
         response = execute_hogql_query(
             query,
             placeholders={
-                "where_predicates": ast.And(
-                    exprs=[
-                        starts_since_fixed_date_or_ttl_before_now,
-                        # starts_before_fixed_date_or_now,
-                        matches_provided_session_ids,
-                    ]
-                ),
+                "where_predicates": matches_provided_session_ids,
+                "having_predicates": not_expired,
             },
             team=self.team,
         )

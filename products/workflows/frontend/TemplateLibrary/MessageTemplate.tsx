@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCode } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
@@ -24,7 +24,8 @@ export const scene: SceneExport<MessageTemplateLogicProps> = {
 }
 
 export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element {
-    const { submitTemplate, resetTemplate, setTemplateValue } = useActions(messageTemplateLogic)
+    const { submitTemplate, resetTemplate, setTemplateValue, duplicateTemplate, deleteTemplate } =
+        useActions(messageTemplateLogic)
     const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } =
         useValues(messageTemplateLogic)
 
@@ -36,6 +37,39 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                     resourceType={{ type: 'template' }}
                     actions={
                         <>
+                            {id !== 'new' && (
+                                <>
+                                    <More
+                                        size="small"
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    data-attr="duplicate-message-template"
+                                                    fullWidth
+                                                    onClick={duplicateTemplate}
+                                                    disabledReason={
+                                                        templateChanged
+                                                            ? 'Save your changes before duplicating'
+                                                            : undefined
+                                                    }
+                                                >
+                                                    Duplicate
+                                                </LemonButton>
+                                                <LemonDivider />
+                                                <LemonButton
+                                                    data-attr="delete-message-template"
+                                                    status="danger"
+                                                    fullWidth
+                                                    onClick={deleteTemplate}
+                                                >
+                                                    Delete
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                    <LemonDivider vertical />
+                                </>
+                            )}
                             {templateChanged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
@@ -60,7 +94,6 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">

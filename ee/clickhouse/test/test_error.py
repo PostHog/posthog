@@ -49,7 +49,7 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
         (
             ServerException(
-                "Code: 439. DB::Exception: Cannot schedule a task: cannot allocate thread (threads=36, jobs=36). (CANNOT_SCHEDULE_TASK) (version 24.8.14.39 (official build))",
+                "Code: 439. DB::Exception: Cannot schedule a task: cannot allocate thread (threads=36, jobs=36). (CANNOT_SCHEDULE_TASK) (version 25.8.12.129 (official build))",
                 code=439,
             ),
             "ClickHouseAtCapacity",
@@ -59,13 +59,23 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
         (
             ServerException(
-                "Code: 159. DB::Exception: Timeout exceeded: elapsed 60.046752587 seconds, maximum: 60. (TIMEOUT_EXCEEDED) (version 24.8.7.41 (official build))",
+                "Code: 159. DB::Exception: Timeout exceeded: elapsed 60.046752587 seconds, maximum: 60. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))",
                 code=159,
             ),
             "ClickHouseQueryTimeOut",
             "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize.",
             None,
             "CHQueryErrorTimeoutExceeded",
+        ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet",
+                code=499,
+            ),
+            "CHQueryErrorS3Error",
+            "Code: 499.\nS3 error occurred. Try again later.",
+            499,
+            "CHQueryErrorS3Error",
         ),
     ],
 )

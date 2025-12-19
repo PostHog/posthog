@@ -1,69 +1,27 @@
+from enum import Enum, auto
+from typing import TypeGuard
+
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType, StepOrderValue
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    insight_funnels_use_udf,
-    insight_funnels_use_udf_time_to_convert,
-    insight_funnels_use_udf_trends,
-)
-from posthog.models import Team
+from posthog.types import EntityNode, ExclusionEntityNode
 
 
-def use_udf(funnelsFilter: FunnelsFilter, team: Team):
-    if funnelsFilter.useUdf:
-        return True
-    funnelVizType = funnelsFilter.funnelVizType
-    if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(team):
-        return True
-    if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
-        return True
-    if funnelVizType == FunnelVizType.TIME_TO_CONVERT and insight_funnels_use_udf_time_to_convert(team):
-        return True
-    return False
-
-
-def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import Funnel, FunnelStrict, FunnelUDF, FunnelUnordered
-
-    if use_udf:
-        return FunnelUDF
-    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-        return FunnelStrict
-    elif funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnordered
-    return Funnel
-
-
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import (
-        FunnelActors,
-        FunnelStrictActors,
-        FunnelTrendsActors,
-        FunnelTrendsUDF,
-        FunnelUDF,
-        FunnelUnorderedActors,
-    )
-
-    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-        if use_udf:
-            return FunnelTrendsUDF
-        return FunnelTrendsActors
-
-    if use_udf:
-        return FunnelUDF
-
-    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnorderedActors
-
-    if funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-        return FunnelStrictActors
-
-    return FunnelActors
+class SourceTableKind(Enum):
+    EVENTS = auto()
+    DATA_WAREHOUSE = auto()
 
 
 def funnel_window_interval_unit_to_sql(
@@ -118,3 +76,68 @@ def get_breakdown_expr(
         expression = ast.Array(exprs=exprs)
 
     return expression
+
+
+def is_events_source(source_kind: SourceTableKind) -> bool:
+    return source_kind is SourceTableKind.EVENTS
+
+
+def is_data_warehouse_source(source_kind: SourceTableKind) -> bool:
+    return source_kind is SourceTableKind.DATA_WAREHOUSE
+
+
+def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
+    return (
+        isinstance(entity, EventsNode)
+        or isinstance(entity, FunnelExclusionEventsNode)
+        or isinstance(entity, ActionsNode)
+        or isinstance(entity, FunnelExclusionActionsNode)
+    )
+
+
+def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
+    return isinstance(entity, DataWarehouseNode)
+
+
+def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> bool:
+    if source_kind is SourceTableKind.EVENTS:
+        return not is_events_entity(entity)
+    if source_kind is SourceTableKind.DATA_WAREHOUSE:
+        return not is_data_warehouse_entity(entity)
+    raise ValueError(f"Unknown SourceTableKind: {source_kind}")
+
+
+def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTableKind, table_name: str) -> bool:
+    if entity_source_mismatch(entity, source_kind):
+        return True
+    if is_events_entity(entity) and table_name != "events":
+        return True
+    if is_data_warehouse_entity(entity) and table_name != entity.table_name:
+        return True
+    return False
+
+
+def get_table_name(entity: EntityNode):
+    if is_data_warehouse_entity(entity):
+        return entity.table_name
+    else:
+        return "events"
+
+
+def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:
+    """
+    Returns a list of `column_or_alias_name AS table_alias.column_or_alias_name`, from a given list of `columns`.
+    """
+    result: list[ast.Expr] = []
+    for col in columns:
+        if isinstance(col, ast.Alias):
+            result.append(ast.Alias(alias=col.alias, expr=ast.Field(chain=[table_alias, col.alias])))
+        elif isinstance(col, ast.Field):
+            # assumes the last chain part is the column name
+            column_name = col.chain[-1]
+            if not isinstance(column_name, str):
+                raise ValueError(f"Cannot alias field with chain {col.chain!r}")
+            result.append(ast.Alias(alias=column_name, expr=ast.Field(chain=[table_alias, column_name])))
+        else:
+            raise ValueError(f"Unexpected select expression {col!r}")
+    return result

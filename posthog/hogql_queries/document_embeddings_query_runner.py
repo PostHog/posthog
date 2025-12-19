@@ -186,7 +186,8 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
                                     ),
                                 ]
                             ),
-                            ast.And(
+                            # If the document type or product is different - compare all renderings
+                            ast.Or(
                                 exprs=[
                                     ast.CompareOperation(
                                         op=ast.CompareOperationOp.NotEq,
@@ -233,6 +234,11 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         ]
 
         where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=col("model_name"),
+                right=ast.Constant(value=str(self.query.model)),
+            ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq, left=col("timestamp"), right=ast.Constant(value=self.date_from)
             ),

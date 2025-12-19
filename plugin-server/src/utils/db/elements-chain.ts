@@ -8,7 +8,11 @@ const splitChainRegex = createTrackedRE2(/(?:[^\s;"]|"(?:[^"\\]|\\.)*")+/g, unde
 // Below splits the tag/classes from attributes
 // Needs a regex because classes can have : too
 const splitClassAttributes = createTrackedRE2(/(.*?)($|:([a-zA-Z\-_0-9]*=.*))/g, undefined, 'elements-chain:splitClass')
-const parseAttributesRegex = createTrackedRE2(/((.*?)="(.*?[^\\])")/gm, undefined, 'elements-chain:parseAttributes')
+const parseAttributesRegex = createTrackedRE2(
+    /((.*?)="((?:\\"|[^"])*)")/gm,
+    undefined,
+    'elements-chain:parseAttributes'
+)
 const newLine = createTrackedRE2(/\\n/g, undefined, 'elements-chain:newLine')
 
 export function elementsToString(elements: Element[]): string {

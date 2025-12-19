@@ -1,9 +1,6 @@
-import {
-    ApiEventDefinitionSchema,
-    type ApiListResponseSchema,
-    ApiPropertyDefinitionSchema,
-} from '@/schema/api'
 import type { z } from 'zod'
+
+import { ApiEventDefinitionSchema, type ApiListResponseSchema, ApiPropertyDefinitionSchema } from '@/schema/api'
 
 export const PropertyDefinitionSchema = ApiPropertyDefinitionSchema.pick({
     name: true,

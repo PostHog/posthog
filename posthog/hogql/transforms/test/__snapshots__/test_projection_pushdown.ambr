@@ -38,6 +38,9 @@
 # name: TestProjectionPushdown.test_prewhere_clause
   "SELECT event FROM (SELECT event, distinct_id FROM events) AS sub PREWHERE equals(distinct_id, 'test')"
 # ---
+# name: TestProjectionPushdown.test_root_union_with_nested_union_cte
+  'SELECT properties, timestamp FROM (SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS us UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS eu) AS all_exports UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS us UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS eu) AS all_exports ORDER BY timestamp DESC'
+# ---
 # name: TestProjectionPushdown.test_simple_pushdown
   'SELECT event FROM (SELECT event FROM events) AS sub'
 # ---
@@ -52,4 +55,7 @@
 # ---
 # name: TestProjectionPushdown.test_union_all_without_alias
   'SELECT event FROM (SELECT event FROM events UNION ALL SELECT event FROM events)'
+# ---
+# name: TestProjectionPushdown.test_union_cte_with_select_star_and_order_by
+  'SELECT properties, timestamp FROM (SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS us UNION ALL SELECT properties, timestamp FROM (SELECT properties, timestamp FROM events LIMIT 20) AS eu) AS all_exports ORDER BY timestamp DESC LIMIT 20'
 # ---

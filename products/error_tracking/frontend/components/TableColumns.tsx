@@ -11,6 +11,7 @@ import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/sche
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
@@ -94,12 +95,16 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                 <div title={record.description || undefined} className="font-medium line-clamp-1 text-[var(--gray-8)]">
                     {record.description}
                 </div>
+                <div className="line-clamp-1 text-[var(--gray-8)] italic">
+                    {record.function}
+                    {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
+                </div>
                 <div className="flex items-center text-secondary">
                     <IssueStatusSelect
                         status={record.status}
                         onChange={(status) => updateIssueStatus(record.id, status)}
                     />
-                    <CustomGroupSeparator />
+                    <CustomSeparator />
                     <AssigneeSelect
                         assignee={record.assignee}
                         onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
@@ -119,7 +124,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                             </div>
                         )}
                     </AssigneeSelect>
-                    <CustomGroupSeparator />
+                    <CustomSeparator />
                     <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
                     <IconChevronRight className="text-quaternary mx-1" />
                     {record.last_seen ? (
@@ -133,4 +138,4 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     )
 }
 
-const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />
+export const CustomSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />

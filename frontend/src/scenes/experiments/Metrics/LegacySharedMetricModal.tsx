@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AvailableFeature, Experiment } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
@@ -23,20 +23,14 @@ import { appendMetricToOrderingArray, removeMetricFromOrderingArray } from '../u
  * This component is deprecated and only supports the legacy query runner.
  * Use the SharedMetricModal component instead.
  */
-export function LegacySharedMetricModal({
-    experimentId,
-    isSecondary,
-}: {
-    experimentId: Experiment['id']
-    isSecondary?: boolean
-}): JSX.Element {
-    const { experiment, compatibleSharedMetrics, editingSharedMetricId } = useValues(experimentLogic({ experimentId }))
+export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
+    const { experiment, compatibleSharedMetrics, editingSharedMetricId } = useValues(experimentLogic)
     const {
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
         restoreUnmodifiedExperiment,
         setExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    } = useActions(experimentLogic)
     const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
     const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])

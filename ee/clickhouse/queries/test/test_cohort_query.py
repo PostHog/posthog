@@ -329,68 +329,69 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_performed_event_with_event_filters_and_explicit_date(self):
-        p1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p1"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={"$filter_prop": "something"},
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(days=2),
-        )
+        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+            p1 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={"$filter_prop": "something"},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
 
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p2"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={},
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(days=2),
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={"$filter_prop": "something"},
-            distinct_id="p2",
-            # rejected because explicit datetime is set to 3 days ago
-            timestamp=datetime.now() - timedelta(days=5),
-        )
-        flush_persons_and_events()
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={"$filter_prop": "something"},
+                distinct_id="p2",
+                # rejected because explicit datetime is set to 3 days ago
+                timestamp=datetime.now() - timedelta(days=5),
+            )
+            flush_persons_and_events()
 
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "explicit_datetime": str(
-                                datetime.now() - timedelta(days=3)
-                            ),  # overrides time_value and time_interval
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                            "event_filters": [
-                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
-                            ],
-                        }
-                    ],
+            filter = Filter(
+                data={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "explicit_datetime": str(
+                                    datetime.now() - timedelta(days=3)
+                                ),  # overrides time_value and time_interval
+                                "time_value": 1,
+                                "time_interval": "week",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                                "event_filters": [
+                                    {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                                ],
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        res, q, params = execute(filter, self.team)
+            res, q, params = execute(filter, self.team)
 
-        assert [p1.uuid] == [r[0] for r in res]
+            assert [p1.uuid] == [r[0] for r in res]
 
     def test_performed_event_multiple(self):
         p1 = _create_person(
@@ -2590,108 +2591,109 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_performed_event_sequence_with_person_properties(self):
-        p1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p1"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
+        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+            p1 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
 
-        _make_event_sequence(self.team, "p1", 2, [1, 1])
+            _make_event_sequence(self.team, "p1", 2, [1, 1])
 
-        _create_event(
-            team=self.team,
-            event="$some_event",
-            properties={},
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(days=2),
-        )
+            _create_event(
+                team=self.team,
+                event="$some_event",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
 
-        _create_event(
-            team=self.team,
-            event="$some_event",
-            properties={},
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(days=4),
-        )
+            _create_event(
+                team=self.team,
+                event="$some_event",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=4),
+            )
 
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p2"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
 
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={},
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(days=2),
-        )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
 
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p3"],
-            properties={"name": "test22", "email": "test22@posthog.com"},
-        )
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p3"],
+                properties={"name": "test22", "email": "test22@posthog.com"},
+            )
 
-        _make_event_sequence(self.team, "p3", 2, [1, 1])
+            _make_event_sequence(self.team, "p3", 2, [1, 1])
 
-        _create_event(
-            team=self.team,
-            event="$some_event",
-            properties={},
-            distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=2),
-        )
+            _create_event(
+                team=self.team,
+                event="$some_event",
+                properties={},
+                distinct_id="p3",
+                timestamp=datetime.now() - timedelta(days=2),
+            )
 
-        _create_event(
-            team=self.team,
-            event="$some_event",
-            properties={},
-            distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=4),
-        )
+            _create_event(
+                team=self.team,
+                event="$some_event",
+                properties={},
+                distinct_id="p3",
+                timestamp=datetime.now() - timedelta(days=4),
+            )
 
-        flush_persons_and_events()
+            flush_persons_and_events()
 
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "email",
-                            "value": "test@posthog.com",
-                            "type": "person",
-                        },  # pushed down
-                    ],
+            filter = Filter(
+                data={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 7,
+                                "seq_time_interval": "day",
+                                "seq_time_value": 3,
+                                "seq_event": "$pageview",
+                                "seq_event_type": "events",
+                                "value": "performed_event_sequence",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 1,
+                                "time_value": 1,
+                                "time_interval": "week",
+                                "value": "performed_event_multiple",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "email",
+                                "value": "test@posthog.com",
+                                "type": "person",
+                            },  # pushed down
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        res, q, params = execute(filter, self.team)
+            res, q, params = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2783,76 +2785,76 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_performed_event_sequence_and_clause_with_additional_event(self):
-        p1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p1"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
+        with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
+            p1 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
 
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={},
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(days=6),
-        )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=6),
+            )
 
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={},
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(days=5),
-        )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                properties={},
+                distinct_id="p1",
+                timestamp=datetime.now() - timedelta(days=5),
+            )
 
-        p2 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p2"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
+            p2 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
 
-        _create_event(
-            team=self.team,
-            event="$new_view",
-            properties={},
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(days=3),
-        )
-        flush_persons_and_events()
+            _create_event(
+                team=self.team,
+                event="$new_view",
+                properties={},
+                distinct_id="p2",
+                timestamp=datetime.now() - timedelta(days=3),
+            )
+            flush_persons_and_events()
 
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$new_view",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        },
-                    ],
+            filter = Filter(
+                data={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 7,
+                                "seq_time_interval": "day",
+                                "seq_time_value": 3,
+                                "seq_event": "$pageview",
+                                "seq_event_type": "events",
+                                "value": "performed_event_sequence",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "$new_view",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 1,
+                                "time_value": 1,
+                                "time_interval": "week",
+                                "value": "performed_event_multiple",
+                                "type": "behavioral",
+                            },
+                        ],
+                    }
                 }
-            }
-        )
-
-        res, q, params = execute(filter, self.team)
+            )
+            res, q, params = execute(filter, self.team)
 
         assert {p1.uuid, p2.uuid} == {r[0] for r in res}
 

@@ -8,7 +8,11 @@ from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import (
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -46,17 +50,33 @@ def _dismiss_cookie_banners(page: Page) -> None:
             pass
 
     # CSS-hide common cookie/consent containers and overlays
+    # Important: Only target specific container elements (div, section, aside, etc.) to avoid hiding html/body
+    # which may have cookie-related classes (e.g., <html class="supports-no-cookies">)
     css_hide = """
-    [id*="cookie" i], [class*="cookie" i],
-    [id*="consent" i], [class*="consent" i],
-    [id*="gdpr" i], [class*="gdpr" i],
-    [id*="onetrust" i], [class*="onetrust" i],
-    [id*="ot-sdk" i], [class*="ot-sdk" i],
-    [id*="sp_message" i], [class*="sp_message" i],
-    [id*="sp-consent" i], [class*="sp-consent" i],
-    [id*="cmp" i], [class*="cmp" i],
-    [id*="osano" i], [class*="osano" i],
-    [id*="quantcast" i], [class*="quantcast" i],
+    div[id*="cookie" i], div[class*="cookie" i],
+    div[id*="consent" i], div[class*="consent" i],
+    div[id*="gdpr" i], div[class*="gdpr" i],
+    div[id*="onetrust" i], div[class*="onetrust" i],
+    div[id*="ot-sdk" i], div[class*="ot-sdk" i],
+    div[id*="sp_message" i], div[class*="sp_message" i],
+    div[id*="sp-consent" i], div[class*="sp-consent" i],
+    div[id*="quantcast" i], div[class*="quantcast" i],
+    section[id*="cookie" i], section[class*="cookie" i],
+    section[id*="consent" i], section[class*="consent" i],
+    section[id*="gdpr" i], section[class*="gdpr" i],
+    section[id*="onetrust" i], section[class*="onetrust" i],
+    section[id*="ot-sdk" i], section[class*="ot-sdk" i],
+    section[id*="sp_message" i], section[class*="sp_message" i],
+    section[id*="sp-consent" i], section[class*="sp-consent" i],
+    section[id*="quantcast" i], section[class*="quantcast" i],
+    aside[id*="cookie" i], aside[class*="cookie" i],
+    aside[id*="consent" i], aside[class*="consent" i],
+    aside[id*="gdpr" i], aside[class*="gdpr" i],
+    aside[id*="onetrust" i], aside[class*="onetrust" i],
+    aside[id*="ot-sdk" i], aside[class*="ot-sdk" i],
+    aside[id*="sp_message" i], aside[class*="sp_message" i],
+    aside[id*="sp-consent" i], aside[class*="sp-consent" i],
+    aside[id*="quantcast" i], aside[class*="quantcast" i],
     iframe[src*="consent" i], iframe[src*="cookie" i], iframe[src*="onetrust" i],
     /* generic fixed overlays */
     div[style*="position:fixed" i][style*="z-index" i] {
@@ -177,7 +197,7 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
     snapshot_bytes: list[tuple[int, bytes]] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=True,  # TIP: for debugging, set to False
             args=[
                 "--force-device-scale-factor=1",
                 "--disable-dev-shm-usage",
@@ -202,9 +222,23 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 )
                 page = ctx.new_page()
                 _block_internal_requests(page)
-                page.goto(screenshot.url, wait_until="load", timeout=120_000)
-                _dismiss_cookie_banners(page)
 
+                # Start navigation and try to wait for DOM ready, but only up to 5s
+                dom_ready = True
+                try:
+                    page.goto(screenshot.url, wait_until="domcontentloaded", timeout=5_000)
+                except PlaywrightTimeoutError:
+                    dom_ready = False
+                    # Navigation may still continue in the background; we just won't block on it.
+
+                # Small settle: if DOM was ready, give JS time to render (SPAs). Otherwise, brief paint time.
+                page.wait_for_timeout(3000 if dom_ready else 1000)
+
+                # Try to clear overlays/cookie banners if present
+                _dismiss_cookie_banners(page)
+                page.wait_for_timeout(500)
+
+                # Measure final height and resize to capture everything
                 total_height = page.evaluate("""() => Math.max(
                     document.body.scrollHeight,
                     document.body.offsetHeight,
@@ -214,7 +248,7 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 )""")
 
                 page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(500)
 
                 image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
                 snapshot_bytes.append((w, image_data))

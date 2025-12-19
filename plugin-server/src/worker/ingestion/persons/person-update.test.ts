@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
-import { eventToPersonProperties } from './person-property-utils'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from './person-property-utils'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 
 jest.mock('./metrics', () => ({
@@ -44,6 +44,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ custom_prop: 'new_value' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
                 expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalled()
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
@@ -63,6 +64,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toUnset).toEqual(['prop_to_remove'])
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -80,6 +82,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ new_prop: 'value' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -97,6 +100,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ first_seen: '2024-01-01' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -114,13 +118,14 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
         })
 
-        describe('eventToPersonProperties accepted at event level', () => {
-            it.each(Array.from(eventToPersonProperties))(
-                'should accept "%s" updates at event level (filtering happens at batch level)',
+        describe('filtered properties behavior', () => {
+            it.each(Array.from(FILTERED_PERSON_UPDATE_PROPERTIES))(
+                'should mark "%s" as ignored when updated',
                 (propertyName) => {
                     const event: PluginEvent = {
                         event: 'pageview',
@@ -135,8 +140,8 @@ describe('person-update', () => {
 
                     expect(result.hasChanges).toBe(true)
                     expect(result.toSet).toEqual({ [propertyName]: 'new_value' })
-                    // At event level, this property would be marked as ignored (outcome: 'ignored')
-                    // but it's still included in toSet for batch-level filtering
+                    expect(result.shouldForceUpdate).toBe(false)
+                    // Filtered properties are marked as ignored
                     expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                     expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalled()
                     expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
@@ -148,7 +153,49 @@ describe('person-update', () => {
                 }
             )
 
-            it('should accept $geoip_* property updates at event level (filtering happens at batch level)', () => {
+            it('should accept blocked $geoip_* property updates at event level (filtering happens at batch level)', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $geoip_latitude: 37.7749 },
+                    },
+                } as any
+
+                const personProperties = { $geoip_latitude: 40.7128 }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $geoip_latitude: 37.7749 })
+                expect(result.shouldForceUpdate).toBe(false)
+                // At event level, blocked geoip properties would be marked as ignored
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: '$geoip_latitude',
+                })
+            })
+
+            it('should trigger update when $geoip_country_name changes (allowed geoip property)', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $geoip_country_name: 'United States' },
+                    },
+                } as any
+
+                const personProperties = { $geoip_country_name: 'Canada' }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $geoip_country_name: 'United States' })
+                expect(result.shouldForceUpdate).toBe(false)
+                // $geoip_country_name is allowed so should be marked as changed
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should trigger update when $geoip_city_name changes (allowed geoip property)', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -162,67 +209,94 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $geoip_city_name: 'San Francisco' })
-                // At event level, geoip properties would be marked as ignored
-                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: '$geoip_city_name',
-                })
+                expect(result.shouldForceUpdate).toBe(false)
+                // $geoip_city_name is allowed so should be marked as changed
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
-            it('should accept eventToPersonProperties even when mixed with unchanged custom properties', () => {
-                const event: PluginEvent = {
-                    event: 'pageview',
-                    properties: {
-                        $set: { $browser: 'Chrome', custom_prop: 'same_value' },
-                    },
-                } as any
-
-                const personProperties = { $browser: 'Firefox', custom_prop: 'same_value' }
-
-                const result = computeEventPropertyUpdates(event, personProperties)
-
-                expect(result.hasChanges).toBe(true)
-                expect(result.toSet).toEqual({ $browser: 'Chrome' })
-                // At event level, $browser would be marked as ignored
-                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: '$browser',
-                })
-            })
-
-            it('should accept multiple eventToPersonProperties at event level', () => {
+            it('should update all geoip properties when allowed property ($geoip_country_name) changes alongside blocked ones', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
                         $set: {
-                            $browser: 'Chrome',
-                            utm_source: 'google',
-                            utm_campaign: 'spring_sale',
-                            $os: 'macOS',
+                            $geoip_country_name: 'United States',
+                            $geoip_latitude: 37.7749,
+                            $geoip_longitude: -122.4194,
+                            $geoip_postal_code: '94102',
                         },
                     },
                 } as any
 
                 const personProperties = {
-                    $browser: 'Firefox',
-                    utm_source: 'twitter',
-                    utm_campaign: 'winter_sale',
-                    $os: 'Windows',
+                    $geoip_country_name: 'Canada',
+                    $geoip_latitude: 43.6532,
+                    $geoip_longitude: -79.3832,
+                    $geoip_postal_code: 'M5V',
                 }
 
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
-                // At event level, all these properties would be marked as ignored
+                expect(result.toSet).toEqual({
+                    $geoip_country_name: 'United States',
+                    $geoip_latitude: 37.7749,
+                    $geoip_longitude: -122.4194,
+                    $geoip_postal_code: '94102',
+                })
+                expect(result.shouldForceUpdate).toBe(false)
+                // Since $geoip_country_name is allowed, the update is marked as changed (not ignored)
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            })
+
+            it('should accept filtered properties even when mixed with unchanged custom properties', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $current_url: 'https://example.com/new', custom_prop: 'same_value' },
+                    },
+                } as any
+
+                const personProperties = { $current_url: 'https://example.com/old', custom_prop: 'same_value' }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $current_url: 'https://example.com/new' })
+                expect(result.shouldForceUpdate).toBe(false)
+                // $current_url is filtered, so it should be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: 'utm_source',
+                    property: '$current_url',
                 })
+            })
+
+            it('should accept multiple filtered properties at event level', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: {
+                            $current_url: 'https://example.com/new',
+                            $pathname: '/new-path',
+                        },
+                    },
+                } as any
+
+                const personProperties = {
+                    $current_url: 'https://example.com/old',
+                    $pathname: '/old-path',
+                }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(false)
+                // Filtered properties should be marked as ignored
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: 'utm_campaign',
+                    property: '$current_url',
                 })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$os' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$pathname' })
             })
         })
 
@@ -240,6 +314,7 @@ describe('person-update', () => {
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
                 expect(result.toUnset).toEqual([])
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
@@ -258,6 +333,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
 
@@ -275,6 +351,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
 
@@ -292,12 +369,13 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toUnset).toEqual([])
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
         })
 
         describe('person events behavior', () => {
-            it('should compute updates for eventToPersonProperties on $identify events', () => {
+            it('should compute updates for any property on $identify events', () => {
                 const event: PluginEvent = {
                     event: '$identify',
                     properties: {
@@ -311,10 +389,11 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(true)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should compute updates for eventToPersonProperties on $set events', () => {
+            it('should compute updates for any property on $set events', () => {
                 const event: PluginEvent = {
                     event: '$set',
                     properties: {
@@ -327,7 +406,24 @@ describe('person-update', () => {
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(true)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            })
+
+            it('should set shouldForceUpdate to false for non-person events', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $browser: 'Chrome' },
+                    },
+                } as any
+
+                const personProperties = { $browser: 'Firefox' }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(false)
             })
         })
 
@@ -346,6 +442,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'unsupported' })
             })
 
@@ -362,12 +459,13 @@ describe('person-update', () => {
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(false)
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'unsupported' })
             })
         })
 
         describe('mixed scenarios', () => {
-            it('should compute updates when both custom and eventToPersonProperties change', () => {
+            it('should compute updates when both custom and allowed properties change', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -381,7 +479,150 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ custom_prop: 'new_value', $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            })
+        })
+
+        describe('updateAllProperties flag enabled', () => {
+            it.each(Array.from(FILTERED_PERSON_UPDATE_PROPERTIES))(
+                'should trigger update for filtered property "%s" when updateAllProperties is true',
+                (propertyName) => {
+                    const event: PluginEvent = {
+                        event: 'pageview',
+                        properties: {
+                            $set: { [propertyName]: 'new_value' },
+                        },
+                    } as any
+
+                    const personProperties = { [propertyName]: 'old_value' }
+
+                    const result = computeEventPropertyUpdates(event, personProperties, true)
+
+                    expect(result.hasChanges).toBe(true)
+                    expect(result.toSet).toEqual({ [propertyName]: 'new_value' })
+                    expect(result.shouldForceUpdate).toBe(true) // updateAllProperties forces updates
+                    // With updateAllProperties=true, no metrics should be tracked
+                    expect(mockPersonProfileUpdateOutcomeCounter.labels).not.toHaveBeenCalled()
+                    expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+                }
+            )
+
+            it('should trigger update for $geoip_* properties when updateAllProperties is true', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $geoip_city_name: 'San Francisco' },
+                    },
+                } as any
+
+                const personProperties = { $geoip_city_name: 'New York' }
+
+                const result = computeEventPropertyUpdates(event, personProperties, true)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $geoip_city_name: 'San Francisco' })
+                expect(result.shouldForceUpdate).toBe(true) // updateAllProperties forces updates
+                // With updateAllProperties=true, no metrics should be tracked
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).not.toHaveBeenCalled()
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should trigger update for multiple allowed properties when updateAllProperties is true', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: {
+                            $browser: 'Chrome',
+                            $os: 'macOS',
+                        },
+                    },
+                } as any
+
+                const personProperties = {
+                    $browser: 'Firefox',
+                    $os: 'Windows',
+                }
+
+                const result = computeEventPropertyUpdates(event, personProperties, true)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $browser: 'Chrome', $os: 'macOS' })
+                expect(result.shouldForceUpdate).toBe(true) // updateAllProperties forces updates
+                // With updateAllProperties=true, no metrics should be tracked
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).not.toHaveBeenCalled()
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should trigger update for mixed allowed and custom properties when updateAllProperties is true', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $browser: 'Chrome', custom_prop: 'same_value' },
+                    },
+                } as any
+
+                const personProperties = { $browser: 'Firefox', custom_prop: 'same_value' }
+
+                const result = computeEventPropertyUpdates(event, personProperties, true)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(true) // updateAllProperties forces updates
+                // With updateAllProperties=true, no metrics should be tracked
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).not.toHaveBeenCalled()
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should trigger update for mixed $geoip_* and allowed properties when updateAllProperties is true', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: {
+                            $browser: 'Chrome',
+                            $geoip_city_name: 'San Francisco',
+                            $geoip_country_code: 'US',
+                        },
+                    },
+                } as any
+
+                const personProperties = {
+                    $browser: 'Firefox',
+                    $geoip_city_name: 'New York',
+                    $geoip_country_code: 'CA',
+                }
+
+                const result = computeEventPropertyUpdates(event, personProperties, true)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({
+                    $browser: 'Chrome',
+                    $geoip_city_name: 'San Francisco',
+                    $geoip_country_code: 'US',
+                })
+                expect(result.shouldForceUpdate).toBe(true) // updateAllProperties forces updates
+                // With updateAllProperties=true, no metrics should be tracked
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).not.toHaveBeenCalled()
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should not change behavior for NO_PERSON_UPDATE_EVENTS when updateAllProperties is true', () => {
+                const event: PluginEvent = {
+                    event: '$exception',
+                    properties: {
+                        $set: { $browser: 'Chrome' },
+                    },
+                } as any
+
+                const personProperties = { $browser: 'Firefox' }
+
+                const result = computeEventPropertyUpdates(event, personProperties, true)
+
+                // NO_PERSON_UPDATE_EVENTS should still be skipped regardless of flag
+                expect(result.hasChanges).toBe(false)
+                expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'unsupported' })
             })
         })
     })
@@ -392,6 +633,7 @@ describe('person-update', () => {
                 hasChanges: true,
                 toSet: { name: 'John', email: 'john@example.com' },
                 toUnset: ['old_prop'],
+                shouldForceUpdate: false,
             }
 
             const person = {
@@ -416,6 +658,7 @@ describe('person-update', () => {
                 hasChanges: true,
                 toSet: { name: 'John' },
                 toUnset: [],
+                shouldForceUpdate: false,
             }
 
             const person = {
@@ -440,6 +683,7 @@ describe('person-update', () => {
                 hasChanges: false,
                 toSet: { name: 'John' },
                 toUnset: [],
+                shouldForceUpdate: false,
             }
 
             const person = {

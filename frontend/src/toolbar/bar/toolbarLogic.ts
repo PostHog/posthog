@@ -1,20 +1,28 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
+import { PostHog } from 'posthog-js'
 
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
+import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 
+import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
+const PII_MASKING_STYLESHEET_ID = 'posthog-pii-masking-styles'
 
 export type MenuState =
     | 'none'
@@ -26,6 +34,7 @@ export type MenuState =
     | 'debugger'
     | 'experiments'
     | 'web-vitals'
+    | 'product-tours'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -43,8 +52,23 @@ export const toolbarLogic = kea<toolbarLogicType>([
     path(['toolbar', 'bar', 'toolbarLogic']),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['posthog']],
+        values: [
+            toolbarConfigLogic,
+            ['posthog'],
+            heatmapToolbarMenuLogic,
+            ['elementStatsLoading', 'rawHeatmapLoading', 'isRefreshing'],
+            actionsLogic,
+            ['allActionsLoading'],
+            flagsToolbarLogic,
+            ['userFlagsLoading'],
+            experimentsLogic,
+            ['allExperimentsLoading'],
+            webVitalsToolbarLogic,
+            ['remoteWebVitalsLoading'],
+        ],
         actions: [
+            toolbarConfigLogic,
+            ['logout'],
             actionsTabLogic,
             [
                 'showButtonActions',
@@ -57,6 +81,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
+            productToursLogic,
+            ['showButtonProductTours', 'hideButtonProductTours'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -66,9 +92,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 'setHeatmapColorPalette',
                 'setCommonFilters',
                 'toggleClickmapsEnabled',
-                'loadHeatmap',
-                'loadHeatmapSuccess',
-                'loadHeatmapFailure',
             ],
         ],
     })),
@@ -91,6 +114,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setFixedPosition: (position: ToolbarPositionType) => ({ position }),
         setCurrentPathname: (pathname: string) => ({ pathname }),
         maybeSendNavigationMessage: true,
+        togglePiiMasking: (enabled?: boolean) => ({ enabled }),
+        setPiiMaskingColor: (color: string) => ({ color }),
+        startGracefulExit: true,
+        completeGracefulExit: true,
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -187,6 +214,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
             '',
             {
                 setCurrentPathname: (_, { pathname }) => pathname,
+            },
+        ],
+        piiMaskingEnabled: [
+            false,
+            { persist: true },
+            {
+                togglePiiMasking: (state, { enabled }) => enabled ?? !state,
+            },
+        ],
+        piiMaskingColor: [
+            '#888888' as string,
+            { persist: true },
+            {
+                setPiiMaskingColor: (_, { color }) => color,
+            },
+        ],
+        isExiting: [
+            false,
+            {
+                startGracefulExit: () => true,
+                completeGracefulExit: () => false,
             },
         ],
     })),
@@ -299,12 +347,79 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 }
             },
         ],
+
+        piiWarning: [
+            (s) => [s.posthog, s.piiMaskingEnabled],
+            (posthog: PostHog | null, piiMaskingEnabled: boolean) => {
+                if (!posthog || !piiMaskingEnabled) {
+                    return null
+                }
+
+                const warnings: string[] = []
+                if (posthog.sessionRecording?.status === 'active') {
+                    if (
+                        posthog.config.session_recording?.blockClass !== undefined &&
+                        typeof posthog.config.session_recording?.blockClass !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                    if (
+                        posthog.config.session_recording?.maskTextClass !== undefined &&
+                        typeof posthog.config.session_recording?.maskTextClass !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                    if (
+                        posthog.config.session_recording?.maskTextSelector !== undefined &&
+                        typeof posthog.config.session_recording?.maskTextSelector !== 'string'
+                    ) {
+                        warnings.push(
+                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextSelector`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
+                        )
+                    }
+                }
+
+                return warnings
+            },
+        ],
+        isLoading: [
+            (s) => [
+                s.elementStatsLoading,
+                s.rawHeatmapLoading,
+                s.isRefreshing,
+                s.allActionsLoading,
+                s.userFlagsLoading,
+                s.allExperimentsLoading,
+                s.remoteWebVitalsLoading,
+            ],
+            (
+                elementStatsLoading,
+                rawHeatmapLoading,
+                isRefreshing,
+                allActionsLoading,
+                userFlagsLoading,
+                allExperimentsLoading,
+                remoteWebVitalsLoading
+            ) =>
+                elementStatsLoading ||
+                rawHeatmapLoading ||
+                isRefreshing ||
+                allActionsLoading ||
+                userFlagsLoading ||
+                allExperimentsLoading ||
+                remoteWebVitalsLoading,
+        ],
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
+            actions.hideButtonProductTours()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
@@ -320,6 +435,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
+            } else if (visibleMenu === 'product-tours') {
+                actions.showButtonProductTours()
             }
         },
 
@@ -416,17 +533,54 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
         },
         maybeSendNavigationMessage: () => {
             const currentPath = window.location.pathname
             if (currentPath !== values.currentPathname) {
                 actions.setCurrentPathname(currentPath)
+                // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                 window.parent.postMessage(
                     { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
                     '*'
                 )
             }
+        },
+        togglePiiMasking: () => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (values.piiMaskingEnabled) {
+                const css = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
+                if (!styleElement) {
+                    const newStyleElement = document.createElement('style')
+                    newStyleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(newStyleElement)
+                    newStyleElement.textContent = css
+                } else {
+                    styleElement.textContent = css
+                }
+            } else {
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        },
+        setPiiMaskingColor: async ({ color }) => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (styleElement && values.piiMaskingEnabled) {
+                styleElement.textContent = generatePiiMaskingCSS(color, values.posthog)
+            }
+        },
+        startGracefulExit: () => {
+            actions.setVisibleMenu('none')
+            actions.toggleMinimized(true)
+        },
+        completeGracefulExit: () => {
+            actions.logout()
         },
     })),
     afterMount(({ actions, values, cache }) => {
@@ -454,6 +608,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
             'historyProxy'
         )
 
+        // Initialize PII masking if already enabled
+        // Remove stylesheet on unmount
+        cache.disposables.add(() => {
+            if (values.piiMaskingEnabled) {
+                let styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+                if (!styleElement) {
+                    styleElement = document.createElement('style')
+                    styleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(styleElement)
+                }
+                styleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor, values.posthog)
+            }
+
+            return () => {
+                const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID)
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        }, 'piiMasking')
+
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
         const isInIframe = window !== window.parent
@@ -476,6 +651,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                             actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
@@ -500,6 +677,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // Post message up to parent in case we are embedded in an app
             // Tell the parent window that we are ready
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
         }
     }),

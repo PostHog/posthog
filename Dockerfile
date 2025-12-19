@@ -9,6 +9,7 @@
 # The stages are used to:
 #
 # - frontend-build: build the frontend (static assets)
+# - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
@@ -34,28 +35,47 @@ COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
-COPY ee/frontend/ ee/frontend/
-COPY .git/config .git/config
-COPY .git/HEAD .git/HEAD
-COPY .git/refs/heads .git/refs/heads
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+COPY docs/onboarding/ docs/onboarding/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
+    CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
 
-# Process sourcemaps using posthog-cli
+
+#
+# ---------------------------------------------------------
+#
+# Isolated stage for sourcemap upload - keeps secrets and external network calls
+# out of the main build cache. This stage produces no artifacts for the final image.
+#
+FROM node:22.17.1-bookworm-slim AS sourcemap-upload
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+ARG COMMIT_HASH
+
+COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
-    apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
-    curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
-    export PATH="/root/.posthog:$PATH" && \
-    export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-    export POSTHOG_CLI_ENV_ID=2 && \
-    posthog-cli --no-fail sourcemap process --directory /code/frontend/dist --public-path-prefix /static; \
-    fi
+    ( \
+        if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
+            apt-get update && \
+            apt-get install -y --no-install-recommends ca-certificates curl && \
+            curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+            export PATH="/root/.posthog:$PATH" && \
+            export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+            export POSTHOG_CLI_ENV_ID=2 && \
+            posthog-cli --no-fail sourcemap process \
+                --directory /code/frontend/dist \
+                --public-path-prefix /static \
+                --project posthog \
+                --version "${COMMIT_HASH:-unknown}"; \
+        fi \
+    ) || true && \
+    touch /tmp/.sourcemaps-processed
+
 
 #
 # ---------------------------------------------------------
@@ -103,10 +123,10 @@ ENV BUILD_LIBRDKAFKA=0
 
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
@@ -116,58 +136,67 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
 COPY ./plugin-server/assets/ ./plugin-server/assets/
+COPY ./plugin-server/bin/ ./plugin-server/bin/
 
-# Build cyclotron first with increased memory
+# Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server with increased memory
+# Then build the plugin server
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
-
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
-    corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 --prod && \
-    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
 # ---------------------------------------------------------
 #
+FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
+
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.12.11-slim-bookworm AS posthog-build
+FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
+COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# Compile and install Python dependencies.
-# We install those dependencies on a custom folder that we will
-# then copy to the last image.
-COPY pyproject.toml uv.lock ./
+# uv settings for Docker builds
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PROJECT_ENVIRONMENT=/python-runtime
+
+# Install build dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
     "git" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libffi-dev" \
     "zlib1g-dev" \
     "pkg-config" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install uv==0.8.19 --no-cache-dir && \
-    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies using cache mount for faster rebuilds
+# Cache ID includes libxmlsec1 version to bust cache when system library changes
+RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Add in Django deps and generate Django's static files.
+# Add in Django deps
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
+
+# Copy the built frontend assets and also the products.json file
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
+
+# Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
@@ -217,8 +246,8 @@ RUN apt-get update && \
     "chromium" \
     "chromium-driver" \
     "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
+    "libxmlsec1=1.2.37-2" \
+    "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
     "ffmpeg=7:5.1.7-0+deb12u1" \
@@ -303,6 +332,7 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/bin /code/plugin-server/bin
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
@@ -311,9 +341,14 @@ ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
 # Install Playwright Chromium browser for video export (as root for system deps)
+# Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
+    PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
+    /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    mkdir -p /ms-playwright && \
+    cp -r /tmp/playwright-cache/* /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 
@@ -326,21 +361,22 @@ RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwrig
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
 COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
+# Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
+COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
+
+# Copy products.json from the frontend-build stage
+COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
+
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Add in the Gunicorn config, custom bin files and Django deps.
-COPY --chown=posthog:posthog gunicorn.config.py ./
+# Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
-COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
-
-# Keep server command backwards compatible
-RUN cp ./bin/docker-server-unit ./bin/docker-server
 
 # Setup ENV.
 ENV NODE_ENV=production \
@@ -356,5 +392,6 @@ EXPOSE 8000
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
 COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+# nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
 CMD ["./bin/docker"]

@@ -1,6 +1,8 @@
 import type { ApiClient } from '@/api/client'
+import { ErrorCode } from '@/lib/errors'
 import type { ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
+
 import type { ScopedCache } from './cache/ScopedCache'
 
 export class StateManager {
@@ -13,7 +15,7 @@ export class StateManager {
         this._api = api
     }
 
-    private async _fetchUser() {
+    private async _fetchUser(): Promise<ApiUser> {
         const userResult = await this._api.users().me()
         if (!userResult.success) {
             throw new Error(`Failed to get user: ${userResult.error.message}`)
@@ -21,7 +23,7 @@ export class StateManager {
         return userResult.data
     }
 
-    async getUser() {
+    async getUser(): Promise<ApiUser> {
         if (!this._user) {
             this._user = await this._fetchUser()
         }
@@ -29,15 +31,32 @@ export class StateManager {
         return this._user
     }
 
-    private async _fetchApiKey() {
+    private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
-        if (!apiKeyResult.success) {
-            throw new Error(`Failed to get API key: ${apiKeyResult.error.message}`)
+        if (apiKeyResult.success) {
+            return apiKeyResult.data
         }
-        return apiKeyResult.data
+
+        const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
+
+        if (!introspectionResult.success) {
+            throw new Error(`Failed to get API key: ${introspectionResult.error.message}`)
+        }
+
+        if (!introspectionResult.data.active) {
+            throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
+        }
+
+        const { scope, scoped_teams, scoped_organizations } = introspectionResult.data
+
+        return {
+            scopes: scope ? scope.split(' ') : [],
+            scoped_teams,
+            scoped_organizations,
+        }
     }
 
-    async getApiKey() {
+    async getApiKey(): Promise<NonNullable<State['apiKey']>> {
         let _apiKey = await this._cache.get('apiKey')
 
         if (!_apiKey) {
@@ -48,7 +67,7 @@ export class StateManager {
         return _apiKey
     }
 
-    async getDistinctId() {
+    async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
         let _distinctId = await this._cache.get('distinctId')
 
         if (!_distinctId) {
@@ -81,19 +100,13 @@ export class StateManager {
             return { projectId }
         }
 
-        if (
-            scoped_organizations.length === 0 ||
-            scoped_organizations.includes(activeOrganization.id)
-        ) {
+        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
             return { organizationId: activeOrganization.id, projectId: activeTeam.id }
         }
 
         const organizationId = scoped_organizations[0]!
 
-        const projectsResult = await this._api
-            .organizations()
-            .projects({ orgId: organizationId })
-            .list()
+        const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
 
         if (!projectsResult.success) {
             throw projectsResult.error
@@ -108,7 +121,10 @@ export class StateManager {
         return { organizationId, projectId: Number(projectId) }
     }
 
-    async setDefaultOrganizationAndProject() {
+    async setDefaultOrganizationAndProject(): Promise<{
+        organizationId: string | undefined
+        projectId: number
+    }> {
         const { organizationId, projectId } = await this._getDefaultOrganizationAndProject()
 
         if (organizationId) {

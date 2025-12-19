@@ -6,7 +6,7 @@ import { ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } fr
 import React from 'react'
 
 import { IconArrowRight, IconInfo, IconWrench, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
@@ -16,8 +16,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
 import {
-    MAX_GENERALLY_CAN,
-    MAX_GENERALLY_CANNOT,
+    AI_GENERALLY_CAN,
+    AI_GENERALLY_CANNOT,
     TOOL_DEFINITIONS,
     ToolDefinition,
     ToolRegistration,
@@ -53,22 +53,33 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
             >
                 <div
                     className={clsx(
-                        'relative flex items-center text-xs font-medium justify-between gap-1 overflow-hidden',
+                        'relative flex items-center text-xs justify-between gap-1 overflow-hidden',
                         !isFloating
                             ? 'w-[calc(100%-1rem)] px-1.5 pt-2 pb-1 -m-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                             : `w-full px-2 pb-1 pt-0.5`
                     )}
                 >
                     <TruncatedHorizontalCollection>
-                        <span className="shrink-0">Tools:</span>
+                        <span className="shrink-0 text-secondary">Tools:</span>
                         {toolsInReverse.map((tool) => {
                             const toolDef = getToolDefinition(tool.identifier)
                             return (
                                 // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
                                 // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
-                                <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
+                                <em
+                                    className="relative inline-flex items-center gap-1 text-secondary"
+                                    key={tool.identifier}
+                                >
                                     <span className="flex text-sm">{toolDef?.icon || <IconWrench />}</span>
-                                    {toolDef?.name}
+                                    {/* Controls how the create_and_query_insight tool displays its name */}
+                                    <span className="flex items-center gap-1">
+                                        {tool.name}
+                                        {toolDef?.beta && (
+                                            <LemonTag size="small" type="warning" className="-my-1 not-italic">
+                                                BETA
+                                            </LemonTag>
+                                        )}
+                                    </span>
                                 </em>
                             )
                         })}
@@ -163,38 +174,55 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
 function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration[] }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    /** Dynamic list of things Max can do right now, i.e. general capabilities + tools registered. */
-    const maxCanHere = useMemo(
+    /** Dynamic list of things PostHog AI can do right now, i.e. general capabilities + tools registered. */
+    const currentCapabilities = useMemo(
         () =>
             (toolsInReverse as { name?: string; description?: string; identifier?: keyof typeof TOOL_DEFINITIONS }[])
                 .reduce(
                     (tools, tool) => {
                         const toolDef = tool.identifier ? TOOL_DEFINITIONS[tool.identifier] : undefined
+                        if (toolDef?.flag && !featureFlags[toolDef.flag]) {
+                            return tools // Skip flagged tools that are not enabled
+                        }
                         if (toolDef?.subtools) {
                             tools.push(...Object.values(toolDef.subtools))
                         } else {
-                            tools.push({ name: toolDef?.name, description: toolDef?.description, icon: toolDef?.icon })
+                            // Taking `tool` name and description from the registered tool, not the tool definition.
+                            // This makes tool substitution correctly work (create_and_query_insight).
+                            tools.push({
+                                name: tool.name,
+                                description: tool.description,
+                                icon: toolDef?.icon,
+                                beta: toolDef?.beta,
+                            })
                         }
                         return tools
                     },
-                    [] as { name?: string; description?: string; icon?: JSX.Element }[]
+                    [] as { name?: string; description?: string; icon?: JSX.Element; beta?: boolean }[]
                 )
-                .concat(MAX_GENERALLY_CAN)
+                .concat(AI_GENERALLY_CAN)
                 .map((tool) => (
                     <React.Fragment key={tool.name}>
                         <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
                             {tool.icon || <IconWrench />}
                         </span>
                         <span>
-                            <strong className="italic">{tool.name}</strong>
+                            <strong className="italic">
+                                {tool.name}
+                                {tool.beta && (
+                                    <LemonTag size="small" type="warning" className="ml-1 not-italic">
+                                        BETA
+                                    </LemonTag>
+                                )}
+                            </strong>
                             {tool.description?.replace(tool.name || '', '')}
                         </span>
                     </React.Fragment>
                 )),
         [toolsInReverse.map((t) => t.name).join(';')] // eslint-disable-line react-hooks/exhaustive-deps
     )
-    /** Dynamic list of things Max can do elsewhere in PostHog, by product. */
-    const maxCanElsewhereByProduct = useMemo(
+    /** Dynamic list of things PostHog AI can do elsewhere in PostHog, by product. */
+    const capabilitiesByProduct = useMemo(
         () =>
             Object.entries(TOOL_DEFINITIONS)
                 .filter(
@@ -210,24 +238,34 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                         if (!acc[tool.product]) {
                             acc[tool.product] = []
                         }
-                        acc[tool.product]!.push(tool)
+                        // Dedupe tools with the same name within a product
+                        if (!acc[tool.product]!.some((t) => t.name === tool.name)) {
+                            acc[tool.product]!.push(tool)
+                        }
                         return acc
                     },
                     {} as Partial<Record<Scene, ToolDefinition[]>>
                 ),
         [toolsInReverse.map((t) => t.name).join(';'), featureFlags] // eslint-disable-line react-hooks/exhaustive-deps
     )
-    /** Dynamic list of things Max can do elsewhere in PostHog, by product. */
-    const maxCanElsewhere = useMemo(
+    /** Dynamic list of things PostHog AI can do elsewhere in PostHog, by product. */
+    const productCapabilities = useMemo(
         () =>
-            Object.entries(maxCanElsewhereByProduct).map(([product, tools]) => (
+            Object.entries(capabilitiesByProduct).map(([product, tools]) => (
                 <>
                     <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
                     <span>
                         <em>In {sceneConfigurations[product]?.name || identifierToHuman(product)}: </em>
                         {tools.map((tool, index) => (
                             <React.Fragment key={tool.name}>
-                                <strong className="italic">{tool.name}</strong>
+                                <strong className="italic">
+                                    {tool.name}
+                                    {tool.beta && (
+                                        <LemonTag size="small" type="warning" className="ml-1 not-italic">
+                                            BETA
+                                        </LemonTag>
+                                    )}
+                                </strong>
                                 {tool.description?.replace(tool.name, '')}
                                 {index < tools.length - 1 && <>; </>}
                             </React.Fragment>
@@ -235,26 +273,26 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                     </span>
                 </>
             )),
-        [maxCanElsewhereByProduct]
+        [capabilitiesByProduct]
     )
 
     return (
         <>
             <div className="mb-2">
-                <div className="font-semibold mb-0.5">Max can:</div>
+                <div className="font-semibold mb-0.5">PostHog AI can:</div>
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
-                    {maxCanHere.map((item, index) => (
+                    {currentCapabilities.map((item, index) => (
                         <li key={`here-${index}`}>{item}</li>
                     ))}
-                    {maxCanElsewhere.map((item, index) => (
+                    {productCapabilities.map((item, index) => (
                         <li key={`elsewhere-${index}`}>{item}</li>
                     ))}
                 </ul>
             </div>
             <div>
-                <div className="font-semibold mb-0.5">Max can't (yet):</div>
+                <div className="font-semibold mb-0.5">PostHog AI can't (yet):</div>
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
-                    {MAX_GENERALLY_CANNOT.map((item, index) => (
+                    {AI_GENERALLY_CANNOT.map((item, index) => (
                         <li key={index}>
                             <IconX className="text-base text-danger shrink-0 ml-1 mr-2 h-[1.25em]" />
                             <span>{item}</span>

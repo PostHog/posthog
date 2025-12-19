@@ -1,4 +1,6 @@
+import datetime
 from datetime import timedelta
+from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -133,18 +135,19 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         test_groups = [
-            {"key": "prefix2", "name": "testable"},
-            {"key": "contains", "name": "my_test_group"},
-            {"key": "prefix", "name": "testing"},
-            {"key": "exact", "name": "test"},
-            {"key": "contains2", "name": "best_test_ever"},
+            {"key": "prefix2", "name": "testable", "ts": datetime.datetime(2025, 11, 3, 17, 16)},
+            {"key": "contains", "name": "my_test_group", "ts": datetime.datetime(2025, 11, 3, 17, 15)},
+            {"key": "prefix", "name": "testing", "ts": datetime.datetime(2025, 11, 3, 17, 14)},
+            {"key": "exact", "name": "test", "ts": datetime.datetime(2025, 11, 3, 17, 17)},
+            {"key": "contains2", "name": "best_test_ever", "ts": datetime.datetime(2025, 11, 3, 17, 18)},
         ]
         for group in test_groups:
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
-                group_key=group["key"],
+                group_key=group["key"],  # type: ignore[arg-type]
                 properties={"name": group["name"]},
+                timestamp=group["ts"],  # type: ignore[arg-type]
             )
 
         query = GroupsQuery(
@@ -437,3 +440,120 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(group[0], "myorg.inc")
         self.assertEqual(group[1], "myorg")
         self.assertEqual(group[2], "true")
+
+    def test_column_ordering_consistency(self):
+        """Test that group_name and key are ALWAYS the first two columns in results.
+
+        IMPORTANT: The frontend (crm/utils.tsx) depends on this ordering,
+        specifically hardcoding that 'key' is at index 1. This test ensures
+        that contract is maintained regardless of select parameter ordering.
+        """
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="priority",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="test_org",
+            properties={"name": "Test Organization", "priority": 100, "status": "active"},
+        )
+
+        test_cases: list[tuple[str, Optional[list[str]], list[str], dict[int, str | int]]] = [
+            (
+                "Default (no select specified)",
+                None,
+                ["group_name", "key"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                },
+            ),
+            (
+                "Select with properties before group_name/key",
+                ["properties.priority", "properties.status", "group_name", "key"],
+                ["group_name", "key", "properties.priority", "properties.status"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                    2: 100,  # priority
+                    3: "active",  # status
+                },
+            ),
+            (
+                "Select with only additional properties (no explicit group_name/key)",
+                ["properties.status", "properties.priority"],
+                ["group_name", "key", "properties.status", "properties.priority"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                    2: "active",  # status
+                    3: 100,  # priority
+                },
+            ),
+            (
+                "Select with properties interspersed with group_name/key",
+                ["properties.status", "key", "properties.priority", "group_name"],
+                ["group_name", "key", "properties.status", "properties.priority"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                    2: "active",  # status
+                    3: 100,  # priority
+                },
+            ),
+            (
+                "Select with duplicate group_name and key",
+                ["group_name", "key", "properties.status", "group_name", "key"],
+                ["group_name", "key", "properties.status"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                    2: "active",  # status
+                },
+            ),
+            (
+                "Select with only key specified",
+                ["key"],
+                ["group_name", "key"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                },
+            ),
+            (
+                "Select with only group_name specified",
+                ["group_name"],
+                ["group_name", "key"],
+                {
+                    0: "Test Organization",  # group_name
+                    1: "test_org",  # key
+                },
+            ),
+        ]
+
+        for name, select, expected_columns, expected_values in test_cases:
+            with self.subTest(name):
+                query = GroupsQuery(
+                    group_type_index=0,
+                    limit=10,
+                    offset=0,
+                    select=select,
+                )
+                result = GroupsQueryRunner(query=query, team=self.team).calculate()
+
+                self.assertEqual(result.columns[0], "group_name", "First column must always be group_name")
+                self.assertEqual(result.columns[1], "key", "Second column must always be key")
+                self.assertEqual(result.columns, expected_columns)
+
+                for index, expected_value in expected_values.items():
+                    self.assertEqual(result.results[0][index], expected_value)

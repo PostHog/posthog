@@ -102,7 +102,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             hogFlow.status === 'active' &&
             (hogFlow.trigger?.type === 'webhook' ||
                 hogFlow.trigger?.type === 'tracking_pixel' ||
-                hogFlow.trigger?.type === 'manual')
+                hogFlow.trigger?.type === 'manual' ||
+                hogFlow.trigger?.type === 'schedule')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
@@ -163,6 +164,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 query,
                 stringBody: req.rawBody ?? '',
             },
+            variables: req.body.$variables || {},
         }
     }
 
@@ -207,6 +209,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
@@ -224,18 +227,32 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             const customHttpResponse = getCustomHttpResponse(functionResult)
             if (customHttpResponse) {
                 const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
-                addLog(level, `Responded with response status - ${customHttpResponse.status}`)
+                if (level === 'warn') {
+                    const bodyStr =
+                        typeof customHttpResponse.body === 'string'
+                            ? customHttpResponse.body
+                            : JSON.stringify(customHttpResponse.body)
+                    addLog(level, `Responded with response status - ${customHttpResponse.status}, reason: ${bodyStr}`)
+                } else {
+                    addLog(level, `Responded with response status - ${customHttpResponse.status}`)
+                }
             }
 
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
             // Add all logs to the result
 
             if (capturedPostHogEvent) {
+                // For workflows, the captured event is only used as trigger data and not to actually capture the event
+                // Remove the execution count property to allow workflow actions to capture events without
+                // triggering the infinite loop protection.
+                const { $hog_function_execution_count, ...cleanProperties } = capturedPostHogEvent.properties || {}
+
                 // Invoke the hogflow
                 const triggerGlobals: HogFunctionInvocationGlobals = {
                     ...invocation.state.globals,
                     event: {
                         ...capturedPostHogEvent,
+                        properties: cleanProperties,
                         uuid: new UUIDT().toString(),
                         elements_chain: '',
                         url: '',
@@ -246,6 +263,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     hogFlow,
                     {} as HogFunctionFilterGlobals
                 )
+
+                const scheduledAt = req.body?.$scheduled_at
+                if (scheduledAt) {
+                    const scheduledDateTime = DateTime.fromISO(scheduledAt)
+                    if (!scheduledDateTime.isValid) {
+                        addLog('warn', `Invalid scheduled_at date format: ${scheduledAt}`)
+                    } else {
+                        hogFlowInvocation.queueScheduledAt = scheduledDateTime
+                        addLog('info', `Workflow run scheduled for ${scheduledAt}`)
+                    }
+                }
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 
@@ -346,7 +374,22 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 const customHttpResponse = getCustomHttpResponse(result)
                 if (customHttpResponse) {
                     const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
-                    result.logs.push(logEntry(level, `Responded with response status - ${customHttpResponse.status}`))
+                    if (level === 'warn') {
+                        const bodyStr =
+                            typeof customHttpResponse.body === 'string'
+                                ? customHttpResponse.body
+                                : JSON.stringify(customHttpResponse.body)
+                        result.logs.push(
+                            logEntry(
+                                level,
+                                `Responded with response status - ${customHttpResponse.status}, reason: ${bodyStr}`
+                            )
+                        )
+                    } else {
+                        result.logs.push(
+                            logEntry(level, `Responded with response status - ${customHttpResponse.status}`)
+                        )
+                    }
                 }
             }
         } catch (error) {

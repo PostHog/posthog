@@ -37,6 +37,7 @@ interface ListBoxContextType {
     registerGroupItem?: (groupId: string, index: number, element: HTMLLIElement) => void
     unregisterGroupItem?: (groupId: string, index: number) => void
     focusGroupItem?: (groupId: string, index: number) => boolean
+    syncVirtualFocus?: (element: HTMLElement) => void
 }
 
 const ListBoxContext = createContext<ListBoxContextType>({ containerRef: null })
@@ -393,6 +394,13 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent): void => {
+            const isModKeyPressed = e.metaKey || e.ctrlKey
+
+            // Allow native browser functionality with modifier keys
+            if (isModKeyPressed) {
+                return
+            }
+
             if (!containerRef.current?.contains(document.activeElement)) {
                 return
             }
@@ -418,6 +426,8 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             if (virtualFocus) {
                 elements.forEach((el) => el.removeAttribute('data-focused'))
             }
+
+            const PAGE_JUMP = 12
 
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault()
@@ -520,6 +530,21 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                     nextEl.focus()
                 }
                 nextEl.scrollIntoView({ block: 'nearest' })
+            } else if (e.key === 'PageDown' || e.key === 'PageUp') {
+                e.preventDefault()
+                handledArrowNavigation = true
+
+                if (currentIndex === -1) {
+                    if (e.key === 'PageDown') {
+                        const firstFocusElement = elements.find((el) => el.getAttribute('data-focus-first') === 'true')
+                        nextIndex = firstFocusElement ? elements.indexOf(firstFocusElement) : 0
+                    } else {
+                        nextIndex = elements.length - 1
+                    }
+                } else {
+                    const delta = e.key === 'PageDown' ? PAGE_JUMP : -PAGE_JUMP
+                    nextIndex = Math.min(Math.max(currentIndex + delta, 0), elements.length - 1)
+                }
             } else if (e.key === 'Home' || e.key === 'End') {
                 e.preventDefault()
                 handledArrowNavigation = true
@@ -532,14 +557,20 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
 
             if (handledArrowNavigation) {
-                if (virtualFocus) {
-                    setVirtualFocusedElement(elements[nextIndex])
-                    elements[nextIndex]?.setAttribute('data-focused', 'true')
-                } else {
-                    elements[nextIndex]?.focus()
+                const targetEl = elements[nextIndex]
+                const { row: newRow } = getRC(targetEl)
+                if (newRow >= 0) {
+                    stickyRowRef.current = newRow
                 }
 
-                elements[nextIndex]?.scrollIntoView({ block: 'nearest' })
+                if (virtualFocus) {
+                    setVirtualFocusedElement(targetEl)
+                    targetEl?.setAttribute('data-focused', 'true')
+                } else {
+                    targetEl?.focus()
+                }
+
+                targetEl?.scrollIntoView({ block: 'nearest' })
             }
 
             if (e.key === 'Enter') {
@@ -571,8 +602,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             registerGroupItem,
             unregisterGroupItem,
             focusGroupItem,
+            syncVirtualFocus: virtualFocus ? setVirtualFocusedElement : undefined,
         }),
-        [registerGroupItem, unregisterGroupItem, focusGroupItem]
+        [registerGroupItem, unregisterGroupItem, focusGroupItem, setVirtualFocusedElement, virtualFocus]
     )
 
     // Keep internal maps in sync and refresh sticky row when children change.
@@ -616,7 +648,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 role="listbox"
                 tabIndex={0}
                 onKeyDown={handleKeyDown}
-                className={cn(className)}
+                className={cn(className, 'focus-visible:outline-none')}
                 aria-orientation="vertical"
                 {...props}
             >
@@ -649,7 +681,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
         { children, asChild, onClick, virtualFocusIgnore, focusFirst, row, column, focusKey, index, ...props },
         ref
     ): JSX.Element => {
-        const { containerRef } = useContext(ListBoxContext)
+        const { containerRef, syncVirtualFocus } = useContext(ListBoxContext)
         const groupContext = useContext(ListBoxGroupContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -665,6 +697,9 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                     })
                 )
             }
+
+            // Sync virtual focus so keyboard navigation follows mouse selection
+            syncVirtualFocus?.(e.currentTarget as HTMLElement)
 
             // Track all focus keys for history
             const currentFocusKey = (e.currentTarget as HTMLElement).getAttribute('data-focus-key')

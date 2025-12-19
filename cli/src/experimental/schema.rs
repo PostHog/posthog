@@ -6,12 +6,15 @@ use std::fs;
 use std::path::Path;
 use tracing::info;
 
+use crate::api::client::PHClient;
 use crate::invocation_context::context;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Language {
     TypeScript,
+    Golang,
+    Python,
 }
 
 impl Language {
@@ -19,6 +22,8 @@ impl Language {
     fn as_str(&self) -> &'static str {
         match self {
             Language::TypeScript => "typescript",
+            Language::Golang => "golang",
+            Language::Python => "python",
         }
     }
 
@@ -26,6 +31,8 @@ impl Language {
     fn display_name(&self) -> &'static str {
         match self {
             Language::TypeScript => "TypeScript",
+            Language::Golang => "Go",
+            Language::Python => "Python",
         }
     }
 
@@ -33,18 +40,80 @@ impl Language {
     fn default_output_path(&self) -> &'static str {
         match self {
             Language::TypeScript => "posthog-typed.ts",
+            Language::Golang => "posthog-typed.go",
+            // Python uses underscore because hyphens aren't valid in Python module names
+            Language::Python => "posthog_typed.py",
+        }
+    }
+
+    /// Get the message to show to the user upon completion of the command (e.g. the next steps)
+    fn next_steps_text(&self, output_path: &str) -> String {
+        match self {
+            Language::TypeScript => format!(
+                r#"
+1. Import PostHog from your generated module:
+   import posthog from './{output_path}'
+2. Use typed events with autocomplete and type safety on known events:
+   posthog.capture('event_name', {{ property: 'value' }})
+3. Use captureRaw() when you need to bypass type checking:
+   posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})
+"#
+            ),
+            Language::Golang => format!(
+                r#"
+1. Install the PostHog Go SDK if you haven't already:
+   go get github.com/posthog/posthog-go
+2. Store the generated Go code in a folder named `typed` (e.g. `/src/lib/typed`):
+   mkdir -p <your-directory>/src/lib/typed
+   mv {output_path} <your-directory>/src/lib/typed
+   > If you prefer a different folder, you will need to update the `package` at the top of
+   > the generated file.
+3. Migrate your code to the typed event captures:
+   cap := typed.EventNameCapture("user_id", requiredProp1, requiredProp2)
+   err := client.Enqueue(cap)
+
+You can add optional properties through the option functions:
+    cap := typed.EventNameCapture("user_id", required,
+       typed.EventNameWithOptionalProp("value"))
+"#
+            ),
+            Language::Python => format!(
+                r#"
+1. Save the generated file in your project (if not generated there already):
+   mv {output_path} <your-project>/posthog_typed.py
+
+2. Import and use the typed PostHog client:
+   from posthog_typed import PosthogTyped
+
+   client = PosthogTyped("<ph_project_api_key>", host="<ph_client_api_host>")
+
+   # Use typed capture methods with full IDE autocomplete:
+   client.capture_event_name(
+       required_property="value",
+       distinct_id="user_123",
+   )
+
+3. All standard Posthog methods are available:
+   client.identify(...)
+   client.capture(...)  # For untyped/dynamic events
+   client.flush()
+   client.shutdown()
+"#
+            ),
         }
     }
 
     /// Get all available languages
     fn all() -> Vec<Language> {
-        vec![Language::TypeScript]
+        vec![Language::TypeScript, Language::Golang, Language::Python]
     }
 
     /// Parse a language from a string identifier
     fn from_str(s: &str) -> Option<Language> {
         match s {
             "typescript" => Some(Language::TypeScript),
+            "golang" => Some(Language::Golang),
+            "python" => Some(Language::Python),
             _ => None,
         }
     }
@@ -130,15 +199,14 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         language.display_name()
     );
 
-    // Load credentials
-    let token = context().token.clone();
-    let host = token.get_host();
+    // Get PH client
+    let client = &context().client;
 
     // Determine output path
     let output_path = determine_output_path(language, output_override)?;
 
     // Fetch definitions from the server
-    let response = fetch_definitions(&host, &token.env_id, &token.token, language)?;
+    let response = fetch_definitions(client, language)?;
 
     info!(
         "✓ Fetched {} definitions for {} events",
@@ -164,7 +232,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         }
     }
 
-    // Write TypeScript definitions to file
+    // Write language definitions to file
     info!("Writing {}...", output_path);
 
     // Create parent directories if they don't exist
@@ -190,15 +258,9 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     config.save()?;
     info!("✓ Updated posthog.json");
 
-    println!("\n✓ Schema sync complete!");
+    println!("✓ Schema sync complete!");
     println!("\nNext steps:");
-    println!("  1. Import PostHog from your generated module:");
-    println!("     import posthog from './{output_path}'");
-    println!("  2. Use typed events with autocomplete and type safety:");
-    println!("     posthog.captureTyped('event_name', {{ property: 'value' }})");
-    println!("  3. Or use regular capture() for flexibility:");
-    println!("     posthog.capture('dynamic_event', {{ any: 'data' }})");
-    println!();
+    println!("{}", language.next_steps_text(&output_path));
 
     Ok(())
 }
@@ -263,14 +325,14 @@ pub fn status() -> Result<()> {
     println!("\nPostHog Schema Sync Status\n");
 
     println!("Authentication:");
-    let token = context().token.clone();
+    let config = context().config.clone();
     println!("  ✓ Authenticated");
-    println!("  Host: {}", token.get_host());
-    println!("  Project ID: {}", token.env_id);
+    println!("  Host: {}", config.host);
+    println!("  Project ID: {}", config.env_id);
     let masked_token = format!(
         "{}****{}",
-        &token.token[..4],
-        &token.token[token.token.len() - 4..]
+        &config.api_key[..4],
+        &config.api_key[config.api_key.len() - 4..]
     );
     println!("  Token: {masked_token}");
 
@@ -311,24 +373,16 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_definitions(
-    host: &str,
-    env_id: &str,
-    token: &str,
-    language: Language,
-) -> Result<DefinitionsResponse> {
-    let url = format!(
-        "{}/api/projects/{}/event_definitions/{}/",
-        host,
-        env_id,
-        language.as_str()
-    );
+fn fetch_definitions(client: &PHClient, language: Language) -> Result<DefinitionsResponse> {
+    let url = format!("event_definitions/{}/", language.as_str());
 
-    let client = &context().client;
-    let response = client.get(&url).bearer_auth(token).send().context(format!(
-        "Failed to fetch {} definitions",
-        language.display_name()
-    ))?;
+    let response = client
+        .get(client.project_url(&url)?)
+        .send()
+        .context(format!(
+            "Failed to fetch {} definitions",
+            language.display_name()
+        ))?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(

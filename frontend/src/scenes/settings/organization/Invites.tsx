@@ -85,7 +85,7 @@ export function InvitesTable(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="flex items-center">
+                    <div className="ph-no-capture flex items-center">
                         {invite.target_email}
                         {invite.first_name ? ` (${invite.first_name})` : ''}
                     </div>
