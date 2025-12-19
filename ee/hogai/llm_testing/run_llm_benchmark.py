@@ -33,7 +33,6 @@ MODELS = [
     "gemini-3-pro-preview",
     "claude-sonnet-4-5-20250929",
     "gpt-5.2",
-    "gemini-3-flash-preview",
     "claude-opus-4-5-20251101",
 ]
 
