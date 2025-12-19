@@ -12,6 +12,7 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
@@ -126,6 +127,7 @@ class RateLimit:
 
             # team in beta cannot skip limits
             if bypass or (not in_beta and self.bypass_all):
+                tag_queries(rate_limit_bypass=1)
                 result = "allow" if bypass else "block"
                 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                     task_name=task_name,
@@ -145,6 +147,7 @@ class RateLimit:
                     result="retry",
                 ).inc()
                 self.sleep(backoff(count))
+                tag_queries(rate_limit_wait=count)
                 count += 1
                 continue
 
