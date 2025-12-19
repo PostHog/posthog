@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -159,8 +160,8 @@ func CheckDockerVolumes() (bool, bool) {
 		return false, false
 	}
 
-	hasPostgres := contains(out, "postgres-data")
-	hasClickhouse := contains(out, "clickhouse-data")
+	hasPostgres := strings.Contains(out, "postgres-data")
+	hasClickhouse := strings.Contains(out, "clickhouse-data")
 
 	return hasPostgres, hasClickhouse
 }
@@ -213,13 +214,4 @@ func joinArgs(args []string) string {
 		result += arg
 	}
 	return result
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
