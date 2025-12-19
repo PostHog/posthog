@@ -7,17 +7,18 @@ from posthog.schema import FunnelsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_utils import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.filters import Filter
 from posthog.test.test_journeys import journeys_for
 
 
-def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
+def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelConversionTime(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             filter = Filter(data=filter, team=self.team)
             person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
+            _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
 
