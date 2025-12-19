@@ -478,7 +478,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             )
 
         # Activity 4: Consolidate raw segments into meaningful semantic segments
-        consolidated_segments = await temporalio.workflow.execute_activity(
+        consolidated_analysis = await temporalio.workflow.execute_activity(
             consolidate_video_segments_activity,
             args=(video_inputs, raw_segments, trace_id),
             start_to_close_timeout=timedelta(minutes=3),
@@ -488,7 +488,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
         await temporalio.workflow.execute_activity(
             embed_and_store_segments_activity,
-            args=(video_inputs, consolidated_segments, asset_id),
+            args=(video_inputs, consolidated_analysis.segments, asset_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )
@@ -498,7 +498,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         # and uses it to map video segments to real events
         await temporalio.workflow.execute_activity(
             store_video_session_summary_activity,
-            args=(video_inputs, consolidated_segments),
+            args=(video_inputs, consolidated_analysis),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=retry_policy,
         )

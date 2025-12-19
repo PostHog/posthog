@@ -229,7 +229,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_id: str,
         user: User,
         team: Team,
-        video_validation_enabled: bool | None,
+        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> SessionSummarySerializer | Exception:
         try:
@@ -252,7 +252,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids: list[str],
         user: User,
         team: Team,
-        video_validation_enabled: bool | None,
+        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, dict[str, Any]]:
         tasks = {}

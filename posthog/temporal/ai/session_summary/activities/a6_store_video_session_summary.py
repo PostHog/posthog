@@ -9,7 +9,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_data_class_from_redis,
     get_redis_state_client,
 )
-from posthog.temporal.ai.session_summary.types.video import ConsolidatedVideoSegment, VideoSummarySingleSessionInputs
+from posthog.temporal.ai.session_summary.types.video import ConsolidatedVideoAnalysis, VideoSummarySingleSessionInputs
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import (
@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 @temporalio.activity.defn
 async def store_video_session_summary_activity(
     inputs: VideoSummarySingleSessionInputs,
-    segments: list[ConsolidatedVideoSegment],
+    analysis: ConsolidatedVideoAnalysis,
 ) -> None:
     """Convert video segments to session summary format and store in database
 
@@ -89,7 +89,7 @@ async def store_video_session_summary_activity(
 
         # Convert video segments to session summary format, using real events if available
         summary_dict = _convert_video_segments_to_session_summary(
-            segments=segments,
+            analysis=analysis,
             session_id=inputs.session_id,
             llm_input=llm_input,
         )
@@ -137,7 +137,7 @@ async def store_video_session_summary_activity(
         logger.info(
             f"Successfully stored video-based summary for session {inputs.session_id}",
             session_id=inputs.session_id,
-            segment_count=len(segments),
+            segment_count=len(analysis.segments),
             has_real_events=llm_input is not None,
         )
 
@@ -150,7 +150,7 @@ async def store_video_session_summary_activity(
 
 
 def _convert_video_segments_to_session_summary(
-    segments: list[ConsolidatedVideoSegment],
+    analysis: ConsolidatedVideoAnalysis,
     session_id: str,
     llm_input: SingleSessionSummaryLlmInputs | None = None,
 ) -> dict:
@@ -163,9 +163,10 @@ def _convert_video_segments_to_session_summary(
 
     When llm_input is not available, falls back to placeholder data.
     """
+    segments = analysis.segments
     if not llm_input:
         # Fallback to placeholder-based summary if no cached event data available
-        return _convert_video_segments_to_session_summary_fallback(segments, session_id)
+        return _convert_video_segments_to_session_summary_fallback(analysis, session_id)
 
     # Extract data from cached LLM input
     simplified_events_mapping = llm_input.simplified_events_mapping
@@ -248,7 +249,7 @@ def _convert_video_segments_to_session_summary(
             events_count = 0
             events_percentage = 0.0
 
-        # Build segment entry
+        # Build segment entry - use detected flags from video analysis
         summary_segments.append(
             {
                 "index": idx,
@@ -261,10 +262,10 @@ def _convert_video_segments_to_session_summary(
                     "events_count": events_count,
                     "events_percentage": min(1.0, events_percentage),
                     "key_action_count": 1,  # One key action per video segment
-                    "failure_count": 0,
-                    "abandonment_count": 0,
-                    "confusion_count": 0,
-                    "exception_count": 0,
+                    "failure_count": 1 if segment.failure_detected else 0,
+                    "abandonment_count": 1 if segment.abandonment_detected else 0,
+                    "confusion_count": 1 if segment.confusion_detected else 0,
+                    "exception_count": 0,  # Exceptions require code-level detection, not video analysis
                 },
             }
         )
@@ -302,8 +303,8 @@ def _convert_video_segments_to_session_summary(
 
             key_action_event = {
                 "description": segment.description,
-                "abandonment": False,
-                "confusion": False,
+                "abandonment": segment.abandonment_detected,
+                "confusion": segment.confusion_detected,
                 "exception": None,
                 "event_id": representative_event_id,
                 "timestamp": event_timestamp,
@@ -320,8 +321,8 @@ def _convert_video_segments_to_session_summary(
             # Fallback to synthetic event
             key_action_event = {
                 "description": segment.description,
-                "abandonment": False,
-                "confusion": False,
+                "abandonment": segment.abandonment_detected,
+                "confusion": segment.confusion_detected,
                 "exception": None,
                 "event_id": f"vid_{idx:04d}",
                 "timestamp": segment.start_time,
@@ -342,19 +343,23 @@ def _convert_video_segments_to_session_summary(
             }
         )
 
-        # Create segment outcome
-        segment_outcomes.append(
+    # Use LLM-provided segment outcomes, or fall back to generating from segment data
+    if analysis.segment_outcomes:
+        segment_outcomes = analysis.segment_outcomes
+    else:
+        segment_outcomes = [
             {
                 "segment_index": idx,
                 "summary": segment.description,
-                "success": True,  # Default to success for video segments
+                "success": segment.success,
             }
-        )
+            for idx, segment in enumerate(segments)
+        ]
 
-    # Create overall session outcome
+    # Use LLM-provided session outcome
     session_outcome = {
-        "description": f"Video-based analysis of session with {len(segments)} segments identified",
-        "success": True,
+        "description": analysis.session_outcome.description,
+        "success": analysis.session_outcome.success,
     }
 
     return {
@@ -366,16 +371,17 @@ def _convert_video_segments_to_session_summary(
 
 
 def _convert_video_segments_to_session_summary_fallback(
-    segments: list[ConsolidatedVideoSegment],
+    analysis: ConsolidatedVideoAnalysis,
     session_id: str,
 ) -> dict:
     """Fallback conversion when no cached event data is available.
 
-    Uses placeholder event IDs and minimal metadata.
+    Uses placeholder event IDs and minimal metadata, but still uses the richer
+    analysis data (failure/confusion/abandonment detection, outcomes).
     """
+    segments = analysis.segments
     summary_segments = []
     key_actions = []
-    segment_outcomes = []
 
     for idx, segment in enumerate(segments):
         start_ms = _parse_timestamp_to_ms(segment.start_time)
@@ -392,9 +398,9 @@ def _convert_video_segments_to_session_summary_fallback(
                     "events_count": 0,
                     "events_percentage": 0.0,
                     "key_action_count": 1,
-                    "failure_count": 0,
-                    "abandonment_count": 0,
-                    "confusion_count": 0,
+                    "failure_count": 1 if segment.failure_detected else 0,
+                    "abandonment_count": 1 if segment.abandonment_detected else 0,
+                    "confusion_count": 1 if segment.confusion_detected else 0,
                     "exception_count": 0,
                 },
             }
@@ -406,8 +412,8 @@ def _convert_video_segments_to_session_summary_fallback(
                 "events": [
                     {
                         "description": segment.description,
-                        "abandonment": False,
-                        "confusion": False,
+                        "abandonment": segment.abandonment_detected,
+                        "confusion": segment.confusion_detected,
                         "exception": None,
                         "event_id": f"vid_{idx:04d}",
                         "timestamp": segment.start_time,
@@ -423,17 +429,23 @@ def _convert_video_segments_to_session_summary_fallback(
             }
         )
 
-        segment_outcomes.append(
+    # Use LLM-provided segment outcomes, or fall back to generating from segment data
+    if analysis.segment_outcomes:
+        segment_outcomes = analysis.segment_outcomes
+    else:
+        segment_outcomes = [
             {
                 "segment_index": idx,
                 "summary": segment.description,
-                "success": True,
+                "success": segment.success,
             }
-        )
+            for idx, segment in enumerate(segments)
+        ]
 
+    # Use LLM-provided session outcome
     session_outcome = {
-        "description": f"Video-based analysis of session with {len(segments)} segments identified",
-        "success": True,
+        "description": analysis.session_outcome.description,
+        "success": analysis.session_outcome.success,
     }
 
     return {
