@@ -20,7 +20,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -249,8 +249,13 @@ export function StatelessInsightLoadingState({
         inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
     const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         const status = pollResponse?.status?.query_progress
         const previousStatus = pollResponse?.previousStatus?.query_progress
         setRowsRead(previousStatus?.rows_read || 0)
@@ -271,10 +276,14 @@ export function StatelessInsightLoadingState({
         }, 100)
 
         return () => clearInterval(interval)
-    }, [pollResponse])
+    }, [pollResponse, isPageVisible])
 
     // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         const TOGGLE_INTERVAL_MIN = 2500
         const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
@@ -303,7 +312,7 @@ export function StatelessInsightLoadingState({
         )
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     const suggestions = suggestion ? (
         suggestion
