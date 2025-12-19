@@ -1,5 +1,7 @@
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import type { Ticket, TicketChannel, TicketPriority, TicketSlaState, TicketStatus } from '../../types'
@@ -111,8 +113,13 @@ export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogic
                 params.date_to = values.dateTo
             }
 
-            const response = await api.conversationsTickets.list(params)
-            actions.setTickets(response.results || [])
+            try {
+                const response = await api.conversationsTickets.list(params)
+                actions.setTickets(response.results || [])
+            } catch {
+                lemonToast.error('Failed to load tickets')
+                actions.setTicketsLoading(false)
+            }
         },
         setStatusFilter: () => {
             actions.loadTickets()

@@ -144,7 +144,8 @@ async fn apply_config_fields(
             .map(|arr| arr.iter().filter_map(|d| d.as_str()).collect())
             .unwrap_or_default();
         Some(serde_json::json!({
-            "enabled": widget_enabled,
+            "enabled": true,
+            "widgetEnabled": widget_enabled,
             "greetingText": greeting_text,
             "color": color,
             "token": token,

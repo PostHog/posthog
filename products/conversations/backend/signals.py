@@ -26,7 +26,7 @@ def increment_unread_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     # Check author_type to be sure (customer messages shouldn't have created_by anyway)
-    author_type = instance.item_context.get("author_type") if instance.item_context else None
+    author_type = instance.item_context.get("author_type") if isinstance(instance.item_context, dict) else None
     if author_type == "customer":
         return
 
