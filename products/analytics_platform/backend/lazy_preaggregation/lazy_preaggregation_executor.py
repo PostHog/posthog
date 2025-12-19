@@ -332,6 +332,8 @@ def run_preaggregation_insert(
     """
     Run the INSERT query to populate preaggregation results in ClickHouse.
     """
+    assert job.expires_at is not None
+
     insert_sql, values = build_preaggregation_insert_sql(
         team=team,
         job_id=str(job.id),
