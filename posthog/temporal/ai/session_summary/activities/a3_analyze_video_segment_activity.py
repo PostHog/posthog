@@ -1,0 +1,328 @@
+import re
+import json
+from typing import Any, cast
+
+from django.conf import settings
+
+import structlog
+import temporalio
+from google.genai import types
+from posthoganalytics.ai.gemini import genai
+
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    get_data_class_from_redis,
+    get_redis_state_client,
+)
+from posthog.temporal.ai.session_summary.types.video import (
+    UploadedVideo,
+    VideoSegmentOutput,
+    VideoSegmentSpec,
+    VideoSummarySingleSessionInputs,
+)
+
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index, prepare_datetime
+
+SESSION_VIDEO_CHUNK_DURATION_S = 15
+
+logger = structlog.get_logger(__name__)
+
+
+@temporalio.activity.defn
+async def analyze_video_segment_activity(
+    inputs: VideoSummarySingleSessionInputs,
+    uploaded_video: UploadedVideo,
+    segment: VideoSegmentSpec,
+) -> list[VideoSegmentOutput]:
+    """Analyze a segment of the uploaded video with Gemini using video_metadata for time range
+
+    Returns detailed descriptions of salient moments in the segment.
+    """
+    try:
+        # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
+        llm_input: SingleSessionSummaryLlmInputs | None = None
+        events_context = ""
+        if inputs.redis_key_base:
+            redis_client, redis_input_key, _ = get_redis_state_client(
+                key_base=inputs.redis_key_base,
+                input_label=StateActivitiesEnum.SESSION_DB_DATA,
+                state_id=inputs.session_id,
+            )
+            llm_input_raw = await get_data_class_from_redis(
+                redis_client=redis_client,
+                redis_key=redis_input_key,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
+                target_class=SingleSessionSummaryLlmInputs,
+            )
+            if llm_input_raw:
+                llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
+
+                # Find events within this segment's time range
+                start_ms = int(segment.start_time * 1000)
+                end_ms = int(segment.end_time * 1000)
+                events_in_range = _find_events_in_time_range(
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    simplified_events_mapping=llm_input.simplified_events_mapping,
+                    simplified_events_columns=llm_input.simplified_events_columns,
+                    session_start_time_str=llm_input.session_start_time_str,
+                )
+
+                if events_in_range:
+                    events_context = _format_events_for_prompt(
+                        events_in_range=events_in_range,
+                        simplified_events_columns=llm_input.simplified_events_columns,
+                        url_mapping_reversed=llm_input.url_mapping_reversed,
+                        window_mapping_reversed=llm_input.window_mapping_reversed,
+                    )
+                    logger.info(
+                        f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
+                        session_id=inputs.session_id,
+                        segment_index=segment.segment_index,
+                        event_count=len(events_in_range),
+                    )
+
+        # Use wrapped client for generation (with PostHog observability)
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+        # Construct analysis prompt
+        start_timestamp = _format_timestamp(segment.start_time)
+        end_timestamp = _format_timestamp(segment.end_time)
+        segment_duration = segment.end_time - segment.start_time
+
+        # Build events context section for the prompt
+        events_section = ""
+        if events_context:
+            events_section = f"""
+<tracked_events>
+The following events were tracked during this segment. Use them to understand what actions the user took
+and correlate them with what you see in the video. Pay special attention to:
+- $exception_types and $exception_values: These indicate errors or exceptions that occurred
+- elements_chain_texts: Text content the user interacted with
+- $event_type: The type of interaction (click, submit, etc.)
+- $current_url: The page URL where the action occurred
+
+Events data (in chronological order):
+{events_context}
+</tracked_events>
+
+"""
+
+        prompt = f"""Analyze this video segment from a web analytics session recording.
+
+This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
+{events_section}
+Your task:
+- Describe what's happening in the video as a list of salient moments
+- Highlight what features were used, and what the user was doing with them
+- Note any problems, errors, confusion, or friction the user experienced
+- If tracked events show exceptions ($exception_types, $exception_values), identify them in your analysis
+- Red lines indicate mouse movements, and should be ignored
+- If nothing is happening, return "Static"
+
+Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
+* MM:SS - MM:SS: <detailed description>
+* MM:SS - MM:SS: <detailed description>
+
+Be specific and detailed about:
+- What the user clicked on
+- What pages or sections they navigated to
+- What they typed or entered
+- Any errors or loading states (correlate with exception events if available)
+- Signs of confusion or hesitation
+- What outcomes occurred
+
+Example output:
+* {start_timestamp} - {_format_timestamp(segment.start_time + 3)}: User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
+* {_format_timestamp(segment.start_time + 3)} - {_format_timestamp(segment.start_time + 8)}: User clicked on "Create new project" button in the top toolbar
+* {_format_timestamp(segment.start_time + 8)} - {end_timestamp}: User attempted to submit the form but received validation error "Name is required"
+
+IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
+"""
+
+        logger.info(
+            f"Analyzing segment {segment.segment_index} ({start_timestamp} - {end_timestamp}) for session {inputs.session_id}",
+            session_id=inputs.session_id,
+            segment_index=segment.segment_index,
+        )
+
+        # Analyze with Gemini using video_metadata to specify the time range
+        response = client.models.generate_content(
+            model=f"models/{inputs.model_to_use}",
+            contents=[
+                types.Part(
+                    file_data=types.FileData(file_uri=uploaded_video.file_uri, mime_type=uploaded_video.mime_type),
+                    video_metadata=types.VideoMetadata(
+                        start_offset=f"{segment.start_time}s",
+                        end_offset=f"{segment.end_time}s",
+                    ),
+                ),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(include_thoughts=False),
+                max_output_tokens=4096,
+            ),
+            posthog_distinct_id=inputs.user_distinct_id_to_log,
+            posthog_trace_id=f"video-analysis-{inputs.redis_key_base}-{inputs.session_id}",
+            posthog_properties={
+                "$session_id": inputs.session_id,
+                "segment_index": segment.segment_index,
+            },
+            posthog_groups={"project": str(inputs.team_id)},
+        )
+
+        response_text = (response.text or "").strip()
+
+        logger.info(
+            f"Received analysis for segment {segment.segment_index}",
+            session_id=inputs.session_id,
+            segment_index=segment.segment_index,
+            response_length=len(response_text),
+            response_preview=response_text[:200] if response_text else None,
+        )
+
+        # Parse response into segments
+        segments = []
+
+        if response_text.lower() == "static":
+            # No activity in this segment
+            logger.debug(
+                f"Segment {segment.segment_index} marked as static",
+                session_id=inputs.session_id,
+                segment_index=segment.segment_index,
+            )
+            return []
+
+        # Parse bullet points in format: * MM:SS - MM:SS: description
+        pattern_colon = r"\*\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?):\s*(.+?)(?=\n\*|$)"
+
+        matches = re.findall(pattern_colon, response_text, re.DOTALL | re.MULTILINE)
+
+        if not matches:
+            logger.warning(
+                f"No segments matched regex pattern for segment {segment.segment_index}",
+                session_id=inputs.session_id,
+                segment_index=segment.segment_index,
+                response_text=response_text[:500],
+            )
+
+        for start_time_str, end_time_str, description in matches:
+            description = description.strip()
+            if description:
+                segments.append(
+                    VideoSegmentOutput(
+                        start_time=start_time_str,
+                        end_time=end_time_str,
+                        description=description,
+                    )
+                )
+
+        logger.info(
+            f"Parsed {len(segments)} segments from segment {segment.segment_index}",
+            session_id=inputs.session_id,
+            segment_index=segment.segment_index,
+            segment_count=len(segments),
+        )
+
+        return segments
+
+    except Exception as e:
+        logger.exception(
+            f"Failed to analyze segment {segment.segment_index} for session {inputs.session_id}: {e}",
+            session_id=inputs.session_id,
+            segment_index=segment.segment_index,
+        )
+        raise
+
+
+def _format_timestamp(seconds: float) -> str:
+    """Format seconds as MM:SS or HH:MM:SS"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes:02d}:{secs:02d}"
+
+
+def _format_events_for_prompt(
+    events_in_range: list[tuple[str, list[Any]]],
+    simplified_events_columns: list[str],
+    url_mapping_reversed: dict[str, str],
+    window_mapping_reversed: dict[str, str],
+) -> str:
+    """Format events data for inclusion in the video analysis prompt"""
+    if not events_in_range:
+        return "No tracked events occurred during this segment."
+
+    # Build a simplified view of events for the prompt
+    # Include key columns that help understand what happened
+    key_columns = [
+        "event_id",
+        "event_index",
+        "event",
+        "timestamp",
+        "$event_type",
+        "$current_url",
+        "elements_chain_texts",
+        "$exception_types",
+        "$exception_values",
+    ]
+
+    # Get indices for key columns
+    column_indices: dict[str, int | None] = {}
+    for col in key_columns:
+        column_indices[col] = get_column_index(simplified_events_columns, col)
+
+    # Format events
+    formatted_events = []
+    for event_id, event_data in events_in_range:
+        event_info: dict[str, Any] = {"event_id": event_id}
+        for col in key_columns:
+            idx = column_indices.get(col)
+            if idx is not None and idx < len(event_data):
+                value = event_data[idx]
+                if value is not None:
+                    # Resolve URL and window mappings
+                    if col == "$current_url" and isinstance(value, str):
+                        value = url_mapping_reversed.get(value, value)
+                    elif col == "$window_id" and isinstance(value, str):
+                        value = window_mapping_reversed.get(value, value)
+                    event_info[col] = value
+        formatted_events.append(event_info)
+
+    return json.dumps(formatted_events, indent=2, default=str)
+
+
+def _find_events_in_time_range(
+    start_ms: int,
+    end_ms: int,
+    simplified_events_mapping: dict[str, list[Any]],
+    simplified_events_columns: list[str],
+    session_start_time_str: str,
+) -> list[tuple[str, list[Any]]]:
+    """Find all events that fall within the given time range (in milliseconds from session start).
+
+    Returns a list of (event_id, event_data) tuples sorted by event_index.
+    """
+    session_start_time = prepare_datetime(session_start_time_str)
+    timestamp_index = get_column_index(simplified_events_columns, "timestamp")
+    event_index_index = get_column_index(simplified_events_columns, "event_index")
+
+    events_in_range: list[tuple[str, list[Any], int]] = []
+
+    for event_id, event_data in simplified_events_mapping.items():
+        event_timestamp = event_data[timestamp_index]
+        event_ms = calculate_time_since_start(event_timestamp, session_start_time)
+        if event_ms is not None and start_ms <= event_ms <= end_ms:
+            event_index = event_data[event_index_index]
+            events_in_range.append((event_id, event_data, event_index))
+
+    # Sort by event_index
+    events_in_range.sort(key=lambda x: x[2])
+
+    return [(event_id, event_data) for event_id, event_data, _ in events_in_range]

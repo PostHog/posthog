@@ -21,8 +21,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.activities.video_analysis import (
-    CHUNK_DURATION,
+from posthog.temporal.ai.session_summary.activities import (
+    SESSION_VIDEO_CHUNK_DURATION_S,
     analyze_video_segment_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
@@ -399,11 +399,6 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     async def _run_video_based_summarization(self, inputs: SingleSessionSummaryInputs) -> None:
         """Execute video-based summarization activities.
-
-        This runs the same activities as SummarizeSingleSessionWithVideoWorkflow,
-        but within the existing workflow context and using the already-cached
-        session data from fetch_session_data_activity.
-
         Uploads the full video once to Gemini, then analyzes segments in parallel.
         """
         retry_policy = RetryPolicy(maximum_attempts=3)
@@ -437,12 +432,14 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
         # Calculate segment specs based on video duration
         duration = uploaded_video.duration
-        num_segments = int(duration / CHUNK_DURATION) + (1 if duration % CHUNK_DURATION > 0 else 0)
+        num_segments = int(duration / SESSION_VIDEO_CHUNK_DURATION_S) + (
+            1 if duration % SESSION_VIDEO_CHUNK_DURATION_S > 0 else 0
+        )
         segment_specs = [
             VideoSegmentSpec(
                 segment_index=i,
-                start_time=i * CHUNK_DURATION,
-                end_time=min((i + 1) * CHUNK_DURATION, duration),
+                start_time=i * SESSION_VIDEO_CHUNK_DURATION_S,
+                end_time=min((i + 1) * SESSION_VIDEO_CHUNK_DURATION_S, duration),
             )
             for i in range(num_segments)
         ]

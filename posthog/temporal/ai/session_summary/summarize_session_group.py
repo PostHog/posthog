@@ -28,21 +28,21 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.activities.patterns import (
-    assign_events_to_patterns_activity,
-    combine_patterns_from_chunks_activity,
-    extract_session_group_patterns_activity,
-    get_patterns_from_redis_outside_workflow,
-    split_session_summaries_into_chunks_for_patterns_extraction_activity,
-)
-from posthog.temporal.ai.session_summary.activities.video_analysis import (
-    CHUNK_DURATION,
+from posthog.temporal.ai.session_summary.activities import (
+    SESSION_VIDEO_CHUNK_DURATION_S,
     analyze_video_segment_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
     store_video_session_summary_activity,
     upload_video_to_gemini_activity,
+)
+from posthog.temporal.ai.session_summary.activities.patterns import (
+    assign_events_to_patterns_activity,
+    combine_patterns_from_chunks_activity,
+    extract_session_group_patterns_activity,
+    get_patterns_from_redis_outside_workflow,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.temporal.ai.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
@@ -483,12 +483,14 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
         # Calculate segment specs based on video duration
         duration = uploaded_video.duration
-        num_segments = int(duration / CHUNK_DURATION) + (1 if duration % CHUNK_DURATION > 0 else 0)
+        num_segments = int(duration / SESSION_VIDEO_CHUNK_DURATION_S) + (
+            1 if duration % SESSION_VIDEO_CHUNK_DURATION_S > 0 else 0
+        )
         segment_specs = [
             VideoSegmentSpec(
                 segment_index=i,
-                start_time=i * CHUNK_DURATION,
-                end_time=min((i + 1) * CHUNK_DURATION, duration),
+                start_time=i * SESSION_VIDEO_CHUNK_DURATION_S,
+                end_time=min((i + 1) * SESSION_VIDEO_CHUNK_DURATION_S, duration),
             )
             for i in range(num_segments)
         ]
