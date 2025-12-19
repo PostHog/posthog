@@ -23,6 +23,7 @@ export interface BeginPasskeyLoginParams {
     email?: string
     reauth?: 'true' | 'false'
 }
+
 const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
     NotAllowedError: 'Authentication was cancelled or timed out.',
     SecurityError: 'Security error occurred. Please try again.',
