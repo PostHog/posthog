@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { getConstrainedWeekRange } from './dateTimeUtils'
+import { formatLocalizedDate, getConstrainedWeekRange } from './dateTimeUtils'
 
 describe('getConstrainedWeekRange', () => {
     beforeEach(() => {
@@ -236,5 +236,43 @@ describe('getConstrainedWeekRange', () => {
             expect(typeof result.start.format).toBe('function')
             expect(typeof result.end.format).toBe('function')
         })
+    })
+})
+
+describe('formatLocalizedDate', () => {
+    const originalLang = document.documentElement.lang
+
+    afterEach(() => {
+        document.documentElement.lang = originalLang
+    })
+
+    it('should return US date format for en-US locale', () => {
+        document.documentElement.lang = 'en-US'
+        expect(formatLocalizedDate()).toBe('MMM DD')
+    })
+
+    it('should return US date format for en-CA locale', () => {
+        document.documentElement.lang = 'en-CA'
+        expect(formatLocalizedDate()).toBe('MMM DD')
+    })
+
+    it('should return international date format for en-GB locale', () => {
+        document.documentElement.lang = 'en-GB'
+        expect(formatLocalizedDate()).toBe('DD MMM')
+    })
+
+    it('should handle locale with region suffix', () => {
+        document.documentElement.lang = 'en-US-x-custom'
+        expect(formatLocalizedDate()).toBe('MMM DD')
+    })
+
+    it('should handle locale without region (defaults to international format)', () => {
+        document.documentElement.lang = 'en'
+        expect(formatLocalizedDate()).toBe('DD MMM')
+    })
+
+    it('should handle complex locale with script and extensions', () => {
+        document.documentElement.lang = 'en-Latn-US-u-ca-gregory'
+        expect(formatLocalizedDate()).toBe('MMM DD')
     })
 })
