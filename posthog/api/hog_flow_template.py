@@ -233,10 +233,11 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
     def perform_update(self, serializer):
         instance = serializer.instance
 
+        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         if instance.scope == HogFlowTemplate.Scope.GLOBAL:
-            if not posthoganalytics.feature_enabled(
+            if distinct_id is None or not posthoganalytics.feature_enabled(
                 "workflows-template-creation",
-                self.request.user.distinct_id,
+                distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},
                 only_evaluate_locally=False,
@@ -251,7 +252,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
-            user=self.request.user,
+            user=serializer.context["request"].user,
             was_impersonated=is_impersonated_session(self.request),
             item_id=instance.id,
             scope="HogFlowTemplate",
@@ -260,10 +261,12 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
     def perform_destroy(self, instance: HogFlowTemplate):
+        distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
+
         if instance.scope == HogFlowTemplate.Scope.GLOBAL:
-            if not posthoganalytics.feature_enabled(
+            if distinct_id is None or not posthoganalytics.feature_enabled(
                 "workflows-template-creation",
-                self.request.user.distinct_id,
+                distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},
                 only_evaluate_locally=False,
@@ -276,7 +279,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
-            user=self.request.user,
+            user=self.context["request"].user,
             was_impersonated=is_impersonated_session(self.request),
             item_id=instance.id,
             scope="HogFlowTemplate",
