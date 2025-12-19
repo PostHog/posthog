@@ -1,3 +1,5 @@
+from freezegun import freeze_time
+
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
 from products.revenue_analytics.backend.views.sources.events.mrr import build
@@ -5,19 +7,22 @@ from products.revenue_analytics.backend.views.sources.test.events.base import Ev
 
 
 class TestMRREventsBuilder(EventsSourceBaseTest):
+    QUERY_TIMESTAMP = "2025-05-30"
+
     def setUp(self):
         super().setUp()
         self.events = self.setup_revenue_analytics_events()
 
     def test_build_mrr_query(self):
         """Test building MRR query for an event."""
-        handle = SourceHandle(type="events", team=self.team, event=self.events[0])
+        with freeze_time(self.QUERY_TIMESTAMP):
+            handle = SourceHandle(type="events", team=self.team, event=self.events[0])
 
-        query = build(handle)
+            query = build(handle)
 
-        self.assertBuiltQueryStructure(query, self.PURCHASE_EVENT_NAME, "revenue_analytics.events.purchase")
-        query_sql = query.query.to_hogql()
-        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
+            self.assertBuiltQueryStructure(query, self.PURCHASE_EVENT_NAME, "revenue_analytics.events.purchase")
+            query_sql = query.query.to_hogql()
+            self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_query_structure_contains_required_fields(self):
         """Test that the generated query contains all required MRR fields."""

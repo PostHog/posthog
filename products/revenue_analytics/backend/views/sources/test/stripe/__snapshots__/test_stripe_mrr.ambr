@@ -12,7 +12,7 @@
             toStartOfMonth(revenue_item.timestamp) AS timestamp,
             sum(revenue_item.amount) AS amount
      FROM `stripe.stripe_test.revenue_item_revenue_view` AS revenue_item
-     WHERE and(equals(is_recurring, true), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-12-19 04:10:21.613854'), -60))), lessOrEquals(timestamp, toDateTime('2025-12-19 04:10:21.613854')))
+     WHERE and(equals(is_recurring, true), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
      GROUP BY source_label,
               customer_id,
               subscription_id,
@@ -24,7 +24,7 @@
                       ended_at AS timestamp,
                       toDecimal(0, 10) AS amount
      FROM `stripe.stripe_test.subscription_revenue_view`
-     WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-12-19 04:10:21.613854'), -60))), lessOrEquals(timestamp, toDateTime('2025-12-19 04:10:21.613854')))
+     WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
      ORDER BY timestamp DESC) AS
   union
   GROUP BY source_label,

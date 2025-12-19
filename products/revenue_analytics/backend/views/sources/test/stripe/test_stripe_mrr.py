@@ -1,22 +1,27 @@
+from freezegun import freeze_time
+
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.mrr import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
 
 
 class TestMRRStripeBuilder(StripeSourceBaseTest):
+    QUERY_TIMESTAMP = "2025-05-30"
+
     def setUp(self):
         super().setUp()
         self.setup_stripe_external_data_source()
 
     def test_build_mrr_query(self):
-        query = build(self.stripe_handle)
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = build(self.stripe_handle)
 
-        expected_key = f"{self.external_data_source.id}-mrr"
-        expected_prefix = f"stripe.{self.external_data_source.prefix}"
-        self.assertBuiltQueryStructure(query, expected_key, expected_prefix)
+            expected_key = f"{self.external_data_source.id}-mrr"
+            expected_prefix = f"stripe.{self.external_data_source.prefix}"
+            self.assertBuiltQueryStructure(query, expected_key, expected_prefix)
 
-        query_sql = query.query.to_hogql()
-        self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
+            query_sql = query.query.to_hogql()
+            self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_query_structure_contains_required_fields(self):
         query = build(self.stripe_handle)
