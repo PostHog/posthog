@@ -6,7 +6,7 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
+import { destinationE2eLagMsSummary, destinationIngestedToProcessedLagMs } from '~/main/ingestion-queues/metrics'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -130,6 +130,7 @@ export type HogExecutorExecuteOptions = {
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
+    skipE2eLagMetrics?: boolean
 }
 
 export class HogExecutorService {
@@ -317,11 +318,18 @@ export class HogExecutorService {
             }
         }
 
-        if (result.finished) {
+        // We want to skip these metrics if the function is invoked from a hogflow, because that likely includes multiple steps and delays that would skew our metrics
+        if (result.finished && !options?.skipE2eLagMetrics) {
             const capturedAt = invocation.state.globals.event?.captured_at
             if (capturedAt) {
                 const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
                 destinationE2eLagMsSummary.observe(e2eLagMs)
+            }
+
+            const ingestedAt = invocation.state.globals.event?.ingested_at
+            if (ingestedAt) {
+                const ingestedToProcessedLagMs = Date.now() - new Date(ingestedAt).getTime()
+                destinationIngestedToProcessedLagMs.labels({ destinationType: 'hog' }).observe(ingestedToProcessedLagMs)
             }
         }
 

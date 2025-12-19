@@ -2,7 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
+import { destinationE2eLagMsSummary, destinationIngestedToProcessedLagMs } from '~/main/ingestion-queues/metrics'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -269,7 +269,7 @@ describe('CdpCyclotronWorker', () => {
             expect(results).toEqual([])
         })
 
-        describe('e2e lag metrics tracking', () => {
+        describe('lag metrics tracking', () => {
             let dateNowSpy: jest.SpyInstance
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
 
@@ -281,9 +281,13 @@ describe('CdpCyclotronWorker', () => {
                 dateNowSpy.mockRestore()
             })
 
-            it('should track e2e lag for segment- invocation', async () => {
+            it('should track lag for segment- invocation', async () => {
                 const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
-                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const e2eObserveSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedLabelsSpy = jest.spyOn(destinationIngestedToProcessedLagMs, 'labels')
+                const ingestedObserveSpy = jest.fn()
+                ingestedLabelsSpy.mockReturnValue({ observe: ingestedObserveSpy } as any)
 
                 const segmentFn = await insertHogFunction(
                     hub.postgres,
@@ -307,18 +311,27 @@ describe('CdpCyclotronWorker', () => {
                     event: {
                         ...globals.event,
                         captured_at: capturedAt,
+                        ingested_at: ingestedAt,
                     },
                 })
 
                 await processor.processInvocations([segmentInvocation])
 
-                expect(observeSpy).toHaveBeenCalledTimes(1)
-                expect(observeSpy).toHaveBeenCalledWith(1000)
+                expect(e2eObserveSpy).toHaveBeenCalledTimes(1)
+                expect(e2eObserveSpy).toHaveBeenCalledWith(1000)
+                expect(ingestedLabelsSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedLabelsSpy).toHaveBeenCalledWith({ destinationType: 'segment' })
+                expect(ingestedObserveSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedObserveSpy).toHaveBeenCalledWith(1000)
             })
 
-            it('should track e2e lag for plugin- invocation', async () => {
+            it('should track lag for plugin- invocation', async () => {
                 const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
-                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const e2eObserveSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedLabelsSpy = jest.spyOn(destinationIngestedToProcessedLagMs, 'labels')
+                const ingestedObserveSpy = jest.fn()
+                ingestedLabelsSpy.mockReturnValue({ observe: ingestedObserveSpy } as any)
 
                 const pluginFn = await insertHogFunction(
                     hub.postgres,
@@ -336,18 +349,27 @@ describe('CdpCyclotronWorker', () => {
                     event: {
                         ...globals.event,
                         captured_at: capturedAt,
+                        ingested_at: ingestedAt,
                     },
                 })
 
                 await processor.processInvocations([pluginInvocation])
 
-                expect(observeSpy).toHaveBeenCalledTimes(1)
-                expect(observeSpy).toHaveBeenCalledWith(1000)
+                expect(e2eObserveSpy).toHaveBeenCalledTimes(1)
+                expect(e2eObserveSpy).toHaveBeenCalledWith(1000)
+                expect(ingestedLabelsSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedLabelsSpy).toHaveBeenCalledWith({ destinationType: 'legacy-plugin' })
+                expect(ingestedObserveSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedObserveSpy).toHaveBeenCalledWith(1000)
             })
 
-            it('should track e2e lag for native-webhook invocation', async () => {
+            it('should track lag for native-webhook invocation', async () => {
                 const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
-                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const e2eObserveSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedLabelsSpy = jest.spyOn(destinationIngestedToProcessedLagMs, 'labels')
+                const ingestedObserveSpy = jest.fn()
+                ingestedLabelsSpy.mockReturnValue({ observe: ingestedObserveSpy } as any)
 
                 const nativeFn = await insertHogFunction(
                     hub.postgres,
@@ -365,18 +387,27 @@ describe('CdpCyclotronWorker', () => {
                     event: {
                         ...globals.event,
                         captured_at: capturedAt,
+                        ingested_at: ingestedAt,
                     },
                 })
 
                 await processor.processInvocations([nativeInvocation])
 
-                expect(observeSpy).toHaveBeenCalledTimes(1)
-                expect(observeSpy).toHaveBeenCalledWith(1000)
+                expect(e2eObserveSpy).toHaveBeenCalledTimes(1)
+                expect(e2eObserveSpy).toHaveBeenCalledWith(1000)
+                expect(ingestedLabelsSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedLabelsSpy).toHaveBeenCalledWith({ destinationType: 'native' })
+                expect(ingestedObserveSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedObserveSpy).toHaveBeenCalledWith(1000)
             })
 
-            it('should track e2e lag for executeWithAsyncFunctions invocation', async () => {
+            it('should track lag for executeWithAsyncFunctions invocation', async () => {
                 const capturedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
-                const observeSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedAt = new Date(fixedTime.toMillis() - 1000).toISOString()
+                const e2eObserveSpy = jest.spyOn(destinationE2eLagMsSummary, 'observe')
+                const ingestedLabelsSpy = jest.spyOn(destinationIngestedToProcessedLagMs, 'labels')
+                const ingestedObserveSpy = jest.fn()
+                ingestedLabelsSpy.mockReturnValue({ observe: ingestedObserveSpy } as any)
 
                 const hogFn = await insertHogFunction(
                     hub.postgres,
@@ -393,13 +424,18 @@ describe('CdpCyclotronWorker', () => {
                     event: {
                         ...globals.event,
                         captured_at: capturedAt,
+                        ingested_at: ingestedAt,
                     },
                 })
 
                 await processor.processInvocations([hogInvocation])
 
-                expect(observeSpy).toHaveBeenCalledTimes(1)
-                expect(observeSpy).toHaveBeenCalledWith(1000)
+                expect(e2eObserveSpy).toHaveBeenCalledTimes(1)
+                expect(e2eObserveSpy).toHaveBeenCalledWith(1000)
+                expect(ingestedLabelsSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedLabelsSpy).toHaveBeenCalledWith({ destinationType: 'hog' })
+                expect(ingestedObserveSpy).toHaveBeenCalledTimes(1)
+                expect(ingestedObserveSpy).toHaveBeenCalledWith(1000)
             })
         })
 
