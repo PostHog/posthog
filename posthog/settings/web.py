@@ -502,6 +502,13 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")
 
 ####
+# Graceful shutdown
+
+# Marker file created by Kubernetes preStop hook to signal pod is shutting down.
+# When this file exists, the /_readyz endpoint returns 503 to stop receiving new traffic.
+PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop")
+
+####
 # Local dev
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly

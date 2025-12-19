@@ -14,6 +14,7 @@ import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
@@ -72,9 +73,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Trace Name',
                 render: TraceNameColumn,
             },
-            person: {
-                title: 'Person',
-            },
+            person: llmAnalyticsColumnRenderers.person,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,

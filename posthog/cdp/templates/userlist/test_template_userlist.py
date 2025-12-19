@@ -1,5 +1,3 @@
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.userlist.template_userlist import template as template_userlist
 
@@ -33,23 +31,21 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://incoming.userlist.com/posthog/users",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Push test_push_key",
-                        "Accept": "application/json",
-                        "Content-Type": "application/json; charset=utf-8",
-                    },
-                    "body": {
-                        "email": "user@example.com",
-                        "identifier": "user_123",
-                        "properties": {"first_name": "John", "last_name": "Doe"},
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://incoming.userlist.com/posthog/users",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Push test_push_key",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
                 },
-            )
+                "body": {
+                    "email": "user@example.com",
+                    "identifier": "user_123",
+                    "properties": {"first_name": "John", "last_name": "Doe"},
+                },
+            },
         )
 
     def test_set_event(self):
@@ -68,23 +64,21 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://incoming.userlist.com/posthog/users",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Push test_push_key",
-                        "Accept": "application/json",
-                        "Content-Type": "application/json; charset=utf-8",
-                    },
-                    "body": {
-                        "email": "updated@example.com",
-                        "identifier": "user_456",
-                        "properties": {"first_name": "Jane", "last_name": "Smith"},
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://incoming.userlist.com/posthog/users",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Push test_push_key",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
                 },
-            )
+                "body": {
+                    "email": "updated@example.com",
+                    "identifier": "user_456",
+                    "properties": {"first_name": "Jane", "last_name": "Smith"},
+                },
+            },
         )
 
     def test_groupidentify_event(self):
@@ -103,28 +97,26 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://incoming.userlist.com/posthog/companies",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Push test_push_key",
-                        "Accept": "application/json",
-                        "Content-Type": "application/json; charset=utf-8",
-                    },
-                    "body": {
-                        "identifier": "company_123",
-                        "name": "Acme Corp",
-                        "properties": {"industry": "Technology", "employee_count": "50"},
-                        "user": {
-                            "identifier": "user_123",
-                            "email": "user@example.com",
-                            "properties": {"first_name": "John", "last_name": "Doe"},
-                        },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://incoming.userlist.com/posthog/companies",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Push test_push_key",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                "body": {
+                    "identifier": "company_123",
+                    "name": "Acme Corp",
+                    "properties": {"industry": "Technology", "employee_count": "50"},
+                    "user": {
+                        "identifier": "user_123",
+                        "email": "user@example.com",
+                        "properties": {"first_name": "John", "last_name": "Doe"},
                     },
                 },
-            )
+            },
         )
 
     def test_custom_event(self):
@@ -147,33 +139,31 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://incoming.userlist.com/posthog/events",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Push test_push_key",
-                        "Accept": "application/json",
-                        "Content-Type": "application/json; charset=utf-8",
-                    },
-                    "body": {
-                        "name": "button_clicked",
-                        "user": {
-                            "identifier": "user_123",
-                            "email": "user@example.com",
-                            "properties": {"first_name": "John", "last_name": "Doe"},
-                        },
-                        "company": {
-                            "identifier": "company_123",
-                            "name": "Acme Corp",
-                            "properties": {"industry": "Technology"},
-                        },
-                        "occurred_at": "2024-01-01T00:00:00Z",
-                        "properties": {"button_name": "signup", "page": "homepage"},
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://incoming.userlist.com/posthog/events",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Push test_push_key",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
                 },
-            )
+                "body": {
+                    "name": "button_clicked",
+                    "user": {
+                        "identifier": "user_123",
+                        "email": "user@example.com",
+                        "properties": {"first_name": "John", "last_name": "Doe"},
+                    },
+                    "company": {
+                        "identifier": "company_123",
+                        "name": "Acme Corp",
+                        "properties": {"industry": "Technology"},
+                    },
+                    "occurred_at": "2024-01-01T00:00:00Z",
+                    "properties": {"button_name": "signup", "page": "homepage"},
+                },
+            },
         )
 
     def test_compact_removes_null_values(self):
@@ -191,22 +181,20 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://incoming.userlist.com/posthog/users",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Push test_push_key",
-                        "Accept": "application/json",
-                        "Content-Type": "application/json; charset=utf-8",
-                    },
-                    "body": {
-                        "identifier": "user_123",
-                        "properties": {"first_name": "John"},
-                    },
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://incoming.userlist.com/posthog/users",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Push test_push_key",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
                 },
-            )
+                "body": {
+                    "identifier": "user_123",
+                    "properties": {"first_name": "John"},
+                },
+            },
         )
 
     def test_user_payload_without_email_and_identifier_is_not_sent(self):
@@ -226,7 +214,7 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_fetch_calls() == []
-        assert self.get_mock_print_calls() == snapshot([("Error sending data to Userlist: Invalid payload",)])
+        assert self.get_mock_print_calls() == [("Error sending data to Userlist: Invalid payload",)]
 
     def test_company_payload_without_identifier_is_not_sent(self):
         self.run_function(
@@ -245,7 +233,7 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_fetch_calls() == []
-        assert self.get_mock_print_calls() == snapshot([("Error sending data to Userlist: Invalid payload",)])
+        assert self.get_mock_print_calls() == [("Error sending data to Userlist: Invalid payload",)]
 
     def test_event_payload_without_user_and_company_is_not_sent(self):
         self.run_function(
@@ -265,7 +253,7 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_fetch_calls() == []
-        assert self.get_mock_print_calls() == snapshot([("Error sending data to Userlist: Invalid payload",)])
+        assert self.get_mock_print_calls() == [("Error sending data to Userlist: Invalid payload",)]
 
     def test_function_prints_error_on_bad_status(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "Invalid request"}}  # type: ignore
@@ -280,9 +268,7 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_print_calls() == snapshot(
-            [("Error sending data to Userlist: 400 - {'error': 'Invalid request'}",)]
-        )
+        assert self.get_mock_print_calls() == [("Error sending data to Userlist: 400 - {'error': 'Invalid request'}",)]
 
     def test_system_events_are_skipped(self):
         self.run_function(
@@ -301,4 +287,4 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
         )
 
         assert self.get_mock_fetch_calls() == []
-        assert self.get_mock_print_calls() == snapshot([("Skipping event $pageview as it is not supported.",)])
+        assert self.get_mock_print_calls() == [("Skipping event $pageview as it is not supported.",)]

@@ -38,7 +38,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 CMD ["gunicorn", "llm_gateway.main:app", \
      "--bind", "0.0.0.0:8080", \
-     "--workers", "4", \
+     "--workers", "2", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

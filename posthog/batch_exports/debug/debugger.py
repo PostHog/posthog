@@ -1,3 +1,4 @@
+import re
 import uuid
 import typing
 import functools
@@ -38,7 +39,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import s3_default_fields
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
-from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_staging_folder
+from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder
 from products.batch_exports.backend.temporal.spmc import (
     BatchExportField,
     compose_filters_clause,
@@ -341,7 +342,7 @@ class BatchExportsDebugger:
     def iter_run_record_batches_from_s3(
         self, batch_export_run: BatchExportRun
     ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
-        folder = get_s3_staging_folder(
+        folder = get_base_s3_staging_folder(
             batch_export_run.batch_export.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
             batch_export_run.data_interval_end.isoformat(),
@@ -350,7 +351,19 @@ class BatchExportsDebugger:
             base_dir=f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}", recursive=True
         )
 
-        for file_info in self.s3fs.get_file_info(file_selector):
+        # get the most recent attempt
+        file_infos = self.s3fs.get_file_info(file_selector)
+        matches = [re.search(r"attempt_(\d+)", file_info.path) for file_info in file_infos]
+        attempt_numbers = [int(match.group(1)) for match in matches if match is not None]
+        if attempt_numbers:
+            max_attempt_number = max(attempt_numbers)
+            file_infos = [
+                file_info
+                for file_info, match in zip(file_infos, matches)
+                if match is not None and int(match.group(1)) == max_attempt_number
+            ]
+
+        for file_info in file_infos:
             with self.s3fs.open_input_file(file_info.path) as f:
                 yield from ipc.RecordBatchStreamReader(f)
 
