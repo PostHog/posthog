@@ -209,32 +209,41 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     return success
 
 
-def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
+def verify_team_flags(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    verbose: bool = False,
+) -> dict:
     """
     Verify a team's flags cache against the database.
 
     Args:
         team: Team to verify
-        batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        db_batch_data: Pre-loaded DB data from batch_load_fn (keyed by team.id)
+        cache_batch_data: Pre-loaded cache data from batch_get_from_cache (keyed by team.id)
         verbose: If True, include detailed diffs with flag keys and field-level differences
 
     Returns:
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    # Use get_from_cache_with_source to detect true cache misses
-    # (get_from_cache has cache-through behavior that hides misses)
-    cached_data, source = flags_hypercache.get_from_cache_with_source(team)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source = cache_batch_data[team.id]
+    else:
+        # Fall back to individual lookup (shouldn't happen in batch verification)
+        cached_data, source = flags_hypercache.get_from_cache_with_source(team)
 
-    # Get flags from database - use batch_data if available to avoid N+1 queries
-    if batch_data and team.id in batch_data:
-        db_data = batch_data[team.id]
+    # Get flags from database - use db_batch_data if available to avoid N+1 queries
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
     else:
         db_data = _get_feature_flags_for_service(team)
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss (source="db" means data was loaded from database, not cache)
-    if source == "db":
+    # Cache miss (source="db" or "miss" means data was not found in cache)
+    if source in ("db", "miss"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",
