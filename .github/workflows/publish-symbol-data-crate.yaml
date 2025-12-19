@@ -1,0 +1,39 @@
+name: Publish Symbol Data crate to crates.io
+
+on:
+    pull_request:
+        types:
+            - closed
+        branches:
+            - master
+
+jobs:
+    publish:
+        name: Publish to crates.io
+        runs-on: ubuntu-latest
+        if: |
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.merged == true &&
+            contains(github.event.pull_request.labels.*.name, 'release-symbol-data')
+        permissions:
+            contents: read
+            id-token: write
+
+        defaults:
+            run:
+                working-directory: rust/common/symbol_data
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: master
+                  fetch-depth: 0
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: stable
+
+            - name: Publish to crates.io
+              run: cargo publish
