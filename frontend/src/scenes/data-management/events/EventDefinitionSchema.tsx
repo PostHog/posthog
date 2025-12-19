@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { urls } from '~/scenes/urls'
-import { EventDefinition } from '~/types'
+import { EventDefinition, SchemaEnforcementMode } from '~/types'
 
 import { PropertyGroupModal } from '../schema/PropertyGroupModal'
 import { PropertyTypeTag } from '../schema/PropertyTypeTag'
@@ -129,9 +129,13 @@ function PropertyGroupCard({
 }
 
 export function EventDefinitionSchema({ definition }: { definition: EventDefinition }): JSX.Element {
-    const logic = eventDefinitionSchemaLogic({ eventDefinitionId: definition.id })
-    const { eventSchemas, eventSchemasLoading } = useValues(logic)
-    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups } = useActions(logic)
+    const logic = eventDefinitionSchemaLogic({
+        eventDefinitionId: definition.id,
+        initialSchemaEnforcementMode: definition.schema_enforcement_mode,
+    })
+    const { eventSchemas, eventSchemasLoading, schemaEnforcementMode, schemaEnforcementModeUpdating } = useValues(logic)
+    const { addPropertyGroup, removePropertyGroup, loadAllPropertyGroups, updateSchemaEnforcementMode } =
+        useActions(logic)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const schemaLogic = schemaManagementLogic({ key: `event-${definition.id}` })
@@ -141,6 +145,8 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
         () => new Set(eventSchemas.map((schema: EventSchema) => schema.property_group.id)),
         [eventSchemas]
     )
+
+    const isEnforcementEnabled = schemaEnforcementMode === SchemaEnforcementMode.Reject
 
     return (
         <SceneSection
@@ -167,6 +173,32 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                         loadAllPropertyGroups()
                     }}
                 />
+
+                <div className="flex items-center justify-between p-4 border rounded bg-bg-light">
+                    <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                            <span className="font-semibold">Reject invalid events</span>
+                            <Tooltip title="When enabled, events that don't match the schema (missing required properties or wrong types) will be rejected at ingestion time. Rejected events will not be stored.">
+                                <IconInfo className="text-lg text-secondary" />
+                            </Tooltip>
+                        </div>
+                        <p className="text-muted text-sm mt-1">
+                            {isEnforcementEnabled
+                                ? 'Events that fail schema validation will be rejected and not stored.'
+                                : 'All events are accepted regardless of schema compliance.'}
+                        </p>
+                    </div>
+                    <LemonSwitch
+                        checked={isEnforcementEnabled}
+                        onChange={(checked) =>
+                            updateSchemaEnforcementMode(
+                                checked ? SchemaEnforcementMode.Reject : SchemaEnforcementMode.Allow
+                            )
+                        }
+                        loading={schemaEnforcementModeUpdating}
+                        disabled={schemaEnforcementModeUpdating}
+                    />
+                </div>
 
                 {eventSchemas.length > 0 ? (
                     <div className="space-y-4">

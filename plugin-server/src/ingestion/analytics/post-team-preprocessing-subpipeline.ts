@@ -4,6 +4,7 @@ import {
     createApplyPersonProcessingRestrictionsStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
+    createValidateEventSchemaStep,
     createValidateEventUuidStep,
 } from '../event-preprocessing'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
@@ -27,6 +28,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
     return builder
         .pipe(createValidateEventMetadataStep())
         .pipe(createValidateEventPropertiesStep())
+        .pipe(createValidateEventSchemaStep())
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
 }

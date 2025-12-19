@@ -99,6 +99,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_seen_at",
             "last_updated_at",
             "tags",
+            "schema_enforcement_mode",
             # Action fields
             "is_action",
             "action_id",
