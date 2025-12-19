@@ -48,12 +48,11 @@ to automatically transform, you can provide the transformed query to the executo
 ```python
 
 # ensure that the given query is preaggregated 
-preagg_result = executor.ensure_preaggregated(parse_expr("""
+preagg_result = executor.ensure_preaggregated(parse_select("""
 SELECT
-    {job_id} as job_id,
     toStartOfHour(session_start) as time_window_start,
     count() as num_sessions,
-    sum(pageview_count) as pageview_count(),
+    sum(pageview_count) as pageview_count,
     uniqState(person_id) as num_persons,
     avgState(session_duration) as avg_duration,
     avgState(is_bounce) as bounce_rate
@@ -86,13 +85,13 @@ SELECT
 query = parse_select('''
 select
     avgMerge(bounce_rate),
-    toStartOfDay(time_window_start) as day,
-GROUP BY day
+    toStartOfDay(time_window_start) as day
 WHERE and(
     time_window_start >= {time_window_min},
     time_window_start <= {time_window_max},
     in(job_id, {job_ids}
-)   
+)
+GROUP BY day
 ''',
     placeholders = {
         "job_ids": preagg_result.job_ids,
