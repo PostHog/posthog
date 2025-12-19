@@ -24,11 +24,16 @@ jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
     },
 }))
 
-// Mock the ingestion lag gauge
+// Mock the ingestion lag metrics
 jest.mock('../../main/ingestion-queues/metrics', () => ({
     ingestionLagGauge: {
         labels: jest.fn().mockReturnValue({
             set: jest.fn(),
+        }),
+    },
+    ingestionLagHistogram: {
+        labels: jest.fn().mockReturnValue({
+            observe: jest.fn(),
         }),
     },
 }))
