@@ -2819,6 +2819,7 @@ export type FileSystemIconType =
     | 'search'
     | 'folder'
     | 'folder_open'
+    | 'conversations'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -4964,6 +4965,7 @@ export enum ProductKey {
     ANNOTATIONS = 'annotations',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
+    CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',

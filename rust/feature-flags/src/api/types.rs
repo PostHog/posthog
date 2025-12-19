@@ -187,6 +187,10 @@ pub struct ConfigResponse {
     /// Error tracking configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_tracking: Option<ErrorTrackingConfig>,
+
+    /// Conversations configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversations: Option<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
