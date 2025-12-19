@@ -164,6 +164,10 @@ export const FEATURE_FLAGS = {
     THEME_OVERRIDE: 'theme', // owner: @aprilfools, see `themeLogic.ts`
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: #team-billing, see `Billing.tsx`, needed to exclude orgs with more than 100 teams
 
+    // Holidays overrides, will be around forever
+    HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
+    CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
+
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
@@ -343,6 +347,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_BATCH_TRIGGERS: 'workflows-batch-triggers', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_SCHEDULED_TRIGGERS: 'workflows-scheduled-triggers', // owner: #team-workflows
+    WORKFLOWS_TEMPLATE_CREATION: 'workflows-template-creation', // owner: @Odin #team-workflows
     WORKFLOWS: 'messaging', // owner @haven #team-workflows
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics

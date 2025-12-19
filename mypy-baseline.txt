@@ -236,6 +236,7 @@ posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is no
 posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/api/test/test_feature_flag.py:0: error: Value of type "Any | None" is not indexable  [index]
+posthog/api/test/test_hog_flow_template.py:0: error: Dict entry 1 has incompatible type "str": "int"; expected "str": "Sequence[Collection[str]]"  [dict-item]
 posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
