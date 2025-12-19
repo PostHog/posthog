@@ -234,11 +234,6 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         actions.loadPasskeys()
                         actions.loadUser()
 
-                        // Reset after a short delay
-                        setTimeout(() => {
-                            actions.setRegistrationStep('idle')
-                        }, 2000)
-
                         return null
                     } catch (e: any) {
                         actions.setRegistrationStep('idle')
