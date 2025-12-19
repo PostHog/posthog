@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getApprovalActionLabel, getApprovalResourceName, getApprovalResourceUrl } from 'scenes/approvals/utils'
@@ -17,10 +18,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ApprovalDecision, ChangeRequestState } from '~/types'
+import { ApprovalDecision, ChangeRequest, ChangeRequestState } from '~/types'
 
 import { ChangeRequestActions } from './ChangeRequestActions'
-import { ApprovalLogicProps, approvalLogic } from './approvalLogic'
+import { ApprovalLogicProps, ProposedChangesTab, approvalLogic } from './approvalLogic'
 import { generateDecisionAnalysis } from './decisionAnalysis'
 
 export const scene: SceneExport<ApprovalLogicProps> = {
@@ -30,8 +31,12 @@ export const scene: SceneExport<ApprovalLogicProps> = {
 }
 
 function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
-    const { changeRequest, changeRequestLoading, changeRequestMissing } = useValues(approvalLogic({ id }))
-    const { approveChangeRequest, rejectChangeRequest, cancelChangeRequest } = useActions(approvalLogic({ id }))
+    const { changeRequest, changeRequestLoading, changeRequestMissing, proposedChangesTab } = useValues(
+        approvalLogic({ id })
+    )
+    const { approveChangeRequest, rejectChangeRequest, cancelChangeRequest, setProposedChangesTab } = useActions(
+        approvalLogic({ id })
+    )
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
@@ -141,34 +146,14 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                 <LemonDivider />
 
                 <section>
-                    <h3 className="font-semibold mb-2">Proposed Changes</h3>
-                    {changeRequest.intent_display?.before && changeRequest.intent_display?.after ? (
-                        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
-                            <MonacoDiffEditor
-                                original={JSON.stringify(changeRequest.intent_display.before, null, 2)}
-                                modified={JSON.stringify(changeRequest.intent_display.after, null, 2)}
-                                language="json"
-                                width={width || '100%'}
-                                options={{
-                                    renderOverviewRuler: false,
-                                    scrollBeyondLastLine: false,
-                                    hideUnchangedRegions: {
-                                        enabled: true,
-                                        contextLineCount: 3,
-                                        minimumLineCount: 3,
-                                        revealLineCount: 20,
-                                    },
-                                    diffAlgorithm: 'advanced',
-                                }}
-                            />
-                        </div>
-                    ) : (
-                        <div className="bg-bg-light p-4 rounded border">
-                            <pre className="text-sm overflow-x-auto">
-                                {JSON.stringify(changeRequest.intent_display, null, 2)}
-                            </pre>
-                        </div>
-                    )}
+                    <h3 className="font-semibold mb-2">Proposed changes</h3>
+                    <ProposedChangesTabs
+                        changeRequest={changeRequest}
+                        containerRef={containerRef}
+                        width={width}
+                        activeTab={proposedChangesTab}
+                        setActiveTab={setProposedChangesTab}
+                    />
                 </section>
 
                 <LemonDivider />
@@ -273,6 +258,77 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                 </section>
             </div>
         </SceneContent>
+    )
+}
+
+function ProposedChangesTabs({
+    changeRequest,
+    containerRef,
+    width,
+    activeTab,
+    setActiveTab,
+}: {
+    changeRequest: ChangeRequest
+    containerRef: React.RefObject<HTMLDivElement>
+    width: number | null
+    activeTab: ProposedChangesTab
+    setActiveTab: (tab: ProposedChangesTab) => void
+}): JSX.Element {
+    const hasGatedChanges = changeRequest.intent_display?.before && changeRequest.intent_display?.after
+    const fullRequestData = changeRequest.intent?.full_request_data
+
+    return (
+        <LemonTabs
+            activeKey={activeTab}
+            onChange={(key) => setActiveTab(key as ProposedChangesTab)}
+            tabs={[
+                {
+                    key: 'gated',
+                    label: 'Gated changes',
+                    content: hasGatedChanges ? (
+                        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
+                            <MonacoDiffEditor
+                                original={JSON.stringify(changeRequest.intent_display.before, null, 2)}
+                                modified={JSON.stringify(changeRequest.intent_display.after, null, 2)}
+                                language="json"
+                                width={width || '100%'}
+                                options={{
+                                    renderOverviewRuler: false,
+                                    scrollBeyondLastLine: false,
+                                    hideUnchangedRegions: {
+                                        enabled: true,
+                                        contextLineCount: 3,
+                                        minimumLineCount: 3,
+                                        revealLineCount: 20,
+                                    },
+                                    diffAlgorithm: 'advanced',
+                                }}
+                            />
+                        </div>
+                    ) : (
+                        <div className="bg-bg-light p-4 rounded border">
+                            <pre className="text-sm overflow-x-auto">
+                                {JSON.stringify(changeRequest.intent_display, null, 2)}
+                            </pre>
+                        </div>
+                    ),
+                },
+                {
+                    key: 'full',
+                    label: 'Full request payload',
+                    content: (
+                        <div className="bg-bg-light p-4 rounded border">
+                            <p className="text-sm text-secondary mb-2">
+                                This is the complete request payload that will be applied when the change is approved.
+                            </p>
+                            <pre className="text-sm overflow-x-auto">
+                                {JSON.stringify(fullRequestData || changeRequest.intent, null, 2)}
+                            </pre>
+                        </div>
+                    ),
+                },
+            ]}
+        />
     )
 }
 

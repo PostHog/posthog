@@ -18,6 +18,8 @@ export interface ApprovalLogicProps {
     id: string
 }
 
+export type ProposedChangesTab = 'gated' | 'full'
+
 export const approvalLogic = kea<approvalLogicType>([
     path(['scenes', 'approvals', 'approvalLogic']),
     props({} as ApprovalLogicProps),
@@ -30,6 +32,7 @@ export const approvalLogic = kea<approvalLogicType>([
         approveChangeRequest: (reason?: string) => ({ reason }),
         rejectChangeRequest: (reason: string) => ({ reason }),
         cancelChangeRequest: (reason?: string) => ({ reason }),
+        setProposedChangesTab: (tab: ProposedChangesTab) => ({ tab }),
     }),
     loaders(({ props, values }) => ({
         changeRequest: [
@@ -53,6 +56,12 @@ export const approvalLogic = kea<approvalLogicType>([
             false,
             {
                 loadChangeRequestFailure: () => true,
+            },
+        ],
+        proposedChangesTab: [
+            'gated' as ProposedChangesTab,
+            {
+                setProposedChangesTab: (_, { tab }) => tab,
             },
         ],
     }),
