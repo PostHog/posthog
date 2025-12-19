@@ -7,6 +7,7 @@ import {
     type SessionRecordingMaskingLevel,
     UniversalFilterValue,
     UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 export const TimestampFormatToLabel = {
@@ -21,10 +22,17 @@ export const isUniversalFilters = (
     return 'filter_group' in filters
 }
 
+export function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): value is UniversalFiltersGroup {
+    return (value as UniversalFiltersGroup).type !== undefined && (value as UniversalFiltersGroup).values !== undefined
+}
+
 // TODO we shouldn't be ever converting to filters any more, but I won't unpick this in this PR
 export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilters): UniversalFilterValue[] => {
-    const group = filters.filter_group.values[0] as UniversalFiltersGroup
-    return group.values as UniversalFilterValue[]
+    const group = filters.filter_group.values[0]
+    if (isUniversalFiltersGroup(group)) {
+        return group.values as UniversalFilterValue[]
+    }
+    return filters.filter_group.values as UniversalFilterValue[]
 }
 
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
