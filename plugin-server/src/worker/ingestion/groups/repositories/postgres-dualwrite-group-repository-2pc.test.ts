@@ -1446,7 +1446,12 @@ describe('PostgresDualWriteGroupRepository 2PC Dual-Write Tests', () => {
 
         it('should return empty array for empty inputs', async () => {
             expect(await repository.fetchGroupsByKeys([], [], [])).toEqual([])
-            expect(await repository.fetchGroupsByKeys([teamId], [], [])).toEqual([])
+        })
+
+        it('should throw error for mismatched array lengths', async () => {
+            await expect(repository.fetchGroupsByKeys([teamId], [], [])).rejects.toThrow(
+                'fetchGroupsByKeys: array lengths must match'
+            )
         })
 
         it('should fetch from primary repository only', async () => {

@@ -8,11 +8,6 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
-    "RECORDINGS_TTL_WEEKS": (
-        3,
-        "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
-        int,
-    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
@@ -178,7 +173,6 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
-    "RECORDINGS_TTL_WEEKS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",

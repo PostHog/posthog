@@ -7,6 +7,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
@@ -14,6 +16,7 @@ from posthog.storage.team_metadata_cache import (
     get_team_metadata,
     get_teams_with_expiring_caches,
     update_team_metadata_cache,
+    verify_team_metadata,
 )
 from posthog.tasks.team_metadata import update_team_metadata_cache_task
 
@@ -290,3 +293,125 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         self.assertEqual(len(result), 0)
+
+
+class TestVerifyTeamMetadata(BaseTest):
+    """Test verify_team_metadata functionality."""
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_ignores_extra_cached_fields(self, mock_get_metadata):
+        """
+        Verify that extra fields in cache (not in TEAM_METADATA_FIELDS) are ignored.
+
+        This allows removing fields from TEAM_METADATA_FIELDS without triggering
+        unnecessary cache fixes for stale fields that remain in cached data.
+        """
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        # Get the actual serialized data for this team (what DB would return)
+        db_data = _serialize_team_to_metadata(self.team)
+
+        # Create cached data that matches DB data but has extra fields
+        cached_data = db_data.copy()
+        cached_data.update(
+            {
+                # Extra fields that might exist in old cached data but are no longer in TEAM_METADATA_FIELDS
+                "removed_field_1": "stale_value",
+                "removed_field_2": {"old": "data"},
+                "updated_at": "2025-01-01T00:00:00Z",  # Common field that might be removed
+                "app_urls": [],  # Another removed field
+            }
+        )
+        mock_get_metadata.return_value = cached_data
+
+        # Verify should report a match since extra fields are ignored
+        result = verify_team_metadata(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "match", f"Expected match but got {result}")
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_detects_mismatch_in_tracked_fields(self, mock_get_metadata):
+        """Verify that mismatches in TEAM_METADATA_FIELDS are still detected."""
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        # Get the actual serialized data for this team
+        db_data = _serialize_team_to_metadata(self.team)
+
+        # Create cached data with a mismatch in a tracked field
+        cached_data = db_data.copy()
+        cached_data["name"] = "Wrong Name"  # Mismatch in a tracked field
+        mock_get_metadata.return_value = cached_data
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "DATA_MISMATCH")
+        self.assertIn("name", result["diff_fields"])
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
+        """Verify returns cache miss when no data is cached."""
+        mock_get_metadata.return_value = None
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], "miss")
+        self.assertEqual(result["issue"], "CACHE_MISS")
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
+class TestWarmCachesExpiryTracking(BaseTest):
+    """
+    Test that warm_caches uses the correct identifier for expiry tracking.
+
+    This is a regression test for a bug where warm_caches used team IDs for
+    expiry tracking, but the team_metadata cache is token-based and expects
+    API tokens. This caused a mismatch between cache entries and expiry tracking.
+    """
+
+    @patch("posthog.storage.hypercache.get_client")
+    @patch("posthog.storage.hypercache.time")
+    def test_warm_caches_uses_api_token_for_token_based_cache(self, mock_time, mock_get_client):
+        """
+        Verify that warm_caches uses API token (not team ID) for token-based caches.
+
+        The team_metadata cache is token-based (token_based=True), so expiry
+        tracking should use the API token as the identifier, not the team ID.
+        """
+        from posthog.storage.hypercache_manager import warm_caches
+        from posthog.storage.team_metadata_cache import TEAM_CACHE_EXPIRY_SORTED_SET, TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
+        mock_time.time.return_value = 1000000
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Call warm_caches for this team
+        warm_caches(
+            TEAM_HYPERCACHE_MANAGEMENT_CONFIG,
+            stagger_ttl=False,
+            batch_size=1,
+            team_ids=[self.team.id],
+        )
+
+        # Verify zadd was called with the API TOKEN, not team ID
+        mock_redis.zadd.assert_called()
+        call_args = mock_redis.zadd.call_args
+
+        # First arg is the sorted set key
+        self.assertEqual(call_args[0][0], TEAM_CACHE_EXPIRY_SORTED_SET)
+
+        # Second arg is a dict with identifier -> timestamp
+        # The identifier should be the API token, NOT the team ID
+        identifier_dict = call_args[0][1]
+        self.assertIn(
+            self.team.api_token,
+            identifier_dict,
+            f"Expected API token '{self.team.api_token}' as identifier, "
+            f"but got: {list(identifier_dict.keys())}. "
+            "This indicates warm_caches is using the wrong identifier type for token-based caches.",
+        )
+        self.assertNotIn(
+            str(self.team.id),
+            identifier_dict,
+            f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens.",
+        )

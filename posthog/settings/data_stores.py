@@ -138,7 +138,7 @@ if direct_host:
     # Disable server-side cursors is not needed for direct connection
     DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
     # Set lock_timeout for migrations to fail fast on lock contention
-    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "2000")
+    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
     DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
@@ -277,11 +277,6 @@ API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
-
-API_QUERIES_ON_ONLINE_CLUSTER = set[int]([])
-with suppress(Exception):
-    as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
-    API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -486,3 +481,5 @@ PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0
 PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
     "PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM", default=set[int]([]), type_cast=str_to_int_set
 )
+
+CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)

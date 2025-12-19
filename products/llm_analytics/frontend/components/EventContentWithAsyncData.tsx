@@ -29,10 +29,8 @@ export function EventContentGeneration({
 }: EventContentGenerationProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        properties: {
-            $ai_input: rawInput,
-            $ai_output_choices: rawOutput,
-        },
+        input: rawInput,
+        output: rawOutput,
     })
 
     if (isLoading) {
@@ -66,10 +64,8 @@ export function EventContentDisplayAsync({
 }: EventContentDisplayAsyncProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        properties: {
-            $ai_input: rawInput,
-            $ai_output_choices: rawOutput,
-        },
+        input: rawInput,
+        output: rawOutput,
     })
 
     if (isLoading) {

@@ -8,6 +8,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
@@ -23,6 +24,9 @@ const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
 const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
     if (view.managed_viewset_kind !== null) {
         return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
+    }
+    if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
+        return `Cannot delete a view that belongs to an endpoint. You can disable materialization on this endpoint's page.`
     }
 
     return undefined
@@ -144,6 +148,12 @@ export function ViewsTab(): JSX.Element {
                                                 managed viewset
                                             </span>
                                         </>
+                                    ) : view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? (
+                                        <LemonTableLink
+                                            to={urls.endpoint(view.name)}
+                                            title={view.name}
+                                            description={`Created by the ${view.name} endpoint.`}
+                                        />
                                     ) : (
                                         <LemonTableLink
                                             to={urls.sqlEditor(undefined, view.id)}
@@ -219,8 +229,15 @@ export function ViewsTab(): JSX.Element {
                                     <More
                                         overlay={
                                             <>
-                                                <LemonButton onClick={() => runMaterialization(view.id)}>
-                                                    Run now
+                                                <LemonButton
+                                                    onClick={() => runMaterialization(view.id)}
+                                                    disabledReason={
+                                                        view.status === 'Running'
+                                                            ? 'Materialization is already running'
+                                                            : undefined
+                                                    }
+                                                >
+                                                    Sync now
                                                 </LemonButton>
                                                 <LemonButton
                                                     status="danger"

@@ -1,5 +1,6 @@
 use std::{net::SocketAddr, num::NonZeroU32};
 
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use health::HealthStrategy;
 use tracing::Level;
@@ -115,8 +116,26 @@ pub struct Config {
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
 
+    // AI endpoint S3 blob storage configuration
+    pub ai_s3_bucket: Option<String>,
+    #[envconfig(default = "llma/")]
+    pub ai_s3_prefix: String,
+    pub ai_s3_endpoint: Option<String>,
+    #[envconfig(default = "us-east-1")]
+    pub ai_s3_region: String,
+    pub ai_s3_access_key_id: Option<String>,
+    pub ai_s3_secret_access_key: Option<String>,
+
     // if set in env, will configure a request timeout on the server's Axum router
     pub request_timeout_seconds: Option<u64>,
+
+    // HTTP/1 header read timeout in milliseconds - closes connections that don't
+    // send complete headers within this duration (slow loris protection).
+    // Set env var to enable; unset to disable.
+    pub http1_header_read_timeout_ms: Option<u64>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 #[derive(Envconfig, Clone)]
@@ -160,4 +179,6 @@ pub struct KafkaConfig {
     // default is 3x metadata refresh interval so we maintain that here
     #[envconfig(default = "60000")]
     pub kafka_metadata_max_age_ms: u32,
+    #[envconfig(default = "60000")] // lib default, can tweak in env overrides
+    pub kafka_socket_timeout_ms: u32,
 }

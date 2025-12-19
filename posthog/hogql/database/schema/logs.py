@@ -15,6 +15,7 @@ class LogsTable(Table):
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "trace_id": StringDatabaseField(name="trace_id", nullable=False),
         "span_id": StringDatabaseField(name="span_id", nullable=False),
+        "message": StringDatabaseField(name="body", nullable=False),
         "body": StringDatabaseField(name="body", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
@@ -25,6 +26,7 @@ class LogsTable(Table):
         "severity_number": IntegerDatabaseField(name="severity_number", nullable=False),
         "level": StringDatabaseField(name="level", nullable=False),
         "resource_attributes": StringJSONDatabaseField(name="resource_attributes", nullable=False),
+        "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
@@ -39,6 +41,25 @@ class LogsTable(Table):
 
     def to_printed_hogql(self):
         return "logs"
+
+
+class LogAttributesTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
+        "attribute_key": StringDatabaseField(name="attribute_key", nullable=False),
+        "attribute_value": StringDatabaseField(name="attribute_value", nullable=False),
+        "attribute_type": StringDatabaseField(name="attribute_type", nullable=False),
+        "attribute_count": IntegerDatabaseField(name="attribute_count", nullable=False),
+        "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
+        "service_name": StringDatabaseField(name="service_name", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "log_attributes"
+
+    def to_printed_hogql(self):
+        return "log_attributes"
 
 
 class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):

@@ -13,6 +13,7 @@ health = { path = "../common/health" }
 axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }

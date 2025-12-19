@@ -327,12 +327,18 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # just test that the backfill SQL can be run without error
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s AND timestamp >= '2024-03-01'"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3(
+                where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
+                shard_index=1,
+                num_shards=2,
+            ),
             {"team_id": self.team.id},
         )
         sync_execute(
             RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
-                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+                where="team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'",
+                shard_index=1,
+                num_shards=2,
             ),
             {"team_id": self.team.id},
         )

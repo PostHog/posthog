@@ -16,6 +16,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET, TeamSerializer, validate_team_attrs
+from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -83,6 +84,18 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         if value is None:
             return value
         return [domain for domain in value if domain]
+
+    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        if not settings.DEBUG:
+            try:
+                raise_if_user_provided_url_unsafe(value)
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+                )
+        return value
 
     class Meta:
         model = Project
@@ -387,6 +400,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             validated_data["session_replay_config"] = {
                 **team.session_replay_config,
                 **validated_data["session_replay_config"],
+            }
+
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(team.modifiers or {}),
+                **validated_data["modifiers"],
             }
 
         should_team_be_saved_too = False

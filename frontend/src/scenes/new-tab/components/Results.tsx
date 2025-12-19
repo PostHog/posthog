@@ -19,15 +19,17 @@ import {
 import { Label } from 'lib/ui/Label/Label'
 import { ListBox, ListBoxGroupHandle, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { groupsModel } from '~/models/groupsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { NoResultsFound } from './NoResultsFound'
+import { ProjectExplorer } from './ProjectExplorer'
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
@@ -35,6 +37,7 @@ export const getCategoryDisplayName = (category: string): string => {
         apps: 'Apps',
         'data-management': 'Data management',
         recents: 'Recents',
+        folders: 'Folders',
         persons: 'Persons',
         groups: 'Groups',
         eventDefinitions: 'Events',
@@ -70,24 +73,24 @@ export const formatRelativeTimeShort = (date: string | number | Date | Dayjs | n
     const hours = now.diff(parsedDate, 'hour')
 
     if (hours < 24) {
-        return `${hours} hr${hours === 1 ? '' : 's'} ago`
+        return `${pluralize(hours, 'hr')} ago`
     }
 
     const days = now.diff(parsedDate, 'day')
 
     if (days < 30) {
-        return `${days} day${days === 1 ? '' : 's'} ago`
+        return `${pluralize(days, 'day')} ago`
     }
 
     const months = now.diff(parsedDate, 'month') || 1
 
     if (months < 12) {
-        return `${months} mo${months === 1 ? '' : 's'} ago`
+        return `${pluralize(months, 'mo')} ago`
     }
 
     const years = now.diff(parsedDate, 'year') || 1
 
-    return `${years} yr${years === 1 ? '' : 's'} ago`
+    return `${pluralize(years, 'yr')} ago`
 }
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
@@ -130,7 +133,9 @@ function Category({
         recents,
         recentsLoading,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { showMoreInSection, logCreateNewItem, loadMoreRecents } = useActions(newTabSceneLogic({ tabId }))
+    const { showMoreInSection, logCreateNewItem, loadMoreRecents, setActiveExplorerFolderPath } = useActions(
+        newTabSceneLogic({ tabId })
+    )
     const { groupTypes } = useValues(groupsModel)
     const previousRecentsLoadingRef = useRef(recentsLoading)
 
@@ -229,119 +234,126 @@ function Category({
                                 const highlightText = (text: string): ReactNode =>
                                     search ? <SearchHighlightMultiple string={text} substring={search} /> : text
 
+                                const renderListBoxItem = (): JSX.Element => (
+                                    <ListBox.Item
+                                        asChild
+                                        focusFirst={focusFirst}
+                                        row={index}
+                                        column={columnIndex}
+                                        focusKey={item.id}
+                                        index={index}
+                                    >
+                                        <Link
+                                            to={item.href || '#'}
+                                            className="w-full"
+                                            buttonProps={{
+                                                size: 'sm',
+                                                hasSideActionRight: item.category !== 'folders',
+                                            }}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                if (item.category === 'folders') {
+                                                    const folderPath =
+                                                        (item.record as FileSystemEntry | undefined)?.path ?? ''
+                                                    setActiveExplorerFolderPath(folderPath)
+                                                    return
+                                                }
+                                                if (item.href) {
+                                                    if (isCreateNew) {
+                                                        logCreateNewItem(item.href)
+                                                    }
+                                                    router.actions.push(item.href)
+                                                }
+                                            }}
+                                        >
+                                            <span className="text-sm">{item.icon ?? item.name[0]}</span>
+                                            <span className="flex min-w-0 items-center gap-2">
+                                                {groupNoun ? (
+                                                    <>
+                                                        <span className="text-sm truncate text-primary">
+                                                            {highlightText(
+                                                                groupDisplayName && groupDisplayName.length > 0
+                                                                    ? groupDisplayName
+                                                                    : item.name
+                                                            )}
+                                                        </span>
+                                                        <LemonTag size="small" type="muted" className="shrink-0">
+                                                            {highlightText(capitalizeFirstLetter(groupNoun.trim()))}
+                                                        </LemonTag>
+                                                    </>
+                                                ) : (
+                                                    <span className="text-sm truncate text-primary">
+                                                        {search ? (
+                                                            <SearchHighlightMultiple
+                                                                string={item.name}
+                                                                substring={search}
+                                                            />
+                                                        ) : (
+                                                            item.displayName || item.name
+                                                        )}
+                                                    </span>
+                                                )}
+                                                {lastViewedAt ? (
+                                                    <span className="text-xs text-muted whitespace-nowrap">
+                                                        {formatRelativeTimeShort(lastViewedAt)}
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                        </Link>
+                                    </ListBox.Item>
+                                )
+
                                 return (
                                     // If we have filtered results set virtual focus to first item
                                     <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
-                                        <ContextMenu>
-                                            <ContextMenuTrigger asChild>
-                                                <ListBox.Item
-                                                    asChild
-                                                    focusFirst={focusFirst}
-                                                    row={index}
-                                                    column={columnIndex}
-                                                    focusKey={item.id}
-                                                    index={index}
-                                                >
-                                                    <Link
-                                                        to={item.href || '#'}
-                                                        className="w-full"
-                                                        buttonProps={{
-                                                            size: 'sm',
-                                                            hasSideActionRight: true,
-                                                        }}
-                                                        onClick={(e) => {
-                                                            e.preventDefault()
-                                                            if (item.href) {
-                                                                if (isCreateNew) {
-                                                                    logCreateNewItem(item.href)
-                                                                }
-                                                                router.actions.push(item.href)
-                                                            }
-                                                        }}
+                                        {item.category === 'folders' ? (
+                                            renderListBoxItem()
+                                        ) : (
+                                            <ContextMenu>
+                                                <ContextMenuTrigger asChild>{renderListBoxItem()}</ContextMenuTrigger>
+                                                <ContextMenuContent loop className="max-w-[250px]">
+                                                    <ContextMenuGroup>
+                                                        <MenuItems
+                                                            item={convertToTreeDataItem(item)}
+                                                            type="context"
+                                                            root="project://"
+                                                            onlyTree={false}
+                                                            showSelectMenuOption={false}
+                                                        />
+                                                    </ContextMenuGroup>
+                                                </ContextMenuContent>
+                                            </ContextMenu>
+                                        )}
+                                        {item.category !== 'folders' && (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <ButtonPrimitive
+                                                        size="xs"
+                                                        iconOnly
+                                                        isSideActionRight
+                                                        className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
                                                     >
-                                                        <span className="text-sm">{item.icon ?? item.name[0]}</span>
-                                                        <span className="flex min-w-0 items-center gap-2">
-                                                            {groupNoun ? (
-                                                                <>
-                                                                    <span className="text-sm truncate text-primary">
-                                                                        {highlightText(
-                                                                            groupDisplayName &&
-                                                                                groupDisplayName.length > 0
-                                                                                ? groupDisplayName
-                                                                                : item.name
-                                                                        )}
-                                                                    </span>
-                                                                    <LemonTag
-                                                                        size="small"
-                                                                        type="muted"
-                                                                        className="shrink-0"
-                                                                    >
-                                                                        {highlightText(
-                                                                            capitalizeFirstLetter(groupNoun.trim())
-                                                                        )}
-                                                                    </LemonTag>
-                                                                </>
-                                                            ) : (
-                                                                <span className="text-sm truncate text-primary">
-                                                                    {search ? (
-                                                                        <SearchHighlightMultiple
-                                                                            string={item.name}
-                                                                            substring={search}
-                                                                        />
-                                                                    ) : (
-                                                                        item.displayName || item.name
-                                                                    )}
-                                                                </span>
-                                                            )}
-                                                            {lastViewedAt ? (
-                                                                <span className="text-xs text-muted whitespace-nowrap">
-                                                                    {formatRelativeTimeShort(lastViewedAt)}
-                                                                </span>
-                                                            ) : null}
-                                                        </span>
-                                                    </Link>
-                                                </ListBox.Item>
-                                            </ContextMenuTrigger>
-                                            <ContextMenuContent loop className="max-w-[250px]">
-                                                <ContextMenuGroup>
-                                                    <MenuItems
-                                                        item={convertToTreeDataItem(item)}
-                                                        type="context"
-                                                        root="project://"
-                                                        onlyTree={false}
-                                                        showSelectMenuOption={false}
-                                                    />
-                                                </ContextMenuGroup>
-                                            </ContextMenuContent>
-                                        </ContextMenu>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <ButtonPrimitive
-                                                    size="xs"
-                                                    iconOnly
-                                                    isSideActionRight
-                                                    className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
+                                                        <IconEllipsis className="size-3" />
+                                                    </ButtonPrimitive>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent
+                                                    loop
+                                                    align="end"
+                                                    side="bottom"
+                                                    className="max-w-[250px]"
                                                 >
-                                                    <IconEllipsis className="size-3" />
-                                                </ButtonPrimitive>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent
-                                                loop
-                                                align="end"
-                                                side="bottom"
-                                                className="max-w-[250px]"
-                                            >
-                                                <DropdownMenuGroup>
-                                                    <MenuItems
-                                                        item={convertToTreeDataItem(item)}
-                                                        type="dropdown"
-                                                        root="project://"
-                                                        onlyTree={false}
-                                                        showSelectMenuOption={false}
-                                                    />
-                                                </DropdownMenuGroup>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
+                                                    <DropdownMenuGroup>
+                                                        <MenuItems
+                                                            item={convertToTreeDataItem(item)}
+                                                            type="dropdown"
+                                                            root="project://"
+                                                            onlyTree={false}
+                                                            showSelectMenuOption={false}
+                                                        />
+                                                    </DropdownMenuGroup>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        )}
                                     </ButtonGroupPrimitive>
                                 )
                             })}
@@ -459,41 +471,84 @@ export function Results({
     listboxRef: React.RefObject<ListBoxHandle>
     handleAskAi: (question?: string) => void
 }): JSX.Element {
-    const { search, isSearching, newTabSceneDataInclude, allCategories, firstCategoryWithResults } = useValues(
-        newTabSceneLogic({ tabId })
-    )
-
+    const {
+        search,
+        isSearching,
+        newTabSceneDataInclude,
+        allCategories,
+        firstCategoryWithResults,
+        showFoldersCategory,
+        folderCategoryItems,
+        folderCategoryLoading,
+        folderHasResults,
+        activeExplorerFolderPath,
+        projectExplorerEnabled,
+    } = useValues(newTabSceneLogic({ tabId }))
+    const showExplorerView = projectExplorerEnabled && activeExplorerFolderPath !== null
+    const showSearchResults = !showExplorerView
     // Track whether we have any results
-    const hasResults = allCategories.some((category) => category.items.length > 0)
+    const hasStandardResults = allCategories.some((category) => category.items.length > 0)
+    const hasAnyResults = hasStandardResults || folderHasResults
+    const firstAvailableCategory: NEW_TAB_CATEGORY_ITEMS | null = folderHasResults
+        ? 'folders'
+        : (firstCategoryWithResults as NEW_TAB_CATEGORY_ITEMS | null)
+    const shouldShowFolderCategory = showFoldersCategory && (folderHasResults || folderCategoryLoading)
+    const categoriesToRender = showSearchResults
+        ? [
+              ...(shouldShowFolderCategory
+                  ? [
+                        {
+                            key: 'folders' as const,
+                            items: folderCategoryItems,
+                            isLoading: folderCategoryLoading,
+                        },
+                    ]
+                  : []),
+              ...allCategories,
+          ]
+        : []
 
     // Check if we should show NoResultsFound component
     // (include='all' + search term + no results + flag on)
     const shouldShowGlobalNoResults =
-        newTabSceneDataInclude.includes('all') && search.trim() !== '' && !hasResults && !isSearching
+        showSearchResults &&
+        newTabSceneDataInclude.includes('all') &&
+        search.trim() !== '' &&
+        !hasAnyResults &&
+        !isSearching
 
     // Focus first item when search is complete and we have results
     useEffect(() => {
-        if (!isSearching && hasResults && firstCategoryWithResults) {
+        if (showSearchResults && !isSearching && hasAnyResults && firstAvailableCategory) {
             listboxRef.current?.focusFirstItem()
         }
-    }, [isSearching, hasResults, firstCategoryWithResults, listboxRef])
+    }, [isSearching, hasAnyResults, firstAvailableCategory, listboxRef, showSearchResults])
+
+    useEffect(() => {
+        if (showExplorerView) {
+            listboxRef.current?.focusFirstItem()
+        }
+    }, [showExplorerView, listboxRef])
 
     return (
         <>
-            {allCategories.map(({ key: category, items, isLoading }, columnIndex: number) => (
-                <Category
-                    tabId={tabId}
-                    items={items}
-                    category={category}
-                    columnIndex={columnIndex}
-                    isFirstCategoryWithResults={category === firstCategoryWithResults}
-                    isLoading={isLoading}
-                    key={category}
-                />
-            ))}
+            {showSearchResults &&
+                categoriesToRender.map(({ key: category, items, isLoading }, columnIndex: number) => (
+                    <Category
+                        tabId={tabId}
+                        items={items}
+                        category={category}
+                        columnIndex={columnIndex}
+                        isFirstCategoryWithResults={category === firstAvailableCategory}
+                        isLoading={isLoading}
+                        key={category}
+                    />
+                ))}
+
+            {showExplorerView && <ProjectExplorer tabId={tabId} listboxRef={listboxRef} />}
 
             {/* Show NoResultsFound when include='all' + search term + no results */}
-            {shouldShowGlobalNoResults && <NoResultsFound handleAskAi={handleAskAi} />}
+            {showSearchResults && shouldShowGlobalNoResults && <NoResultsFound handleAskAi={handleAskAi} />}
         </>
     )
 }

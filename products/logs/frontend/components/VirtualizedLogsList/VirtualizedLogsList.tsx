@@ -8,49 +8,76 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import {
     LOG_ROW_HEADER_HEIGHT,
     LogRow,
     LogRowHeader,
+    RESIZER_HANDLE_WIDTH,
     getMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { logsLogic } from 'products/logs/frontend/logsLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 interface VirtualizedLogsListProps {
     dataSource: ParsedLogMessage[]
     loading: boolean
-    isPinned: (uuid: string) => boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
     showPinnedWithOpacity?: boolean
     fixedHeight?: number
     disableInfiniteScroll?: boolean
+    hasMoreLogsToLoad?: boolean
+    onLoadMore?: () => void
 }
 
 export function VirtualizedLogsList({
     dataSource,
     loading,
-    isPinned,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     showPinnedWithOpacity = false,
     fixedHeight,
     disableInfiniteScroll = false,
+    hasMoreLogsToLoad = false,
+    onLoadMore,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { togglePinLog, setHighlightedLogId, fetchNextLogsPage } = useActions(logsLogic)
-    const { highlightedLogId, hasMoreLogsToLoad, logsLoading } = useValues(logsLogic)
-    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
-    const { setContainerWidth } = useActions(virtualizedLogsListLogic)
+    const {
+        tabId,
+        pinnedLogs,
+        expandedLogIds,
+        cursorIndex,
+        recomputeRowHeightsRequest,
+        attributeColumns,
+        attributeColumnWidths,
+        selectedLogIds,
+        selectedCount,
+    } = useValues(logsViewerLogic)
+    const {
+        togglePinLog,
+        toggleExpandLog,
+        userSetCursorIndex,
+        removeAttributeColumn,
+        setAttributeColumnWidth,
+        toggleSelectLog,
+        selectAll,
+        clearSelection,
+        selectLogRange,
+    } = useActions(logsViewerLogic)
+
+    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
+    const { setContainerWidth } = useActions(virtualizedLogsListLogic({ tabId }))
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
-    const prevDataLengthRef = useRef<number>(0)
     const autosizerWidthRef = useRef<number>(0)
 
-    const minRowWidth = useMemo(() => getMinRowWidth(), [])
+    const minRowWidth = useMemo(
+        // Add extra width for resize handles in the header
+        () => getMinRowWidth(attributeColumns, attributeColumnWidths) + attributeColumns.length * RESIZER_HANDLE_WIDTH,
+        [attributeColumns, attributeColumnWidths]
+    )
 
     const cache = useMemo(
         () =>
@@ -62,56 +89,75 @@ export function VirtualizedLogsList({
         []
     )
 
+    // Handle recompute requests from child components (via the logic)
+    const lastRecomputeTimestampRef = useRef<number>(0)
+    useEffect(() => {
+        if (recomputeRowHeightsRequest && recomputeRowHeightsRequest.timestamp > lastRecomputeTimestampRef.current) {
+            lastRecomputeTimestampRef.current = recomputeRowHeightsRequest.timestamp
+            const { logIds } = recomputeRowHeightsRequest
+            if (logIds) {
+                for (const logId of logIds) {
+                    const rowIndex = dataSource.findIndex((log) => log.uuid === logId)
+                    if (rowIndex !== -1) {
+                        cache.clear(rowIndex, 0)
+                        listRef.current?.recomputeRowHeights(rowIndex)
+                    }
+                }
+            } else {
+                cache.clearAll()
+                listRef.current?.recomputeRowHeights()
+            }
+        }
+    }, [recomputeRowHeightsRequest, dataSource, cache])
+
     // Clear cache when container width changes (affects message column width and thus row heights)
     useEffect(() => {
         if (containerWidth > 0) {
             cache.clearAll()
             listRef.current?.recomputeRowHeights()
         }
-    }, [containerWidth, cache])
-
-    // Preserve scroll position when new data is appended
-    useEffect(() => {
-        if (dataSource.length > prevDataLengthRef.current && prevDataLengthRef.current > 0) {
-            requestAnimationFrame(() => {
-                listRef.current?.scrollToPosition(scrollTopRef.current)
-            })
-        }
-        prevDataLengthRef.current = dataSource.length
-    }, [dataSource.length])
+    }, [containerWidth, cache, wrapBody, prettifyJson, attributeColumns, attributeColumnWidths])
 
     // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
-        if (logsLoading && dataSource.length === 0) {
+        if (loading && dataSource.length === 0) {
             cache.clearAll()
         }
-    }, [logsLoading, dataSource.length, cache])
+    }, [loading, dataSource.length, cache])
 
+    // Scroll to cursor when it changes (but not when data length changes from pagination)
+    const prevCursorIndexRef = useRef<number | null>(cursorIndex)
     useEffect(() => {
-        cache.clearAll()
-        listRef.current?.recomputeRowHeights()
-    }, [wrapBody, prettifyJson, cache])
+        const cursorChanged = cursorIndex !== prevCursorIndexRef.current
+        prevCursorIndexRef.current = cursorIndex
 
-    const prevHighlightedLogIdRef = useRef<string | null>(null)
-
-    useEffect(() => {
-        if (highlightedLogId && highlightedLogId !== prevHighlightedLogIdRef.current) {
-            requestAnimationFrame(() => {
-                const index = dataSource.findIndex((log) => log.uuid === highlightedLogId)
-                if (index !== -1) {
-                    listRef.current?.scrollToRow(index)
-                }
+        if (cursorChanged && cursorIndex !== null && dataSource.length > 0) {
+            listRef.current?.scrollToRow(cursorIndex)
+            // Double scroll after two animation frames to ensure row measurement is complete
+            let raf1: number | null = null
+            let raf2: number | null = null
+            raf1 = requestAnimationFrame(() => {
+                raf2 = requestAnimationFrame(() => {
+                    listRef.current?.scrollToRow(cursorIndex)
+                })
             })
+            return () => {
+                if (raf1 !== null) {
+                    cancelAnimationFrame(raf1)
+                }
+                if (raf2 !== null) {
+                    cancelAnimationFrame(raf2)
+                }
+            }
         }
-        prevHighlightedLogIdRef.current = highlightedLogId
-    }, [highlightedLogId, dataSource])
+    }, [cursorIndex, dataSource.length])
 
     const handleRowsRendered = ({ stopIndex }: { stopIndex: number }): void => {
         if (disableInfiniteScroll) {
             return
         }
-        if (shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, logsLoading)) {
-            fetchNextLogsPage(250)
+        if (shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, loading)) {
+            onLoadMore?.()
         }
     }
 
@@ -119,8 +165,7 @@ export function VirtualizedLogsList({
         (rowWidth?: number) =>
             ({ index, key, style, parent }: ListRowProps): JSX.Element => {
                 const log = dataSource[index]
-                const isHighlighted = log.uuid === highlightedLogId
-                const pinned = isPinned(log.uuid)
+                const isExpanded = !!expandedLogIds[log.uuid]
 
                 return (
                     <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
@@ -132,15 +177,27 @@ export function VirtualizedLogsList({
                             >
                                 <LogRow
                                     log={log}
-                                    isHighlighted={isHighlighted}
-                                    pinned={pinned}
+                                    logIndex={index}
+                                    isAtCursor={index === cursorIndex}
+                                    isExpanded={isExpanded}
+                                    pinned={!!pinnedLogs[log.uuid]}
                                     showPinnedWithOpacity={showPinnedWithOpacity}
                                     wrapBody={wrapBody}
                                     prettifyJson={prettifyJson}
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
-                                    onSetHighlighted={setHighlightedLogId}
+                                    onToggleExpand={() => toggleExpandLog(log.uuid)}
+                                    onSetCursor={() => userSetCursorIndex(index)}
                                     rowWidth={rowWidth}
+                                    attributeColumns={attributeColumns}
+                                    attributeColumnWidths={attributeColumnWidths}
+                                    isSelected={!!selectedLogIds[log.uuid]}
+                                    onToggleSelect={() => toggleSelectLog(log.uuid)}
+                                    onShiftClick={(clickedIndex) => {
+                                        const anchorIndex = cursorIndex ?? 0
+                                        selectLogRange(anchorIndex, clickedIndex)
+                                        userSetCursorIndex(clickedIndex)
+                                    }}
                                 />
                             </div>
                         )}
@@ -149,15 +206,22 @@ export function VirtualizedLogsList({
             },
         [
             dataSource,
-            highlightedLogId,
-            isPinned,
+            cursorIndex,
+            expandedLogIds,
+            pinnedLogs,
             cache,
             showPinnedWithOpacity,
             wrapBody,
             prettifyJson,
             tzLabelFormat,
             togglePinLog,
-            setHighlightedLogId,
+            toggleExpandLog,
+            userSetCursorIndex,
+            attributeColumns,
+            attributeColumnWidths,
+            selectedLogIds,
+            toggleSelectLog,
+            selectLogRange,
         ]
     )
 
@@ -177,8 +241,18 @@ export function VirtualizedLogsList({
                         }
                         const rowWidth = Math.max(width, minRowWidth)
                         return (
-                            <div className="overflow-x-auto" style={{ width, height: fixedHeight }}>
-                                <LogRowHeader rowWidth={rowWidth} />
+                            <div className="overflow-y-hidden overflow-x-auto" style={{ width, height: fixedHeight }}>
+                                <LogRowHeader
+                                    rowWidth={rowWidth}
+                                    attributeColumns={attributeColumns}
+                                    attributeColumnWidths={attributeColumnWidths}
+                                    onRemoveAttributeColumn={removeAttributeColumn}
+                                    onResizeAttributeColumn={setAttributeColumnWidth}
+                                    selectedCount={selectedCount}
+                                    totalCount={dataSource.length}
+                                    onSelectAll={() => selectAll(dataSource)}
+                                    onClearSelection={clearSelection}
+                                />
                                 <List
                                     ref={listRef}
                                     width={rowWidth}
@@ -210,8 +284,18 @@ export function VirtualizedLogsList({
                     const rowWidth = Math.max(width, minRowWidth)
 
                     return (
-                        <div className="overflow-x-auto" style={{ width, height }}>
-                            <LogRowHeader rowWidth={rowWidth} />
+                        <div className="overflow-y-hidden overflow-x-auto" style={{ width, height }}>
+                            <LogRowHeader
+                                rowWidth={rowWidth}
+                                attributeColumns={attributeColumns}
+                                attributeColumnWidths={attributeColumnWidths}
+                                onRemoveAttributeColumn={removeAttributeColumn}
+                                onResizeAttributeColumn={setAttributeColumnWidth}
+                                selectedCount={selectedCount}
+                                totalCount={dataSource.length}
+                                onSelectAll={() => selectAll(dataSource)}
+                                onClearSelection={clearSelection}
+                            />
                             <List
                                 ref={listRef}
                                 width={rowWidth}

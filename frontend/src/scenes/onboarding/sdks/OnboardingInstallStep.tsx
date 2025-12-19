@@ -5,6 +5,7 @@ import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -90,16 +91,23 @@ export function OnboardingInstallStep({
     const { currentTeam } = useValues(teamLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [sdkInstructionMap, setAvailableSDKInstructionsMap])
+
+    // In the experiment, show skip at bottom only when installation is NOT complete
+    const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
+    // In the experiment, hide the top skip button (but still show Continue when installation is complete)
+    const showTopSkipButton = !isSkipButtonExperiment || installationComplete
 
     return (
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            showSkip={showSkipAtBottom}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -134,7 +142,9 @@ export function OnboardingInstallStep({
                                 fullWidth={false}
                                 text="Invite developer"
                             />
-                            <NextButton size="small" installationComplete={installationComplete} />
+                            {showTopSkipButton && (
+                                <NextButton size="small" installationComplete={installationComplete} />
+                            )}
                         </div>
                     </div>
                     <LemonTabs

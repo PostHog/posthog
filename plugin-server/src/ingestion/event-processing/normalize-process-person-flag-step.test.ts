@@ -49,7 +49,6 @@ describe('normalizeProcessPersonFlagStep', () => {
         event: baseEvent,
         team,
         headers: createTestEventHeaders(),
-        personsStoreForBatch: {} as any,
         groupStoreForBatch: {} as any,
     }
 
