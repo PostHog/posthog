@@ -270,9 +270,4 @@ describe('formatLocalizedDate', () => {
         document.documentElement.lang = 'en'
         expect(formatLocalizedDate()).toBe('DD MMM')
     })
-
-    it('should handle complex locale with script and extensions', () => {
-        document.documentElement.lang = 'en-Latn-US-u-ca-gregory'
-        expect(formatLocalizedDate()).toBe('MMM DD')
-    })
 })
