@@ -86,10 +86,11 @@ query = parse_select('''
 select
     avgMerge(bounce_rate),
     toStartOfDay(time_window_start) as day
+FROM web_preagg
 WHERE and(
     time_window_start >= {time_window_min},
     time_window_start <= {time_window_max},
-    in(job_id, {job_ids}
+    in(job_id, {job_ids})
 )
 GROUP BY day
 ''',
