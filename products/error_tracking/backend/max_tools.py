@@ -1,7 +1,7 @@
 import re
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -428,7 +428,7 @@ When the user says "this issue", they mean the issue with this ID. Use it when c
         # Ensure we return the proper type
         if isinstance(analysis_result, dict):
             return ErrorTrackingExplainIssueOutput(**analysis_result)
-        return analysis_result
+        return cast(ErrorTrackingExplainIssueOutput, analysis_result)
 
     def _format_explanation_for_user(self, summary: ErrorTrackingExplainIssueOutput, issue_name: str) -> str:
         lines = []
