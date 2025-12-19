@@ -121,7 +121,7 @@ async def deliver_subscription_report_async(
     system_failures = [a for a in failed_assets if not is_user_query_error_type(a.exception_type)]
     if system_failures:
         get_subscription_failure_metric(subscription.target_type, "temporal", failure_type="asset_generation").add(1)
-        logger.warn(
+        logger.warning(
             "deliver_subscription_report_async.failed_asset_generation",
             subscription_id=subscription_id,
             asset_count=len(assets),
