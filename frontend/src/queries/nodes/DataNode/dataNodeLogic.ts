@@ -31,6 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { NotebookQueryContext } from '~/queries/notebookContext'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -101,6 +102,9 @@ export interface DataNodeLogicProps {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+
+    /** Notebook context for routing query results into notebook kernels */
+    notebook?: NotebookQueryContext
 
     /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
@@ -355,7 +359,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             actions.setPollResponse,
                                             props.filtersOverride,
                                             props.variablesOverride,
-                                            pollOnly
+                                            pollOnly,
+                                            props.notebook
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -395,7 +400,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.notebook
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (values.response === null) {
@@ -435,7 +446,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.notebook
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as
@@ -463,7 +480,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.refresh
+                                props.refresh,
+                                undefined,
+                                undefined,
+                                undefined,
+                                undefined,
+                                false,
+                                props.notebook
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {

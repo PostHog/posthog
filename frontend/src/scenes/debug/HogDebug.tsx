@@ -3,6 +3,7 @@ import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -189,14 +190,11 @@ export function HogDebug({ query, setQuery, queryKey, debug, modifiers, attachTo
                                 options={{ wordWrap: 'on', lineNumbers: (nr) => String(nr - 1) }}
                             />
                         ) : tab === 'stdout' ? (
-                            <CodeEditor
-                                className="border"
-                                language="text"
-                                value={String(response?.stdout ?? 'No bytecode returned with response')}
-                                height={500}
-                                path={`debug/${queryKey}/hog-stdout.txt`}
-                                options={{ wordWrap: 'on' }}
-                            />
+                            <div className="max-h-[500px] overflow-auto">
+                                <CodeSnippet language={Language.Text} wrap ansi>
+                                    {String(response?.stdout ?? 'No bytecode returned with response')}
+                                </CodeSnippet>
+                            </div>
                         ) : (
                             <CodeEditor
                                 className="border"

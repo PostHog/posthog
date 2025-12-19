@@ -89,6 +89,7 @@ export function InsightViz({
         dataNodeCollectionId: insightVizDataCollectionId(insightProps, vizKey),
         filtersOverride,
         variablesOverride,
+        notebook: context?.notebook,
     }
 
     const isFunnels = isFunnelsQuery(query.source)

@@ -164,6 +164,7 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        notebook: context?.notebook,
     }
     const {
         response,

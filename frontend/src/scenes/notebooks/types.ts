@@ -63,6 +63,38 @@ export enum NotebookNodeType {
     UsageMetrics = 'ph-usage-metrics',
     ZendeskTickets = 'ph-zendesk-tickets',
     RelatedGroups = 'ph-related-groups',
+    Python = 'ph-python',
+}
+
+export type NotebookKernelStatus = {
+    id: string
+    notebook_short_id: string
+    started_at: string
+    last_activity_at: string
+    execution_count: number
+    alive: boolean
+}
+
+export type NotebookKernelVariable = {
+    name: string
+    repr: string
+    type: string
+    module?: string | null
+    kind: 'hogql_ast' | 'json' | 'scalar'
+}
+
+export type NotebookKernelExecutionResponse = {
+    status: 'ok' | 'error' | 'timeout'
+    stdout: string
+    stderr: string
+    result?: Record<string, any> | null
+    variables?: NotebookKernelVariable[]
+    execution_count?: number | null
+    error_name?: string | null
+    traceback?: string[]
+    started_at: string
+    completed_at: string
+    kernel: NotebookKernelStatus
 }
 
 export type NotebookNodeResource = {

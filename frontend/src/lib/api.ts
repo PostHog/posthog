@@ -12,13 +12,20 @@ import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculati
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import {
+    NotebookKernelExecutionResponse,
+    NotebookKernelStatus,
+    NotebookListItemType,
+    NotebookNodeResource,
+    NotebookType,
+} from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { NotebookQueryContext } from '~/queries/notebookContext'
 import {
     AnyResponseType,
     DashboardFilter,
@@ -3665,6 +3672,25 @@ const api = {
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
         },
+        async startKernel(notebookId: NotebookType['short_id']): Promise<NotebookKernelStatus> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel').withAction('start').create()
+        },
+        async stopKernel(notebookId: NotebookType['short_id']): Promise<{ stopped: boolean }> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel').withAction('stop').create()
+        },
+        async restartKernel(notebookId: NotebookType['short_id']): Promise<NotebookKernelStatus> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel').withAction('restart').create()
+        },
+        async executeKernel(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number }
+        ): Promise<NotebookKernelExecutionResponse> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction('kernel')
+                .withAction('execute')
+                .create({ data })
+        },
     },
 
     sessionGroupSummaries: {
@@ -4661,6 +4687,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            notebook?: NotebookQueryContext
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -4669,15 +4696,31 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
+        const data = {
+            query,
+            client_query_id: queryOptions?.clientQueryId,
+            refresh: queryOptions?.refresh,
+            filters_override: queryOptions?.filtersOverride,
+            variables_override: queryOptions?.variablesOverride,
+        }
+
+        if (queryOptions?.notebook) {
+            return await new ApiRequest()
+                .notebook(queryOptions.notebook.shortId)
+                .withAction('kernel')
+                .withAction('query')
+                .create({
+                    ...queryOptions?.requestOptions,
+                    data: {
+                        ...data,
+                        store_as: queryOptions.notebook.storeAs ?? undefined,
+                    },
+                })
+        }
+
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-            },
+            data,
         })
     },
 
