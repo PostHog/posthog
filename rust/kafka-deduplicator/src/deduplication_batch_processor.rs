@@ -106,7 +106,10 @@ impl DuplicateEventProducerWrapper {
                     .with_label("status", "failure")
                     .increment(1);
 
-                error!("Failed to publish duplicate event to topic {}: {}", topic, e);
+                error!(
+                    "Failed to publish duplicate event to topic {}: {}",
+                    topic, e
+                );
                 Ok(())
             }
         }
@@ -260,15 +263,17 @@ impl BatchDeduplicationProcessor {
                     if let Some(original_event) = result.get_original_event() {
                         let duplicate_event = DuplicateEvent::from_result(original_event, result);
                         if let Some(event) = duplicate_event {
-                            duplicate_event_futures.push(DuplicateEventProducerWrapper::send_static(
-                                duplicate_producer.producer.clone(),
-                                duplicate_producer.topic.clone(),
-                                event,
-                                key.clone(),
-                                self.config.producer_send_timeout,
-                                partition.topic().to_string(),
-                                partition.partition_number(),
-                            ));
+                            duplicate_event_futures.push(
+                                DuplicateEventProducerWrapper::send_static(
+                                    duplicate_producer.producer.clone(),
+                                    duplicate_producer.topic.clone(),
+                                    event,
+                                    key.clone(),
+                                    self.config.producer_send_timeout,
+                                    partition.topic().to_string(),
+                                    partition.partition_number(),
+                                ),
+                            );
                         }
                     }
                 }
@@ -629,9 +634,7 @@ impl BatchDeduplicationProcessor {
         output_topic: String,
         timeout: Duration,
     ) -> Result<()> {
-        let mut record = FutureRecord::to(&output_topic)
-            .key(&key)
-            .payload(&payload);
+        let mut record = FutureRecord::to(&output_topic).key(&key).payload(&payload);
 
         if let Some(ref h) = headers {
             record = record.headers(h.clone());

@@ -195,7 +195,7 @@ impl<T: Send + 'static> PartitionWorker<T> {
 mod tests {
     use super::*;
     use axum::async_trait;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tokio::time::{sleep, Duration};
 
     struct TestProcessor {
@@ -219,6 +219,70 @@ mod tests {
                 sleep(Duration::from_millis(self.delay_ms)).await;
             }
             self.processed_count
+                .fetch_add(messages.len(), Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Test processor that fails a configurable number of times before succeeding
+    struct FailingProcessor {
+        fail_count: AtomicUsize,
+        max_failures: usize,
+        processed_after_failures: AtomicUsize,
+    }
+
+    impl FailingProcessor {
+        fn new(max_failures: usize) -> Self {
+            Self {
+                fail_count: AtomicUsize::new(0),
+                max_failures,
+                processed_after_failures: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BatchConsumerProcessor<String> for FailingProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<String>>) -> Result<()> {
+            let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
+            if count < self.max_failures {
+                Err(anyhow::anyhow!("Simulated processor error {}", count + 1))
+            } else {
+                self.processed_after_failures
+                    .fetch_add(messages.len(), Ordering::SeqCst);
+                Ok(())
+            }
+        }
+    }
+
+    /// Test processor that tracks whether it was ever called
+    struct TrackingProcessor {
+        batch_count: AtomicUsize,
+        message_count: AtomicUsize,
+        delay_ms: u64,
+        started: AtomicBool,
+    }
+
+    impl TrackingProcessor {
+        fn new(delay_ms: u64) -> Self {
+            Self {
+                batch_count: AtomicUsize::new(0),
+                message_count: AtomicUsize::new(0),
+                delay_ms,
+                started: AtomicBool::new(false),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl BatchConsumerProcessor<String> for TrackingProcessor {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<String>>) -> Result<()> {
+            self.started.store(true, Ordering::SeqCst);
+            if self.delay_ms > 0 {
+                sleep(Duration::from_millis(self.delay_ms)).await;
+            }
+            self.batch_count.fetch_add(1, Ordering::SeqCst);
+            self.message_count
                 .fetch_add(messages.len(), Ordering::SeqCst);
             Ok(())
         }
@@ -266,5 +330,125 @@ mod tests {
 
         // Shutdown
         worker.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_partition_worker_handles_processor_errors() {
+        // Verify that the worker continues processing after processor errors
+        let partition = Partition::new("test-topic".to_string(), 0);
+        let processor = Arc::new(FailingProcessor::new(3)); // Fail first 3 batches
+        let config = PartitionWorkerConfig {
+            channel_buffer_size: 10,
+        };
+
+        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+
+        // Send 5 batches - first 3 will fail, last 2 should succeed
+        for i in 0..5 {
+            let messages = vec![KafkaMessage::new_for_test(
+                partition.clone(),
+                i,
+                format!("msg{i}"),
+            )];
+            let batch = PartitionBatch::new(partition.clone(), messages);
+            worker.send(batch).await.unwrap();
+        }
+
+        // Give time for processing
+        sleep(Duration::from_millis(50)).await;
+
+        // Worker should have continued after failures
+        assert_eq!(processor.fail_count.load(Ordering::SeqCst), 5);
+        // Last 2 batches should have been processed successfully
+        assert_eq!(processor.processed_after_failures.load(Ordering::SeqCst), 2);
+
+        // Worker should still be alive and functional
+        let messages = vec![KafkaMessage::new_for_test(
+            partition.clone(),
+            5,
+            "msg5".to_string(),
+        )];
+        let batch = PartitionBatch::new(partition.clone(), messages);
+        worker.send(batch).await.unwrap();
+
+        sleep(Duration::from_millis(10)).await;
+        assert_eq!(processor.processed_after_failures.load(Ordering::SeqCst), 3);
+
+        worker.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn test_partition_worker_drains_queue_on_shutdown() {
+        // Verify that all queued messages are processed before shutdown completes
+        let partition = Partition::new("test-topic".to_string(), 0);
+        let processor = Arc::new(TrackingProcessor::new(20)); // 20ms delay per batch
+        let config = PartitionWorkerConfig {
+            channel_buffer_size: 10,
+        };
+
+        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+
+        // Queue up 5 batches with messages
+        for i in 0..5 {
+            let messages = vec![
+                KafkaMessage::new_for_test(partition.clone(), i * 2, format!("msg{}", i * 2)),
+                KafkaMessage::new_for_test(
+                    partition.clone(),
+                    i * 2 + 1,
+                    format!("msg{}", i * 2 + 1),
+                ),
+            ];
+            let batch = PartitionBatch::new(partition.clone(), messages);
+            worker.send(batch).await.unwrap();
+        }
+
+        // Immediately initiate shutdown - should drain all queued batches
+        worker.shutdown().await;
+
+        // All 5 batches (10 messages) should have been processed
+        assert_eq!(
+            processor.batch_count.load(Ordering::SeqCst),
+            5,
+            "All queued batches should be processed during shutdown"
+        );
+        assert_eq!(
+            processor.message_count.load(Ordering::SeqCst),
+            10,
+            "All queued messages should be processed during shutdown"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_partition_worker_channel_closes_on_sender_drop() {
+        // Verify that the worker task exits when all senders are dropped
+        let partition = Partition::new("test-topic".to_string(), 0);
+        let processor = Arc::new(TrackingProcessor::new(0));
+        let config = PartitionWorkerConfig {
+            channel_buffer_size: 5,
+        };
+
+        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+
+        // Send a message then drop the worker (which drops its sender)
+        let messages = vec![KafkaMessage::new_for_test(
+            partition.clone(),
+            0,
+            "msg0".to_string(),
+        )];
+        let batch = PartitionBatch::new(partition.clone(), messages);
+        worker.send(batch).await.unwrap();
+
+        // Drop worker - this drops the sender but doesn't wait for task
+        drop(worker);
+
+        // Give the worker task time to process remaining messages and exit
+        sleep(Duration::from_millis(50)).await;
+
+        // The message should have been processed before the task exited
+        assert_eq!(
+            processor.message_count.load(Ordering::SeqCst),
+            1,
+            "Message should be processed even when worker is dropped without explicit shutdown"
+        );
     }
 }

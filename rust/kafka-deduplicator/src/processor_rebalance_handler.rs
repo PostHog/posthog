@@ -114,16 +114,16 @@ where
             self.pending_cleanup.insert(partition.clone());
         }
 
-        // Remove stores from DashMap BEFORE revocation completes
-        // This prevents new store creation during shutdown
+        // Unregister stores from DashMap BEFORE revocation completes
+        // This prevents new store creation during shutdown (Step 1 of two-step cleanup)
         // This is fast - just DashMap removes
         for partition in &partition_infos {
             self.store_manager
-                .remove_from_map(partition.topic(), partition.partition_number());
+                .unregister_store(partition.topic(), partition.partition_number());
         }
 
         info!(
-            "Removed {} stores from map. Active stores: {}. Pending cleanup: {}",
+            "Unregistered {} stores. Active stores: {}. Pending cleanup: {}",
             partition_infos.len(),
             self.store_manager.get_active_store_count(),
             self.pending_cleanup.len()
@@ -227,14 +227,14 @@ where
             );
         }
 
-        // Now safe to delete files - workers are shut down
+        // Now safe to delete files - workers are shut down (Step 2 of two-step cleanup)
         for partition in &partitions_to_cleanup {
             if let Err(e) = self
                 .store_manager
-                .delete_partition_files(partition.topic(), partition.partition_number())
+                .cleanup_store_files(partition.topic(), partition.partition_number())
             {
                 error!(
-                    "Failed to delete files for revoked partition {}:{}: {}",
+                    "Failed to cleanup files for revoked partition {}:{}: {}",
                     partition.topic(),
                     partition.partition_number(),
                     e
@@ -440,8 +440,8 @@ mod tests {
         store_manager.get_or_create("test-topic", 0).await.unwrap();
         assert_eq!(store_manager.get_active_store_count(), 1);
 
-        // Remove from map only (simulating first step of revocation)
-        store_manager.remove_from_map("test-topic", 0);
+        // Unregister store (Step 1 of two-step cleanup)
+        store_manager.unregister_store("test-topic", 0);
         assert_eq!(store_manager.get_active_store_count(), 0);
 
         // Verify we can still create a new store if needed
@@ -514,8 +514,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_delete_partition_files_after_remove_from_map() {
-        // Test that delete_partition_files works correctly after remove_from_map
+    async fn test_cleanup_store_files_after_unregister_store() {
+        // Test the two-step cleanup process:
+        // Step 1: unregister_store() - closes RocksDB, removes from map
+        // Step 2: cleanup_store_files() - deletes files from disk
 
         let temp_dir = TempDir::new().unwrap();
         let store_config = DeduplicationStoreConfig {
@@ -530,25 +532,23 @@ mod tests {
         let partition_dir = temp_dir.path().join("test-topic_0");
         assert!(partition_dir.exists(), "Partition directory should exist");
 
-        // Remove from map (store is dropped, RocksDB is closed)
-        store_manager.remove_from_map("test-topic", 0);
+        // Step 1: Unregister store (store is dropped, RocksDB is closed)
+        store_manager.unregister_store("test-topic", 0);
         assert_eq!(store_manager.get_active_store_count(), 0);
 
         // Directory should still exist (files not deleted yet)
         assert!(
             partition_dir.exists(),
-            "Partition directory should still exist after remove_from_map"
+            "Partition directory should still exist after unregister_store"
         );
 
-        // Now delete the files
-        store_manager
-            .delete_partition_files("test-topic", 0)
-            .unwrap();
+        // Step 2: Cleanup the files
+        store_manager.cleanup_store_files("test-topic", 0).unwrap();
 
         // Directory should be deleted
         assert!(
             !partition_dir.exists(),
-            "Partition directory should be deleted after delete_partition_files"
+            "Partition directory should be deleted after cleanup_store_files"
         );
     }
 }

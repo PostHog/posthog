@@ -5,14 +5,70 @@ use rdkafka::TopicPartitionList;
 /// Trait for handling Kafka consumer rebalance events
 /// Users implement this to define their partition-specific logic
 ///
-/// ## Method Pairs: Setup vs Cleanup
+/// # Rebalance State Machine
+///
+/// ## Normal Revoke Flow
+///
+/// When partitions are revoked and NOT immediately re-assigned:
+///
+/// ```text
+/// pre_rebalance(Revoke)
+///     ├─► on_pre_rebalance()           [async, spawned]
+///     ├─► setup_revoked_partitions()   [SYNC] - unregister stores from DashMap
+///     └─► RebalanceEvent::Revoke sent to async worker
+///
+/// ... consumer waits ...
+///
+/// Async worker processes RebalanceEvent::Revoke:
+///     └─► cleanup_revoked_partitions() [async] - shutdown workers, delete files
+/// ```
+///
+/// ## Normal Assign Flow
+///
+/// When partitions are assigned:
+///
+/// ```text
+/// post_rebalance(Assign)
+///     ├─► setup_assigned_partitions()  [SYNC] - create partition workers
+///     ├─► RebalanceEvent::Assign sent to async worker
+///     └─► on_post_rebalance()          [async, spawned]
+///
+/// ... consumer stream resumes, messages start arriving ...
+/// ... workers ALREADY EXIST, messages route successfully ...
+///
+/// Async worker processes RebalanceEvent::Assign:
+///     └─► cleanup_assigned_partitions() [async] - pre-create stores, download checkpoints
+/// ```
+///
+/// ## Rapid Revoke→Assign (Same Partition)
+///
+/// When a partition is revoked and immediately re-assigned (e.g., during rolling restart):
+///
+/// ```text
+/// pre_rebalance(Revoke partition 0)
+///     └─► setup_revoked_partitions()   - adds partition 0 to pending_cleanup set
+///
+/// post_rebalance(Assign partition 0)
+///     └─► setup_assigned_partitions()  - REMOVES partition 0 from pending_cleanup
+///                                       - reuses existing worker if present
+///
+/// Async worker processes RebalanceEvent::Revoke:
+///     └─► cleanup_revoked_partitions() - checks pending_cleanup set
+///                                       - partition 0 NOT in set → SKIPS cleanup!
+///                                       - worker and store are preserved
+/// ```
+///
+/// This ensures that rapid re-assignment doesn't accidentally delete the newly assigned
+/// partition's worker or store.
+///
+/// # Method Pairs: Setup vs Cleanup
 ///
 /// Each rebalance event has two phases:
 ///
 /// **Setup methods** (`setup_*`) - Called synchronously within librdkafka callbacks.
 /// These MUST be fast and non-blocking. They run BEFORE messages can arrive/stop.
 /// - `setup_assigned_partitions`: Create workers before messages arrive
-/// - `setup_revoked_partitions`: Remove stores from map before revocation completes
+/// - `setup_revoked_partitions`: Unregister stores from map before revocation completes
 ///
 /// **Cleanup methods** (`cleanup_*`) - Called asynchronously after callbacks return.
 /// These can be slow and do I/O. They run in the background.

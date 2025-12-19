@@ -78,7 +78,18 @@ fn rocksdb_options() -> Options {
     // Universal compaction reduces write amplification for write-heavy workloads
     // Trade-off: higher space amplification, but better for batch writes on slow storage
     opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-    opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
+
+    // NOTE: We don't call optimize_universal_style_compaction() because it sets Snappy compression.
+    // Instead, we manually configure universal compaction for reduced CPU usage:
+    // - Higher size_ratio (10% vs 1% default) means less aggressive compaction
+    // - This reduces compaction frequency at the cost of slightly higher space amplification
+    let mut universal_opts = rocksdb::UniversalCompactOptions::default();
+    universal_opts.set_size_ratio(10); // Allow 10% size difference before compacting (default: 1)
+    universal_opts.set_min_merge_width(2); // Minimum files to merge (default: 2)
+    universal_opts.set_max_merge_width(16); // Maximum files to merge at once (default: UINT_MAX)
+    universal_opts.set_max_size_amplification_percent(200); // Allow 2x space amp (default: 200)
+    universal_opts.set_compression_size_percent(-1); // Compress all levels (default: -1)
+    opts.set_universal_compaction_options(&universal_opts);
 
     let mut block_opts = block_based_table_factory();
     // Timestamp CF

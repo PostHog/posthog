@@ -291,44 +291,54 @@ impl StoreManager {
         }
     }
 
-    /// Remove a store from management and clean up its files (used during partition rebalancing)
+    /// Remove a store from management and clean up its files.
     ///
-    /// This method:
-    /// - Removes the store from the map
-    /// - Drops the store (closing RocksDB)
-    /// - Deletes ALL files for this partition from disk (including old timestamp directories)
+    /// This is a convenience method that calls `unregister_store()` followed by
+    /// `cleanup_store_files()`. Use this for simple cleanup outside rebalance scenarios.
     ///
-    /// NOTE: For rebalance scenarios, prefer using `remove_from_map()` followed by
-    /// `delete_partition_files()` after workers are shut down, to avoid race conditions.
+    /// For rebalance scenarios, prefer the two-step process:
+    /// 1. Call `unregister_store()` BEFORE shutting down workers (prevents new store creation)
+    /// 2. Call `cleanup_store_files()` AFTER workers are fully stopped (safe file deletion)
+    ///
+    /// See `test_rebalance_removes_stores_before_workers_shutdown` for rationale.
     pub fn remove(&self, topic: &str, partition: i32) -> Result<()> {
-        self.remove_from_map(topic, partition);
-        self.delete_partition_files(topic, partition)
+        self.unregister_store(topic, partition);
+        self.cleanup_store_files(topic, partition)
     }
 
-    /// Remove a store from the DashMap without deleting files.
+    /// Unregister a store from the DashMap without deleting files (Step 1 of two-step cleanup).
     ///
-    /// This is used during rebalance to prevent workers from creating new stores
-    /// while they're being shut down. Files should be deleted separately using
-    /// `delete_partition_files()` after workers are fully stopped.
-    pub fn remove_from_map(&self, topic: &str, partition: i32) {
+    /// Call this BEFORE shutting down partition workers during rebalance. This prevents
+    /// workers from creating new stores via `get_or_create()` during their shutdown.
+    ///
+    /// After workers are fully stopped, call `cleanup_store_files()` to delete the files.
+    ///
+    /// The two-step process prevents a race condition where:
+    /// 1. Worker is processing during shutdown
+    /// 2. Worker calls `get_or_create()` which creates a new store
+    /// 3. `remove()` deletes the directory
+    /// 4. Worker's write fails with "No such file or directory"
+    pub fn unregister_store(&self, topic: &str, partition: i32) {
         let partition_key = Partition::new(topic.to_string(), partition);
 
         if let Some((_, store)) = self.stores.remove(&partition_key) {
             info!(
                 topic = topic,
                 partition = partition,
-                "Removing deduplication store from map"
+                "Unregistering deduplication store"
             );
             // Drop the store explicitly to close RocksDB
             drop(store);
         }
     }
 
-    /// Delete all files for a partition from disk.
+    /// Delete all files for a partition from disk (Step 2 of two-step cleanup).
     ///
-    /// This should only be called after workers are fully shut down to avoid
-    /// race conditions where a worker tries to write to a deleted directory.
-    pub fn delete_partition_files(&self, topic: &str, partition: i32) -> Result<()> {
+    /// Call this AFTER workers are fully shut down to avoid race conditions where
+    /// a worker tries to write to a deleted directory.
+    ///
+    /// Must be called after `unregister_store()` to ensure RocksDB is closed first.
+    pub fn cleanup_store_files(&self, topic: &str, partition: i32) -> Result<()> {
         let partition_dir = format!(
             "{}/{}_{}",
             self.store_config.path.display(),
@@ -1186,8 +1196,8 @@ mod tests {
         let metadata = TimestampMetadata::new(&event);
         store1.put_timestamp_record(&key, &metadata).unwrap();
 
-        // Revoke - remove from map (but don't delete files yet)
-        manager.remove_from_map("test-topic", 0);
+        // Revoke - unregister store (but don't delete files yet)
+        manager.unregister_store("test-topic", 0);
         assert_eq!(manager.get_active_store_count(), 0);
 
         // Rapid re-assign - pre-create new store

@@ -10,6 +10,8 @@ use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use dashmap::DashMap;
+use futures::future::join_all;
+use tokio::sync::mpsc;
 use tracing::info;
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
@@ -128,6 +130,25 @@ where
             .collect()
     }
 
+    /// Get the sender for a partition, releasing the DashMap guard immediately.
+    ///
+    /// This helper ensures the DashMap guard is released before any async operations,
+    /// preventing one partition's backpressure from blocking router access for other partitions.
+    fn get_partition_sender(
+        &self,
+        partition: &Partition,
+    ) -> Result<(mpsc::Sender<PartitionBatch<T>>, usize)> {
+        let worker = self.workers.get(partition).ok_or_else(|| {
+            anyhow!(
+                "No worker for partition {}:{} - was it assigned?",
+                partition.topic(),
+                partition.partition_number()
+            )
+        })?;
+        Ok((worker.sender(), worker.capacity()))
+        // DashMap guard is released here when `worker` goes out of scope
+    }
+
     /// Route a batch of messages to the appropriate partition worker
     ///
     /// Returns an error if no worker exists for the partition.
@@ -138,20 +159,9 @@ where
     ) -> Result<()> {
         let batch = PartitionBatch::new(partition.clone(), messages);
 
-        // Clone the sender and release the DashMap guard before awaiting.
-        // This prevents blocking other partitions if this partition's channel
-        // is full and backpressures.
-        let (sender, channel_capacity) = {
-            let worker = self.workers.get(&partition).ok_or_else(|| {
-                anyhow!(
-                    "No worker for partition {}:{} - was it assigned?",
-                    partition.topic(),
-                    partition.partition_number()
-                )
-            })?;
-            (worker.sender(), worker.capacity())
-        };
-        // DashMap guard is now released
+        // Get sender and release DashMap guard before awaiting to prevent
+        // blocking other partitions during backpressure
+        let (sender, channel_capacity) = self.get_partition_sender(&partition)?;
 
         // Track backpressure: if channel is full, we'll wait and measure the wait time
         let will_backpressure = channel_capacity == 0;
@@ -233,11 +243,13 @@ where
     }
 }
 
-/// Helper function to shutdown workers asynchronously
+/// Helper function to shutdown workers concurrently
+///
+/// Uses `join_all` to shut down all workers in parallel, reducing rebalance
+/// latency from O(N * drain_time) to O(max_drain_time).
 pub async fn shutdown_workers<T: Send + 'static>(workers: Vec<PartitionWorker<T>>) {
-    for worker in workers {
-        worker.shutdown().await;
-    }
+    let shutdown_futures: Vec<_> = workers.into_iter().map(|w| w.shutdown()).collect();
+    join_all(shutdown_futures).await;
 }
 
 #[cfg(test)]
