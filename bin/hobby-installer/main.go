@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/posthog/posthog/bin/hobby-installer/installer"
 	"github.com/posthog/posthog/bin/hobby-installer/steps"
 	"github.com/posthog/posthog/bin/hobby-installer/ui"
 )
@@ -204,6 +205,8 @@ func (m model) View() string {
 }
 
 func main() {
+	defer installer.CloseTelemetry()
+
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
