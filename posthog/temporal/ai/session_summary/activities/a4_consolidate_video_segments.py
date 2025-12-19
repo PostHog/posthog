@@ -17,10 +17,14 @@ from posthog.temporal.ai.session_summary.types.video import (
 logger = structlog.get_logger(__name__)
 
 
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+
 @temporalio.activity.defn
 async def consolidate_video_segments_activity(
     inputs: VideoSummarySingleSessionInputs,
     raw_segments: list[VideoSegmentOutput],
+    trace_id: str,
 ) -> list[ConsolidatedVideoSegment]:
     """Consolidate raw video segments into meaningful semantic segments using LLM.
 
@@ -36,65 +40,29 @@ async def consolidate_video_segments_activity(
         return []
 
     try:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-
-        # Format raw segments for the prompt
-        segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
-
-        prompt = f"""You are analyzing a session recording from a web analytics product. Below are timestamped descriptions of what the user did during the session.
-
-Your task is to consolidate these into meaningful semantic segments. Each segment should:
-1. Have a **descriptive title** that captures the user's goal or activity (e.g., "Setting up integration", "Exploring analytics dashboard", "Debugging API errors")
-2. Span a coherent period of related activity (combine adjacent segments that are part of the same task)
-3. Have a **combined description** that synthesizes the details from the original segments
-4. Preserve ALL important information from the original descriptions - don't lose any details
-
-Raw segments:
-{segments_text}
-
-Output format (JSON array):
-```json
-[
-  {{
-    "title": "Descriptive segment title",
-    "start_time": "MM:SS",
-    "end_time": "MM:SS",
-    "description": "Combined description of what happened in this segment, preserving all important details from the original segments"
-  }}
-]
-```
-
-Rules:
-- Create 3-10 segments depending on session complexity (fewer for short simple sessions, more for long complex ones)
-- Titles should be specific and actionable (avoid generic titles like "User activity" or "Browsing")
-- Time ranges must not overlap and should cover the full session
-- Preserve error messages, specific UI elements clicked, and outcomes mentioned in original segments
-- Keep descriptions concise but complete
-
-Output ONLY the JSON array, no other text."""
-
         logger.info(
             f"Consolidating {len(raw_segments)} raw segments for session {inputs.session_id}",
             session_id=inputs.session_id,
             raw_segment_count=len(raw_segments),
         )
-
+        segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
         response = client.models.generate_content(
             model="models/gemini-2.5-flash",
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(include_thoughts=False),
-                max_output_tokens=4096,
-            ),
+            contents=[
+                CONSOLIDATION_PROMPT.format(
+                    segments_text=segments_text, example_json=json.dumps(CONSOLIDATION_PROMPT_EXAMPLE_JSON)
+                )
+            ],
+            config=types.GenerateContentConfig(max_output_tokens=4096),
             posthog_distinct_id=inputs.user_distinct_id_to_log,
-            posthog_trace_id=f"video-consolidation-{inputs.redis_key_base}-{inputs.session_id}",
+            posthog_trace_id=trace_id,
             posthog_properties={"$session_id": inputs.session_id},
             posthog_groups={"project": str(inputs.team_id)},
         )
 
         response_text = (response.text or "").strip()
 
-        # Extract JSON from response (handle markdown code blocks)
+        # Extract JSON from response (handle potential Markdown code block)
         json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", response_text)
         if json_match:
             json_str = json_match.group(1)
@@ -129,3 +97,40 @@ Output ONLY the JSON array, no other text."""
         )
         # Re-raise to let the workflow retry with proper retry policy
         raise
+
+
+CONSOLIDATION_PROMPT = """
+You are analyzing a session recording from a web analytics product. Below are timestamped descriptions of what the user did during the session.
+
+Your task is to consolidate these into meaningful semantic segments. Each segment should:
+1. Have a **descriptive title** that captures the user's goal or activity (e.g., "Setting up integration", "Exploring analytics dashboard", "Debugging API errors")
+2. Span a coherent period of related activity (combine adjacent segments that are part of the same task)
+3. Have a **combined description** that synthesizes the details from the original segments
+4. Preserve ALL important information from the original descriptions - don't lose any details
+
+Raw segments:
+{segments_text}
+
+Output format (JSON array):
+```json
+{example_json}
+```
+
+Rules:
+- Create as many segments as needed depending on session complexity (fewer for short simple sessions, more for long complex ones)
+- Titles should be specific (avoid generic titles like "User activity" or "Browsing")
+- Titles must be sentence-cased (capitalize only the first letter and proper nouns)
+- Time ranges must not overlap and should cover the full session
+- Preserve error messages, specific UI elements clicked, and outcomes mentioned in original segments
+- Keep descriptions concise but complete
+
+Output ONLY the JSON array, no other text.
+"""
+CONSOLIDATION_PROMPT_EXAMPLE_JSON = [
+    {
+        "title": "Descriptive segment title",
+        "start_time": "MM:SS",
+        "end_time": "MM:SS",
+        "description": "Combined description of what happened in this segment, preserving all important details from the original segments",
+    }
+]

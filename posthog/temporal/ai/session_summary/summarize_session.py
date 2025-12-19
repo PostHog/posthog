@@ -406,6 +406,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         Uploads the full video once to Gemini, then analyzes segments in parallel.
         """
         retry_policy = RetryPolicy(maximum_attempts=3)
+        trace_id = temporalio.workflow.info().workflow_id
 
         # Convert inputs to video workflow format
         video_inputs = VideoSummarySingleSessionInputs(
@@ -456,7 +457,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         segment_tasks = [
             temporalio.workflow.execute_activity(
                 analyze_video_segment_activity,
-                args=(video_inputs, uploaded_video, segment_spec),
+                args=(video_inputs, uploaded_video, segment_spec, trace_id),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             )
@@ -479,7 +480,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         # Activity 4: Consolidate raw segments into meaningful semantic segments
         consolidated_segments = await temporalio.workflow.execute_activity(
             consolidate_video_segments_activity,
-            args=(video_inputs, raw_segments),
+            args=(video_inputs, raw_segments, trace_id),
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=retry_policy,
         )
