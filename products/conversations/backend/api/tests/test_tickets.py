@@ -183,14 +183,12 @@ class TestTicketAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="First message",
-            source="web",
         )
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="Second message",
-            source="web",
         )
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -202,14 +200,12 @@ class TestTicketAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="First message",
-            source="web",
         )
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="Latest message",
-            source="web",
         )
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -222,7 +218,6 @@ class TestTicketAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="Active message",
-            source="web",
             deleted=False,
         )
         Comment.objects.create(
@@ -230,7 +225,6 @@ class TestTicketAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="Deleted message",
-            source="web",
             deleted=True,
         )
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/tickets/{self.ticket.id}/")
