@@ -75,8 +75,18 @@ impl ReleaseBuilder {
     }
 
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
+        if !self.has_project() {
+            info.remote_url.clone().map(|url| self.with_project(&url));
+        }
+
+        if !self.has_version() {
+            self.with_version(&info.commit_id);
+        }
+
         self.with_metadata("git", info)
-            .expect("We can serialise git info")
+            .expect("We can serialise git info");
+
+        self
     }
 
     pub fn with_metadata<T>(&mut self, key: &str, val: T) -> Result<&mut Self>
@@ -88,9 +98,17 @@ impl ReleaseBuilder {
         Ok(self)
     }
 
+    pub fn has_project(&self) -> bool {
+        self.project.is_some()
+    }
+
     pub fn with_project(&mut self, project: &str) -> &mut Self {
         self.project = Some(project.to_string());
         self
+    }
+
+    pub fn has_version(&self) -> bool {
+        self.version.is_some()
     }
 
     pub fn with_version(&mut self, version: &str) -> &mut Self {
