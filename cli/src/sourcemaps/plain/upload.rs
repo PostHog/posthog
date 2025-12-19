@@ -28,7 +28,7 @@ pub struct Args {
     pub delete_after: bool,
 
     /// The maximum number of chunks to upload in a single batch
-    #[arg(long, default_value = "50", env = "POSTHOG_UPLOAD_BATCH_SIZE")]
+    #[arg(long, default_value = "50")]
     pub batch_size: usize,
 
     #[clap(flatten)]

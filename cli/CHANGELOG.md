@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.20
+
+- chore: add requests throttling for the Posthog API
+
 # 0.5.19
 
 - chore: upgrade cargo-dist to 0.30.3

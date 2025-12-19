@@ -1,4 +1,8 @@
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::Result;
 use reqwest::{
@@ -10,12 +14,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::debug;
 
-use crate::invocation_context::InvocationConfig;
+use crate::{invocation_context::InvocationConfig, utils::throttler::Throttler};
 
 #[derive(Clone)]
 pub struct PHClient {
     config: InvocationConfig,
     client: Client,
+    throttler: Arc<Mutex<Throttler>>,
 }
 
 #[derive(Error, Debug)]
@@ -82,7 +87,15 @@ pub trait SendRequestFn: FnOnce(RequestBuilder) -> RequestBuilder {}
 impl PHClient {
     pub fn from_config(config: InvocationConfig) -> anyhow::Result<Self> {
         let client = Self::build_client(config.skip_ssl)?;
-        Ok(Self { config, client })
+        let throttler = Arc::new(Mutex::new(Throttler::new(
+            config.rate_limit,
+            Duration::from_millis(60000),
+        )));
+        Ok(Self {
+            config,
+            client,
+            throttler,
+        })
     }
 
     pub fn get(&self, url: Url) -> RequestBuilder {
@@ -143,6 +156,8 @@ impl PHClient {
         url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
+        let mut throttler = self.throttler.lock().unwrap();
+        throttler.throttle();
         let request = builder(self.create_request(method, url));
         match request.send() {
             Ok(response) => {

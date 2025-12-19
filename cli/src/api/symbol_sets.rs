@@ -106,7 +106,7 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
             .collect(),
     };
 
-    let res = retry(retry_policy(100, 2, 5), |_| {
+    let res = retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
             client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
             |req| req.json(&request),
@@ -119,7 +119,7 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
 
 fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
     let client = &context().build_http_client()?;
-    retry(retry_policy(100, 2, 5), |_| -> Result<()> {
+    retry(retry_policy(500, 2, 3), |_| -> Result<()> {
         let mut form = Form::new();
         for (key, value) in &presigned_url.fields {
             form = form.text(key.clone(), value.clone());
@@ -141,7 +141,7 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
     let client = &context().client;
     let request = BulkUploadFinishRequest { content_hashes };
 
-    retry(retry_policy(100, 2, 5), |_| {
+    retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
             client.project_url("error_tracking/symbol_sets/bulk_finish_upload")?,
             |req| req.json(&request),
