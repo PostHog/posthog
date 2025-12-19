@@ -91,6 +91,17 @@ def emit_embedding_request(
         timestamp: Optional timestamp (defaults to now)
         metadata: Optional metadata dict to include as structured JSON, not part of content
     """
+    # Validate models against configured embedding tables
+    if not models:
+        raise ValueError("At least one model must be specified")
+    valid_models = {table.model_name for table in EMBEDDING_TABLES}
+    invalid_models = set(models) - valid_models
+    if invalid_models:
+        raise ValueError(
+            f"Invalid model name(s): {', '.join(sorted(invalid_models))}. "
+            f"Valid models are: {', '.join(sorted(valid_models))}"
+        )
+
     if timestamp is None:
         timestamp = now()
 
