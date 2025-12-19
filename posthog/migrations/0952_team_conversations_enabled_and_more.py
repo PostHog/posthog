@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0950_add_exception_type_to_exported_asset"),
+        ("posthog", "0951_hogflowtemplate"),
     ]
 
     operations = [
