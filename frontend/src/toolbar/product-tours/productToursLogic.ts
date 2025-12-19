@@ -22,6 +22,7 @@ import {
     StepOrderVersion,
 } from '~/types'
 
+import { findElement, getElementPath, inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
 import { captureScreenshot, getElementMetadata, getSmartUrlDefaults } from './utils'
 
@@ -88,11 +89,38 @@ function isToolbarElement(element: HTMLElement): boolean {
 }
 
 /** Get the DOM element for a step, checking cached ref is still valid */
-export function getStepElement(step: TourStep): HTMLElement | null {
+export function getStepElement(step: TourStep, options?: { logInference?: boolean }): HTMLElement | null {
     if (step.element && document.body.contains(step.element)) {
         return step.element
     }
-    return step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
+
+    const result = step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
+
+    if (options?.logInference) {
+        // try finding element with inference, log the results
+        const inferredResult = step.inferenceData?.autoData ? findElement(step.inferenceData) : null
+        toolbarPosthogJS.capture('element inference debug', {
+            selector: step.selector ?? null,
+            autoDataPresent: !!step.inferenceData?.autoData,
+            normalFound: !!result,
+            inferenceFound: !!inferredResult,
+            elementsMatch: result === inferredResult,
+            ...(!!result && {
+                normalElement: getElementMetadata(result),
+            }),
+            ...(!!inferredResult && {
+                inferredElement: getElementMetadata(inferredResult),
+            }),
+            ...(result !== inferredResult && {
+                mismatchPaths: {
+                    normal: result ? getElementPath(result) : null,
+                    inferred: inferredResult ? getElementPath(inferredResult) : null,
+                },
+            }),
+        })
+    }
+
+    return result
 }
 
 /** Check if steps have changed compared to the latest version in history */
@@ -470,7 +498,7 @@ export const productToursLogic = kea<productToursLogicType>([
 
             // For element steps, try to find and highlight the element
             if (step.type === 'element') {
-                const element = getStepElement(step)
+                const element = getStepElement(step, { logInference: true })
                 if (element) {
                     element.scrollIntoView({ behavior: 'smooth', block: 'center' })
                     actions.selectElement(element)
@@ -501,11 +529,16 @@ export const productToursLogic = kea<productToursLogicType>([
             if (isChangingExistingStep) {
                 // Changing element for existing step - update immediately
                 const selector = elementToActionStep(element, dataAttributes).selector ?? ''
+
+                // testing "element inference"
+                const inferenceData = inferSelector(element)?.selector
+
                 const steps = [...(tourForm.steps || [])]
                 steps[stepIndex] = {
                     ...steps[stepIndex],
                     selector,
                     element,
+                    inferenceData,
                 }
                 actions.setTourFormValue('steps', steps)
                 actions.setEditorState({ mode: 'idle' })
@@ -532,12 +565,16 @@ export const productToursLogic = kea<productToursLogicType>([
             // Preserve existing selector if none provided (e.g., editing content only)
             const selector = stepType === 'element' ? (selectorOverride ?? existingStep?.selector) : undefined
 
+            const inferenceData =
+                stepType === 'element' && selectedElement ? inferSelector(selectedElement)?.selector : undefined
+
             const newStep: TourStep = {
                 id: existingStep?.id ?? uuid(),
                 type: stepType,
                 selector,
                 content,
                 element: selectedElement ?? existingStep?.element,
+                inferenceData: inferenceData ?? existingStep?.inferenceData,
                 ...(survey ? { survey } : {}),
                 ...(progressionTrigger ? { progressionTrigger } : {}),
             }
