@@ -3,6 +3,7 @@ import json
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Literal, Union
 
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -31,6 +32,7 @@ class QueryInfo:
     """Normalized query information for preaggregation matching."""
 
     query: ast.SelectQuery
+    table: Union[Literal["preaggregation_results"]]
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
 
@@ -401,3 +403,177 @@ def execute_preaggregation_jobs(
     all_ready = len(errors) == 0
 
     return PreaggregationResult(ready=all_ready, job_ids=job_ids, errors=errors)
+
+
+def ensure_preaggregated(
+    team: Team,
+    insert_query: ast.SelectQuery,
+    time_range_start: datetime,
+    time_range_end: datetime,
+    ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    table: str = "preaggregation_results",
+) -> PreaggregationResult:
+    """
+    Ensure preaggregated data exists for the given query and time range.
+
+    This is the manual API for preaggregation. Unlike the automatic transformation,
+    the caller provides the INSERT SELECT query directly. The query should produce
+    columns matching the target table schema.
+
+    The following columns are added automatically:
+    - team_id: Added as the first column
+    - job_id: Added as the second column
+
+    The query should include (in order):
+    - time_window_start: The time bucket (e.g., toStartOfDay(timestamp))
+    - expires_at: When the data expires (use a constant or expression)
+    - ... additional columns as needed by the table schema
+
+    Args:
+        team: The team to create preaggregation for
+        insert_query: A SELECT query that produces columns for the target table.
+                      Should NOT include team_id or job_id - these are added automatically.
+        time_range_start: Start of the time range (inclusive)
+        time_range_end: End of the time range (exclusive)
+        ttl_seconds: How long before the data expires (default 7 days)
+        table: The target preaggregation table (default "preaggregation_results")
+
+    Returns:
+        PreaggregationResult with job_ids that can be used to query the data
+
+    Example:
+        result = ensure_preaggregated(
+            team=team,
+            insert_query=my_select_query,  # SELECT time_window_start, expires_at, ...
+            time_range_start=datetime(2024, 1, 1),
+            time_range_end=datetime(2024, 1, 8),
+        )
+        # Use result.job_ids to query from preaggregation_results
+    """
+    # Create QueryInfo for hashing (timezone from team)
+    query_info = QueryInfo(
+        query=insert_query,
+        table=table,  # type: ignore
+        timezone=team.timezone,
+    )
+
+    query_hash = compute_query_hash(query_info)
+
+    # Find existing jobs
+    existing_jobs = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
+
+    # Filter to only READY jobs, then remove overlaps (keeping most recent)
+    ready_jobs = [j for j in existing_jobs if j.status == PreaggregationJob.Status.READY]
+    ready_jobs = filter_overlapping_jobs(ready_jobs)
+
+    job_ids: list = [job.id for job in ready_jobs]
+
+    # Find missing windows
+    missing_ranges = find_missing_contiguous_windows(ready_jobs, time_range_start, time_range_end)
+
+    if not missing_ranges and not job_ids:
+        return PreaggregationResult(ready=True, job_ids=[])
+
+    errors: list[str] = []
+
+    for range_start, range_end in missing_ranges:
+        new_job: PreaggregationJob | None = None
+        try:
+            new_job = create_preaggregation_job(team, query_hash, range_start, range_end, ttl_seconds=ttl_seconds)
+
+            # Build and execute the INSERT query
+            insert_sql, values = _build_manual_insert_sql(
+                team=team,
+                job=new_job,
+                insert_query=insert_query,
+                table=table,
+            )
+            sync_execute(insert_sql, values)
+
+            new_job.status = PreaggregationJob.Status.READY
+            new_job.computed_at = django_timezone.now()
+            new_job.save()
+
+            job_ids.append(new_job.id)
+
+        except Exception as e:
+            if new_job is not None:
+                new_job.status = PreaggregationJob.Status.FAILED
+                new_job.error = str(e)
+                new_job.save()
+            errors.append(f"Failed to create preaggregation for {range_start}-{range_end}: {e}")
+
+    all_ready = len(errors) == 0
+    return PreaggregationResult(ready=all_ready, job_ids=job_ids, errors=errors)
+
+
+def _build_manual_insert_sql(
+    team: Team,
+    job: PreaggregationJob,
+    insert_query: ast.SelectQuery,
+    table: str,
+) -> tuple[str, dict]:
+    """
+    Build INSERT SQL for manual preaggregation.
+
+    Adds team_id and job_id to the query's SELECT list and applies time range filter.
+    """
+    query = copy.deepcopy(insert_query)
+
+    assert query.select is not None, "SelectQuery must have select expressions"
+
+    # Add team_id as the first column
+    team_id_expr = ast.Alias(alias="team_id", expr=ast.Constant(value=team.id))
+    query.select.insert(0, team_id_expr)
+
+    # Add job_id as the second column (after team_id)
+    job_id_expr = ast.Alias(
+        alias="job_id",
+        expr=ast.Call(name="toUUID", args=[ast.Constant(value=str(job.id))]),
+    )
+    query.select.insert(1, job_id_expr)
+
+    # Build time range filter
+    time_range_filter = ast.And(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=job.time_range_start),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=job.time_range_end),
+            ),
+        ]
+    )
+
+    # Add time range filter to WHERE clause
+    if query.where is not None:
+        query.where = ast.And(exprs=[query.where, time_range_filter])
+    else:
+        query.where = time_range_filter
+
+    # Print to SQL
+    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+    select_sql, _ = prepare_and_print_ast(
+        query,
+        context=context,
+        dialect="clickhouse",
+    )
+
+    # Build column list from the query's SELECT expressions
+    columns = []
+    for expr in query.select:
+        if isinstance(expr, ast.Alias):
+            columns.append(expr.alias)
+        else:
+            # For non-aliased expressions, we need to infer the column name
+            # This shouldn't happen in well-formed queries
+            raise ValueError(f"All SELECT expressions must be aliased: {expr}")
+
+    column_list = ", ".join(columns)
+    sql = f"INSERT INTO {table} ({column_list})\n{select_sql}"
+
+    return sql, context.values

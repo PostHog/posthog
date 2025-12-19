@@ -17,8 +17,10 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
     PreaggregationResult,
     QueryInfo,
+    _build_manual_insert_sql,
     build_preaggregation_insert_sql,
     compute_query_hash,
+    ensure_preaggregated,
     execute_preaggregation_jobs,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
@@ -75,8 +77,8 @@ class TestComputeQueryHash(BaseTest):
         s2 = parse_select(q2)
         assert isinstance(s1, ast.SelectQuery)
         assert isinstance(s2, ast.SelectQuery)
-        query_info1 = QueryInfo(query=s1, timezone=t1)
-        query_info2 = QueryInfo(query=s2, timezone=t2)
+        query_info1 = QueryInfo(query=s1, table="preaggregation_results", timezone=t1)
+        query_info2 = QueryInfo(query=s2, table="preaggregation_results", timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -436,7 +438,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, timezone="UTC")
+        query_info = QueryInfo(query=query, table="preaggregation_results", timezone="UTC")
 
         result = execute_preaggregation_jobs(
             team=self.team,
@@ -468,7 +470,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, timezone="UTC")
+        query_info = QueryInfo(query=query, table="preaggregation_results", timezone="UTC")
 
         # First: run for Jan 1-2
         first_result = execute_preaggregation_jobs(
@@ -513,7 +515,7 @@ class TestExecutePreaggregationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_preaggregation_query()
-        query_info = QueryInfo(query=query, timezone="UTC")
+        query_info = QueryInfo(query=query, table="preaggregation_results", timezone="UTC")
 
         # First: Create job for Jan 2 only
         jan2_result = execute_preaggregation_jobs(
@@ -756,3 +758,219 @@ class TestHogQLQueryWithPreaggregation(ClickhouseTestMixin, BaseTest):
             {"team_id": self.team.id},
         )
         assert preagg_results[0][0] > 0, "Expected preaggregation data to be created"
+
+
+class TestBuildManualInsertSQL(BaseTest):
+    def _make_manual_insert_query(self) -> ast.SelectQuery:
+        """Create a manual preaggregation insert query (without team_id/job_id which are added automatically)."""
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="time_window_start",
+                    expr=ast.Call(name="toStartOfDay", args=[ast.Field(chain=["timestamp"])]),
+                ),
+                ast.Alias(alias="expires_at", expr=ast.Call(name="now", args=[])),
+                ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=[])),
+                ast.Alias(
+                    alias="uniq_exact_state",
+                    expr=ast.Call(name="uniqExactState", args=[ast.Field(chain=["person_id"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value="$pageview"),
+            ),
+            group_by=[ast.Field(chain=["time_window_start"])],
+        )
+
+    def test_adds_job_id_column(self):
+        """Test that _build_manual_insert_sql adds job_id as second column."""
+        query = self._make_manual_insert_query()
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+        )
+
+        sql, values = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=query,
+            table="preaggregation_results",
+        )
+
+        # Check SQL structure
+        assert "INSERT INTO preaggregation_results" in sql
+        assert "job_id" in sql
+        # job_id should be second in the column list (after team_id)
+        assert sql.index("team_id") < sql.index("job_id")
+        assert sql.index("job_id") < sql.index("time_window_start")
+
+    def test_adds_time_range_filter(self):
+        """Test that _build_manual_insert_sql adds time range filter."""
+        query = self._make_manual_insert_query()
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+        )
+
+        sql, values = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=query,
+            table="preaggregation_results",
+        )
+
+        # Should contain timestamp filter
+        assert "2024-01-01" in sql
+        assert "2024-01-02" in sql
+
+    def test_does_not_mutate_original_query(self):
+        """Test that the original query is not mutated."""
+        query = self._make_manual_insert_query()
+        original_select_len = len(query.select)
+        original_where = query.where
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+        )
+
+        _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=query,
+            table="preaggregation_results",
+        )
+
+        assert len(query.select) == original_select_len
+        assert query.where == original_where
+
+
+class TestEnsurePreaggregated(BaseTest):
+    def _make_manual_insert_query(self) -> ast.SelectQuery:
+        """Create a manual preaggregation insert query (without team_id/job_id which are added automatically)."""
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="time_window_start",
+                    expr=ast.Call(name="toStartOfDay", args=[ast.Field(chain=["timestamp"])]),
+                ),
+                ast.Alias(alias="expires_at", expr=ast.Call(name="now", args=[])),
+                ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=[])),
+                ast.Alias(
+                    alias="uniq_exact_state",
+                    expr=ast.Call(name="uniqExactState", args=[ast.Field(chain=["person_id"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value="$pageview"),
+            ),
+            group_by=[ast.Field(chain=["time_window_start"])],
+        )
+
+    def test_creates_job_and_returns_job_ids(self):
+        """Test that ensure_preaggregated creates jobs and returns job IDs."""
+        query = self._make_manual_insert_query()
+
+        result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+
+        # Verify job was created in PostgreSQL
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.status == PreaggregationJob.Status.READY
+        assert job.team == self.team
+
+    def test_reuses_existing_jobs(self):
+        """Test that ensure_preaggregated reuses existing READY jobs."""
+        query = self._make_manual_insert_query()
+
+        # First call
+        first_result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        first_job_id = first_result.job_ids[0]
+
+        # Second call with same parameters
+        second_result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        # Should reuse the existing job
+        assert len(second_result.job_ids) == 1
+        assert second_result.job_ids[0] == first_job_id
+
+    def test_creates_jobs_for_missing_ranges(self):
+        """Test that ensure_preaggregated creates jobs only for missing time ranges."""
+        query = self._make_manual_insert_query()
+
+        # Create job for Jan 1 only
+        first_result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        jan1_job_id = first_result.job_ids[0]
+
+        # Request Jan 1-3 (Jan 1 exists, Jan 2 missing)
+        second_result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+        )
+
+        # Should have 2 job IDs (Jan 1 reused + Jan 2 created)
+        assert len(second_result.job_ids) == 2
+        assert jan1_job_id in second_result.job_ids
+
+    def test_respects_custom_ttl(self):
+        """Test that ensure_preaggregated respects the ttl_seconds parameter."""
+        query = self._make_manual_insert_query()
+
+        result = ensure_preaggregated(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            ttl_seconds=60 * 60,  # 1 hour
+        )
+
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        # expires_at should be about 1 hour from now
+        assert job.expires_at is not None
+        # Check it's roughly 1 hour (within a few minutes tolerance)
+        from django.utils import timezone as django_timezone
+
+        expected_expiry = django_timezone.now()
+        time_diff = (job.expires_at - expected_expiry).total_seconds()
+        assert 3500 < time_diff < 3700  # 1 hour +/- 100 seconds
