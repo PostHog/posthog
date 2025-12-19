@@ -17,7 +17,12 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsFilterLogic']),
     connect(() => ({
         values: [
-            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
+            authorizedUrlListLogic({
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            }),
             ['authorizedUrls as authorizedDomains'],
         ],
     })),
