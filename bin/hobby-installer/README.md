@@ -1,16 +1,46 @@
 # PostHog Hobby Installer
 
-An interactive TUI (Terminal User Interface) installer for PostHog self-hosted hobby deployments. Built with Go using [Bubbletea](https://github.com/charmbracelet/bubbletea).
+A TUI (Terminal User Interface) and CI-compatible installer for PostHog self-hosted hobby deployments. Built with Go using [Bubbletea](https://github.com/charmbracelet/bubbletea).
 
 ## Features
 
-- Interactive welcome screen with Install/Upgrade mode selection
+- **Interactive TUI mode**: Beautiful terminal UI with spinners, colors, and step-by-step progress
+- **CI mode**: Non-interactive mode for automated deployments (GitHub Actions, GitLab CI, etc.)
 - Version picker (latest, latest-release, or custom tag/commit)
 - Domain configuration with validation
 - System requirement checks (Docker, memory, disk space, network)
-- Step-by-step installation progress with spinners
+- Step-by-step installation progress
 - Health check waiting
 - Success/failure screens with troubleshooting tips
+
+## Usage
+
+### Interactive mode (default)
+
+```bash
+./posthog-hobby
+```
+
+### CI mode
+
+CI mode is automatically enabled when common CI environment variables are detected (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, etc.), or can be forced with `--ci`:
+
+```bash
+# Explicit CI mode
+./posthog-hobby --ci --domain posthog.example.com
+
+# With specific version
+./posthog-hobby --ci --domain posthog.example.com --version latest
+
+# Upgrade (domain read from existing .env)
+./posthog-hobby --ci
+```
+
+**Flags:**
+
+- `--ci` - Force non-interactive CI mode
+- `--domain` - Domain where PostHog will be accessible (required in CI mode unless already in `.env`)
+- `--version` - PostHog version to install (default: `latest`)
 
 ## Building
 
@@ -18,44 +48,51 @@ An interactive TUI (Terminal User Interface) installer for PostHog self-hosted h
 
 - Go 1.24+
 
-### Build Commands
+### Build commands
 
 ```bash
 cd bin/hobby-installer
 
-# Build for Linux (production - hobby deployments are on Ubuntu)
+# Build for Linux (production - hobby deployments run on Ubuntu)
 make
 
-# Or explicitly:
-make build-linux
-```
-
-This outputs the binary to `bin/posthog-hobby`.
-
-### Testing Locally on macOS
-
-```bash
-cd bin/hobby-installer
-
-# Build for macOS
+# Build for macOS (local testing)
 make build-darwin
 
-# Run
+# Build both
+make build-all
+```
+
+Output binaries:
+
+- `bin/posthog-hobby` - Linux binary (production)
+- `bin/posthog-hobby-darwin` - macOS binary (gitignored, local testing only)
+
+### Running locally
+
+```bash
+# Build and run on macOS
+make run
+
+# Or manually
+make build-darwin
 ../posthog-hobby-darwin
 ```
 
-Note: The macOS binary (`posthog-hobby-darwin`) is gitignored and only for local testing.
+### Demos
 
-You can also test the `checks` part of the UI in specific with
+Run isolated demos of specific UI components:
 
 ```bash
-cd bin/hobby-installer
-
-# Build and run checks demo
-make demo
+# Run checks demo
+make demo DEMO=checks
 ```
 
-### Other Make Targets
+Available demos:
+
+- `checks` - System requirements check UI
+
+### Other make targets
 
 ```bash
 make deps         # Download dependencies
@@ -65,51 +102,45 @@ make fmt          # Format code
 make help         # Show all available targets
 ```
 
-## Project Structure
+## Architecture
 
-```ls
+```plaintext
 bin/hobby-installer/
-├── main.go           # Entry point, state machine
-├── go.mod / go.sum   # Dependencies
-├── Makefile          # Build targets
-├── ui/
-│   ├── styles.go     # Lip Gloss styles (PostHog colors)
-│   ├── ascii.go      # ASCII art banner
-│   └── components.go # Reusable UI components
-├── steps/
-│   ├── welcome.go    # Welcome + Install/Upgrade selection
-│   ├── version.go    # Version picker
-│   ├── domain.go     # Domain input
-│   ├── checks.go     # System requirement checks
-│   ├── install.go    # Installation progress
-│   └── complete.go   # Success/failure screen
-└── installer/
-    ├── system.go     # OS commands, secret generation
-    ├── git.go        # Clone/pull/checkout operations
-    ├── env.go        # .env file generation
-    ├── geoip.go      # GeoIP database download
-    ├── docker.go     # Docker Compose operations
-    └── upgrade.go    # Upgrade-specific logic
+├── main.go        # Entry point: parses args, delegates to tui/ or ci/
+├── core/          # Business logic (checks, install steps, docker, git, env)
+├── tui/           # Interactive TUI mode (Bubbletea)
+│   └── steps/     # Step views (welcome, version, domain, checks, install, complete)
+├── ci/            # Non-interactive CI mode (console output)
+├── ui/            # Shared UI components (styles, ASCII art)
+└── demo/          # Demo binary for testing UI components
 ```
 
-## Usage (Production)
+Both `tui/` and `ci/` consume the same `core.GetChecks()` and `core.GetInstallSteps()` - the logic is defined once, only the presentation differs.
+
+## Installation flow
+
+1. **Welcome** - Detect Install vs Upgrade mode
+2. **Version** - Select PostHog version (latest recommended)
+3. **Domain** - Enter domain for TLS certificate (skipped if already in `.env`)
+4. **Checks** - Verify system requirements
+5. **Install** - Clone repo, generate config, pull images, start Docker stack
+6. **Complete** - Success message with URL or troubleshooting tips
+
+## Production deployment
 
 On an Ubuntu server:
 
 ```bash
-# Download the binary
+# Download and run
 curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/posthog-hobby -o posthog-hobby
 chmod +x posthog-hobby
-
-# Run the installer
 ./posthog-hobby
 ```
 
-## Flow
+For CI/automated deployments:
 
-1. **Welcome** - Choose Install or Upgrade
-2. **Version** - Select PostHog version (latest recommended)
-3. **Domain** - Enter domain for TLS certificate
-4. **Checks** - Verify system requirements
-5. **Install** - Clone repo, generate config, start Docker stack
-6. **Complete** - Success message with URL or troubleshooting tips
+```bash
+curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/posthog-hobby -o posthog-hobby
+chmod +x posthog-hobby
+./posthog-hobby --ci --domain your-domain.com
+```
