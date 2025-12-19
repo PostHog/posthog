@@ -35,6 +35,29 @@ func CheckUpgradeRequirements() (*UpgradeCheck, error) {
 	return check, nil
 }
 
+// Returns warning message if named volumes are missing (pre-1.39 installation)
+func GetVolumeWarning() string {
+	postgres, clickhouse := CheckDockerVolumes()
+	if postgres && clickhouse {
+		return ""
+	}
+
+	return `WARNING: POTENTIAL DATA LOSS
+
+We were unable to find named clickhouse and postgres volumes.
+If you created your PostHog stack PRIOR TO August 12th, 2022 / v1.39.0,
+the Postgres and Clickhouse containers did NOT have persistent named volumes by default.
+
+If you choose to upgrade, you will likely lose data contained in these anonymous volumes.
+
+See: https://github.com/PostHog/posthog/pull/11256
+
+WE STRONGLY RECOMMEND YOU:
+• Stop and back up your entire environment
+• Back up /var/lib/postgresql/data in the postgres container
+• Back up /var/lib/clickhouse in the clickhouse container`
+}
+
 func checkPostgres12InCompose() bool {
 	data, err := os.ReadFile("posthog/docker-compose.hobby.yml")
 	if err != nil {

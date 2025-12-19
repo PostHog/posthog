@@ -14,7 +14,8 @@ import (
 type installStep int
 
 const (
-	installStepGit installStep = iota
+	installStepTelemetryStart installStep = iota
+	installStepGit
 	installStepClone
 	installStepCheckout
 	installStepEnv
@@ -26,6 +27,7 @@ const (
 	installStepAsyncMigrations
 	installStepStart
 	installStepHealth
+	installStepTelemetryComplete
 	installStepDone
 )
 
@@ -70,6 +72,7 @@ func NewInstallModel() InstallModel {
 
 	return InstallModel{
 		steps: []installItem{
+			{name: "Send telemetry", status: installPending},
 			{name: "Setup git", status: installPending},
 			{name: "Clone/update PostHog repository", status: installPending},
 			{name: "Checkout version", status: installPending},
@@ -82,8 +85,9 @@ func NewInstallModel() InstallModel {
 			{name: "Check async migrations", status: installPending},
 			{name: "Start PostHog stack", status: installPending},
 			{name: "Wait for PostHog to be ready", status: installPending},
+			{name: "Send completion telemetry", status: installPending},
 		},
-		currentStep: installStepGit,
+		currentStep: installStepTelemetryStart,
 		spinner:     s,
 	}
 }
@@ -97,7 +101,7 @@ func (m *InstallModel) SetConfig(isUpgrade bool, version, domain string) {
 func (m InstallModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		m.runStep(installStepGit),
+		m.runStep(installStepTelemetryStart),
 	)
 }
 
@@ -107,7 +111,13 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 		var detail string
 
 		switch step {
+		case installStepTelemetryStart:
+			installer.SendInstallStartEvent(m.domain)
+			detail = "sent"
+
 		case installStepGit:
+			// Run apt update before installing git
+			_ = installer.AptUpdate()
 			err = installer.SetupGit()
 			detail = "git ready"
 
@@ -131,6 +141,10 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 		case installStepEnv:
 			// Auto-detect: if .env exists, update; otherwise create
 			if installer.FileExists(".env") {
+				// Fix quoting issues from previous versions
+				if fixErr := installer.FixEnvQuoting(); fixErr != nil {
+					installer.GetLogger().WriteString(fmt.Sprintf("Warning: could not fix .env quoting: %v\n", fixErr))
+				}
 				err = installer.UpdateEnvForUpgrade(m.version)
 				detail = "updated"
 			} else {
@@ -156,7 +170,7 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 			detail = "created"
 
 		case installStepCopyCompose:
-			err = installer.CopyComposeFiles()
+			err = installer.CopyComposeFiles(m.version)
 			detail = "copied"
 
 		case installStepDockerSetup:
@@ -189,7 +203,7 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 
 		case installStepStart:
 			_ = installer.DockerComposeStop() // Stop any existing stack
-			err = installer.DockerComposeUp()
+			err = installer.DockerComposeUpWithRetry(3)
 			detail = "started"
 
 		case installStepHealth:
@@ -197,6 +211,10 @@ func (m InstallModel) runStep(step installStep) tea.Cmd {
 			if err == nil {
 				detail = "PostHog is up!"
 			}
+
+		case installStepTelemetryComplete:
+			installer.SendInstallCompleteEvent(m.domain)
+			detail = "sent"
 		}
 
 		return stepResultMsg{step: step, err: err, detail: detail}

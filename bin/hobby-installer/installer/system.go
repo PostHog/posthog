@@ -85,6 +85,13 @@ func DirExists(path string) bool {
 	return info.IsDir()
 }
 
+func AptUpdate() error {
+	logger := GetLogger()
+	logger.WriteString("Updating apt cache...\n")
+	cmd := exec.Command("sudo", "apt", "update")
+	return cmd.Run()
+}
+
 func ReadEnvValue(key string) string {
 	data, err := os.ReadFile(".env")
 	if err != nil {

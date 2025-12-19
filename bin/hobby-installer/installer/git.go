@@ -131,7 +131,7 @@ func GetCurrentCommit() (string, error) {
 }
 
 // CopyComposeFiles copies docker-compose files to the working directory
-func CopyComposeFiles() error {
+func CopyComposeFiles(version string) error {
 	// Remove existing docker-compose.yml
 	os.Remove("docker-compose.yml")
 
@@ -140,8 +140,39 @@ func CopyComposeFiles() error {
 		return err
 	}
 
-	// Copy hobby file
-	return copyFile("posthog/docker-compose.hobby.yml", "docker-compose.yml")
+	// Copy hobby file with environment variable substitution
+	return copyFileWithEnvSubst("posthog/docker-compose.hobby.yml", "docker-compose.yml", version)
+}
+
+func copyFileWithEnvSubst(src, dst, version string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+
+	content := string(data)
+
+	// Get registry URL from env or .env, default to posthog/posthog
+	registryURL := os.Getenv("REGISTRY_URL")
+	if registryURL == "" {
+		registryURL = ReadEnvValue("REGISTRY_URL")
+	}
+	if registryURL == "" {
+		registryURL = "posthog/posthog"
+	}
+
+	// Use the version selected by the user
+	if version == "" {
+		version = "latest"
+	}
+
+	// Replace ${VAR} and $VAR patterns
+	content = strings.ReplaceAll(content, "${REGISTRY_URL}", registryURL)
+	content = strings.ReplaceAll(content, "$REGISTRY_URL", registryURL)
+	content = strings.ReplaceAll(content, "${POSTHOG_APP_TAG}", version)
+	content = strings.ReplaceAll(content, "$POSTHOG_APP_TAG", version)
+
+	return os.WriteFile(dst, []byte(content), 0644)
 }
 
 func copyFile(src, dst string) error {

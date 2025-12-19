@@ -3,6 +3,7 @@ package installer
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -18,7 +19,11 @@ func IsDockerRunning() bool {
 }
 
 func InstallDocker() error {
+	logger := GetLogger()
+	logger.WriteString("Installing Docker...\n")
+
 	commands := [][]string{
+		{"apt", "update"},
 		{"apt", "install", "-y", "apt-transport-https", "ca-certificates", "curl", "software-properties-common"},
 		{"sh", "-c", "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -"},
 		{"add-apt-repository", "-y", "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"},
@@ -32,6 +37,12 @@ func InstallDocker() error {
 			return fmt.Errorf("failed to run %v: %w", cmdArgs, err)
 		}
 	}
+
+	// Add current user to docker group
+	if err := AddCurrentUserToDockerGroup(); err != nil {
+		logger.WriteString("Warning: could not add user to docker group\n")
+	}
+
 	return nil
 }
 
@@ -77,17 +88,30 @@ func DockerComposePull() error {
 	return err
 }
 
-func DockerComposeUp() error {
+func DockerComposeUpWithRetry(maxAttempts int) error {
 	logger := GetLogger()
 	logger.WriteString("Starting PostHog containers...\n")
 
 	cmd, args := GetDockerComposeCommand()
 	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always")
-	_, err := RunCommand(cmd, fullArgs...)
-	if err == nil {
-		logger.WriteString("Containers started\n")
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		logger.WriteString(fmt.Sprintf("Starting stack (attempt %d/%d)...\n", attempt, maxAttempts))
+		_, err := RunCommand(cmd, fullArgs...)
+		if err == nil {
+			logger.WriteString("Stack started successfully\n")
+			return nil
+		}
+		lastErr = err
+		if attempt < maxAttempts {
+			logger.WriteString("Failed to start stack, waiting 30s before retry...\n")
+			time.Sleep(30 * time.Second)
+		}
 	}
-	return err
+
+	logger.WriteString(fmt.Sprintf("Failed to start stack after %d attempts\n", maxAttempts))
+	return lastErr
 }
 
 func DockerComposeUpDB() error {
@@ -157,6 +181,14 @@ func CheckDockerVolumes() (bool, bool) {
 
 func AddUserToDockerGroup(user string) error {
 	return exec.Command("sudo", "usermod", "-aG", "docker", user).Run()
+}
+
+func AddCurrentUserToDockerGroup() error {
+	user := os.Getenv("USER")
+	if user == "" {
+		return nil // Can't determine user, skip
+	}
+	return AddUserToDockerGroup(user)
 }
 
 func DockerVolumeRemove(name string) error {
