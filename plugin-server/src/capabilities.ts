@@ -117,5 +117,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpDataWarehouseEvents: true,
             }
+        case PluginServerMode.recording_api:
+            return {
+                recordingApi: true,
+            }
     }
 }
