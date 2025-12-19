@@ -34,7 +34,6 @@ describe('HogFlow Quota Limiting', () => {
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(false)
-            expect(result.limitedBy).toBeUndefined()
             expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledTimes(2)
             expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(teamId, 'workflow_emails')
             expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
@@ -56,7 +55,6 @@ describe('HogFlow Quota Limiting', () => {
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(true)
-            expect(result.limitedBy).toBe('workflow_emails')
         })
 
         it('should limit workflow with destination action when team has destination quota limit', async () => {
@@ -72,7 +70,6 @@ describe('HogFlow Quota Limiting', () => {
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(true)
-            expect(result.limitedBy).toBe('workflow_destinations_dispatched')
         })
 
         it('should break early and return email limit when both limits exist', async () => {
@@ -86,8 +83,6 @@ describe('HogFlow Quota Limiting', () => {
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(true)
-            // Should return email limit since it's checked first
-            expect(result.limitedBy).toBe('workflow_emails')
         })
 
         it('should not limit workflow without email or destination actions even when quotas exist', async () => {
@@ -101,7 +96,6 @@ describe('HogFlow Quota Limiting', () => {
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(false)
-            expect(result.limitedBy).toBeUndefined()
         })
 
         it('should handle empty actions array', async () => {
@@ -115,7 +109,6 @@ describe('HogFlow Quota Limiting', () => {
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(false)
-            expect(result.limitedBy).toBeUndefined()
         })
 
         it('should check quotas in parallel', async () => {

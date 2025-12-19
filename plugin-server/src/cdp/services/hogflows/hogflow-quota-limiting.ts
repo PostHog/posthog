@@ -3,7 +3,6 @@ import { HogFlow } from '../../../schema/hogflow'
 
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
-    limitedBy?: 'workflow_emails' | 'workflow_destinations_dispatched'
 }
 
 /**
@@ -27,21 +26,13 @@ export async function checkHogFlowQuotaLimits(
         // Iterate through actions once and break early when we find a limited type
         for (const action of hogFlow.actions) {
             if (isEmailQuotaLimited && action.type === 'function_email') {
-                return {
-                    isLimited: true,
-                    limitedBy: 'workflow_emails',
-                }
+                return { isLimited: true }
             }
             if (isDestinationQuotaLimited && action.type === 'function') {
-                return {
-                    isLimited: true,
-                    limitedBy: 'workflow_destinations_dispatched',
-                }
+                return { isLimited: true }
             }
         }
     }
 
-    return {
-        isLimited: false,
-    }
+    return { isLimited: false }
 }
