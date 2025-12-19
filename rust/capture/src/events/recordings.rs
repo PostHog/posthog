@@ -16,7 +16,7 @@ use chrono::DateTime;
 use common_types::{CapturedEvent, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{error, instrument, Span};
+use tracing::{debug, error, info, instrument, Span};
 use uuid::Uuid;
 
 use crate::api::CaptureError;
@@ -163,6 +163,8 @@ pub async fn process_replay_events<'a>(
     events: Vec<RawRecording>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
+    let chatty_debug_enabled = context.chatty_debug_enabled;
+
     Span::current().record("request_id", &context.request_id);
 
     // Compute the actual event timestamp using our timestamp parsing logic from the first event
@@ -287,6 +289,12 @@ pub async fn process_replay_events<'a>(
         &snapshot_library,
     );
 
+    if chatty_debug_enabled {
+        info!(metadata=?metadata, context=?context, "CHATTY: serialized snapshot data");
+    } else {
+        debug!(metadata=?metadata, context=?context, "serialized snapshot data");
+    }
+
     let event = CapturedEvent {
         uuid,
         distinct_id, // No clone - we own it from extract_distinct_id()
@@ -304,7 +312,15 @@ pub async fn process_replay_events<'a>(
         historical_migration: context.historical_migration,
     };
 
-    sink.send(ProcessedEvent { metadata, event }).await
+    sink.send(ProcessedEvent { metadata, event }).await?;
+
+    if chatty_debug_enabled {
+        info!(context=?context, "CHATTY: sent recordings CapturedEvent");
+    } else {
+        debug!(context=?context, "sent recordings CapturedEvent");
+    }
+
+    Ok(())
 }
 
 /// Asynchronously serialize snapshot data by offloading to blocking thread pool

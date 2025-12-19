@@ -1,4 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+
+import api from 'lib/api'
 
 import { ConversionRateInputType, Experiment } from '~/types'
 
@@ -36,13 +39,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
     connect((props: RunningTimeLogicProps) => ({
         values: [
             experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
-            ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading'],
+            ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
             modalsLogic,
             ['isRunningTimeConfigModalOpen'],
         ],
         actions: [
             experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
-            ['updateExperiment'],
+            ['updateExperiment', 'setExperiment'],
             modalsLogic,
             ['closeRunningTimeConfigModal'],
         ],
@@ -53,6 +56,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         resetConfig: true,
         save: true,
         cancel: true,
+        persistRunningTimeEstimate: true,
     }),
 
     reducers({
@@ -199,7 +203,41 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    subscriptions(({ actions }) => ({
+        primaryMetricsResultsLoading: (loading: boolean) => {
+            if (!loading) {
+                actions.persistRunningTimeEstimate()
+            }
+        },
+    })),
+
+    listeners(({ actions, values, props }) => ({
+        persistRunningTimeEstimate: async () => {
+            const { isManualMode, remainingDays, targetSampleSize, experiment, currentProjectId } = values
+
+            if (isManualMode || !experiment?.start_date || remainingDays === null || targetSampleSize === null) {
+                return
+            }
+
+            const savedRunningTime = experiment?.parameters?.recommended_running_time
+            const savedSampleSize = experiment?.parameters?.recommended_sample_size
+            if (savedRunningTime === remainingDays && savedSampleSize === targetSampleSize) {
+                return
+            }
+
+            const updatedParameters = {
+                ...experiment?.parameters,
+                recommended_running_time: remainingDays,
+                recommended_sample_size: targetSampleSize,
+            }
+
+            await api.update(`api/projects/${currentProjectId}/experiments/${props.experimentId}`, {
+                parameters: updatedParameters,
+            })
+
+            actions.setExperiment({ parameters: updatedParameters })
+        },
+
         save: () => {
             const { config, numberOfVariants, experiment } = values
 

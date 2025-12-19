@@ -20,12 +20,12 @@ class SurveyAdmin(admin.ModelAdmin):
     readonly_fields = ("linked_flag", "targeting_flag", "internal_targeting_flag", "internal_response_sampling_flag")
     ordering = ("-created_at",)
 
-    def get_readonly_fields(self, request, obj=None):
-        readonly_fields = list(super().get_readonly_fields(request, obj))
-        # only on individual change page
+    def get_exclude(self, request, obj=None):
+        exclude = list(super().get_exclude(request, obj) or [])
+        # Exclude actions on change page to prevent loading all Action objects
         if obj:
-            readonly_fields.append("actions")
-        return readonly_fields
+            exclude.append("actions")
+        return exclude
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, **kwargs)
@@ -38,7 +38,6 @@ class SurveyAdmin(admin.ModelAdmin):
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
-            "actions",
         ]:
             if field in form.base_fields:
                 form.base_fields[field].required = False
