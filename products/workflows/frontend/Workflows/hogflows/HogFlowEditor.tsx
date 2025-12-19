@@ -19,8 +19,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { workflowLogic } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
+import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
-import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
 import { HogFlowActionNode } from './types'
 
 // Inner component that encapsulates React Flow
