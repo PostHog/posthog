@@ -11,6 +11,7 @@ from posthog.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerial
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -276,10 +277,12 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
                     "Deleting global workflow templates requires the 'workflows-template-creation' feature flag to be enabled."
                 )
 
+        # Authentication is enforced above, so user cannot be AnonymousUser
+        user = cast(User, self.request.user)
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
-            user=self.context["request"].user,
+            user=user,
             was_impersonated=is_impersonated_session(self.request),
             item_id=instance.id,
             scope="HogFlowTemplate",
