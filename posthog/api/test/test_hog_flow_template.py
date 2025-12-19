@@ -637,3 +637,156 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template_ids = [t["id"] for t in response.json()["results"]]
         assert global_template_id in template_ids
+
+    def test_cannot_read_other_team_template(self):
+        """Test that users cannot read team templates from other teams"""
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_team_template = HogFlowTemplate.objects.create(
+            name="Other Team Template",
+            team=other_team,
+            scope="team",
+            trigger={"type": "event"},
+            actions=[],
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{other_team_template.id}")
+        assert response.status_code == 404
+
+    def test_cannot_update_other_team_template(self):
+        """Test that users cannot update team templates from other teams"""
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_team_template = HogFlowTemplate.objects.create(
+            name="Other Team Template",
+            team=other_team,
+            scope="team",
+            trigger={"type": "event"},
+            actions=[],
+            created_by=self.user,
+        )
+
+        update_data = self._create_hog_flow_data()
+        update_data["name"] = "Updated Name"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flow_templates/{other_team_template.id}", update_data
+        )
+        assert response.status_code == 404
+
+    def test_cannot_delete_other_team_template(self):
+        """Test that users cannot delete team templates from other teams"""
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_team_template = HogFlowTemplate.objects.create(
+            name="Other Team Template",
+            team=other_team,
+            scope="team",
+            trigger={"type": "event"},
+            actions=[],
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{other_team_template.id}")
+        assert response.status_code == 404
+
+        assert HogFlowTemplate.objects.filter(id=other_team_template.id).exists()
+
+    def test_can_read_update_delete_own_team_template(self):
+        """Test that users can read, update, and delete their own team templates"""
+        template_data = self._create_hog_flow_data()
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", template_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
+        assert response.status_code == 200
+        assert response.json()["id"] == template_id
+
+        update_data = self._create_hog_flow_data()
+        update_data["name"] = "Updated Template Name"
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
+        assert response.status_code == 200
+        assert response.json()["name"] == "Updated Template Name"
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
+        assert response.status_code == 204
+
+        assert not HogFlowTemplate.objects.filter(id=template_id).exists()
+
+    def test_cannot_create_global_template_without_feature_flag(self):
+        """Test that users cannot create global templates without the feature flag"""
+
+        def check_flag_disabled(flag_name, *_args, **_kwargs):
+            if flag_name == "workflows-template-creation":
+                return False
+            return False
+
+        self.mock_feature_enabled.side_effect = check_flag_disabled
+
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "global"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 403
+        assert "workflows-template-creation" in response.json()["detail"].lower()
+
+    def test_cannot_update_global_template_without_feature_flag(self):
+        """Test that users cannot update global templates without the feature flag"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "global"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        def check_flag_disabled(flag_name, *_args, **_kwargs):
+            if flag_name == "workflows-template-creation":
+                return False
+            return False
+
+        self.mock_feature_enabled.side_effect = check_flag_disabled
+        update_data = self._create_hog_flow_data()
+        update_data["scope"] = "global"
+        update_data["name"] = "Updated Name"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
+        assert response.status_code == 403
+        assert "workflows-template-creation" in response.json()["detail"].lower()
+
+    def test_cannot_delete_global_template_without_feature_flag(self):
+        """Test that users cannot delete global templates without the feature flag"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "global"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        def check_flag_disabled(flag_name, *_args, **_kwargs):
+            if flag_name == "workflows-template-creation":
+                return False
+            return False
+
+        self.mock_feature_enabled.side_effect = check_flag_disabled
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
+        assert response.status_code == 403
+        assert "workflows-template-creation" in response.json()["detail"].lower()
+
+        assert HogFlowTemplate.objects.filter(id=template_id).exists()
+
+    def test_can_create_update_delete_global_template_with_feature_flag(self):
+        """Test that users can create, update, and delete global templates with the feature flag"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "global"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        update_data = self._create_hog_flow_data()
+        update_data["scope"] = "global"
+        update_data["name"] = "Updated Global Template"
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
+        assert response.status_code == 200
+        assert response.json()["name"] == "Updated Global Template"
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
+        assert response.status_code == 204
+
+        assert not HogFlowTemplate.objects.filter(id=template_id).exists()

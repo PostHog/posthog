@@ -211,7 +211,6 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
         try:
-            # Count edges and actions
             edges_count = len(serializer.instance.edges) if serializer.instance.edges else 0
             actions_count = len(serializer.instance.actions) if serializer.instance.actions else 0
 
@@ -230,6 +229,35 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             )
         except Exception as e:
             logger.warning("Failed to capture hog_flow_template_created event", error=str(e))
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+
+        if instance.scope == HogFlowTemplate.Scope.GLOBAL:
+            if not posthoganalytics.feature_enabled(
+                "workflows-template-creation",
+                self.request.user.distinct_id,
+                groups={"organization": str(self.organization.id)},
+                group_properties={"organization": {"id": str(self.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            ):
+                raise exceptions.PermissionDenied(
+                    "Updating global workflow templates requires the 'workflows-template-creation' feature flag to be enabled."
+                )
+
+        serializer.validated_data["team_id"] = self.team_id
+        serializer.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+            user=self.request.user,
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=instance.id,
+            scope="HogFlowTemplate",
+            activity="updated",
+            detail=Detail(name=instance.name, type="standard"),
+        )
 
     def perform_destroy(self, instance: HogFlowTemplate):
         if instance.scope == HogFlowTemplate.Scope.GLOBAL:
