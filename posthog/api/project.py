@@ -684,6 +684,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["POST"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.generate_conversations_public_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
