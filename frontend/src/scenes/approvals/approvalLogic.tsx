@@ -10,7 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ChangeRequest } from '~/types'
+import { Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { approvalLogicType } from './approvalLogicType'
 
@@ -81,13 +81,13 @@ export const approvalLogic = kea<approvalLogicType>([
                 )
 
                 // Check if it was auto-applied
-                if (response.status === 'applied') {
+                if (response.status === ChangeRequestState.Applied) {
                     lemonToast.success('Change request approved and applied successfully')
                     // Navigate back to approvals list after a short delay
                     setTimeout(() => {
                         router.actions.push(urls.approvals())
                     }, 2000)
-                } else if (response.status === 'failed') {
+                } else if (response.status === ChangeRequestState.Failed) {
                     lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
                     actions.loadChangeRequest()
                 } else {

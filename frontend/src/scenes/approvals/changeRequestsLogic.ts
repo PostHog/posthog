@@ -82,7 +82,9 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
         pendingChangeRequest: [
             (s) => [s.changeRequests],
             (changeRequests): ChangeRequest | null => {
-                const pending = changeRequests.filter((cr) => cr.state === 'pending' || cr.state === 'approved')
+                const pending = changeRequests.filter(
+                    (cr) => cr.state === ChangeRequestState.Pending || cr.state === ChangeRequestState.Approved
+                )
                 return pending.length > 0 ? pending[0] : null
             },
         ],
@@ -113,13 +115,13 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                     {}
                 )
 
-                if (response.status === 'applied') {
+                if (response.status === ChangeRequestState.Applied) {
                     lemonToast.success('Change request approved and applied successfully')
 
                     setTimeout(() => {
                         window.location.reload()
                     }, 2000)
-                } else if (response.status === 'failed') {
+                } else if (response.status === ChangeRequestState.Failed) {
                     lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
                     actions.loadChangeRequests()
                 } else {
