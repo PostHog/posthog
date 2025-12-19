@@ -99,7 +99,14 @@ module.exports = async ({ github, context, core }) => {
     let state = null;
     if (fs.existsSync(STATE_FILE)) {
         try {
-            state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            // Ensure required fields exist (handles old format or corrupted state)
+            state = {
+                ...raw,
+                commits: raw.commits || [],
+                fail_seq: raw.fail_seq || {},
+                ok_seq: raw.ok_seq || {},
+            };
             console.log('Loaded existing incident state');
         } catch (e) {
             console.log('Failed to parse state file, treating as no incident');
@@ -112,7 +119,12 @@ module.exports = async ({ github, context, core }) => {
 
     if (event.conclusion === 'failure') {
         handleFailure(state, event, commitOrder, core, fs);
-    } else {
+    } else if (event.conclusion === 'success') {
         handleSuccess(state, event, commitOrder, core, fs);
+    } else {
+        // Ignore cancelled, skipped, etc. - no state change
+        core.setOutput('action', 'none');
+        core.setOutput('save_cache', 'false');
+        console.log(`Ignoring ${event.conclusion} conclusion`);
     }
 };

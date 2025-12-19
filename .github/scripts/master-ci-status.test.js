@@ -65,6 +65,16 @@ describe('master-ci-status', () => {
             expect(outputs.action).toBe('none')
             expect(outputs.save_cache).toBe('false')
         })
+
+        it('ignores cancelled workflows', async () => {
+            const { core, outputs } = createMocks()
+            const context = createContext('Backend CI', 'cancelled', 'abc1234')
+
+            await masterCiStatus({ github: {}, context, core })
+
+            expect(outputs.action).toBe('none')
+            expect(outputs.save_cache).toBe('false')
+        })
     })
 
     describe('existing incident', () => {
@@ -129,15 +139,14 @@ describe('master-ci-status', () => {
             expect(outputs.save_cache).toBe('false')
         })
 
-        it('does not resolve when failing workflow succeeds on same commit', async () => {
-            // Same commit order (0) - ok_seq would equal fail_seq, not greater
+        it('resolves when failing workflow succeeds on same commit', async () => {
             const { core, outputs } = createMocks()
             const context = createContext('Backend CI', 'success', 'abc1234')
 
             await masterCiStatus({ github: {}, context, core })
 
             // ok_seq[Backend CI] = 0, fail_seq[Backend CI] = 0
-            // 0 > 0 is false, so not failing anymore
+            // Latching rule: failing when fail_seq > ok_seq. 0 > 0 is false, so resolved.
             expect(outputs.action).toBe('resolve')
         })
     })
