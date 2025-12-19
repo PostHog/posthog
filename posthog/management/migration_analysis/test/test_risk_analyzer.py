@@ -522,6 +522,20 @@ class TestRunSQLOperations:
         assert "instant" in risk.reason.lower() or "metadata" in risk.reason.lower()
         assert "using index" in risk.reason.lower()
 
+    def test_run_sql_add_constraint_without_not_valid(self):
+        """Test bare ADD CONSTRAINT without NOT VALID - should warn to use NOT VALID pattern."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ADD CONSTRAINT check_age CHECK (age >= 0);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert risk.level == RiskLevel.BLOCKED
+        assert "not valid" in risk.reason.lower()
+        assert risk.guidance and "not valid" in risk.guidance.lower()
+
     def test_run_sql_alter_table_drop_column_if_exists(self):
         """Test ALTER TABLE DROP COLUMN IF EXISTS - should be dangerous (score 5), not confused with DROP TABLE."""
         op = create_mock_operation(
