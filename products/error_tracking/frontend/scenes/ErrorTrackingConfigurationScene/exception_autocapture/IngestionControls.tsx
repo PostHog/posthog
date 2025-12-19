@@ -10,15 +10,15 @@ import { sdkPolicyConfigLogic } from 'lib/components/IngestionControls/sdkPolicy
 import { AccessControlResourceType } from '~/types'
 
 export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
-    const { config } = useValues(sdkPolicyConfigLogic)
-    const { loadConfig } = useActions(sdkPolicyConfigLogic)
+    const { policy, matchType, triggers } = useValues(sdkPolicyConfigLogic)
+    const { loadPolicy, setMatchType } = useActions(sdkPolicyConfigLogic)
 
     useEffect(() => {
-        loadConfig()
+        loadPolicy()
         // oxlint-disable-next-line exhaustive-deps
     }, [])
 
-    if (!config) {
+    if (!policy) {
         return null
     }
 
@@ -26,22 +26,24 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
         <IngestionControls
             logicKey="error-tracking"
             resourceType={AccessControlResourceType.ErrorTracking}
-            matchType={config.match_type}
-            onChangeMatchType={(value) => null}
+            matchType={matchType}
+            onChangeMatchType={setMatchType}
         >
-            {disabled && (
-                <LemonBanner type="warning">
-                    <strong>Exception autocapture is disabled.</strong> None of these triggers apply unless it is
-                    enabled.
-                </LemonBanner>
-            )}
-            <div className="flex flex-col gap-y-2">
-                <IngestionControlsSummary triggers={config.triggers} />
-                <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
-                    <IngestionControls.MatchTypeSelect />
-                    {/* <EventTriggerOptions />
+            <div className="space-y-2">
+                {disabled && (
+                    <LemonBanner type="warning">
+                        <strong>Exception autocapture is disabled.</strong> Ingestion controls will only apply when it
+                        is enabled.
+                    </LemonBanner>
+                )}
+                <div className="flex flex-col gap-y-2">
+                    <IngestionControlsSummary triggers={triggers} />
+                    <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
+                        <IngestionControls.MatchTypeSelect />
+                        {/* <EventTriggerOptions />
                     <LinkedFlagSelector />
                     <Sampling /> */}
+                    </div>
                 </div>
             </div>
         </IngestionControls>

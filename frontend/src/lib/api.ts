@@ -217,6 +217,7 @@ import {
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
+import { SDKPolicyConfig } from './components/IngestionControls/types'
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
@@ -3300,8 +3301,11 @@ const api = {
         },
 
         sdkPolicyConfig: {
-            async get(): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
+            async get(): Promise<SDKPolicyConfig> {
                 return await new ApiRequest().errorTrackingSDKPolicy().withAction('config').get()
+            },
+            async update(data: SDKPolicyConfig): Promise<void> {
+                return await new ApiRequest().errorTrackingSDKPolicy().update({ data })
             },
         },
 

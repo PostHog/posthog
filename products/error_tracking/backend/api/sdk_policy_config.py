@@ -10,8 +10,6 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingSDKPolicyConfigSerializer(serializers.ModelSerializer):
-    assignee = serializers.SerializerMethodField()
-
     class Meta:
         model = SdkPolicyConfig
         fields = [
