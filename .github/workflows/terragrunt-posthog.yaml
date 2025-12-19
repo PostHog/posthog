@@ -47,7 +47,12 @@ jobs:
                       map(select(length > 0)) |
                       map({
                         working_dir: .,
-                        service_name: (. | split("/") | .[-1])
+                        team_name: (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown"),
+                        folder_name: (. | split("/") | .[-1]),
+                        service_name: (
+                          (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown") + " [" +
+                          (. | split("/") | .[-1]) + "]"
+                        )
                       })
                     ')
                   echo "matrix_data=$MATRIX_DATA" >> $GITHUB_OUTPUT
