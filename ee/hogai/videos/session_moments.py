@@ -26,9 +26,9 @@ from products.llm_analytics.backend.providers.gemini import GeminiProvider
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    SESSION_VIDEO_RENDERING_DELAY,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
-    VALIDATION_VIDEO_RENDERING_DELAY,
 )
 from ee.hogai.videos.utils import get_video_duration_s
 
@@ -221,7 +221,7 @@ class SessionMomentsLLMAnalyzer:
             # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
             total_video_duration = get_video_duration_s(video_bytes=video_bytes)
             start_offset_s = (
-                total_video_duration - VALIDATION_VIDEO_DURATION + VALIDATION_VIDEO_RENDERING_DELAY
+                total_video_duration - VALIDATION_VIDEO_DURATION + SESSION_VIDEO_RENDERING_DELAY
                 if total_video_duration
                 else None
             )

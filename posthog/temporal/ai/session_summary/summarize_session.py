@@ -47,7 +47,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
 from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.constants import (
+    SESSION_SUMMARIES_STREAMING_MODEL,
+    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_VIDEO_RENDERING_DELAY,
+)
 from ee.hogai.session_summaries.llm.consume import (
     get_exception_event_ids_from_summary,
     get_llm_single_session_summary,
@@ -431,15 +435,19 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         )
 
         # Calculate segment specs based on video duration
-        duration = uploaded_video.duration
-        num_segments = int(duration / SESSION_VIDEO_CHUNK_DURATION_S) + (
-            1 if duration % SESSION_VIDEO_CHUNK_DURATION_S > 0 else 0
-        )
+        # (We ignore the first couple of seconds, as they often include malformed frames)
+        analysis_duration = uploaded_video.duration - SESSION_VIDEO_RENDERING_DELAY
+        num_segments = int(analysis_duration / SESSION_VIDEO_CHUNK_DURATION_S)  # Number of segments is floored
         segment_specs = [
             VideoSegmentSpec(
                 segment_index=i,
-                start_time=i * SESSION_VIDEO_CHUNK_DURATION_S,
-                end_time=min((i + 1) * SESSION_VIDEO_CHUNK_DURATION_S, duration),
+                start_time=SESSION_VIDEO_RENDERING_DELAY + i * SESSION_VIDEO_CHUNK_DURATION_S,
+                end_time=SESSION_VIDEO_RENDERING_DELAY
+                + (
+                    min((i + 1) * SESSION_VIDEO_CHUNK_DURATION_S, analysis_duration)
+                    if i < num_segments - 1
+                    else analysis_duration  # Final segment always reaches the end - a 28s chunk is preferable to a 2s one!
+                ),
             )
             for i in range(num_segments)
         ]

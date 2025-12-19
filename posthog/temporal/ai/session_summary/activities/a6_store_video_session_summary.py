@@ -19,7 +19,7 @@ from ee.hogai.session_summaries.utils import (
     unpack_full_event_id,
 )
 
-from .a3_analyze_video_segment_activity import _find_events_in_time_range
+from .a3_analyze_video_segment import _find_events_in_time_range
 
 logger = structlog.get_logger(__name__)
 
