@@ -6,6 +6,7 @@ import dataclasses
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from math import ceil
+from typing import Literal
 
 from django.conf import settings
 
@@ -34,6 +35,14 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
+from posthog.temporal.ai.session_summary.activities.video_analysis import (
+    CHUNK_DURATION,
+    analyze_video_segment_activity,
+    embed_and_store_segments_activity,
+    export_session_video_activity,
+    store_video_session_summary_activity,
+    upload_video_to_gemini_activity,
+)
 from posthog.temporal.ai.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
 )
@@ -52,6 +61,7 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionSummaryStreamUpdate,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.temporal.ai.session_summary.types.video import VideoSegmentSpec, VideoSummarySingleSessionInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
@@ -396,26 +406,33 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             raise ApplicationError(exception_message)
         return session_inputs
 
-    async def _run_summary(self, inputs: SingleSessionSummaryInputs) -> None | Exception:
+    async def _run_summary(
+        self, inputs: SingleSessionSummaryInputs, *, video_based_summarization_enabled: bool | None = None
+    ) -> None | Exception:
         """
         Run and handle the summary for a single session to avoid one activity failing the whole group.
+        Supports both regular event-based summarization and video-based summarization.
         """
         try:
-            # Generate session summary
-            await temporalio.workflow.execute_activity(
-                get_llm_single_session_summary_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # Validate session summary with videos and apply updates
-            if inputs.video_validation_enabled:
+            # Use video-based summarization if enabled
+            if inputs.video_validation_enabled == "full":
+                await self._run_video_based_summarization(inputs)
+            else:
+                # Generate session summary using regular event-based approach
                 await temporalio.workflow.execute_activity(
-                    validate_llm_single_session_summary_with_videos_activity,
+                    get_llm_single_session_summary_activity,
                     inputs,
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                # Validate session summary with videos and apply updates
+                if inputs.video_validation_enabled:
+                    await temporalio.workflow.execute_activity(
+                        validate_llm_single_session_summary_with_videos_activity,
+                        inputs,
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
             # Keep track of processed summaries
             self._processed_single_summaries += 1
             self._current_status.append(
@@ -426,7 +443,101 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             # Let caller handle the error
             return err
 
-    async def _run_summaries(self, inputs: list[SingleSessionSummaryInputs]) -> list[SingleSessionSummaryInputs]:
+    async def _run_video_based_summarization(self, inputs: SingleSessionSummaryInputs) -> None:
+        """Execute video-based summarization activities for a single session.
+
+        This runs the same video analysis activities as the single session workflow,
+        using the session data already cached in Redis by fetch_session_batch_events_activity.
+
+        Uploads the full video once to Gemini, then analyzes segments in parallel.
+        """
+        retry_policy = RetryPolicy(maximum_attempts=3)
+
+        # Convert inputs to video workflow format
+        video_inputs = VideoSummarySingleSessionInputs(
+            session_id=inputs.session_id,
+            user_id=inputs.user_id,
+            user_distinct_id_to_log=inputs.user_distinct_id_to_log,
+            team_id=inputs.team_id,
+            redis_key_base=inputs.redis_key_base,
+            model_to_use="gemini-2.5-flash",  # Default model for video analysis
+            extra_summary_context=inputs.extra_summary_context,
+            local_reads_prod=inputs.local_reads_prod,
+        )
+
+        # Activity 1: Export full session video
+        asset_id = await temporalio.workflow.execute_activity(
+            export_session_video_activity,
+            video_inputs,
+            start_to_close_timeout=timedelta(minutes=20),
+            retry_policy=retry_policy,
+        )
+
+        # Activity 2: Upload full video to Gemini (single upload)
+        uploaded_video = await temporalio.workflow.execute_activity(
+            upload_video_to_gemini_activity,
+            args=(video_inputs, asset_id),
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=retry_policy,
+        )
+
+        # Calculate segment specs based on video duration
+        duration = uploaded_video.duration
+        num_segments = int(duration / CHUNK_DURATION) + (1 if duration % CHUNK_DURATION > 0 else 0)
+        segment_specs = [
+            VideoSegmentSpec(
+                segment_index=i,
+                start_time=i * CHUNK_DURATION,
+                end_time=min((i + 1) * CHUNK_DURATION, duration),
+            )
+            for i in range(num_segments)
+        ]
+
+        # Activity 3: Analyze all segments in parallel
+        segment_tasks = [
+            temporalio.workflow.execute_activity(
+                analyze_video_segment_activity,
+                args=(video_inputs, uploaded_video, segment_spec),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            )
+            for segment_spec in segment_specs
+        ]
+        segment_results = await asyncio.gather(*segment_tasks)
+
+        # Flatten results from all segments
+        all_segments = []
+        for segment_output_list in segment_results:
+            all_segments.extend(segment_output_list)
+
+        # Activity 4: Generate embeddings for all segments and store in ClickHouse via Kafka
+        await temporalio.workflow.execute_activity(
+            embed_and_store_segments_activity,
+            args=(video_inputs, all_segments, asset_id),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+
+        # Activity 5: Store video-based summary in database
+        # This activity retrieves the cached event data from Redis (from fetch_session_batch_events_activity)
+        # and uses it to map video segments to real events
+        if not all_segments:
+            raise ApplicationError(
+                f"No segments extracted from video analysis for session {video_inputs.session_id}. "
+                "All video segments may have been static or the LLM output format was not parseable.",
+                non_retryable=True,
+            )
+
+        await temporalio.workflow.execute_activity(
+            store_video_session_summary_activity,
+            args=(video_inputs, all_segments),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=retry_policy,
+        )
+
+    async def _run_summaries(
+        self, inputs: list[SingleSessionSummaryInputs], *, video_based_summarization_enabled: bool | None = None
+    ) -> list[SingleSessionSummaryInputs]:
         """
         Generate per-session summaries.
         """
@@ -439,7 +550,11 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         async with asyncio.TaskGroup() as tg:
             for single_session_input in inputs:
                 tasks[single_session_input.session_id] = (
-                    tg.create_task(self._run_summary(single_session_input)),
+                    tg.create_task(
+                        self._run_summary(
+                            single_session_input, video_based_summarization_enabled=video_based_summarization_enabled
+                        )
+                    ),
                     single_session_input,
                 )
         self._current_status.append(f"Watching sessions ({self._total_sessions}/{self._total_sessions})")
@@ -598,7 +713,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         db_session_inputs = await self._fetch_session_group_data(inputs)
         # Generate single-session summaries for each session
         self._current_status.append(f"Watching sessions (0/{self._total_sessions})")
-        summaries_session_inputs = await self._run_summaries(db_session_inputs)
+        summaries_session_inputs = await self._run_summaries(
+            db_session_inputs, video_based_summarization_enabled=inputs.video_validation_enabled == "full"
+        )
         # Extract patterns from session summaries (with chunking if needed)
         self._current_status.append(f"Searching for behavior patterns in sessions (0/{self._total_sessions})")
         session_ids_to_process = await self._run_patterns_extraction(
@@ -758,7 +875,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool | None = None,
+    video_validation_enabled: bool | Literal["full"] | None = None,
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,

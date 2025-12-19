@@ -4,7 +4,6 @@ from typing import Any, Literal, cast
 from uuid import uuid4
 
 import structlog
-import posthoganalytics
 from langchain_core.agents import AgentAction
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -72,18 +71,6 @@ class SessionSummarizationNode(AssistantNode):
                 # - it's OK because this is only dispatched ephemerally, so the tool message doesn't get added to the state
                 tool_call_id=str(uuid4()),
             )
-        )
-
-    def _has_video_validation_feature_flag(self) -> bool | None:
-        """
-        Check if the user has the video validation for session summaries feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
         )
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
