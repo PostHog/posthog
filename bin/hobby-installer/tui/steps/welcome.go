@@ -1,8 +1,9 @@
 package steps
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,9 +33,10 @@ type WelcomeModel struct {
 
 func NewWelcomeModel() WelcomeModel {
 	isUpgrade := core.DirExists("posthog")
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(funFacts))))
 	return WelcomeModel{
 		isUpgrade: isUpgrade,
-		factIndex: rand.Intn(len(funFacts)),
+		factIndex: int(n.Int64()),
 		hedgehog:  ui.NewHedgehog(),
 	}
 }
