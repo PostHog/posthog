@@ -614,16 +614,24 @@ class WebauthnBackend(BaseBackend):
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if request is None or credential_id is None or response is None:
+            structlog_logger.warning(
+                "no request, response, or credential id while authenticating webauthn credential",
+                credential_id=credential_id,
+                request=request,
+                response=response,
+            )
             return None
 
         # Get challenge from session
         challenge_b64 = request.session.get(WEBAUTHN_LOGIN_CHALLENGE_KEY)
         if not challenge_b64:
+            structlog_logger.warning("invalid base64 when parsing webauthn challenge")
             return None
 
         # Extract userHandle from response
         user_handle_b64 = response.get("userHandle")
         if not user_handle_b64:
+            structlog_logger.warning("invalid base64 when parsing webauthn user handle")
             return None
 
         try:

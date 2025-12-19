@@ -1,10 +1,12 @@
 import { startAuthentication } from '@simplewebauthn/browser'
 import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/types'
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 
+import { handleLoginRedirect, loginLogic } from './loginLogic'
 import type { passkeyLogicType } from './passkeyLogicType'
 
 export interface PasskeyLoginBeginResponse {
@@ -13,6 +15,12 @@ export interface PasskeyLoginBeginResponse {
     rpId: string
     allowCredentials: PublicKeyCredentialDescriptorJSON[]
     userVerification: string
+}
+
+export interface BeginPasskeyLoginParams {
+    next?: string
+    email?: string
+    reauth?: 'true' | 'false'
 }
 
 const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
@@ -31,8 +39,14 @@ function getPasskeyErrorMessage(error: any): string {
 
 export const passkeyLogic = kea<passkeyLogicType>([
     path(['scenes', 'authentication', 'passkeyLogic']),
+    connect(() => ({
+        actions: [loginLogic, ['setGeneralError']],
+    })),
     actions({
-        beginPasskeyLogin: (allowCredentials?: PublicKeyCredentialDescriptorJSON[]) => ({ allowCredentials }),
+        beginPasskeyLogin: (
+            allowCredentials?: PublicKeyCredentialDescriptorJSON[],
+            params?: BeginPasskeyLoginParams
+        ) => ({ allowCredentials, params }),
         startPasskeyAuthentication: true,
         reset: true,
     }),
@@ -42,6 +56,12 @@ export const passkeyLogic = kea<passkeyLogicType>([
             {
                 beginPasskeyLogin: (state, { allowCredentials }) => allowCredentials ?? state,
                 reset: () => [],
+            },
+        ],
+        redirectLink: [
+            undefined as string | undefined,
+            {
+                beginPasskeyLogin: (state, { params }) => params?.next ?? state,
             },
         ],
         isLoading: [
@@ -54,7 +74,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         loginWithPasskey: [
             null as null,
             {
@@ -84,25 +104,26 @@ export const passkeyLogic = kea<passkeyLogicType>([
 
                         return null
                     } catch (e: any) {
-                        // Dynamic import to avoid circular dependency
-                        const { loginLogic } = await import('./loginLogic')
-                        loginLogic.actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         throw e
                     }
                 },
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         beginPasskeyLogin: () => {
             // After setting credentials in reducer, start the authentication
             actions.startPasskeyAuthentication()
         },
         startPasskeyAuthenticationSuccess: async () => {
-            // Dynamic import to avoid circular dependency
-            const { handleLoginRedirect } = await import('./loginLogic')
-            handleLoginRedirect()
-            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+            if (values.redirectLink) {
+                router.actions.push(values.redirectLink)
+            } else {
+                handleLoginRedirect()
+            }
+
+            // Reload the page after auth to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
     })),

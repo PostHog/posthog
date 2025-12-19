@@ -84,11 +84,18 @@ export function SocialLoginButton({
 
 interface PasskeyLoginButtonProps {
     isLastUsed?: boolean
+    extraQueryParams?: Record<string, string>
 }
 
-export function PasskeyLoginButton({ isLastUsed }: PasskeyLoginButtonProps): JSX.Element {
+export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
     const { beginPasskeyLogin } = useActions(passkeyLogic)
     const { isLoading } = useValues(passkeyLogic)
+
+    const {
+        reauth,
+    }: {
+        reauth?: 'true'
+    } = extraQueryParams ?? {}
 
     return (
         <div className="relative">
@@ -96,7 +103,7 @@ export function PasskeyLoginButton({ isLastUsed }: PasskeyLoginButtonProps): JSX
                 size="large"
                 icon={<IconKey />}
                 active={isLastUsed}
-                className={clsx(!isLastUsed && 'bg-mark')}
+                className={clsx(!isLastUsed && reauth !== 'true' && 'bg-mark')}
                 tooltip="Passkey"
                 htmlType="button"
                 onClick={() => {
@@ -105,13 +112,15 @@ export function PasskeyLoginButton({ isLastUsed }: PasskeyLoginButtonProps): JSX
                 loading={isLoading}
                 data-attr="passkey-login"
             />
-            <LemonTag
-                type="muted"
-                size="small"
-                className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-            >
-                {isLastUsed ? 'Last used' : 'New'}
-            </LemonTag>
+            {reauth !== 'true' && (
+                <LemonTag
+                    type="muted"
+                    size="small"
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+                >
+                    {isLastUsed ? 'Last used' : 'New'}
+                </LemonTag>
+            )}
         </div>
     )
 }
@@ -166,7 +175,7 @@ export function SocialLoginButtons({
                             {...props}
                         />
                     ))}
-                    {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} />}
+                    {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>
