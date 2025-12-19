@@ -198,14 +198,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # HyperCache verification - split into separate tasks for independent time budgets
-    # Tasks have 4-hour time limits to handle large deployments, so expiry must match
+    # Tasks have 1-hour time limits, so expiry must match
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="20"),
         verify_and_fix_team_metadata_cache_task.s(),
         name="verify and fix team metadata cache",
-        expires_seconds=4 * 60 * 60,
+        expires_seconds=60 * 60,
     )
 
     # Flags cache verification - hourly at minute 40
@@ -214,7 +214,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="40"),
         verify_and_fix_flags_cache_task.s(),
         name="verify and fix flags cache",
-        expires_seconds=4 * 60 * 60,
+        expires_seconds=60 * 60,
     )
 
     # Update events table partitions twice a week
