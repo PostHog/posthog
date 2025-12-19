@@ -200,7 +200,7 @@ async function assignReviewers(teams, users) {
 async function main() {
     try {
         const { teams, users } = getReviewersForChangedFiles()
-
+        console.info('yolo')    
         console.info()
         console.info(`Teams to add: ${teams.join(', ') || 'none'}`)
         console.info(`Users to add: ${users.join(', ') || 'none'}`)
