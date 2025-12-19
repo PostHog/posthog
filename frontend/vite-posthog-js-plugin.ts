@@ -65,7 +65,7 @@ function copyPostHogJsFiles(): void {
         const fs = require('fs')
         const files = fs.readdirSync(nodeModulesPostHogJs)
         files.forEach((file: string) => {
-            if (file.includes('integration.js')) {
+            if (file.includes('integration') && (file.endsWith('.js') || file.endsWith('.js.map'))) {
                 const from = join(nodeModulesPostHogJs, file)
                 const to = join(distDir, file)
                 copyFile(from, to)
@@ -80,7 +80,7 @@ function copyPostHogJsFiles(): void {
         const fs = require('fs')
         const files = fs.readdirSync(nodeModulesPostHogJs)
         files.forEach((file: string) => {
-            if (file.includes('recorder') && file.endsWith('.js')) {
+            if (file.includes('recorder') && (file.endsWith('.js') || file.endsWith('.js.map'))) {
                 const from = join(nodeModulesPostHogJs, file)
                 const to = join(distDir, file)
                 copyFile(from, to)
