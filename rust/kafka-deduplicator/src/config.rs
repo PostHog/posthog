@@ -159,7 +159,7 @@ pub struct Config {
 
     pub s3_bucket: Option<String>,
 
-    #[envconfig(default = "deduplication-checkpoints")]
+    #[envconfig(default = "v1")]
     pub s3_key_prefix: String,
 
     // how often to perform a full checkpoint vs. incremental
