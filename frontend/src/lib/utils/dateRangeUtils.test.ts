@@ -240,34 +240,44 @@ describe('getConstrainedWeekRange', () => {
 })
 
 describe('formatLocalizedDate', () => {
+    const originalLanguage = Object.getOwnPropertyDescriptor(window.navigator, 'language')
     const originalLang = document.documentElement.lang
 
     afterEach(() => {
+        if (originalLanguage) {
+            Object.defineProperty(window.navigator, 'language', originalLanguage)
+        }
         document.documentElement.lang = originalLang
     })
 
     it('should return US date format for en-US locale', () => {
-        document.documentElement.lang = 'en-US'
+        Object.defineProperty(window.navigator, 'language', { value: 'en-US', configurable: true })
         expect(formatLocalizedDate()).toBe('MMM DD')
     })
 
     it('should return US date format for en-CA locale', () => {
-        document.documentElement.lang = 'en-CA'
+        Object.defineProperty(window.navigator, 'language', { value: 'en-CA', configurable: true })
         expect(formatLocalizedDate()).toBe('MMM DD')
     })
 
     it('should return international date format for en-GB locale', () => {
-        document.documentElement.lang = 'en-GB'
+        Object.defineProperty(window.navigator, 'language', { value: 'en-GB', configurable: true })
         expect(formatLocalizedDate()).toBe('DD MMM')
     })
 
     it('should handle locale with region suffix', () => {
-        document.documentElement.lang = 'en-US-x-custom'
+        Object.defineProperty(window.navigator, 'language', { value: 'en-US-x-custom', configurable: true })
         expect(formatLocalizedDate()).toBe('MMM DD')
     })
 
     it('should handle locale without region (defaults to international format)', () => {
-        document.documentElement.lang = 'en'
+        Object.defineProperty(window.navigator, 'language', { value: 'en', configurable: true })
+        expect(formatLocalizedDate()).toBe('DD MMM')
+    })
+
+    it('should fall back to document.documentElement.lang when navigator.language is undefined', () => {
+        Object.defineProperty(window.navigator, 'language', { value: undefined, configurable: true })
+        document.documentElement.lang = 'en-GB'
         expect(formatLocalizedDate()).toBe('DD MMM')
     })
 })
