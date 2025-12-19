@@ -248,22 +248,36 @@ class ExperimentQueryBuilder:
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
+        Supports EventsNode, ActionsNode, and ExperimentDataWarehouseNode as funnel steps.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
-        metric_events_cte_str = """
+        # Check if any steps are data warehouse nodes
+        has_dw_steps = any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
+
+        # Build metric_events query - use UNION for DW steps, simple query otherwise
+        if has_dw_steps:
+            # Build union query with data warehouse sources
+            metric_events_query = self._build_funnel_metric_events_with_dw()
+        else:
+            # Use simple events query
+            metric_events_query = """
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_property} as variant,
+                    timestamp,
+                    uuid,
+                    properties.$session_id AS session_id,
+                    -- step_0, step_1, ... step_N columns added programmatically below
+                FROM events
+                WHERE ({exposure_predicate} OR {funnel_steps_filter})
+            """
+
+        metric_events_cte_str = f"""
                 metric_events AS (
-                    SELECT
-                        {entity_key} AS entity_id,
-                        {variant_property} as variant,
-                        timestamp,
-                        uuid,
-                        properties.$session_id AS session_id,
-                        -- step_0, step_1, ... step_N columns added programmatically below
-                    FROM events
-                    WHERE ({exposure_predicate} OR {funnel_steps_filter})
+                    {metric_events_query}
                 )
         """
 
@@ -334,6 +348,18 @@ class ExperimentQueryBuilder:
             "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
         }
 
+        # Add step expression placeholders for UNION queries (DW steps)
+        if has_dw_steps:
+            step_columns = self._build_funnel_step_columns()
+            for step_col in step_columns:
+                placeholders[f"{step_col.alias}_expr"] = step_col.expr
+
+            # Add DW step predicates
+            for i, step in enumerate(self.metric.series):
+                if isinstance(step, ExperimentDataWarehouseNode):
+                    step_index = i + 1
+                    placeholders[f"dw_step_{step_index}_predicate"] = self._build_dw_step_predicate(step)
+
         if is_unordered_funnel:
             placeholders["exposure_select_query"] = self._build_exposure_select_query()
 
@@ -366,14 +392,16 @@ class ExperimentQueryBuilder:
         # Inject breakdown columns into the query AST
         self._inject_funnel_breakdown_columns(query)
 
-        # Inject step columns into the metric_events CTE
-        # Find the metric_events CTE in the query
-        if query.ctes and "metric_events" in query.ctes:
-            metric_events_cte = query.ctes["metric_events"]
-            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
-                # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns()
-                metric_events_cte.expr.select.extend(step_columns)
+        # Inject step columns into the metric_events CTE (only for simple queries)
+        # For UNION queries (when has_dw_steps=True), step columns are already in the SQL
+        if not has_dw_steps:
+            # Find the metric_events CTE in the query
+            if query.ctes and "metric_events" in query.ctes:
+                metric_events_cte = query.ctes["metric_events"]
+                if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+                    # Add step columns to the SELECT
+                    step_columns = self._build_funnel_step_columns()
+                    metric_events_cte.expr.select.extend(step_columns)
 
         # Inject the additional selects we do for getting the data we need to render the funnel chart
         # Add step counts - how many users reached each step
@@ -403,6 +431,68 @@ class ExperimentQueryBuilder:
         query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
 
         return query
+
+    def _build_funnel_metric_events_with_dw(self) -> str:
+        """
+        Builds a UNION query combining events and data warehouse sources for funnel metrics.
+        Returns SQL string with placeholders.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        num_steps = len(self.metric.series) + 1  # +1 for exposure (step_0)
+
+        # Build step column names for events query (uses placeholders)
+        events_step_columns = []
+        for i in range(num_steps):
+            events_step_columns.append(f"{{step_{i}_expr}} AS step_{i}")
+        events_step_cols_sql = ",\n                " + ",\n                ".join(events_step_columns)
+
+        # Build events query (includes exposure + event/action steps)
+        events_query = f"""
+            SELECT
+                {{entity_key}} AS entity_id,
+                {{variant_property}} as variant,
+                timestamp,
+                uuid,
+                properties.$session_id AS session_id{events_step_cols_sql}
+            FROM events
+            WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
+        """
+
+        # Build data warehouse queries (one per DW step)
+        dw_queries = []
+        for i, step in enumerate(self.metric.series):
+            if isinstance(step, ExperimentDataWarehouseNode):
+                # Note: step_index is i+1 because step_0 is exposure
+                step_index = i + 1
+
+                # Build step columns for this DW query
+                # Only the corresponding step should be 1, all others are 0
+                dw_step_columns = []
+                for step_num in range(num_steps):
+                    if step_num == step_index:
+                        dw_step_columns.append(f"1 AS step_{step_num}")
+                    else:
+                        dw_step_columns.append(f"0 AS step_{step_num}")
+                dw_step_cols_sql = ",\n                " + ",\n                ".join(dw_step_columns)
+
+                dw_query = f"""
+                    SELECT
+                        toString({step.data_warehouse_join_key}) AS entity_id,
+                        '' AS variant,
+                        toDateTime({step.table_name}.{step.timestamp_field}) AS timestamp,
+                        CAST(NULL AS Nullable(UUID)) AS uuid,
+                        CAST(NULL AS Nullable(UUID)) AS session_id{dw_step_cols_sql}
+                    FROM {step.table_name}
+                    WHERE {{dw_step_{step_index}_predicate}}
+                """
+                dw_queries.append(dw_query)
+
+        # Combine with UNION ALL
+        if dw_queries:
+            return events_query + "\nUNION ALL\n" + "\nUNION ALL\n".join(dw_queries)
+        else:
+            return events_query
 
     def _get_mean_query_common_ctes(self) -> str:
         """
@@ -1356,13 +1446,19 @@ class ExperimentQueryBuilder:
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
         Builds list of step column AST expressions: step_0, step_1, etc.
+        Supports EventsNode, ActionsNode, and ExperimentDataWarehouseNode.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
         step_columns: list[ast.Alias] = [ast.Alias(alias="step_0", expr=self._build_exposure_predicate())]
 
         for i, funnel_step in enumerate(self.metric.series):
-            step_filter = event_or_action_to_filter(self.team, funnel_step)
+            # Use appropriate filter based on step type
+            if isinstance(funnel_step, ExperimentDataWarehouseNode):
+                step_filter = data_warehouse_node_to_filter(self.team, funnel_step)
+            else:
+                step_filter = event_or_action_to_filter(self.team, funnel_step)
+
             step_columns.append(
                 ast.Alias(
                     alias=f"step_{i + 1}",
@@ -1372,12 +1468,39 @@ class ExperimentQueryBuilder:
 
         return step_columns
 
+    def _build_dw_step_predicate(self, step: ExperimentDataWarehouseNode) -> ast.Expr:
+        """
+        Builds the predicate for a data warehouse funnel step.
+        Filters by timestamp range and data warehouse node conditions.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        timestamp_field_chain = [step.table_name, step.timestamp_field]
+
+        return parse_expr(
+            """
+            {timestamp_field} >= {date_from}
+            AND {timestamp_field} < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {dw_filter}
+            """,
+            placeholders={
+                "timestamp_field": ast.Field(chain=timestamp_field_chain),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "dw_filter": data_warehouse_node_to_filter(self.team, step),
+            },
+        )
+
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
         Returns the expression to filter funnel steps (matches ANY step) within
         the time period of the experiment + the conversion window if set.
+        Only includes EventsNode and ActionsNode steps (not data warehouse steps).
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        # Filter to only non-DW steps for the events table
+        event_action_steps = [step for step in self.metric.series if not isinstance(step, ExperimentDataWarehouseNode)]
 
         conversion_window_seconds = self._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
@@ -1391,6 +1514,12 @@ class ExperimentQueryBuilder:
         else:
             date_to = self.date_range_query.date_to_as_hogql()
 
+        # If there are no event/action steps, return False (no funnel steps in events table)
+        if not event_action_steps:
+            steps_filter = ast.Constant(value=False)
+        else:
+            steps_filter = funnel_steps_to_filter(self.team, event_action_steps)
+
         return parse_expr(
             """
             timestamp >= {date_from} AND timestamp <= {date_to}
@@ -1399,7 +1528,7 @@ class ExperimentQueryBuilder:
             placeholders={
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": date_to,
-                "funnel_steps_filter": funnel_steps_to_filter(self.team, self.metric.series),
+                "funnel_steps_filter": steps_filter,
             },
         )
 

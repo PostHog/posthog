@@ -13427,7 +13427,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     )
     funnel_order_type: StepOrderValue | None = None
     metric_type: Literal["funnel"] = "funnel"
-    series: list[EventsNode | ActionsNode]
+    series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
 
 
 class ExperimentHoldoutType(BaseModel):
@@ -14507,7 +14507,7 @@ class ExperimentFunnelMetric(BaseModel):
     metric_type: Literal["funnel"] = "funnel"
     name: str | None = None
     response: dict[str, Any] | None = None
-    series: list[EventsNode | ActionsNode]
+    series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
     sharedMetricId: float | None = None
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
