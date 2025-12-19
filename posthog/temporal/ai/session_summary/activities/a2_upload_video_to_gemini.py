@@ -1,12 +1,14 @@
 import time
 import tempfile
-from pathlib import Path
 
 from django.conf import settings
 
 import structlog
 import temporalio
-from google.genai import Client as RawGenAIClient
+from google.genai import (
+    Client as RawGenAIClient,
+    types,
+)
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
@@ -16,6 +18,8 @@ from posthog.temporal.ai.session_summary.types.video import UploadedVideo, Video
 from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
+
+raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
 
 
 @temporalio.activity.defn
@@ -41,26 +45,18 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
         duration = get_video_duration_s(video_bytes)
 
         # Write video to temporary file for upload
-        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile() as tmp_file:
             tmp_file.write(video_bytes)
-            tmp_file_path = tmp_file.name
-
-        try:
-            logger.info(
-                f"Video duration: {duration:.2f} seconds",
-                session_id=inputs.session_id,
-                duration=duration,
-            )
-
             # Upload to Gemini
-            raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
             logger.info(
                 f"Uploading full video to Gemini for session {inputs.session_id}",
+                duration=duration,
                 session_id=inputs.session_id,
                 video_size_bytes=len(video_bytes),
             )
-            uploaded_file = raw_client.files.upload(file=tmp_file_path)
-
+            uploaded_file = raw_client.files.upload(
+                file=tmp_file.name, config=types.UploadFileConfig(mime_type=asset.export_format)
+            )
             # Wait for file to be ready
             while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
                 time.sleep(0.5)  # Gotta do polling sadly
@@ -73,9 +69,9 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 if not uploaded_file.name:
                     raise RuntimeError("Uploaded file has no name for status polling")
                 uploaded_file = raw_client.files.get(name=uploaded_file.name)
-            state_name = uploaded_file.state.name if uploaded_file.state else None
-            if state_name != "ACTIVE":
-                raise RuntimeError(f"File processing failed. State: {state_name}")
+            final_state_name = uploaded_file.state.name if uploaded_file.state else None
+            if final_state_name != "ACTIVE":
+                raise RuntimeError(f"File processing failed. State: {final_state_name}")
             if not uploaded_file.uri:
                 raise RuntimeError("Uploaded file has no URI")
             logger.info(
@@ -87,13 +83,9 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
 
             return UploadedVideo(
                 file_uri=uploaded_file.uri,
-                mime_type=uploaded_file.mime_type or "video/mp4",
+                mime_type=uploaded_file.mime_type,
                 duration=duration,
             )
-
-        finally:
-            # Clean up temporary file
-            Path(tmp_file_path).unlink(missing_ok=True)
 
     except Exception as e:
         logger.exception(

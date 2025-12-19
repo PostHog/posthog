@@ -9,6 +9,7 @@ import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
 
+from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -29,11 +30,15 @@ SESSION_VIDEO_CHUNK_DURATION_S = 15
 logger = structlog.get_logger(__name__)
 
 
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+
 @temporalio.activity.defn
 async def analyze_video_segment_activity(
     inputs: VideoSummarySingleSessionInputs,
     uploaded_video: UploadedVideo,
     segment: VideoSegmentSpec,
+    trace_id: str,
 ) -> list[VideoSegmentOutput]:
     """Analyze a segment of the uploaded video with Gemini using video_metadata for time range
 
@@ -83,69 +88,18 @@ async def analyze_video_segment_activity(
                         event_count=len(events_in_range),
                     )
 
-        # Use wrapped client for generation (with PostHog observability)
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-
         # Construct analysis prompt
         start_timestamp = _format_timestamp(segment.start_time)
         end_timestamp = _format_timestamp(segment.end_time)
         segment_duration = segment.end_time - segment.start_time
-
-        # Build events context section for the prompt
-        events_section = ""
-        if events_context:
-            events_section = f"""
-<tracked_events>
-The following events were tracked during this segment. Use them to understand what actions the user took
-and correlate them with what you see in the video. Pay special attention to:
-- $exception_types and $exception_values: These indicate errors or exceptions that occurred
-- elements_chain_texts: Text content the user interacted with
-- $event_type: The type of interaction (click, submit, etc.)
-- $current_url: The page URL where the action occurred
-
-Events data (in chronological order):
-{events_context}
-</tracked_events>
-
-"""
-
-        prompt = f"""Analyze this video segment from a web analytics session recording.
-
-This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
-{events_section}
-Your task:
-- Describe what's happening in the video as a list of salient moments
-- Highlight what features were used, and what the user was doing with them
-- Note any problems, errors, confusion, or friction the user experienced
-- If tracked events show exceptions ($exception_types, $exception_values), identify them in your analysis
-- Red lines indicate mouse movements, and should be ignored
-- If nothing is happening, return "Static"
-
-Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
-* MM:SS - MM:SS: <detailed description>
-* MM:SS - MM:SS: <detailed description>
-
-Be specific and detailed about:
-- What the user clicked on
-- What pages or sections they navigated to
-- What they typed or entered
-- Any errors or loading states (correlate with exception events if available)
-- Signs of confusion or hesitation
-- What outcomes occurred
-
-Example output:
-* {start_timestamp} - {_format_timestamp(segment.start_time + 3)}: User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
-* {_format_timestamp(segment.start_time + 3)} - {_format_timestamp(segment.start_time + 8)}: User clicked on "Create new project" button in the top toolbar
-* {_format_timestamp(segment.start_time + 8)} - {end_timestamp}: User attempted to submit the form but received validation error "Name is required"
-
-IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
-"""
 
         logger.info(
             f"Analyzing segment {segment.segment_index} ({start_timestamp} - {end_timestamp}) for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
         )
+
+        team_name = await Team.objects.only("name").aget(id=inputs.team_id).name
 
         # Analyze with Gemini using video_metadata to specify the time range
         response = client.models.generate_content(
@@ -158,14 +112,18 @@ IMPORTANT: Use timestamps relative to the full recording (starting at {start_tim
                         end_offset=f"{segment.end_time}s",
                     ),
                 ),
-                prompt,
+                VIDEO_SEGMENT_ANALYSIS_PROMPT.format(
+                    team_name=team_name,
+                    start_timestamp=start_timestamp,
+                    segment_duration=segment_duration,
+                    events_section=VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION.format(events_context=events_context)
+                    if events_context
+                    else "",
+                ),
             ],
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(include_thoughts=False),
-                max_output_tokens=4096,
-            ),
+            config=types.GenerateContentConfig(max_output_tokens=4096),
             posthog_distinct_id=inputs.user_distinct_id_to_log,
-            posthog_trace_id=f"video-analysis-{inputs.redis_key_base}-{inputs.session_id}",
+            posthog_trace_id=trace_id,
             posthog_properties={
                 "$session_id": inputs.session_id,
                 "segment_index": segment.segment_index,
@@ -196,7 +154,7 @@ IMPORTANT: Use timestamps relative to the full recording (starting at {start_tim
             return []
 
         # Parse bullet points in format: * MM:SS - MM:SS: description
-        pattern_colon = r"\*\s+(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?):\s*(.+?)(?=\n\*|$)"
+        pattern_colon = r"\*\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2}):\s*(.+?)(?=\n\*|$)"
 
         matches = re.findall(pattern_colon, response_text, re.DOTALL | re.MULTILINE)
 
@@ -237,16 +195,60 @@ IMPORTANT: Use timestamps relative to the full recording (starting at {start_tim
         raise
 
 
+VIDEO_SEGMENT_ANALYSIS_PROMPT = """
+Analyze this video segment from a session recording of a user using {team_name}.
+
+This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
+{events_section}
+Your task:
+- Describe what's happening in the video as a list of salient moments
+- Highlight what features were used, and what the user was doing with them
+- Note any problems, errors, confusion, or friction the user experienced
+- If tracked events show exceptions ($exception_types, $exception_values), identify them in your analysis
+- Red lines indicate mouse movements, and should be ignored
+- If nothing is happening, return "Static"
+
+Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
+* MM:SS - MM:SS: <detailed description>
+* MM:SS - MM:SS: <detailed description>
+* etc.
+
+Be specific and detailed about:
+- What the user clicked on
+- What pages or sections they navigated to
+- What they typed or entered
+- Any errors or loading states (correlate with exception events if available)
+- Signs of confusion or hesitation
+- What outcomes occurred
+
+Example output:
+* 0:16 - 0:21: User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
+* 0:21 - 0:26: User clicked on "Create new project" button in the top toolbar
+* 0:26 - 0:30: User attempted to submit the form but received validation error "Name is required"
+
+IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
+"""
+
+VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION = """
+<tracked_events>
+The following events were tracked during this segment. Use them to understand what actions the user took
+and correlate them with what you see in the video. Pay special attention to:
+- $exception_types and $exception_values: These indicate errors or exceptions that occurred
+- elements_chain_texts: Text content the user interacted with
+- $event_type: The type of interaction (click, submit, etc.)
+- $current_url: The page URL where the action occurred
+
+Events data (in chronological order):
+{events_context}
+</tracked_events>
+"""
+
+
 def _format_timestamp(seconds: float) -> str:
     """Format seconds as MM:SS or HH:MM:SS"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
+    minutes = int(seconds // 60)
     secs = int(seconds % 60)
-
-    if hours > 0:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    else:
-        return f"{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def _format_events_for_prompt(

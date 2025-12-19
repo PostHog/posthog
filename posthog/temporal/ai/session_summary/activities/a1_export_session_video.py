@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -69,7 +70,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             raise ValueError(f"No metadata found for session {inputs.session_id}")
         session_duration = metadata["duration"]  # duration is in seconds
 
-        # Check if session is too short for summarization
+        # Check if session is too short for summarization - note: this is different from the video duration, but probs close enough
         if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
             raise ApplicationError(
                 f"Session {inputs.session_id} video is too short for summarization "
@@ -77,14 +78,9 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 non_retryable=True,
             )
 
-        # Create filename for the video
-        import uuid
-
-        filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
-
         # Create ExportedAsset
+        filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
         created_at = now()
-        # Keep indefinitely - set expires_after to far future
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
             export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
@@ -101,7 +97,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             expires_after=created_at + timedelta(days=EXPIRES_AFTER_DAYS),  # Similar to recordings TTL
         )
 
-        # Execute VideoExportWorkflow
+        # Actually export the video
         client = await async_connect()
         await client.execute_workflow(
             VideoExportWorkflow.run,
