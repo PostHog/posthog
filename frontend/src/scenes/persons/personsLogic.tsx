@@ -52,7 +52,6 @@ function createInitialEventsPayload(personId: string): DataTableNode {
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             personId: personId,
-            where: ["notEquals(event, '$exception')"],
             after: '-24h',
         },
     }
