@@ -384,6 +384,9 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             "userHandle": user_handle_b64,
         }
 
+        # Track if user was already authenticated (for re-auth detection)
+        was_authenticated_before_login_attempt = request.user is not None and request.user.is_authenticated
+
         try:
             user = authenticate(
                 request=request,
@@ -415,6 +418,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             # Passkey bypasses 2FA
             set_two_factor_verified_in_session(request)
 
+            request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
             request.session.save()
 
             report_user_logged_in(user, social_provider="passkey")

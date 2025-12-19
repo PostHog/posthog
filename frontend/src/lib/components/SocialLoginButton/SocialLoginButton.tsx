@@ -8,7 +8,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { passkeyLogic } from 'scenes/authentication/passkeyLogic'
+import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/passkeyLogic'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
@@ -107,7 +107,7 @@ export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLogi
                 tooltip="Passkey"
                 htmlType="button"
                 onClick={() => {
-                    beginPasskeyLogin()
+                    beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
                 }}
                 loading={isLoading}
                 data-attr="passkey-login"

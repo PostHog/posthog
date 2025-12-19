@@ -5,6 +5,8 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { handleLoginRedirect, loginLogic } from './loginLogic'
 import type { passkeyLogicType } from './passkeyLogicType'
@@ -40,7 +42,14 @@ function getPasskeyErrorMessage(error: any): string {
 export const passkeyLogic = kea<passkeyLogicType>([
     path(['scenes', 'authentication', 'passkeyLogic']),
     connect(() => ({
-        actions: [loginLogic, ['setGeneralError']],
+        actions: [
+            loginLogic,
+            ['setGeneralError'],
+            apiStatusLogic,
+            ['setTimeSensitiveAuthenticationRequired'],
+            userLogic,
+            ['loadUser'],
+        ],
     })),
     actions({
         beginPasskeyLogin: (
@@ -62,6 +71,13 @@ export const passkeyLogic = kea<passkeyLogicType>([
             undefined as string | undefined,
             {
                 beginPasskeyLogin: (state, { params }) => params?.next ?? state,
+            },
+        ],
+        isReauth: [
+            false,
+            {
+                beginPasskeyLogin: (_, { params }) => params?.reauth === 'true',
+                reset: () => false,
             },
         ],
         isLoading: [
@@ -117,13 +133,21 @@ export const passkeyLogic = kea<passkeyLogicType>([
             actions.startPasskeyAuthentication()
         },
         startPasskeyAuthenticationSuccess: async () => {
+            // for reauth, clear authentication required flag
+            if (values.isReauth) {
+                actions.setTimeSensitiveAuthenticationRequired(false)
+                actions.loadUser()
+                actions.reset()
+                return
+            }
+
+            // For regular login, redirect and reload
             if (values.redirectLink) {
                 router.actions.push(values.redirectLink)
             } else {
                 handleLoginRedirect()
             }
 
-            // Reload the page after auth to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
     })),
