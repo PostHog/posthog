@@ -232,16 +232,28 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     value: event.properties.$ai_metric_value ?? event.properties.$ai_feedback_text,
                 })),
         ],
+        initialFocusEventId: [
+            (s) => [s.showableEvents, s.filteredTree],
+            (showableEvents: LLMTraceEvent[], filteredTree: TraceTreeNode[]): string | null =>
+                getInitialFocusEventId(showableEvents, filteredTree),
+        ],
+        effectiveEventId: [
+            (s) => [s.eventId, s.initialFocusEventId],
+            (eventId: string | null, initialFocusEventId: string | null): string | null =>
+                getEffectiveEventId(eventId, initialFocusEventId),
+        ],
         event: [
-            (s, p) => [p.traceId, s.eventId, s.trace, s.showableEvents],
-            (traceId, eventId, trace, showableEvents): LLMTrace | LLMTraceEvent | null => {
-                if (!eventId || eventId === traceId) {
+            (s, p) => [p.traceId, s.effectiveEventId, s.trace, s.showableEvents],
+            (traceId, effectiveEventId, trace, showableEvents): LLMTrace | LLMTraceEvent | null => {
+                if (!effectiveEventId || effectiveEventId === traceId) {
                     return trace || null
                 }
+
                 if (!showableEvents?.length) {
                     return null
                 }
-                return showableEvents.find((event) => event.id === eventId) || null
+
+                return showableEvents.find((event) => event.id === effectiveEventId) || null
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
@@ -379,8 +391,34 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
     return { totalCost, totalLatency, inputTokens, outputTokens, hasGenerationChildren }
 }
 
-// Export the parent chain function for testing
+// Export functions for testing
 export { findEventWithParents }
+
+export function getInitialFocusEventId(showableEvents: LLMTraceEvent[], filteredTree: TraceTreeNode[]): string | null {
+    // First, look for an $ai_trace event
+    const aiTraceEvent = showableEvents.find((event) => event.event === '$ai_trace')
+
+    if (aiTraceEvent) {
+        return aiTraceEvent.id
+    }
+
+    // If no $ai_trace event, use the first event in the tree
+    if (filteredTree.length > 0) {
+        return filteredTree[0].event.id
+    }
+
+    return null
+}
+
+export function getEffectiveEventId(eventId: string | null, initialFocusEventId: string | null): string | null {
+    // If user selected a specific event (including the trace itself), use that
+    if (eventId) {
+        return eventId
+    }
+
+    // Otherwise, use the initial focus event
+    return initialFocusEventId
+}
 
 export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
     const childrenMap = new Map<any, any[]>()
