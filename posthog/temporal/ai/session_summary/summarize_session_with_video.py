@@ -55,7 +55,7 @@ class SummarizeSingleSessionWithVideoWorkflow(PostHogWorkflow):
         asset_id = await wf.execute_activity(
             export_session_video_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=20),  # Video export can take time
+            start_to_close_timeout=timedelta(minutes=30),  # Video export can take time
             retry_policy=retry_policy,
         )
 
@@ -136,7 +136,6 @@ async def execute_summarize_session_with_video(
     team: Team,
     model_to_use: str = "gemini-2.5-flash",
     extra_summary_context: ExtraSummaryContext | None = None,
-    local_reads_prod: bool = False,
 ) -> list[ConsolidatedVideoSegment]:
     """
     Execute video-based session segmentation workflow.
@@ -154,7 +153,6 @@ async def execute_summarize_session_with_video(
         team: Team context
         model_to_use: Gemini model to use (default: gemini-2.5-flash)
         extra_summary_context: Additional context for analysis
-        local_reads_prod: Whether to use local reads in production
 
     Returns:
         List of consolidated segments with meaningful titles and detailed descriptions
@@ -170,7 +168,6 @@ async def execute_summarize_session_with_video(
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
-        local_reads_prod=local_reads_prod,
     )
 
     # Generate unique workflow ID
