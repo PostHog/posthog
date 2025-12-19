@@ -441,6 +441,64 @@ class TestPopulateUserProductListOp:
             with pytest.raises(Exception):  # Dagster will fail at config validation time
                 populate_user_product_list(context)
 
+    @pytest.mark.django_db
+    def test_populate_filters_by_role_at_organization(self):
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user_engineering = User.objects.create(
+            email="eng@example.com",
+            first_name="Engineer",
+            allow_sidebar_suggestions=True,
+            role_at_organization="engineering",
+        )
+        user_data = User.objects.create(
+            email="data@example.com", first_name="Data", allow_sidebar_suggestions=True, role_at_organization="data"
+        )
+        user_no_role = User.objects.create(
+            email="norole@example.com", first_name="NoRole", allow_sidebar_suggestions=True, role_at_organization=None
+        )
+        user_engineering.join(organization=org)
+        user_data.join(organization=org)
+        user_no_role.join(organization=org)
+
+        with patch(
+            "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
+        ):
+            context = build_op_context(
+                op_config={
+                    "product_paths": ["product_analytics"],
+                    "role_at_organization": "engineering",
+                }
+            )
+
+            populate_user_product_list(context)
+
+            eng_entry = UserProductList.objects.filter(user=user_engineering, team=team)
+            data_entry = UserProductList.objects.filter(user=user_data, team=team)
+            no_role_entry = UserProductList.objects.filter(user=user_no_role, team=team)
+
+            assert eng_entry.count() == 1
+            assert data_entry.count() == 0
+            assert no_role_entry.count() == 0
+
+            metadata = context.get_output_metadata("result")
+            assert metadata["created"].value == 1  # type: ignore
+
+    @pytest.mark.django_db
+    def test_populate_fails_with_invalid_role_at_organization(self):
+        with patch(
+            "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
+        ):
+            context = build_op_context(
+                op_config={
+                    "product_paths": ["product_analytics"],
+                    "role_at_organization": "invalid_role",
+                }
+            )
+
+            with pytest.raises(dagster.Failure, match="Invalid role_at_organization"):
+                populate_user_product_list(context)
+
 
 class TestPopulateUserProductListJob:
     @pytest.mark.django_db
