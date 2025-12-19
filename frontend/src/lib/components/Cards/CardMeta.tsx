@@ -72,7 +72,7 @@ export function CardMeta({
                     )}
                 <div className="CardMeta__main">
                     <div className="CardMeta__top">
-                        <h5>
+                        <h5 className="flex items-center gap-0.5">
                             {topHeading}
                             {samplingFactor && samplingFactor < 1 && (
                                 <Tooltip

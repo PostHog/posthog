@@ -2,7 +2,6 @@ import { IconClock, IconWarning } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function InsightFreshness({ lastRefresh }: { lastRefresh: string }): JSX.Element | null {
     if (!lastRefresh) {
@@ -25,15 +24,11 @@ export function InsightFreshness({ lastRefresh }: { lastRefresh: string }): JSX.
     }
 
     return (
-        <Tooltip
-            title={
-                <div className="flex items-center gap-1">
-                    <span>Computed</span>
-                    <TZLabel time={lastRefresh} />
-                </div>
-            }
-        >
-            <div className={`flex items-center gap-1 ${color}`}>{icon}</div>
-        </Tooltip>
+        <div className={`flex items-center gap-1 ${color}`}>
+            <span className="text-tertiary text-xs opacity-30" aria-hidden="true">
+                •
+            </span>
+            {icon} Computed <TZLabel time={lastRefresh} showPopover />
+        </div>
     )
 }

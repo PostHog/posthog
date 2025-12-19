@@ -13,6 +13,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -129,7 +130,7 @@ const TZLabelPopoverRow = React.memo(function TZLabelPopoverRow({
             {icon}
             <div>{label}</div>
             <div className="text-xs">{caption}</div>
-            <div className={clsx('text-muted text-xs', monospace && 'font-mono')}>{value}</div>
+            <div className={clsx('text-secondary text-xs', monospace && 'font-mono')}>{value}</div>
             <IconCopy fontSize="xsmall" />
         </div>
     )
@@ -137,7 +138,7 @@ const TZLabelPopoverRow = React.memo(function TZLabelPopoverRow({
 
 /** Return a simple label component with timezone conversion UI. */
 
-const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
+const TZLabelRaw = forwardRef<HTMLButtonElement, TZLabelProps>(function TZLabelRaw(
     {
         time,
         showSeconds,
@@ -183,16 +184,17 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     }, [parsedTime, format, isPageVisible])
 
     const innerContent = children ?? (
-        <span
-            className={
-                !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
-                    : className
-            }
+        <button
+            className={cn(
+                !noStyles && 'whitespace-nowrap align-middle',
+                !noStyles && showPopover && 'border-dotted border-b pt-px',
+                '-outline-offset-1 rounded-xs [text-transform:inherit]',
+                className
+            )}
             ref={ref}
         >
             {formattedContent}
-        </span>
+        </button>
     )
 
     if (showPopover) {

@@ -58,12 +58,14 @@ export function TopHeading({
     const resolvedDateTooltip = formatResolvedDateRange(resolvedDateRange)
 
     return (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 text-tertiary">
             <span title={insightType?.description}>{insightType?.name}</span>
             {dateText ? (
                 <>
                     {' '}
-                    •{' '}
+                    <span className="text-tertiary text-xs opacity-30" aria-hidden="true">
+                        •
+                    </span>{' '}
                     {resolvedDateTooltip ? (
                         <Tooltip title={resolvedDateTooltip}>
                             <span className="whitespace-nowrap">{dateText}</span>
