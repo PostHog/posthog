@@ -1,6 +1,5 @@
 import time
 import tempfile
-import subprocess
 from pathlib import Path
 
 from django.conf import settings
@@ -13,6 +12,8 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.video import UploadedVideo, VideoSummarySingleSessionInputs
+
+from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
 
@@ -37,14 +38,14 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
             logger.error(msg, session_id=inputs.session_id, asset_id=asset_id)
             raise ValueError(msg)
 
-        # Write video to temporary file for upload and duration check
+        duration = get_video_duration_s(video_bytes)
+
+        # Write video to temporary file for upload
         with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_file:
             tmp_file.write(video_bytes)
             tmp_file_path = tmp_file.name
 
         try:
-            # Get video duration
-            duration = _get_video_duration(tmp_file_path)
             logger.info(
                 f"Video duration: {duration:.2f} seconds",
                 session_id=inputs.session_id,
@@ -63,6 +64,12 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
             # Wait for file to be ready
             while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
                 time.sleep(0.5)  # Gotta do polling sadly
+                logger.info(
+                    f"Waiting for file to be ready: {uploaded_file.state.name}",
+                    session_id=inputs.session_id,
+                    file_name=uploaded_file.name,
+                    file_state=uploaded_file.state.name,
+                )
                 if not uploaded_file.name:
                     raise RuntimeError("Uploaded file has no name for status polling")
                 uploaded_file = raw_client.files.get(name=uploaded_file.name)
@@ -93,28 +100,4 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
             f"Failed to upload video to Gemini for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
         )
-        raise
-
-
-def _get_video_duration(video_path: str) -> float:
-    """Get duration of video in seconds using ffprobe"""
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                video_path,
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return float(result.stdout.strip())
-    except Exception as e:
-        logger.exception(f"Failed to get video duration: {e}")
         raise
