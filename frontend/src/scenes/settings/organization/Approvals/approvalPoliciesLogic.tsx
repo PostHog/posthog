@@ -10,7 +10,7 @@ import { ApprovalPolicy } from '~/types'
 import type { approvalPoliciesLogicType } from './approvalPoliciesLogicType'
 
 export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
-    path(['scenes', 'settings', 'organization', 'approvalPoliciesLogic']),
+    path(['scenes', 'settings', 'organization', 'Approvals', 'approvalPoliciesLogic']),
     actions({
         loadPolicies: true,
         createPolicy: (policy: Partial<ApprovalPolicy>) => ({ policy }),
@@ -27,7 +27,7 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                         return []
                     }
                     const response = await api.get<{ results: ApprovalPolicy[] }>(
-                        `api/projects/${teamId}/approval_policies/`
+                        `api/environments/${teamId}/approval_policies/`
                     )
                     return response.results || []
                 },
@@ -49,7 +49,7 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                await api.create(`api/projects/${teamId}/approval_policies/`, policy)
+                await api.create(`api/environments/${teamId}/approval_policies/`, policy)
                 lemonToast.success('Approval policy created')
                 actions.loadPolicies()
             } catch (error: any) {
@@ -62,7 +62,7 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                await api.update(`api/projects/${teamId}/approval_policies/${id}/`, policy)
+                await api.update(`api/environments/${teamId}/approval_policies/${id}/`, policy)
                 lemonToast.success('Approval policy updated')
                 actions.loadPolicies()
             } catch (error: any) {
@@ -75,7 +75,7 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                await api.delete(`api/projects/${teamId}/approval_policies/${id}/`)
+                await api.delete(`api/environments/${teamId}/approval_policies/${id}/`)
                 lemonToast.success('Approval policy deleted')
                 actions.loadPolicies()
             } catch (error: any) {

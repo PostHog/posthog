@@ -6,8 +6,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { getApprovalActionLabel } from 'scenes/approvals/utils'
-import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ChangeRequest } from '~/types'
@@ -23,7 +23,7 @@ export const approvalLogic = kea<approvalLogicType>([
     props({} as ApprovalLogicProps),
     key(({ id }) => id),
     connect({
-        values: [projectLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentTeamId']],
     }),
     actions({
         loadChangeRequest: true,
@@ -36,12 +36,12 @@ export const approvalLogic = kea<approvalLogicType>([
             null as ChangeRequest | null,
             {
                 loadChangeRequest: async () => {
-                    if (!values.currentProjectId) {
+                    if (!values.currentTeamId) {
                         return null
                     }
 
                     const response = await api.get<ChangeRequest>(
-                        `api/projects/${values.currentProjectId}/change_requests/${props.id}/`
+                        `api/environments/${values.currentTeamId}/change_requests/${props.id}/`
                     )
                     return response
                 },
@@ -76,7 +76,7 @@ export const approvalLogic = kea<approvalLogicType>([
         approveChangeRequest: async ({ reason }) => {
             try {
                 const response = await api.create(
-                    `api/projects/${values.currentProjectId}/change_requests/${props.id}/approve/`,
+                    `api/environments/${values.currentTeamId}/change_requests/${props.id}/approve/`,
                     { reason: reason || '' }
                 )
 
@@ -100,7 +100,7 @@ export const approvalLogic = kea<approvalLogicType>([
         },
         rejectChangeRequest: async ({ reason }) => {
             try {
-                await api.create(`api/projects/${values.currentProjectId}/change_requests/${props.id}/reject/`, {
+                await api.create(`api/environments/${values.currentTeamId}/change_requests/${props.id}/reject/`, {
                     reason,
                 })
                 lemonToast.success('Change request rejected')
@@ -111,7 +111,7 @@ export const approvalLogic = kea<approvalLogicType>([
         },
         cancelChangeRequest: async ({ reason }) => {
             try {
-                await api.create(`api/projects/${values.currentProjectId}/change_requests/${props.id}/cancel/`, {
+                await api.create(`api/environments/${values.currentTeamId}/change_requests/${props.id}/cancel/`, {
                     reason,
                 })
                 lemonToast.success('Change request canceled')

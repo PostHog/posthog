@@ -71,7 +71,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                         params.action_key = props.actionKey
                     }
 
-                    const response = await api.get(`api/projects/${values.currentTeamId}/change_requests`, params)
+                    const response = await api.get(`api/environments/${values.currentTeamId}/change_requests`, params)
                     return response.results || []
                 },
             },
@@ -109,7 +109,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
         approveRequest: async ({ id }) => {
             try {
                 const response = await api.create(
-                    `api/projects/${values.currentTeamId}/change_requests/${id}/approve/`,
+                    `api/environments/${values.currentTeamId}/change_requests/${id}/approve/`,
                     {}
                 )
 
@@ -133,7 +133,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
 
         rejectRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/reject/`, { reason })
+                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/reject/`, { reason })
                 lemonToast.success('Change request rejected')
                 actions.loadChangeRequests()
             } catch (error: any) {
@@ -143,7 +143,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
 
         cancelRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/cancel/`, { reason })
+                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/cancel/`, { reason })
                 lemonToast.success('Change request canceled')
                 actions.loadChangeRequests()
             } catch (error: any) {
