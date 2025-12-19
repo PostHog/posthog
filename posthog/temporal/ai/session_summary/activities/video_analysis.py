@@ -42,7 +42,7 @@ from posthog.temporal.ai.session_summary.types.video import (
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE, EXPIRES_AFTER_DAYS
 from ee.hogai.session_summaries.session.input_data import get_team
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import (
@@ -208,8 +208,6 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         # Create ExportedAsset
         created_at = now()
         # Keep indefinitely - set expires_after to far future
-        expires_after = created_at + timedelta(days=365 * 10)  # 10 years
-
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
             export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
@@ -219,11 +217,11 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 "filename": filename,
                 "duration": session_duration,
                 "playback_speed": 1.0,  # Normal speed
-                "mode": "screenshot",
+                "mode": "video",
             },
             created_by_id=inputs.user_id,
             created_at=created_at,
-            expires_after=expires_after,
+            expires_after=created_at + timedelta(days=EXPIRES_AFTER_DAYS),  # Similar to recordings TTL
         )
 
         # Execute VideoExportWorkflow
@@ -274,7 +272,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
             raise ValueError(msg)
 
         # Write video to temporary file for upload and duration check
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp_file:
             tmp_file.write(video_bytes)
             tmp_file_path = tmp_file.name
 
@@ -289,29 +287,24 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
 
             # Upload to Gemini
             raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
-
             logger.info(
                 f"Uploading full video to Gemini for session {inputs.session_id}",
                 session_id=inputs.session_id,
                 video_size_bytes=len(video_bytes),
             )
-
             uploaded_file = raw_client.files.upload(file=tmp_file_path)
 
-            # Wait for processing
+            # Wait for file to be ready
             while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
-                time.sleep(1)
+                time.sleep(0.5)  # Gotta do polling sadly
                 if not uploaded_file.name:
                     raise RuntimeError("Uploaded file has no name for status polling")
                 uploaded_file = raw_client.files.get(name=uploaded_file.name)
-
             state_name = uploaded_file.state.name if uploaded_file.state else None
             if state_name != "ACTIVE":
                 raise RuntimeError(f"File processing failed. State: {state_name}")
-
             if not uploaded_file.uri:
                 raise RuntimeError("Uploaded file has no URI")
-
             logger.info(
                 f"Video uploaded successfully to Gemini for session {inputs.session_id}",
                 session_id=inputs.session_id,

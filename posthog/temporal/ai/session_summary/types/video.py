@@ -14,7 +14,6 @@ class VideoSummarySingleSessionInputs:
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
-    local_reads_prod: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,8 +50,8 @@ class VideoSegmentOutput:
 class ConsolidatedVideoSegment:
     """A semantically meaningful segment consolidated from raw video analysis outputs.
 
-    Unlike VideoSegmentOutput which has generic titles, this has a meaningful title
-    created by LLM analysis of the segment descriptions.
+    Unlike VideoSegmentOutput which is purely based on a timestamp range, ConsolidatedVideoSegment is a meaningful
+    unit of something the user did/experienced.
     """
 
     title: str  # Meaningful segment title (e.g., "User onboarding flow", "Debugging API errors")

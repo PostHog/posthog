@@ -221,7 +221,6 @@ class SummarizeSessionsTool(MaxTool):
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
-        return "full"  # FIXME
         if posthoganalytics.feature_enabled(
             "max-session-summarization-video-as-base",
             str(self._user.distinct_id),

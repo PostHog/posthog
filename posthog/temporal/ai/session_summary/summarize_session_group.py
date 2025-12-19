@@ -463,7 +463,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             redis_key_base=inputs.redis_key_base,
             model_to_use="gemini-2.5-flash",  # Default model for video analysis
             extra_summary_context=inputs.extra_summary_context,
-            local_reads_prod=inputs.local_reads_prod,
         )
 
         # Activity 1: Export full session video

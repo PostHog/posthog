@@ -97,7 +97,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
-        return "full"  # FIXME
         if posthoganalytics.feature_enabled(
             "max-session-summarization-video-as-base",
             str(user.distinct_id),
