@@ -46,6 +46,7 @@ from posthog.temporal.ai.session_summary.types.video import VideoSegmentSpec, Vi
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
+from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_SYNC_MODEL,
@@ -119,7 +120,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
             f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
             extra={"session_id": inputs.session_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
         )
-        return None
+        raise ExceptionToRetry(summary_data.error_msg)
     input_data = prepare_single_session_summary_input(
         session_id=inputs.session_id,
         user_id=inputs.user_id,
