@@ -57,6 +57,7 @@ def _fetch_error_tracking_issue(
         queryset = ErrorTrackingIssue.objects.with_first_seen() if with_first_seen else ErrorTrackingIssue.objects
         return queryset.filter(team_id=team_id, id=issue_id).first()
     except Exception:
+        logger.exception("Failed to fetch error tracking issue %s for team %s", issue_id, team_id)
         return None
 
 
@@ -365,6 +366,7 @@ When the user says "this issue", they mean the issue with this ID. Use it when c
 
             return self._format_stacktrace_from_properties(properties)
         except Exception:
+            logger.exception("Failed to fetch stacktrace for issue %s", issue_id)
             return None
 
     def _format_stacktrace_from_properties(self, properties: dict) -> str:
@@ -594,6 +596,7 @@ When the user says "this issue" or asks about "impact", they mean the issue with
 
             return result
         except Exception:
+            logger.exception("Failed to fetch breakdowns for issue %s", issue_id)
             return result
 
     @database_sync_to_async
@@ -657,4 +660,5 @@ When the user says "this issue" or asks about "impact", they mean the issue with
                 else:
                     return "stable", round(change, 1)
         except Exception:
+            logger.exception("Failed to calculate trend for issue %s", issue_id)
             return "stable", None

@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -11,6 +12,8 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.utils.prompt import format_prompt_string
 
 from .prompts import ERROR_TRACKING_FILTERS_RESULT_TEMPLATE, ERROR_TRACKING_ISSUE_RESULT_TEMPLATE
+
+logger = logging.getLogger(__name__)
 
 ErrorTrackingStatus = Literal["active", "resolved", "suppressed"]
 
@@ -103,6 +106,7 @@ class ErrorTrackingFiltersContext:
 
             return [_issue_result_from_response(issue) for issue in response.results]
         except Exception:
+            logger.exception("Failed to execute error tracking filters query")
             return []
 
     async def execute(self) -> list[ErrorTrackingIssueResult]:
@@ -169,6 +173,7 @@ class ErrorTrackingIssueContext:
 
             return _issue_result_from_response(response.results[0], fallback_id=self.issue_id)
         except Exception:
+            logger.exception("Failed to execute error tracking issue query for issue %s", self.issue_id)
             return None
 
     async def execute(self) -> ErrorTrackingIssueResult | None:
