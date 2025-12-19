@@ -112,6 +112,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLTransactionError",
     # Raised when a query takes too long.
     "TimeoutError",
+    # Raised when a PostgreSQL stored procedure or function fails.
+    # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
+    "SqlRoutineException",
 )
 
 
