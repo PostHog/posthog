@@ -102,14 +102,6 @@ async function exportInsight(insight: Partial<InsightModel>, checkStale: () => b
     } catch (e) {
         const resourceId = insight.id || insight.short_id || 'unknown'
         const resourceName = insight.name || 'unnamed insight'
-        posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-            extra: {
-                context: 'TerraformExporter',
-                operation: 'generateInsightHCL',
-                resourceId,
-                resourceName,
-            },
-        })
         throw new Error(
             `Failed to generate HCL for insight "${resourceName}" (${resourceId}): ${e instanceof Error ? e.message : String(e)}`
         )
@@ -146,14 +138,6 @@ async function exportDashboard(
     } catch (e) {
         const resourceId = dashboard.id || 'unknown'
         const resourceName = dashboard.name || 'unnamed dashboard'
-        posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-            extra: {
-                context: 'TerraformExporter',
-                operation: 'generateDashboardHCL',
-                resourceId,
-                resourceName,
-            },
-        })
         throw new Error(
             `Failed to generate HCL for dashboard "${resourceName}" (${resourceId}): ${e instanceof Error ? e.message : String(e)}`
         )
