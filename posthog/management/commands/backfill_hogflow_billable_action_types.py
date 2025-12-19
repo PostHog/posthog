@@ -86,7 +86,7 @@ class Command(BaseCommand):
 
                     if hogflow.actions:
                         # Extract unique billable action types from the actions list
-                        billable_action_types = list(
+                        billable_action_types = sorted(
                             {
                                 action.get("type", "")
                                 for action in hogflow.actions
@@ -97,8 +97,8 @@ class Command(BaseCommand):
                         # Set to empty list if no actions
                         billable_action_types = []
 
-                    # Only update if the computed value differs from the current value
-                    if hogflow.billable_action_types != billable_action_types:
+                    # Only update if the computed value differs from the current value (compare as sets since order doesn't matter)
+                    if set(hogflow.billable_action_types or []) != set(billable_action_types):
                         hogflow.billable_action_types = billable_action_types
                         flows_to_update.append(hogflow)
 

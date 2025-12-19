@@ -237,7 +237,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions: function, function_email, function_sms, function_push
         billable_types = {"function", "function_email", "function_sms", "function_push"}
-        billable_action_types = list(
+        billable_action_types = sorted(
             {action.get("type", "") for action in actions if action.get("type") in billable_types}
         )
         data["billable_action_types"] = billable_action_types
