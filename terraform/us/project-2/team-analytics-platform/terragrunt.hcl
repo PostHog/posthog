@@ -12,3 +12,10 @@ include "project" {
   path   = "../terragrunt.hcl"
   expose = true
 }
+
+# Generate shared team variables in each child module
+generate "variables_team" {
+  path      = "variables_team.tf"
+  if_exists = "overwrite"
+  contents  = file("variables_team.tf.tpl")
+}
