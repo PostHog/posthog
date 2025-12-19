@@ -60,7 +60,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v6
               with:
                   python-version-file: 'pyproject.toml'
 
@@ -169,7 +169,7 @@ jobs:
               with:
                   fetch-depth: 1
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v6
               with:
                   python-version-file: 'pyproject.toml'
             - name: Install uv
