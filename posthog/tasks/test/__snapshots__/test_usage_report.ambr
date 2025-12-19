@@ -548,7 +548,8 @@
          SUM(count) as count
   FROM app_metrics2
   WHERE app_source='hog_flow'
-    AND metric_name IN ('email_sent')
+    AND metric_name IN ('billable_invocation')
+    AND metric_kind IN ('email')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -561,7 +562,8 @@
          SUM(count) as count
   FROM app_metrics2
   WHERE app_source='hog_flow'
-    AND metric_name IN ('push_sent')
+    AND metric_name IN ('billable_invocation')
+    AND metric_kind IN ('push')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -574,7 +576,8 @@
          SUM(count) as count
   FROM app_metrics2
   WHERE app_source='hog_flow'
-    AND metric_name IN ('sms_sent')
+    AND metric_name IN ('billable_invocation')
+    AND metric_kind IN ('sms')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -602,6 +605,7 @@
   FROM app_metrics2
   WHERE app_source='hog_flow'
     AND metric_name IN ('billable_invocation')
+    AND metric_kind IN ('fetch')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id

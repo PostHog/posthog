@@ -34,7 +34,7 @@ export function EditInToolbarButton({
                     <AuthorizedUrlList
                         type={AuthorizedUrlListType.TOOLBAR_URLS}
                         addText="Add authorized URL"
-                        productTourId={tourId}
+                        query={`__posthog_product_tour=${tourId}`}
                     />
                 </div>
             </LemonModal>

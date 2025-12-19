@@ -84,15 +84,7 @@ TEAM_METADATA_FIELDS = [
     "api_token",
     "secret_api_token",
     "secret_api_token_backup",
-    "app_urls",
-    "slack_incoming_webhook",
-    "created_at",
-    "updated_at",
-    "anonymize_ips",
-    "completed_snippet_onboarding",
-    "has_completed_onboarding_for",
-    "onboarding_tasks",
-    "person_processing_opt_out",
+    "timezone",
     "extra_settings",
     "session_recording_opt_in",
     "session_recording_sample_rate",
@@ -105,15 +97,21 @@ TEAM_METADATA_FIELDS = [
     "session_recording_event_trigger_config",
     "session_recording_trigger_match_type_config",
     "session_replay_config",
-    "session_recording_retention_period",
+    "recording_domains",
+    "cookieless_server_hash_mode",
     "survey_config",
     "surveys_opt_in",
     "capture_console_log_opt_in",
     "capture_performance_opt_in",
     "capture_dead_clicks",
     "autocapture_opt_out",
+    "autocapture_exceptions_opt_in",
+    "autocapture_exceptions_errors_to_ignore",
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
+    "inject_web_apps",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
 ]
 
 
@@ -133,9 +131,7 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     Returns:
         Serialized value suitable for JSON encoding
     """
-    if field in ["created_at", "updated_at"]:
-        return value.isoformat() if value else None
-    elif field == "uuid":
+    if field == "uuid":
         return str(value) if value else None
     elif field == "organization_id":
         return str(value) if value else None
@@ -290,10 +286,11 @@ def verify_team_metadata(
     else:
         db_data = _serialize_team_to_metadata(team)
 
-    # Compare all fields
+    # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
+    # This allows removing fields from the cache without triggering unnecessary fixes.
+    fields_to_check = set(TEAM_METADATA_FIELDS) | {"organization_name", "project_name"}
     diffs = []
-    all_keys = set(db_data.keys()) | set(cached_data.keys())
-    for key in all_keys:
+    for key in fields_to_check:
         db_val = db_data.get(key)
         cached_val = cached_data.get(key)
         if db_val != cached_val:

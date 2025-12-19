@@ -48,7 +48,7 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T 
             setStoredValueInStorage(key, valueToStore)
             getStoredValue(key, defaultValue)
         },
-        [key, storedValue]
+        [key, storedValue, defaultValue]
     )
 
     return [storedValue, setValue]
