@@ -48,7 +48,8 @@ The query must use `{time_window_min}` and `{time_window_max}` placeholders - th
 
 ```python
 from datetime import datetime
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import ensure_preaggregated
+from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import ensure_preaggregated, PreaggregationTable
+from posthog.hogql import ast
 
 # Ensure that the given query is preaggregated
 preagg_result = ensure_preaggregated(
@@ -68,7 +69,7 @@ preagg_result = ensure_preaggregated(
     time_range_start=datetime(2025, 12, 18),
     time_range_end=datetime(2025, 12, 25),
     ttl_seconds=24 * 60 * 60,
-    table="preaggregation_results",
+    table=PreaggregationTable.PREAGGREGATION_RESULTS,
     # Custom placeholders can be passed too
     placeholders={"some_filter": ast.Constant(value="filter_value")},
 )
