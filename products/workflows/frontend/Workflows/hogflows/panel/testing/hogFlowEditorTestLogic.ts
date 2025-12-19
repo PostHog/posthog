@@ -145,6 +145,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setEventPanelOpen: (eventPanelOpen: string[]) => ({ eventPanelOpen }),
         setEventSelectorOpen: (eventSelectorOpen: boolean) => ({ eventSelectorOpen }),
         setLastSearchedEventName: (eventName: string | null) => ({ eventName }),
+        resetAccumulatedVariables: true,
     }),
     reducers({
         testResult: [
@@ -223,6 +224,20 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 setLastSearchedEventName: (_, { eventName }) => eventName,
                 loadSampleEventByName: (_, { eventName }) => eventName, // Store the event name when searching
+            },
+        ],
+        // Track variables accumulated from previous step tests
+        accumulatedVariables: [
+            {} as Record<string, any>,
+            {
+                setTestResult: (state, { testResult }) => ({
+                    ...state,
+                    ...testResult?.variables,
+                }),
+                resetAccumulatedVariables: () => ({}),
+                // Reset when loading fresh sample globals (starting a new test session)
+                loadSampleGlobals: () => ({}),
+                loadSampleEventByName: () => ({}),
             },
         ],
     }),
@@ -468,17 +483,22 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
+                    // Start with workflow variable defaults, then overlay accumulated variables from previous steps
+                    const variablesWithDefaults = values.workflow.variables?.reduce(
+                        (acc, variable) => {
+                            acc[variable.key] = variable.default
+                            return acc
+                        },
+                        {} as Record<string, any>
+                    )
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
                         globals: {
                             ...JSON.parse(testInvocation.globals),
-                            variables: values.workflow.variables?.reduce(
-                                (acc, variable) => {
-                                    acc[variable.key] = variable.default
-                                    return acc
-                                },
-                                {} as Record<string, any>
-                            ),
+                            variables: {
+                                ...variablesWithDefaults,
+                                ...values.accumulatedVariables,
+                            },
                         },
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,
