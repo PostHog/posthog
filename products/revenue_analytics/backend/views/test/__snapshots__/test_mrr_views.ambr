@@ -99,10 +99,10 @@
         WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC) AS
      union
-     GROUP BY union.source_label,
-              union.customer_id,
-              union.subscription_id
-     ORDER BY union.customer_id ASC, union.subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+     GROUP BY source_label,
+              customer_id,
+              subscription_id
+     ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -183,10 +183,10 @@
         WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC) AS
      union
-     GROUP BY union.source_label,
-              union.customer_id,
-              union.subscription_id
-     ORDER BY union.customer_id ASC, union.subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+     GROUP BY source_label,
+              customer_id,
+              subscription_id
+     ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -319,10 +319,10 @@
         WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC')))
         ORDER BY timestamp DESC) AS
      union
-     GROUP BY union.source_label,
-              union.customer_id,
-              union.subscription_id
-     ORDER BY union.customer_id ASC, union.subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
+     GROUP BY source_label,
+              customer_id,
+              subscription_id
+     ORDER BY customer_id ASC, subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -439,10 +439,10 @@
         WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         ORDER BY timestamp DESC) AS
      union
-     GROUP BY union.source_label,
-              union.customer_id,
-              union.subscription_id
-     ORDER BY union.customer_id ASC, union.subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+     GROUP BY source_label,
+              customer_id,
+              subscription_id
+     ORDER BY customer_id ASC, subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from posthog.hogql import ast
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
@@ -9,7 +7,7 @@ from products.revenue_analytics.backend.views.schemas import (
     REVENUE_ITEM as REVENUE_ITEM_SCHEMA,
     SUBSCRIPTION as SUBSCRIPTION_SCHEMA,
 )
-from products.revenue_analytics.backend.views.schemas.mrr import LOOKBACK_PERIOD_DAYS
+from products.revenue_analytics.backend.views.sources.helpers import generate_mrr_start_and_end_date_expr
 
 
 def build(handle: SourceHandle) -> BuiltQuery:
@@ -23,13 +21,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
     revenue_item_base_query_name = f"{prefix}.{REVENUE_ITEM_SCHEMA.events_suffix}"
     subscription_base_query_name = f"{prefix}.{SUBSCRIPTION_SCHEMA.events_suffix}"
 
-    # Compute now in Python to make testing easier
-    now = datetime.now()
-    start_date_expr = ast.Call(
-        name="toStartOfMonth",
-        args=[ast.Call(name="addDays", args=[ast.Constant(value=now), ast.Constant(value=-LOOKBACK_PERIOD_DAYS)])],
-    )
-    end_date_expr = ast.Constant(value=now)
+    start_date_expr, end_date_expr = generate_mrr_start_and_end_date_expr()
 
     # Make sure we group all revenue items from a single subscription and month together
     # because if they're from the same subscription then it's recurring amount
