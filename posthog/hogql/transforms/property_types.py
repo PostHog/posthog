@@ -28,10 +28,22 @@ PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
     "DateTime": "datetime",
 }
 
+# Mapping from property type to EAV value column
+PROPERTY_TYPE_TO_EAV_COLUMN: dict[str, str] = {
+    "String": "value_string",
+    "Numeric": "value_numeric",
+    "Boolean": "value_bool",
+    "DateTime": "value_datetime",
+}
+
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
-    from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
+    from posthog.models.materialized_column_slots import (
+        MaterializationType,
+        MaterializedColumnSlot,
+        MaterializedColumnSlotState,
+    )
 
     if not context or not context.team_id:
         return
@@ -76,9 +88,14 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
-            type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
-            if type_name:
-                prop_info["dmat"] = f"dmat_{type_name}_{slot.slot_index}"
+            if slot.materialization_type == MaterializationType.DMAT:
+                type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
+                if type_name:
+                    prop_info["dmat"] = f"dmat_{type_name}_{slot.slot_index}"
+            elif slot.materialization_type == MaterializationType.EAV:
+                eav_column = PROPERTY_TYPE_TO_EAV_COLUMN.get(slot.property_type)
+                if eav_column:
+                    prop_info["eav"] = eav_column
 
         event_properties[prop_def.name] = prop_info
 
@@ -290,11 +307,16 @@ class PropertySwapper(CloningVisitor):
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
         # Add notice about the property type and materialization status
-        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
+        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"), prop_info.get("eav"))
 
         if "dmat" in prop_info:
             # Don't rewrite the AST - let the printer substitute the dmat column
             # The printer will check context.property_swapper and use the dmat column
+            return node
+
+        if "eav" in prop_info:
+            # Don't rewrite the AST - let the printer generate the EAV JOIN
+            # The printer will check context.property_swapper and use the EAV table
             return node
 
         return self._field_type_to_property_call(node, field_type)
@@ -327,6 +349,7 @@ class PropertySwapper(CloningVisitor):
         property_type: Literal["event", "person", "group"],
         field_type: str,
         dmat_column: str | None = None,
+        eav_column: str | None = None,
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
@@ -348,6 +371,8 @@ class PropertySwapper(CloningVisitor):
                 message += " This property is materialized (mat_*) ⚡️."
             elif dmat_column is not None:
                 message += f" This property is materialized ({dmat_column}) ⚡️."
+            elif eav_column is not None:
+                message += f" This property is materialized (EAV:{eav_column}) ⚡️."
             else:
                 message += " This property is not materialized 🐢."
 
