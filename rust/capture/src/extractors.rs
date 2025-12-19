@@ -57,16 +57,14 @@ pub async fn extract_body_with_timeout(
                 // Check size limit before appending
                 if buf.len() + chunk.len() > limit {
                     return Err(CaptureError::EventTooBig(format!(
-                        "Request body exceeds limit of {} bytes",
-                        limit
+                        "Request body exceeds limit of {limit} bytes"
                     )));
                 }
                 buf.put(chunk);
             }
             Some(Err(e)) => {
                 return Err(CaptureError::RequestDecodingError(format!(
-                    "Error reading request body: {}",
-                    e
+                    "Error reading request body: {e}"
                 )));
             }
             None => {
