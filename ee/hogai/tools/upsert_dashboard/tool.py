@@ -5,14 +5,14 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import ArtifactSource
+from posthog.schema import ArtifactSource, AssistantHogQLQuery, DataTableNode, InsightVizNode
 
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissions
 
-from ee.hogai.artifacts.manager import ArtifactManager, ModelArtifactResult
+from ee.hogai.artifacts.manager import ArtifactManager, DatabaseArtifactResult, ModelArtifactResult, StateArtifactResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
@@ -51,7 +51,7 @@ class UpdateDashboardToolArgs(BaseModel):
         description="The IDs of the insights to be included in the dashboard. It might be a mix of existing and new insights."
     )
     replace_insights: bool = Field(
-        description="Whether to replace the existing insights in the dashboard with the provided insights. True means replace.",
+        description="Whether to replace the existing insights in the dashboard with the provided insights. True will replace all existing with the provided insights, keeping the provided ordering. False will append new insights to the end of the dashboard.",
         default=False,
     )
     name: str | None = Field(
@@ -119,9 +119,12 @@ class UpsertDashboardTool(MaxTool):
             dashboard, insights, action.replace_insights, action.name, action.description
         )
 
-        all_insights = await database_sync_to_async(
-            lambda: list(Insight.objects.filter(dashboard_tiles__dashboard=dashboard, deleted=False))
-        )()
+        all_insights = [
+            i
+            async for i in Insight.objects.filter(
+                dashboard_tiles__dashboard=dashboard, dashboard_tiles__deleted=False, deleted=False
+            )
+        ]
 
         output = await self._format_dashboard_output(dashboard, all_insights, missing_ids)
 
@@ -132,22 +135,42 @@ class UpsertDashboardTool(MaxTool):
         Resolve insight_ids using ArtifactManager.aget_insights_with_source.
         Returns (resolved_insights, missing_ids) in same order as input.
 
-        Only saved Insights can be added to dashboards (DashboardTile requires Insight FK).
-        State/Artifact sources are skipped with warning.
+        For State/Artifact sources, creates and saves new Insights before adding to dashboard.
         """
         artifact_manager = ArtifactManager(self._team, self._user, self._config)
         results = await artifact_manager.aget_insights_with_source(self._state.messages, insight_ids)
 
         resolved: list[Insight] = []
         missing: list[str] = []
+        insights_to_create: list[Insight] = []
 
         for insight_id, result in zip(insight_ids, results):
             if result is None:
                 missing.append(insight_id)
             elif isinstance(result, ModelArtifactResult) and result.source == ArtifactSource.INSIGHT:
                 resolved.append(result.model)
-            else:
-                missing.append(insight_id)
+            elif isinstance(result, StateArtifactResult | DatabaseArtifactResult):
+                # Need to create and save insight from artifact content
+                content = result.content
+                if isinstance(content.query, AssistantHogQLQuery):
+                    converted = DataTableNode(source=content.query).model_dump()
+                else:
+                    converted = InsightVizNode(source=content.query).model_dump()
+
+                insight = Insight(
+                    team=self._team,
+                    created_by=self._user,
+                    name=(content.name or "Untitled")[:400],
+                    description=(content.description or "")[:400],
+                    query=converted,
+                    saved=True,
+                )
+                insights_to_create.append(insight)
+
+        # Bulk create insights from state/artifact sources
+        if insights_to_create:
+            created_insights = await Insight.objects.abulk_create(insights_to_create)
+            resolved.extend(created_insights)
 
         return resolved, missing
 
@@ -195,18 +218,37 @@ class UpsertDashboardTool(MaxTool):
         if name is not None or description is not None:
             dashboard.save(update_fields=["name", "description"])
 
+        insight_ids = {i.id for i in insights}
+        # Fetch all existing tiles (including soft-deleted) in one query
+        existing_tiles = {
+            tile.insight_id: tile for tile in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)
+        }
+
         if replace:
-            DashboardTile.objects.filter(dashboard=dashboard).update(deleted=True)
-            DashboardTile.objects.bulk_create(
-                [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in insights]
+            # Soft-delete tiles for insights not in the new set
+            tiles_to_soft_delete = [t for iid, t in existing_tiles.items() if iid not in insight_ids and not t.deleted]
+            if tiles_to_soft_delete:
+                DashboardTile.objects_including_soft_deleted.filter(id__in=[t.id for t in tiles_to_soft_delete]).update(
+                    deleted=True
+                )
+
+        # Un-delete existing soft-deleted tiles
+        tiles_to_undelete = [
+            existing_tiles[i.id] for i in insights if i.id in existing_tiles and existing_tiles[i.id].deleted
+        ]
+        if tiles_to_undelete:
+            DashboardTile.objects_including_soft_deleted.filter(id__in=[t.id for t in tiles_to_undelete]).update(
+                deleted=False
             )
-        else:
-            existing_insight_ids = set(
-                DashboardTile.objects.filter(dashboard=dashboard).values_list("insight_id", flat=True)
-            )
-            new_insights = [i for i in insights if i.id not in existing_insight_ids]
+
+        # Bulk create new tiles
+        new_insights = [i for i in insights if i.id not in existing_tiles]
+        if new_insights:
             DashboardTile.objects.bulk_create(
-                [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in new_insights]
+                [
+                    DashboardTile(dashboard=dashboard, insight=insight, deleted=False, layouts={})
+                    for insight in new_insights
+                ]
             )
 
         return dashboard

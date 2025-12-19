@@ -135,6 +135,8 @@ class ArtifactManager(AssistantContextMixin):
         # Try state first if messages provided
         for artifact_id in artifact_ids:
             content = self._content_from_state(artifact_id, state_messages)
+            if content is None:
+                continue
             results_map[artifact_id] = StateArtifactResult(content=content)
             remaining_artifact_ids.remove(artifact_id)
 
