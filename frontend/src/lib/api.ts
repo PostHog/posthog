@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
@@ -157,6 +158,8 @@ import {
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -3107,6 +3110,36 @@ const api = {
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
         },
+        async listForAlert(alertId: string): Promise<CountedPaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest()
+                .hogFunctions()
+                .withQueryString({
+                    filter_groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'alert_id',
+                                    value: alertId,
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                            events: [
+                                {
+                                    id: INSIGHT_ALERT_FIRING_EVENT_ID,
+                                    type: 'events',
+                                },
+                            ],
+                        },
+                    ],
+                    type: 'internal_destination',
+                    full: 'true',
+                })
+                .get()
+        },
+        async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
+            return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
+        },
     },
 
     links: {
@@ -4628,20 +4661,6 @@ const api = {
                 variables_override: queryOptions?.variablesOverride,
             },
         })
-    },
-
-    async SHAMEFULLY_UNTAGGED_queryHogQL<T = any[]>(
-        query: HogQLQueryString,
-        queryOptions?: {
-            requestOptions?: ApiMethodOptions
-            clientQueryId?: string
-            refresh?: RefreshType
-            filtersOverride?: DashboardFilter | null
-            variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
-        }
-    ): Promise<HogQLQueryResponse<T>> {
-        return this.queryHogQL(query, {}, queryOptions)
     },
 
     async queryHogQL<T = any[]>(

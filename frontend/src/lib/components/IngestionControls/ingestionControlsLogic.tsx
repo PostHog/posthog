@@ -6,7 +6,7 @@ import type { ingestionControlsLogicType } from './ingestionControlsLogicType'
 
 export type IngestionControlsLogicProps = {
     logicKey: string
-    resourceType: AccessControlResourceType | null
+    resourceType: AccessControlResourceType
     matchType: 'any' | 'all'
     onChangeMatchType: (matchType: 'any' | 'all') => void
 }
@@ -19,6 +19,7 @@ export const ingestionControlsLogic = kea<ingestionControlsLogicType>([
         onChangeMatchType: (matchType: 'any' | 'all') => ({ matchType }),
     }),
     selectors({
+        logicKey: [(_, p) => [p.logicKey], (logicKey) => logicKey],
         resourceType: [(_, p) => [p.resourceType], (resourceType) => resourceType],
         matchType: [(_, p) => [p.matchType], (matchType) => matchType],
     }),

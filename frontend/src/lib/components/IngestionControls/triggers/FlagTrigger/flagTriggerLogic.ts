@@ -51,7 +51,7 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
         linkedFlag: [
             (s) => [s.featureFlag, s.currentTeam],
             // an existing linked flag is loaded from the API,
-            // a newly chosen flag is selected can be passed in
+            // a newly chosen flag is selected and can be passed in
             // the current team is used to ensure that we don't show stale values
             // as people change the selection
             (featureFlag, currentTeam) => (currentTeam?.session_recording_linked_flag?.id ? featureFlag : null),

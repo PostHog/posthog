@@ -23,7 +23,13 @@ from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
+    FunctionCallTable,
+    SavedQuery,
+    Table,
+)
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
@@ -1231,9 +1237,8 @@ class _Printer(Visitor[str]):
                 # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
                 # property is part of *any* property group, we can use that column instead to evaluate this expression
                 # more efficiently -- even if the materialized column would be a better choice in other situations.
-                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
-                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
-                        return property_source.has_expr
+                if property_source := self.__get_property_group_source_for_field(field_type, str(property_name)):
+                    return property_source.has_expr
 
         return None  # nothing to optimize
 
@@ -1721,6 +1726,14 @@ class _Printer(Visitor[str]):
                     is_nullable=materialized_column.is_nullable,
                 )
 
+            # Check for dmat (dynamic materialized) columns
+            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(dmat_column),
+                    is_nullable=True,
+                )
+
             if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
@@ -1750,6 +1763,45 @@ class _Printer(Visitor[str]):
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
                 )
+
+    def __get_property_group_source_for_field(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> PrintableMaterializedPropertyGroupItem | None:
+        """
+        Find a property group source for the given field and property name.
+        Used for JSONHas optimizations where we specifically need property group sources
+        (not mat_* columns) because property groups can efficiently check for key existence.
+        """
+        if self.dialect != "clickhouse":
+            return None
+
+        if self.context.modifiers.propertyGroupsMode not in (
+            PropertyGroupsMode.ENABLED,
+            PropertyGroupsMode.OPTIMIZED,
+        ):
+            return None
+
+        field = field_type.resolve_database_field(self.context)
+        table = field_type.table_type
+        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+            table = table.table_type
+
+        if not isinstance(table, ast.TableType):
+            return None
+
+        table_name = table.table.to_printed_clickhouse(self.context)
+        if field is None or not isinstance(field, DatabaseField):
+            return None
+        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
+        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
+            return PrintableMaterializedPropertyGroupItem(
+                self.visit(field_type.table_type),
+                self._print_identifier(property_group_column),
+                self.context.add_value(property_name),
+            )
+
+        return None
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
@@ -2011,6 +2063,26 @@ class _Printer(Visitor[str]):
         return get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )
+
+    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
+        """
+        Get the dmat column name for a property if available.
+
+        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        otherwise None.
+        """
+        if self.context.property_swapper is None:
+            return None
+
+        # Only event properties have dmat columns
+        if table_name != "events" or field_name != "properties":
+            return None
+
+        prop_info = self.context.property_swapper.event_properties.get(property_name)
+        if prop_info:
+            return prop_info.get("dmat")
+
+        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:

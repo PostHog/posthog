@@ -11,15 +11,16 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
+RUN uv sync --locked --no-dev
 
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY src/ src/
+COPY --from=builder /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH"
 

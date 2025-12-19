@@ -22,7 +22,7 @@ function LinkedFlagSelector(): JSX.Element | null {
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
             <IngestionControls.FlagTrigger
-                logicKey="session-recording-linked-flag"
+                logicKey="session-replay-linked-flag"
                 flag={currentTeam?.session_recording_linked_flag ?? null}
                 onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
             >
@@ -273,7 +273,7 @@ export function ReplayTriggers(): JSX.Element {
 
     return (
         <IngestionControls
-            logicKey="session-recording"
+            logicKey="session-replay"
             resourceType={AccessControlResourceType.SessionRecording}
             matchType={currentTeam?.session_recording_trigger_match_type_config || 'all'}
             onChangeMatchType={(value) => updateCurrentTeam({ session_recording_trigger_match_type_config: value })}

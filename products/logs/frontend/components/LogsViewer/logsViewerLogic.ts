@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import Papa from 'papaparse'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,9 +8,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
-
+import { LogsOrderBy, ParsedLogMessage } from '../../types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
+import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
 
 export interface VisibleLogsTimeRange {
     date_from: string
@@ -30,18 +30,15 @@ export interface LogsViewerLogicProps {
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
+    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
     props({} as LogsViewerLogicProps),
     key((props) => props.tabId),
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+    connect(() => ({
+        values: [logsViewerSettingsLogic, ['timezone', 'wrapBody', 'prettifyJson']],
+        actions: [logsViewerSettingsLogic, ['setTimezone', 'setWrapBody', 'setPrettifyJson']],
+    })),
 
     actions({
-        // Timezone (IANA string, e.g. "UTC", "America/New_York")
-        setTimezone: (timezone: string) => ({ timezone }),
-
-        // Display options
-        setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
-
         // Pinning
         togglePinLog: (log: ParsedLogMessage) => ({ log }),
 
@@ -103,31 +100,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     reducers(({ props }) => ({
         // Synced from props via propsChanged
         logs: [props.logs, { setLogs: (_, { logs }) => logs }],
-
-        // Timezone selection (IANA string, persisted)
-        timezone: [
-            'UTC',
-            { persist: true },
-            {
-                setTimezone: (_, { timezone }) => timezone,
-            },
-        ],
-
-        wrapBody: [
-            true,
-            { persist: true },
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
-            },
-        ],
-
-        prettifyJson: [
-            true,
-            { persist: true },
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
-            },
-        ],
 
         pinnedLogs: [
             {} as Record<string, ParsedLogMessage>,
@@ -295,12 +267,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 if (orderBy === 'latest') {
                     return {
                         date_from: dayjs(lastTimestamp).toISOString(),
-                        date_to: dayjs(firstTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).add(1, 'millisecond').toISOString(),
                     }
                 }
                 return {
                     date_from: dayjs(firstTimestamp).toISOString(),
-                    date_to: dayjs(lastTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).add(1, 'millisecond').toISOString(),
                 }
             },
         ],

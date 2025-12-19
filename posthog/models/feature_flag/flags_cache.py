@@ -8,6 +8,8 @@ and group type mappings), this cache provides just the raw flag data.
 The cache is automatically invalidated when:
 - FeatureFlag models are created, updated, or deleted
 - Team models are created or deleted (to ensure flag caches are cleaned up)
+- FeatureFlagEvaluationTag models are created or deleted
+- Tag models are updated (since tag names are cached in evaluation_tags)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
@@ -43,6 +45,7 @@ from posthog.models.feature_flag.feature_flag import (
     get_feature_flags,
     serialize_feature_flags,
 )
+from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
@@ -206,32 +209,41 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     return success
 
 
-def verify_team_flags(team: Team, batch_data: dict | None = None, verbose: bool = False) -> dict:
+def verify_team_flags(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    verbose: bool = False,
+) -> dict:
     """
     Verify a team's flags cache against the database.
 
     Args:
         team: Team to verify
-        batch_data: Pre-loaded batch data from batch_load_fn (keyed by team.id)
+        db_batch_data: Pre-loaded DB data from batch_load_fn (keyed by team.id)
+        cache_batch_data: Pre-loaded cache data from batch_get_from_cache (keyed by team.id)
         verbose: If True, include detailed diffs with flag keys and field-level differences
 
     Returns:
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    # Use get_from_cache_with_source to detect true cache misses
-    # (get_from_cache has cache-through behavior that hides misses)
-    cached_data, source = flags_hypercache.get_from_cache_with_source(team)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source = cache_batch_data[team.id]
+    else:
+        # Fall back to individual lookup (shouldn't happen in batch verification)
+        cached_data, source = flags_hypercache.get_from_cache_with_source(team)
 
-    # Get flags from database - use batch_data if available to avoid N+1 queries
-    if batch_data and team.id in batch_data:
-        db_data = batch_data[team.id]
+    # Get flags from database - use db_batch_data if available to avoid N+1 queries
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
     else:
         db_data = _get_feature_flags_for_service(team)
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss (source="db" means data was loaded from database, not cache)
-    if source == "db":
+    # Cache miss (source="db" or "miss" means data was not found in cache)
+    if source in ("db", "miss"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",
@@ -525,3 +537,31 @@ def evaluation_tag_changed_flags_cache(sender, instance: "FeatureFlagEvaluationT
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
+
+
+@receiver(post_save, sender=Tag)
+def tag_changed_flags_cache(sender, instance: "Tag", created: bool, **kwargs):
+    """
+    Invalidate flags cache when a tag is renamed.
+
+    Tag names are cached in evaluation_tags, so if a tag used by any flag
+    is renamed, we need to refresh those teams' caches.
+    Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if created:
+        return  # New tags can't be used by any flags yet
+
+    # In practice, update_fields is rarely specified when saving Tags,
+    # but this check follows the pattern used elsewhere in the codebase.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "name" not in update_fields:
+        return
+
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    from posthog.tasks.feature_flags import update_team_service_flags_cache
+
+    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
+        # Capture team_id in closure to avoid late binding issues
+        transaction.on_commit(lambda tid=team_id: update_team_service_flags_cache.delay(tid))  # type: ignore[misc]

@@ -208,6 +208,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        DISABLE_OPENTELEMETRY_TRACING: false, // Disable OpenTelemetry spans for better performance (keeps metrics and timeouts)
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
@@ -256,7 +257,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_CONSUMER_TESTING_TOPIC: '',
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
@@ -281,11 +281,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
-        // in both the PostHog cloud environment and development
-        // we want this metadata switchover to be in blob ingestion v2 mode
-        // hobby installs will set this metadata value to a datetime
-        // since they may be running v1 and being upgraded
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

@@ -351,7 +351,7 @@ export interface UserType extends UserBaseType {
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
-    role_at_organization?: string
+    role_at_organization?: UserRole | null
 }
 
 export type HedgehogColorOptions =
@@ -1499,7 +1499,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
-    FEED = 'feed',
+    PROFILE = 'profile',
     EVENTS = 'events',
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
@@ -1512,7 +1512,7 @@ export enum PersonsTabType {
 }
 
 export enum GroupsTabType {
-    FEED = 'feed',
+    PROFILE = 'profile',
     NOTES = 'notes',
     OVERVIEW = 'overview',
 }
@@ -1943,12 +1943,17 @@ export interface BillingProductV2AddonType {
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
 }
+export enum BillingProvider {
+    Vercel = 'vercel',
+}
 export interface BillingType {
     customer_id: string
     has_active_subscription: boolean
     subscription_level: 'free' | 'paid' | 'custom'
+    billing_provider?: BillingProvider | null
     free_trial_until?: Dayjs
     stripe_portal_url?: string
+    external_billing_provider_invoices_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
@@ -3253,16 +3258,24 @@ export interface ProductTourSurveyQuestion {
     upperBoundLabel?: string
 }
 
+export type ProductTourProgressionTriggerType = 'button' | 'click'
+
+export type ProductTourStepType = 'element' | 'modal' | 'survey'
+
 export interface ProductTourStep {
     id: string
-    selector: string
+    type: ProductTourStepType
+    /** CSS selector for element steps, empty/undefined for modal/survey steps */
+    selector?: string
     /** Rich text content in tiptap JSONContent format */
     content: Record<string, any> | null
     position?: 'top' | 'bottom' | 'left' | 'right'
-    /** Inline survey question config - if present, this is a survey step */
+    /** Inline survey question config - only for survey steps */
     survey?: ProductTourSurveyQuestion
     /** ID of the auto-created survey for this step (set by backend) */
     linkedSurveyId?: string
+    /** how this step progresses, e.g. next button or click trigger */
+    progressionTrigger?: ProductTourProgressionTriggerType
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3274,14 +3287,30 @@ export interface StepOrderVersion {
     created_at: string
 }
 
+export interface ProductTourDisplayConditions {
+    url?: string
+    urlMatchType?: SurveyMatchType
+    selector?: string
+    autoShowDelaySeconds?: number
+    actions?: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events?: {
+        repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    cancelEvents?: {
+        values: SurveyEventsWithProperties[]
+    } | null
+}
+
 export interface ProductTourContent {
     steps: ProductTourStep[]
     appearance?: Record<string, any>
-    conditions?: {
-        url?: string
-        urlMatchType?: SurveyMatchType
-        selector?: string
-    }
+    conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
 }
@@ -5214,6 +5243,11 @@ export type BatchExportServiceDatabricks = {
     }
 }
 
+export type BatchExportRealtimeDestinationBackfill = {
+    type: 'Workflows'
+    config: {}
+}
+
 // When adding a new option here also add a icon for it to
 // frontend/public/services/
 // and update RenderBatchExportIcon
@@ -5225,6 +5259,7 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'Redshift',
     'HTTP',
     'Databricks',
+    'Workflows',
 ]
 export type BatchExportService =
     | BatchExportServiceS3
@@ -5234,6 +5269,7 @@ export type BatchExportService =
     | BatchExportServiceRedshift
     | BatchExportServiceHTTP
     | BatchExportServiceDatabricks
+    | BatchExportRealtimeDestinationBackfill
 
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
@@ -5650,6 +5686,7 @@ export type HogFunctionType = {
     filters?: CyclotronJobFiltersType | null
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
+    batch_export_id?: string | null
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
