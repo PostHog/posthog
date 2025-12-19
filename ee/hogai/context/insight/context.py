@@ -74,6 +74,7 @@ class InsightContext:
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
+            include_url_reminder=self.insight_id is None,
         )
 
     async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
@@ -86,6 +87,7 @@ class InsightContext:
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
+            include_url_reminder=self.insight_id is None,
         )
 
     async def _get_effective_query(self):
