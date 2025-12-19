@@ -65,8 +65,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
-    async def _arun_impl(self, query: str) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query})
+    async def _arun_impl(self, query: str, name: str, description: str) -> tuple[str, ToolMessagesArtifact | None]:
+        parsed_query = self._parse_output({"query": query, "name": name, "description": description})
         try:
             await self._quality_check_output(
                 output=parsed_query,
