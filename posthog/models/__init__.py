@@ -56,7 +56,7 @@ from .instance_setting import InstanceSetting
 from .integration import Integration
 from .link import Link
 from .llm_prompt import LLMPrompt
-from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
+from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState, MaterializationType
 from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
@@ -157,6 +157,7 @@ __all__ = [
     "InviteExpiredException",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
+    "MaterializationType",
     "MessageCategory",
     "MessageRecipientPreference",
     "MessageTemplate",
