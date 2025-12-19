@@ -288,6 +288,56 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_filter_by_created_by(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        task1 = Task.objects.create(
+            team=self.team,
+            title="My Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        task2 = Task.objects.create(
+            team=self.team,
+            title="Other Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other_user,
+        )
+        task3 = Task.objects.create(
+            team=self.team,
+            title="No Creator Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=None,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/?created_by={self.user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(task1.id))
+
+        response = self.client.get(f"/api/projects/@current/tasks/?created_by={other_user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(task2.id))
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 3)
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(task1.id), task_ids)
+        self.assertIn(str(task2.id), task_ids)
+        self.assertIn(str(task3.id), task_ids)
+
 
 class TestTaskRunAPI(BaseTaskAPITest):
     def test_list_runs_for_task(self):

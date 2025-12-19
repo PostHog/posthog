@@ -67,7 +67,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -100,6 +100,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if organization:
             org_str = organization.strip().lower()
             qs = qs.filter(repository__istartswith=f"{org_str}/")
+
+        # Filter by creator
+        created_by = params.get("created_by")
+        if created_by:
+            qs = qs.filter(created_by_id=created_by)
 
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
