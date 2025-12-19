@@ -96,23 +96,18 @@ export class ConcurrentlyGroupingBatchPipeline<TInput, TIntermediate, TOutput, T
     private startAvailableProcessing(): void {
         for (const [key, queue] of this.groupQueues) {
             if (queue.length > 0 && !this.activeProcessing.has(key)) {
-                this.startGroupProcessing(key)
+                // Delete the key to avoid memory leaks from unbounded keys
+                this.groupQueues.delete(key)
+
+                const processingPromise = this.processGroupSequentially(queue).then((results) => {
+                    this.completedResults.push(results)
+                    this.activeProcessing.delete(key)
+                    return results
+                })
+
+                this.activeProcessing.set(key, processingPromise)
             }
         }
-    }
-
-    private startGroupProcessing(key: TKey): void {
-        // Take the queue and delete the key to avoid memory leaks from unbounded keys
-        const itemsToProcess = this.groupQueues.get(key)!
-        this.groupQueues.delete(key)
-
-        const processingPromise = this.processGroupSequentially(itemsToProcess).then((results) => {
-            this.completedResults.push(results)
-            this.activeProcessing.delete(key)
-            return results
-        })
-
-        this.activeProcessing.set(key, processingPromise)
     }
 
     private async processGroupSequentially(
