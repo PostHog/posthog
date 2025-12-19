@@ -21,7 +21,9 @@ def ADD_PERSON_ID_TO_SHARDED_TABLE():
 
 operations = [
     # Step 1: Alter the sharded table to add person_id column
-    run_sql_with_exceptions(ADD_PERSON_ID_TO_SHARDED_TABLE(), node_roles=[NodeRole.DATA], sharded=True),
+    run_sql_with_exceptions(
+        ADD_PERSON_ID_TO_SHARDED_TABLE(), node_roles=[NodeRole.DATA], sharded=True, is_alter_on_replicated_table=True
+    ),
     # Step 2: Recreate distributed tables (can't ALTER distributed tables - must drop/recreate)
     run_sql_with_exceptions(
         DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
