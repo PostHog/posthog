@@ -154,10 +154,10 @@ class UpsertDashboardTool(MaxTool):
                 content = result.content
                 # Coerce query to the QuerySchema union
                 coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
-                if isinstance(content.query, HogQLQuery):
-                    converted = DataTableNode(source=coerced_query).model_dump()
+                if isinstance(coerced_query, HogQLQuery):
+                    converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
                 else:
-                    converted = InsightVizNode(source=coerced_query).model_dump()
+                    converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
 
                 insight = Insight(
                     team=self._team,

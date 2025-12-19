@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -6,8 +7,11 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.schema import (
+    AssistantHogQLQuery,
+    DataTableNode,
     EventsNode,
     FunnelsQuery,
+    HogQLQuery,
     InsightVizNode,
     LifecycleQuery,
     RetentionFilter,
@@ -38,7 +42,7 @@ class TestUpsertDashboardTool(BaseTest):
     async def _create_insight(
         self,
         name: str,
-        query: TrendsQuery | FunnelsQuery | RetentionQuery | LifecycleQuery | None = None,
+        query: Any | None = None,
     ) -> Insight:
         if query is None:
             query = DEFAULT_TRENDS_QUERY
@@ -46,7 +50,9 @@ class TestUpsertDashboardTool(BaseTest):
             team=self.team,
             created_by=self.user,
             name=name,
-            query=InsightVizNode(source=query).model_dump(),
+            query=DataTableNode(source=query).model_dump()
+            if isinstance(query, HogQLQuery | AssistantHogQLQuery)
+            else InsightVizNode(source=query).model_dump(),
             saved=True,
         )
 
@@ -203,6 +209,7 @@ class TestUpsertDashboardTool(BaseTest):
             ("funnels", FunnelsQuery(series=[EventsNode(name="step1"), EventsNode(name="step2")])),
             ("retention", RetentionQuery(retentionFilter=RetentionFilter())),
             ("lifecycle", LifecycleQuery(series=[EventsNode(name="$pageview")])),
+            ("hogql", HogQLQuery(query="SELECT 1")),
         ]
     )
     async def test_dashboard_accepts_different_insight_types(
