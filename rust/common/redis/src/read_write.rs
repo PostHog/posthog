@@ -383,6 +383,16 @@ impl Client for ReadWriteClient {
             .await
     }
 
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.writer
+            .batch_incr_by_expire_nx(items, ttl_seconds)
+            .await
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         self.writer.del(k).await
     }

@@ -8,6 +8,7 @@ import {
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Link,
     lemonToast,
 } from '@posthog/lemon-ui'
 
@@ -59,20 +60,17 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
             return
         }
 
-        const transformedVariables =
-            variablesForInsight.length > 0
-                ? variablesForInsight.reduce(
-                      (acc, variable, index) => {
-                          acc[`var_${index}`] = {
-                              variableId: variable.id,
-                              code_name: variable.code_name,
-                              value: variable.value || variable.default_value,
-                          }
-                          return acc
-                      },
-                      {} as Record<string, { variableId: string; code_name: string; value?: any }>
-                  )
-                : {}
+        const transformedVariables = Object.fromEntries(
+            variablesForInsight.map((variable) => [
+                variable.id,
+                {
+                    variableId: variable.id,
+                    code_name: variable.code_name,
+                    value: variable.value || variable.default_value,
+                    isNull: variable.isNull || false,
+                },
+            ])
+        )
 
         const queryPayload = {
             kind: NodeKind.HogQLQuery as const,
@@ -99,17 +97,19 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="overflow-auto" data-attr="sql-editor-endpoint-pane">
             <div className="flex flex-row items-center gap-2">
                 <h3 className="mb-0">Endpoint</h3>
-                <LemonTag type="completion">ALPHA</LemonTag>
+                <LemonTag type="warning">BETA</LemonTag>
             </div>
             <div className="space-y-2">
                 <p className="text-xs">
-                    Endpoints are a way of pre-defining queries that you can query via the API, with additional
-                    performance improvements and the benefits of monitoring cost and usage.
+                    Endpoints allows you to pre-define a query that you'd like to expose as an API endpoint to use in
+                    your customer-facing dashboard, on your landing page or in your internal tool.
                     <br />
-                    Once created, you will get a URL that you can make an API request to from your own code.
+                    <Link data-attr="endpoints-help" to="https://posthog.com/docs/endpoints" target="_blank">
+                        Learn more about endpoints.
+                    </Link>
                 </p>
 
                 <div className="flex items-center gap-2">

@@ -6,6 +6,17 @@ on:
             - closed
 
 jobs:
+    cleanup-hobby-preview:
+        name: Cleanup hobby preview deployment
+        if: contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+        uses: ./.github/workflows/cleanup-hobby-preview.yml
+        # these permissions are required by cleanup-hobby-preview.yml
+        permissions:
+            deployments: write
+        with:
+            pr_number: '${{ github.event.pull_request.number }}'
+        secrets: inherit
+
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04

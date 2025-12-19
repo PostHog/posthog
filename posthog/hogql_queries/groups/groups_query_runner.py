@@ -19,6 +19,10 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         if self.query.group_type_index is None:
             raise ValueError("group_type_index is required")
 
+        # IMPORTANT: group_name and key MUST always be the first two columns
+        # The frontend (crm/utils.tsx) depends on this ordering, specifically
+        # hardcoding that 'key' is at index 1 in the results array.
+        # See test_column_ordering_consistency for regression tests.
         self.columns = [
             "group_name",
             "key",

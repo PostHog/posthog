@@ -45,6 +45,7 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventsFilter: true,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
@@ -329,7 +330,7 @@ export const personsLogic = kea<personsLogicType>([
         currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
         defaultTab: [
             (s) => [s.feedEnabled],
-            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
+            (feedEnabled) => (feedEnabled ? PersonsTabType.PROFILE : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],

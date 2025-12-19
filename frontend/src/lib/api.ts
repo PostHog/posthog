@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
@@ -45,6 +46,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -156,6 +158,8 @@ import {
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -200,7 +204,7 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -1631,6 +1635,14 @@ export class ApiRequest {
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
         return this.hogFlows().addPathComponent(hogFlowId)
+    }
+
+    public hogFlowTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('hog_flow_templates')
+    }
+
+    public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
+        return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
     }
 
     public wizard(): ApiRequest {
@@ -3101,6 +3113,36 @@ const api = {
         },
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
+        },
+        async listForAlert(alertId: string): Promise<CountedPaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest()
+                .hogFunctions()
+                .withQueryString({
+                    filter_groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'alert_id',
+                                    value: alertId,
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                            events: [
+                                {
+                                    id: INSIGHT_ALERT_FIRING_EVENT_ID,
+                                    type: 'events',
+                                },
+                            ],
+                        },
+                    ],
+                    type: 'internal_destination',
+                    full: 'true',
+                })
+                .get()
+        },
+        async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
+            return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
         },
     },
 
@@ -4577,6 +4619,34 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
+        async getBatchTriggerBlastRadius(
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+        ): Promise<{
+            users_affected: number
+            total_users: number
+        }> {
+            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+        },
+    },
+    hogFlowTemplates: {
+        async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
+            return await new ApiRequest().hogFlowTemplates().get()
+        },
+        async getHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).get()
+        },
+        async createHogFlowTemplate(data: Partial<HogFlowTemplate>): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplates().create({ data })
+        },
+        async updateHogFlowTemplate(
+            hogFlowTemplateId: HogFlowTemplate['id'],
+            data: Partial<HogFlowTemplate>
+        ): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).update({ data })
+        },
+        async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
     },
 
     queryURL: (): string => {
@@ -4613,19 +4683,21 @@ const api = {
 
     async queryHogQL<T = any[]>(
         query: HogQLQueryString,
+        tags: QueryLogTags,
         queryOptions?: {
             requestOptions?: ApiMethodOptions
             clientQueryId?: string
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
+            tags,
         })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,

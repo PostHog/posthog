@@ -60,7 +60,7 @@ class VerificationResult:
 
 def verify_and_fix_all_teams(
     config: HyperCacheManagementConfig,
-    verify_team_fn: Callable[[Team, dict | None], dict],
+    verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
     cache_type: str,
     chunk_size: int | None = None,
 ) -> VerificationResult:
@@ -73,7 +73,7 @@ def verify_and_fix_all_teams(
 
     Args:
         config: HyperCache management configuration with update_fn
-        verify_team_fn: Function that takes (team, batch_data) and returns
+        verify_team_fn: Function that takes (team, db_batch_data, cache_batch_data) and returns
             a dict with 'status' ("match", "miss", "mismatch") and 'issue' type
         cache_type: Name for metrics/logging (e.g., "team_metadata", "flags")
         chunk_size: Number of teams to process per batch. Defaults to
@@ -106,7 +106,7 @@ def verify_and_fix_all_teams(
 def _verify_and_fix_batch(
     teams: list[Team],
     config: HyperCacheManagementConfig,
-    verify_team_fn: Callable[[Team, dict | None], dict],
+    verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
     cache_type: str,
     result: VerificationResult,
 ) -> None:
@@ -116,17 +116,24 @@ def _verify_and_fix_batch(
     Args:
         teams: List of Team objects to verify
         config: HyperCache management configuration
-        verify_team_fn: Function to verify a single team
+        verify_team_fn: Function to verify a single team (team, db_batch_data, cache_batch_data)
         cache_type: Name for metrics/logging
         result: VerificationResult to accumulate stats
     """
-    # Batch-load data if supported
-    batch_data = None
+    # Batch-load DB data if supported
+    db_batch_data = None
     if config.hypercache.batch_load_fn:
         try:
-            batch_data = config.hypercache.batch_load_fn(teams)
+            db_batch_data = config.hypercache.batch_load_fn(teams)
         except Exception as e:
             logger.warning("Batch load failed, falling back to individual loads", error=str(e))
+
+    # Batch-read cached values using MGET (single Redis round trip)
+    try:
+        cache_batch_data = config.hypercache.batch_get_from_cache(teams)
+    except Exception as e:
+        logger.warning("Batch cache read failed, falling back to individual lookups", error=str(e))
+        cache_batch_data = {}
 
     # Batch-check expiry tracking
     expiry_status = batch_check_expiry_tracking(teams, config)
@@ -135,7 +142,7 @@ def _verify_and_fix_batch(
         result.total += 1
 
         try:
-            verification = verify_team_fn(team, batch_data)
+            verification = verify_team_fn(team, db_batch_data, cache_batch_data)
         except Exception as e:
             result.errors += 1
             logger.exception("Error verifying team", team_id=team.id, error=str(e))
@@ -153,6 +160,7 @@ def _verify_and_fix_batch(
                     issue_type="expiry_missing",
                     cache_type=cache_type,
                     result=result,
+                    db_data=db_batch_data.get(team.id) if db_batch_data else None,
                 )
 
         elif status == "miss":
@@ -162,6 +170,7 @@ def _verify_and_fix_batch(
                 issue_type="cache_miss",
                 cache_type=cache_type,
                 result=result,
+                db_data=db_batch_data.get(team.id) if db_batch_data else None,
             )
 
         elif status == "mismatch":
@@ -171,15 +180,20 @@ def _verify_and_fix_batch(
                 issue_type="cache_mismatch",
                 cache_type=cache_type,
                 result=result,
+                verification=verification,
+                db_data=db_batch_data.get(team.id) if db_batch_data else None,
             )
 
 
 def _fix_and_record(
+    *,
     team: Team,
     config: HyperCacheManagementConfig,
     issue_type: str,
     cache_type: str,
     result: VerificationResult,
+    verification: dict | None = None,
+    db_data: dict | None = None,
 ) -> None:
     """
     Fix a team's cache and record the result.
@@ -190,9 +204,26 @@ def _fix_and_record(
         issue_type: Type of issue (cache_miss, cache_mismatch, expiry_missing)
         cache_type: Cache type for metrics
         result: VerificationResult to update
+        verification: Optional verification result dict containing diff info
+        db_data: Pre-loaded DB data to avoid redundant query during fix
     """
+    # Log what's being fixed, including diff details for mismatches
+    log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type}
+    if verification:
+        if "diff_fields" in verification:
+            log_kwargs["diff_fields"] = verification["diff_fields"]
+        if "diff_flags" in verification:
+            log_kwargs["diff_flags"] = verification["diff_flags"]
+    logger.info("Fixing cache entry", **log_kwargs)
+
     try:
-        success = config.update_fn(team)
+        # If we have pre-loaded DB data, write it directly to cache to avoid redundant DB query
+        if db_data is not None:
+            config.hypercache.set_cache_value(team, db_data)
+            success = True
+        else:
+            # Fall back to update_fn which will load from DB
+            success = config.update_fn(team)
     except Exception as e:
         success = False
         logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))
@@ -216,7 +247,7 @@ def _fix_and_record(
 
 def _run_verification_for_cache(
     config: HyperCacheManagementConfig,
-    verify_team_fn: Callable[[Team, dict | None], dict],
+    verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
     cache_type: str,
 ) -> VerificationResult:
     """

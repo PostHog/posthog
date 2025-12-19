@@ -1,15 +1,16 @@
 from collections.abc import Sequence
-from typing import cast
+from typing import Generic, Literal, TypeVar, cast
 from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from posthog.schema import (
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
+    DocumentArtifactContent,
     VisualizationArtifactContent,
     VisualizationMessage,
 )
@@ -18,9 +19,32 @@ from posthog.models import Insight, User
 from posthog.models.team import Team
 
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
+
+ArtifactContentUnion = DocumentArtifactContent | VisualizationArtifactContent
+
+T = TypeVar("T", bound=ArtifactContentUnion)
+S = TypeVar("S", bound=ArtifactSource)
+M = TypeVar("M")
+
+
+class StateArtifactResult(BaseModel, Generic[T]):
+    source: Literal[ArtifactSource.STATE] = ArtifactSource.STATE
+    content: T
+
+
+class DatabaseArtifactResult(BaseModel, Generic[T]):
+    source: Literal[ArtifactSource.ARTIFACT] = ArtifactSource.ARTIFACT
+    content: T
+
+
+class ModelArtifactResult(BaseModel, Generic[T, S, M]):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    source: S
+    content: T
+    model: M
 
 
 class ArtifactManager(AssistantContextMixin):
@@ -87,6 +111,44 @@ class ArtifactManager(AssistantContextMixin):
         if content is None:
             raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
         return content
+
+    async def aget_insight_with_source(
+        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
+    ) -> (
+        StateArtifactResult[VisualizationArtifactContent]
+        | DatabaseArtifactResult[VisualizationArtifactContent]
+        | ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight]
+        | None
+    ):
+        """
+        Retrieve artifact content by ID along with its source.
+        Checks state first, then artifacts, then insights.
+        Returns content or None if not found.
+        """
+        # Try state first if messages provided
+        if state_messages is not None:
+            content = self._content_from_state(artifact_id, state_messages)
+            if content is not None:
+                return StateArtifactResult(content=content)
+
+        # Fall back to database (artifact, then insight)
+        artifact_contents = await self._afetch_artifact_contents([artifact_id])
+        if content := artifact_contents.get(artifact_id):
+            return DatabaseArtifactResult(content=content)
+
+        try:
+            insight = await Insight.objects.aget(short_id=artifact_id, team=self._team, deleted=False, saved=True)
+            return ModelArtifactResult(
+                source=ArtifactSource.INSIGHT,
+                content=VisualizationArtifactContent(
+                    query=insight.query, name=insight.name or insight.derived_name, description=insight.description
+                ),
+                model=insight,
+            )
+        except Insight.DoesNotExist:
+            pass
+
+        return None
 
     async def aget_enriched_message(
         self,
@@ -243,7 +305,7 @@ class ArtifactManager(AssistantContextMixin):
         """Batch fetch insight contents from the database."""
         if not insight_ids:
             return {}
-        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team)
+        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team, deleted=False, saved=True)
         result: dict[str, VisualizationArtifactContent] = {}
         async for insight in insights:
             query = insight.query
@@ -255,12 +317,8 @@ class ArtifactManager(AssistantContextMixin):
             if not query:
                 continue
             # Validate and convert dict to model
-            query_kind = query.get("kind") if isinstance(query, dict) else None
-            if not query_kind or query_kind not in SUPPORTED_QUERY_MODEL_BY_KIND:
-                continue
             try:
-                QueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[query_kind]
-                query_obj = QueryModel.model_validate(query)
+                query_obj = validate_assistant_query(query)
                 result[insight.short_id] = VisualizationArtifactContent(
                     query=query_obj,
                     name=insight.name or insight.derived_name,
