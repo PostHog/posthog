@@ -42,6 +42,7 @@ pub struct State {
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    pub body_chunk_read_timeout_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -123,6 +124,7 @@ pub fn router<
     ai_max_sum_of_parts_bytes: usize,
     ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     request_timeout_seconds: Option<u64>,
+    body_chunk_read_timeout_ms: Option<u64>,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -139,6 +141,7 @@ pub fn router<
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
         ai_blob_storage,
+        body_chunk_read_timeout_ms,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -471,5 +474,41 @@ mod tests {
 
         // Clean up
         server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_body_chunk_timeout_fires_on_stalled_upload() {
+        use crate::extractors::extract_body_with_timeout;
+        use axum::body::Body;
+        use bytes::Bytes;
+        use futures::{stream, StreamExt};
+
+        // Create a stream that yields one chunk then stalls
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![Ok(Bytes::from("partial data"))];
+        let slow_stream = stream::iter(chunks).chain(stream::pending());
+        let body = Body::from_stream(slow_stream);
+
+        // Use a short chunk timeout
+        let timeout = Some(StdDuration::from_millis(100));
+        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, "/test").await;
+
+        // Should get a BodyReadTimeout error
+        assert!(matches!(
+            result,
+            Err(crate::api::CaptureError::BodyReadTimeout)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_body_chunk_timeout_disabled_when_none() {
+        use crate::extractors::extract_body_with_timeout;
+        use axum::body::Body;
+
+        // Normal body with no timeout
+        let body = Body::from(r#"{"event": "test"}"#);
+        let result = extract_body_with_timeout(body, 1024 * 1024, None, "/test").await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), r#"{"event": "test"}"#.as_bytes());
     }
 }

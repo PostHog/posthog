@@ -4,16 +4,19 @@
 //! It extracts and validates event payloads from HTTP requests, handling
 //! decompression, deserialization, and token extraction.
 
+use std::time::Duration;
+
+use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use bytes::Bytes;
 use common_types::RawEvent;
 use metrics::counter;
 use tracing::{debug, info, instrument, Span};
 
 use crate::{
     api::CaptureError,
+    extractors::extract_body_with_timeout,
     payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -47,7 +50,7 @@ pub async fn handle_event_payload(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
-    body: Bytes,
+    body: Body,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
 
@@ -61,6 +64,12 @@ pub async fn handle_event_payload(
     //     - data        = JSON payload which may itself be compressed or base64 encoded or both
     //     - compression = hint to how "data" is encoded or compressed
     //     - lib_version = SDK version that submitted the request
+
+    // Extract body with optional chunk timeout
+    let chunk_timeout = state.body_chunk_read_timeout_ms.map(Duration::from_millis);
+    let body =
+        extract_body_with_timeout(body, state.event_size_limit, chunk_timeout, path.as_str())
+            .await?;
 
     // capture arguments and add to logger, processing context
     if chatty_debug_enabled {

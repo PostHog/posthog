@@ -184,6 +184,7 @@ fn setup_ai_test_router() -> Router {
         26_214_400,                       // 25MB default for AI endpoint
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
     )
 }
 
@@ -1635,6 +1636,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         26_214_400,                       // 25MB default for AI endpoint
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
     );
 
     (router, sink_clone)
@@ -2537,7 +2539,8 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),
+        Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
     );
 
     (router, sink_clone)
@@ -2735,7 +2738,8 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),
+        Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
     );
 
     (router, sink_clone)
