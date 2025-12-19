@@ -180,14 +180,15 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                         />
                     </LemonField>
 
-                    <LemonField name="display" label="Display">
+                    {/*Commenting this out as sparkline display is not supported yet*/}
+                    {/*<LemonField name="display" label="Display">
                         <LemonSelect
                             options={[
                                 { value: 'number', label: 'Number' },
                                 { value: 'sparkline', label: 'Sparkline' },
                             ]}
                         />
-                    </LemonField>
+                    </LemonField>*/}
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
