@@ -282,4 +282,5 @@ export interface HogflowTestResult {
     logs?: LogEntry[]
     nextActionId: string | null
     errors?: string[]
+    variables?: Record<string, any>
 }
