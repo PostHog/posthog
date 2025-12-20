@@ -2539,13 +2539,13 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false, // metrics
         CaptureMode::Events,
         String::from("capture-ai"),
-        None,            // concurrency_limit
-        25 * 1024 * 1024, // event_size_limit
-        false, // enable_historical_rerouting
-        1,     // historical_rerouting_threshold_days
-        false, // is_mirror_deploy
-        0.0,   // verbose_sample_percent
-        26_214_400, // ai_max_sum_of_parts_bytes
+        None,                             // concurrency_limit
+        25 * 1024 * 1024,                 // event_size_limit
+        false,                            // enable_historical_rerouting
+        1,                                // historical_rerouting_threshold_days
+        false,                            // is_mirror_deploy
+        0.0,                              // verbose_sample_percent
+        26_214_400,                       // ai_max_sum_of_parts_bytes
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms

@@ -68,7 +68,7 @@ impl IngestionPipeline {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "analytics" => Some(Self::Analytics),
             "session_recordings" => Some(Self::SessionRecordings),
@@ -430,27 +430,21 @@ mod tests {
             RestrictionType::from_redis_key("skip_person_processing"),
             Some(RestrictionType::SkipPersonProcessing)
         );
-        assert_eq!(
-            RestrictionType::from_redis_key("unknown_type"),
-            None
-        );
+        assert_eq!(RestrictionType::from_redis_key("unknown_type"), None);
     }
 
     #[test]
-    fn test_ingestion_pipeline_from_str() {
+    fn test_ingestion_pipeline_parse() {
         assert_eq!(
-            IngestionPipeline::from_str("analytics"),
+            IngestionPipeline::parse("analytics"),
             Some(IngestionPipeline::Analytics)
         );
         assert_eq!(
-            IngestionPipeline::from_str("session_recordings"),
+            IngestionPipeline::parse("session_recordings"),
             Some(IngestionPipeline::SessionRecordings)
         );
-        assert_eq!(
-            IngestionPipeline::from_str("ai"),
-            Some(IngestionPipeline::Ai)
-        );
-        assert_eq!(IngestionPipeline::from_str("unknown"), None);
+        assert_eq!(IngestionPipeline::parse("ai"), Some(IngestionPipeline::Ai));
+        assert_eq!(IngestionPipeline::parse("unknown"), None);
     }
 
     #[test]
@@ -614,9 +608,7 @@ mod tests {
         filters.distinct_ids.insert("user1".to_string());
         filters.session_ids.insert("session1".to_string());
         filters.event_names.insert("$pageview".to_string());
-        filters
-            .event_uuids
-            .insert("uuid1".to_string());
+        filters.event_uuids.insert("uuid1".to_string());
 
         // All must match
         let event_all_match = EventContext {
@@ -706,14 +698,18 @@ mod tests {
         assert_eq!(entry1.event_names, vec!["$pageview"]);
         assert!(entry1.session_ids.is_empty());
 
-        let restriction1 = entries[0].clone().into_restriction(RestrictionType::DropEvent);
+        let restriction1 = entries[0]
+            .clone()
+            .into_restriction(RestrictionType::DropEvent);
         assert!(matches!(restriction1.scope, RestrictionScope::Filtered(_)));
 
         let entry2 = &entries[1];
         assert_eq!(entry2.token, "token2");
         assert!(entry2.distinct_ids.is_empty());
 
-        let restriction2 = entries[1].clone().into_restriction(RestrictionType::DropEvent);
+        let restriction2 = entries[1]
+            .clone()
+            .into_restriction(RestrictionType::DropEvent);
         assert!(matches!(restriction2.scope, RestrictionScope::AllEvents));
     }
 
@@ -733,10 +729,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
-        let service = EventRestrictionService::new(
-            IngestionPipeline::Analytics,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
         let restrictions = service
             .get_restrictions("token", &EventContext::default())
@@ -746,10 +740,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_returns_restrictions_after_update() {
-        let service = EventRestrictionService::new(
-            IngestionPipeline::Analytics,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -768,10 +760,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_returns_empty_for_unknown_token() {
-        let service = EventRestrictionService::new(
-            IngestionPipeline::Analytics,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -827,10 +817,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_clone_shares_state() {
-        let service = EventRestrictionService::new(
-            IngestionPipeline::Analytics,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
         let service_clone = service.clone();
 
         // Update via original
@@ -853,10 +841,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_multiple_restrictions_same_token() {
-        let service = EventRestrictionService::new(
-            IngestionPipeline::Analytics,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -1216,8 +1202,11 @@ mod tests {
         let calls = mock.get_calls();
         let keys: Vec<&str> = calls.iter().map(|c| c.key.as_str()).collect();
 
-        assert!(keys.contains(&"event_ingestion_restriction_dynamic_config:drop_event_from_ingestion"));
-        assert!(keys.contains(&"event_ingestion_restriction_dynamic_config:force_overflow_from_ingestion"));
+        assert!(
+            keys.contains(&"event_ingestion_restriction_dynamic_config:drop_event_from_ingestion")
+        );
+        assert!(keys
+            .contains(&"event_ingestion_restriction_dynamic_config:force_overflow_from_ingestion"));
         assert!(keys.contains(&"event_ingestion_restriction_dynamic_config:redirect_to_dlq"));
         assert!(keys.contains(&"event_ingestion_restriction_dynamic_config:skip_person_processing"));
     }
