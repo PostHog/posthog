@@ -3,6 +3,9 @@ import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin
 import { Hub, PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
 import { captureException } from '../posthog'
 
+/** Narrowed Hub type for processError */
+export type ProcessErrorHub = Pick<Hub, 'db' | 'instanceId'>
+
 export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {
         super(message)
@@ -39,7 +42,7 @@ export class RedisOperationError extends Error {
 }
 
 export async function processError(
-    server: Hub,
+    server: ProcessErrorHub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
     event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null

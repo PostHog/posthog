@@ -4,6 +4,9 @@ import { PostgresUse } from '~/utils/db/postgres'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 
+/** Narrowed Hub type for HogFlowManagerService */
+export type HogFlowManagerServiceHub = Pick<Hub, 'postgres' | 'pubSub'>
+
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
     'id',
@@ -29,7 +32,7 @@ export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
 
-    constructor(private hub: Hub) {
+    constructor(private hub: HogFlowManagerServiceHub) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_flow_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFlows(teamIds),

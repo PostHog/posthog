@@ -13,6 +13,12 @@ import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '.
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
+/** Narrowed config type for SegmentDestinationExecutorService */
+export type SegmentDestinationExecutorConfig = Pick<
+    PluginsServerConfig,
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+>
+
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
     help: 'Processing time and success status of plugins',
@@ -96,7 +102,7 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
  */
 
 export class SegmentDestinationExecutorService {
-    constructor(private serverConfig: PluginsServerConfig) {}
+    constructor(private serverConfig: SegmentDestinationExecutorConfig) {}
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction

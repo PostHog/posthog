@@ -4,13 +4,16 @@ import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { DBHogFunctionTemplate } from '../../types'
 
+/** Narrowed Hub type for HogFunctionTemplateManagerService */
+export type HogFunctionTemplateManagerServiceHub = Pick<Hub, 'postgres'>
+
 const HOG_FUNCTION_TEMPLATE_FIELDS = ['id', 'template_id', 'sha', 'name', 'inputs_schema', 'bytecode', 'type', 'free']
 
 export class HogFunctionTemplateManagerService {
     private lazyLoader: LazyLoader<DBHogFunctionTemplate>
     // private started: boolean
 
-    constructor(private hub: Hub) {
+    constructor(private hub: HogFunctionTemplateManagerServiceHub) {
         // this.started = false
 
         this.lazyLoader = new LazyLoader({

@@ -3,6 +3,9 @@ import { PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 
+/** Narrowed Hub type for RecipientsManagerService */
+export type RecipientsManagerServiceHub = Pick<Hub, 'postgres'>
+
 export type RecipientGetArgs = {
     teamId: number
     identifier: string
@@ -40,7 +43,7 @@ export type RecipientManagerRecipient = {
 export class RecipientsManagerService {
     private lazyLoader: LazyLoader<RecipientManagerRecipient>
 
-    constructor(private hub: Hub) {
+    constructor(private hub: RecipientsManagerServiceHub) {
         this.lazyLoader = new LazyLoader({
             name: 'recipients_manager',
             loader: async (ids) => await this.fetchRecipients(ids),

@@ -12,6 +12,12 @@ import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
+/** Narrowed config type for NativeDestinationExecutorService */
+export type NativeDestinationExecutorConfig = Pick<
+    PluginsServerConfig,
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+>
+
 const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
     help: 'Processing time and success status of native plugins',
@@ -47,7 +53,7 @@ const convertFetchResponse = (response: FetchResponse, text: string): Response =
  */
 
 export class NativeDestinationExecutorService {
-    constructor(private serverConfig: PluginsServerConfig) {}
+    constructor(private serverConfig: NativeDestinationExecutorConfig) {}
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction

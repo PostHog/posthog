@@ -114,7 +114,10 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     return canRetry
 }
 
-export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
+/** Narrowed config type for retry time calculation */
+export type RetryConfig = Pick<PluginsServerConfig, 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+
+export const getNextRetryTime = (config: RetryConfig, tries: number): DateTime => {
     const backoffMs = Math.min(
         config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
         config.CDP_FETCH_BACKOFF_MAX_MS

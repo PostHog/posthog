@@ -1,24 +1,65 @@
 import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { CdpRedisPoolConfig } from '~/utils/db/redis'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerConfig, KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
-import { HogExecutorService } from '../services/hog-executor.service'
+import { HogExecutorService, HogExecutorServiceHub } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
-import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
-import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { GroupsManagerService } from '../services/managers/groups-manager.service'
-import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
-import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
+import { HogFlowFunctionsService, HogFlowFunctionsServiceHub } from '../services/hogflows/hogflow-functions.service'
+import { HogFlowManagerService, HogFlowManagerServiceHub } from '../services/hogflows/hogflow-manager.service'
+import { LegacyPluginExecutorService, LegacyPluginExecutorServiceHub } from '../services/legacy-plugin-executor.service'
+import { GroupsManagerService, GroupsManagerServiceHub } from '../services/managers/groups-manager.service'
+import { HogFunctionManagerHub, HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import {
+    HogFunctionTemplateManagerService,
+    HogFunctionTemplateManagerServiceHub,
+} from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
-import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { RecipientsManagerService, RecipientsManagerServiceHub } from '../services/managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
-import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    HogFunctionMonitoringServiceHub,
+} from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
-import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
-import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
-import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
+import { HogWatcherService, HogWatcherServiceHub } from '../services/monitoring/hog-watcher.service'
+import {
+    NativeDestinationExecutorConfig,
+    NativeDestinationExecutorService,
+} from '../services/native-destination-executor.service'
+import {
+    SegmentDestinationExecutorConfig,
+    SegmentDestinationExecutorService,
+} from '../services/segment-destination-executor.service'
+
+/**
+ * Combined Hub type for CdpConsumerBase and all CDP consumers.
+ * This includes all fields needed by the base consumer and its services.
+ */
+export type CdpConsumerBaseHub = CdpRedisPoolConfig &
+    KafkaProducerConfig &
+    NativeDestinationExecutorConfig &
+    SegmentDestinationExecutorConfig &
+    HogFunctionManagerHub &
+    HogExecutorServiceHub &
+    HogFlowManagerServiceHub &
+    HogFlowFunctionsServiceHub &
+    HogFunctionTemplateManagerServiceHub &
+    HogFunctionMonitoringServiceHub &
+    HogWatcherServiceHub &
+    LegacyPluginExecutorServiceHub &
+    GroupsManagerServiceHub &
+    RecipientsManagerServiceHub &
+    Pick<
+        Hub,
+        // PersonsManagerService needs personRepository
+        | 'personRepository'
+        // QuotaLimiting
+        | 'quotaLimiting'
+        // CDP overflow queue
+        | 'CDP_OVERFLOW_QUEUE_ENABLED'
+    >
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
