@@ -58,6 +58,16 @@ export type LogsRedisPoolConfig = Pick<
     | 'LOGS_REDIS_TLS'
 >
 
+/** Session-recording specific redis config */
+export type SessionRecordingRedisConfig = Pick<
+    PluginsServerConfig,
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'POSTHOG_SESSION_RECORDING_REDIS_HOST'
+    | 'POSTHOG_SESSION_RECORDING_REDIS_PORT'
+>
+
 // Overload for CDP-specific config
 export function getRedisConnectionOptions(
     serverConfig: CdpRedisPoolConfig,
@@ -68,6 +78,11 @@ export function getRedisConnectionOptions(
     serverConfig: LogsRedisPoolConfig,
     kind: 'logs'
 ): { url: string; options?: RedisOptions }
+// Overload for session-recording-specific config
+export function getRedisConnectionOptions(
+    serverConfig: SessionRecordingRedisConfig,
+    kind: 'session-recording'
+): { url: string; options?: RedisOptions }
 // General overload
 export function getRedisConnectionOptions(
     serverConfig: RedisPoolConfig,
@@ -75,7 +90,7 @@ export function getRedisConnectionOptions(
 ): { url: string; options?: RedisOptions }
 // Implementation
 export function getRedisConnectionOptions(
-    serverConfig: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig,
+    serverConfig: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig | SessionRecordingRedisConfig,
     kind: REDIS_SERVER_KIND
 ): {
     url: string
@@ -159,11 +174,13 @@ export function getRedisConnectionOptions(
 export function createRedis(serverConfig: CdpRedisPoolConfig, kind: 'cdp'): Promise<Redis.Redis>
 // Overload for Logs-specific config
 export function createRedis(serverConfig: LogsRedisPoolConfig, kind: 'logs'): Promise<Redis.Redis>
+// Overload for session-recording-specific config
+export function createRedis(serverConfig: SessionRecordingRedisConfig, kind: 'session-recording'): Promise<Redis.Redis>
 // General overload
 export function createRedis(serverConfig: RedisPoolConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis>
 // Implementation
 export async function createRedis(
-    serverConfig: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig,
+    serverConfig: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig | SessionRecordingRedisConfig,
     kind: REDIS_SERVER_KIND
 ): Promise<Redis.Redis> {
     // Cast to full config - the overloads ensure correct usage at call sites
@@ -197,10 +214,22 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
     return redis
 }
 
-export function createRedisPool(options: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisPool {
+// Overload for CDP-specific config
+export function createRedisPool(options: CdpRedisPoolConfig, kind: 'cdp'): RedisPool
+// Overload for Logs-specific config
+export function createRedisPool(options: LogsRedisPoolConfig, kind: 'logs'): RedisPool
+// Overload for session-recording-specific config
+export function createRedisPool(options: SessionRecordingRedisConfig, kind: 'session-recording'): RedisPool
+// General overload
+export function createRedisPool(options: RedisPoolConfig, kind: REDIS_SERVER_KIND): RedisPool
+// Implementation
+export function createRedisPool(
+    options: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig | SessionRecordingRedisConfig,
+    kind: REDIS_SERVER_KIND
+): RedisPool {
     return createPool<Redis.Redis>(
         {
-            create: () => createRedis(options, kind),
+            create: () => createRedis(options as RedisPoolConfig, kind),
             destroy: async (client) => {
                 await client.quit()
             },

@@ -5,11 +5,14 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { HealthCheckResult, Hub, PluginServerService, RedisPool, ValueMatcher } from '../../../types'
+import { KafkaProducerConfig, KafkaProducerWrapper } from '../../../kafka/producer'
+import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { createRedisPool } from '../../../utils/db/redis'
-import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
+import { SessionRecordingRedisConfig, createRedisPool } from '../../../utils/db/redis'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerHub,
+} from '../../../utils/event-ingestion-restriction-manager'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
@@ -39,6 +42,32 @@ import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
+/** Narrowed Hub type for SessionRecordingIngester */
+export type SessionRecordingIngesterHub = Pick<
+    PluginsServerConfig,
+    // Direct config usage
+    | 'SESSION_RECORDING_DEBUG_PARTITION'
+    | 'SESSION_RECORDING_V2_S3_ENDPOINT'
+    | 'SESSION_RECORDING_V2_S3_REGION'
+    | 'SESSION_RECORDING_V2_S3_BUCKET'
+    | 'SESSION_RECORDING_V2_S3_PREFIX'
+    | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'
+    | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
+    | 'SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC'
+    | 'SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC'
+    | 'SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT'
+    | 'SESSION_RECORDING_V2_S3_TIMEOUT_MS'
+    | 'SESSION_RECORDING_MAX_BATCH_SIZE_KB'
+    | 'SESSION_RECORDING_MAX_BATCH_AGE_MS'
+    | 'SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH'
+> &
+    // For EventIngestionRestrictionManager
+    EventIngestionRestrictionManagerHub &
+    // For KafkaProducerWrapper.create
+    KafkaProducerConfig &
+    // For createRedisPool
+    SessionRecordingRedisConfig
+
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
     topic: string
@@ -62,7 +91,7 @@ export class SessionRecordingIngester {
     private topTrackerLogInterval?: NodeJS.Timeout
 
     constructor(
-        private hub: Hub,
+        private hub: SessionRecordingIngesterHub,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         producer: KafkaProducerWrapper,
