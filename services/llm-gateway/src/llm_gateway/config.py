@@ -4,8 +4,6 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    host: str = "0.0.0.0"
-    port: int = 8080
     debug: bool = False
 
     database_url: str = "postgres://posthog:posthog@localhost:5432/posthog"
@@ -28,6 +26,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+    gemini_api_key: str | None = None
 
     # Used to send gateway errors to error tracking
     posthog_api_key: str | None = None

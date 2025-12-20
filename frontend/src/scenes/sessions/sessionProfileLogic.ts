@@ -121,7 +121,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         LIMIT 1
                     `
 
-                    const response = await api.queryHogQL(sessionQuery)
+                    const tags = { scene: 'SessionProfile', productKey: 'persons' }
+                    const response = await api.queryHogQL(sessionQuery, tags)
                     const row = response.results?.[0]
 
                     if (!row) {
@@ -138,14 +139,14 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                                 SELECT properties
                                 FROM persons
                                 WHERE id IN (
-                                    SELECT person_id 
-                                    FROM person_distinct_ids 
+                                    SELECT person_id
+                                    FROM person_distinct_ids
                                     WHERE distinct_id = ${distinct_id}
                                     LIMIT 1
                                 )
                                 LIMIT 1
                             `
-                            const personResponse = await api.queryHogQL(personQuery)
+                            const personResponse = await api.queryHogQL(personQuery, tags)
                             const personRow = personResponse.results?.[0]
                             if (personRow && personRow[0]) {
                                 person_properties = JSON.parse(personRow[0])
@@ -236,7 +237,10 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         LIMIT 50
                     `
 
-                    const response = await api.queryHogQL(eventsQuery)
+                    const response = await api.queryHogQL(eventsQuery, {
+                        scene: 'SessionProfile',
+                        productKey: 'persons',
+                    })
 
                     return (response.results || []).map((row: any): SessionEventType => {
                         const properties: Record<string, any> = {}
@@ -348,7 +352,10 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         OFFSET ${offset}
                     `
 
-                    const response = await api.queryHogQL(eventsQuery)
+                    const response = await api.queryHogQL(eventsQuery, {
+                        scene: 'SessionProfile',
+                        productKey: 'persons',
+                    })
 
                     const newEvents = (response.results || []).map((row: any): SessionEventType => {
                         const properties: Record<string, any> = {}
@@ -422,7 +429,10 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         LIMIT 1
                     `
 
-                    const response = await api.queryHogQL(detailsQuery)
+                    const response = await api.queryHogQL(detailsQuery, {
+                        scene: 'SessionProfile',
+                        productKey: 'persons',
+                    })
 
                     if (!response.results || response.results.length === 0) {
                         return {}
@@ -447,7 +457,10 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             AND \`$session_id\` = ${props.sessionId}
                     `
 
-                    const response = await api.queryHogQL(countQuery)
+                    const response = await api.queryHogQL(countQuery, {
+                        scene: 'SessionProfile',
+                        productKey: 'persons',
+                    })
                     return response.results?.[0]?.[0] || 0
                 },
             },
@@ -492,7 +505,10 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         ORDER BY timestamp DESC
                     `
 
-                    const response = await api.queryHogQL(ticketsQuery)
+                    const response = await api.queryHogQL(ticketsQuery, {
+                        scene: 'SessionProfile',
+                        productKey: 'persons',
+                    })
 
                     return (response.results || []).map((row: any): SessionEventType => {
                         const properties: Record<string, any> = {}

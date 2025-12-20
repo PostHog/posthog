@@ -64,11 +64,13 @@ import { EvaluationStats, evaluationMetricsLogic } from './evaluations/evaluatio
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
     llmAnalyticsLogic,
 } from './llmAnalyticsLogic'
+import { LLMPromptsScene } from './prompts/LLMPromptsScene'
 import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from './settings/TrialUsageMeter'
 import { truncateValue } from './utils'
@@ -310,6 +312,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             )
                         },
                     },
+                    person: llmAnalyticsColumnRenderers.person,
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
@@ -764,6 +767,23 @@ export function LLMAnalyticsScene(): JSX.Element {
             content: <LLMAnalyticsDatasetsScene />,
             link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
             'data-attr': 'datasets-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS]) {
+        tabs.push({
+            key: 'prompts',
+            label: (
+                <>
+                    Prompts{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMPromptsScene />,
+            link: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
+            'data-attr': 'prompts-tab',
         })
     }
 

@@ -1,7 +1,16 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import (
+    data_color_theme,
+    feed,
+    hog_flow,
+    hog_flow_template,
+    llm_gateway,
+    metalytics,
+    my_notifications,
+    project,
+)
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -123,6 +132,7 @@ from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
+from .llm_prompt import LLMPromptViewSet
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 from .session import SessionViewSet
 
@@ -268,6 +278,13 @@ environments_router.register(
     r"column_configurations",
     ColumnConfigurationViewSet,
     "environment_column_configurations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_prompts",
+    LLMPromptViewSet,
+    "environment_llm_prompts",
     ["team_id"],
 )
 
@@ -856,6 +873,13 @@ register_grandfathered_environment_nested_viewset(
     r"hog_flows",
     hog_flow.HogFlowViewSet,
     "environment_hog_flows",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"hog_flow_templates",
+    hog_flow_template.HogFlowTemplateViewSet,
+    "environment_hog_flow_templates",
     ["team_id"],
 )
 

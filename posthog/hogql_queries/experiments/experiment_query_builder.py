@@ -31,7 +31,10 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_source_value_expr,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
+)
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -836,6 +839,51 @@ class ExperimentQueryBuilder:
         for alias in aliases:
             query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
 
+    def _inject_retention_breakdown_columns(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into retention query AST.
+        Modifies query in-place.
+
+        Retention breakdown injection is simpler than ratio because:
+        - Only entity_metrics CTE needs modification
+        - No JOIN conditions require breakdown columns
+        - Breakdowns come from exposures only
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+
+        # Inject into entity_metrics CTE SELECT and GROUP BY (carry breakdown from exposures)
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                # Add breakdown columns to SELECT (after entity_id and variant)
+                for i, alias in enumerate(aliases):
+                    entity_metrics_cte.expr.select.insert(
+                        2 + i,  # After entity_id (0), variant (1)
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias])),
+                    )
+
+                # Add breakdown columns to GROUP BY
+                if entity_metrics_cte.expr.group_by is None:
+                    entity_metrics_cte.expr.group_by = []
+                for alias in aliases:
+                    entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
     def _build_ratio_query(self) -> ast.SelectQuery:
         """
         Builds query for ratio metrics.
@@ -1151,9 +1199,11 @@ class ExperimentQueryBuilder:
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({events_alias}.value), 0))")
+                    # Build the aggregation with params if it's a parametric function
+                    inner_value_expr = parse_expr(f"coalesce(toFloat({events_alias}.value), 0)")
+                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
             return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
         else:
             return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
@@ -1270,15 +1320,15 @@ class ExperimentQueryBuilder:
         if self._has_breakdown():
             breakdown_exprs = self._build_breakdown_exprs(table_alias="")
 
-            # Add breakdown columns to SELECT
+            # Add breakdown columns to SELECT using argMin attribution
+            # This ensures each user is attributed to exactly one breakdown value
+            # (from their first exposure), preventing duplicate counting when users
+            # have multiple exposures with different breakdown property values
             for alias, expr in breakdown_exprs:
-                exposure_query.select.append(ast.Alias(alias=alias, expr=expr))
-
-            # Add breakdown columns to GROUP BY
-            if exposure_query.group_by is None:
-                exposure_query.group_by = []
-            for alias, _ in breakdown_exprs:
-                exposure_query.group_by.append(ast.Field(chain=[alias]))
+                # Use argMin to attribute breakdown value from first exposure
+                # This matches the variant attribution logic
+                breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         return exposure_query
 
@@ -1500,6 +1550,11 @@ class ExperimentQueryBuilder:
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns if breakdown filter is present
+        if self._has_breakdown():
+            self._inject_retention_breakdown_columns(query)
+
         return query
 
     def _build_start_event_timestamp_expr(self) -> ast.Expr:

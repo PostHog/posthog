@@ -75,7 +75,7 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
-    cdp_behavioural_events = 'cdp-behavioural-events',
+    cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
@@ -176,6 +176,7 @@ export type CdpConfig = {
     CDP_RATE_LIMITER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_RATE_LIMITER_TTL: number // The expiry for the rate limit key
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
@@ -219,8 +220,6 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
-    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
-    INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
 export type LogsIngestionConsumerConfig = {
@@ -286,19 +285,13 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
-    PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
-    PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
-    GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
-    GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
     BEHAVIORAL_COHORTS_DATABASE_URL: string // Optional read-write Postgres database for behavioral cohorts
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
-    PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
-    PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
@@ -461,9 +454,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
 
-    // New: switchover flag for v2 session recording metadata
-    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
-
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
@@ -496,7 +486,6 @@ export interface Hub extends PluginsServerConfig {
     // active connections to Postgres, Redis, Kafka
     db: DB
     postgres: PostgresRouter
-    postgresPersonMigration: PostgresRouter
     redisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
@@ -554,7 +543,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
-    cdpBehaviouralEvents?: boolean
+    cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -1014,7 +1003,7 @@ export interface PersonUpdateFields {
     properties_last_operation: PropertiesLastOperation | null
     is_identified: boolean
     created_at: DateTime
-    version?: number // Optional: allows forcing a specific version (used for dual-write sync)
+    version?: number // Optional: allows forcing a specific version
 }
 
 /** Person model exposed outside of person-specific DB logic. */
@@ -1457,8 +1446,3 @@ export interface HookPayload {
         }
     }
 }
-
-/**
- * Metadata switchover can be absent, enforced (boolean true), or after a provided date
- */
-export type SessionRecordingV2MetadataSwitchoverDate = Date | null | true

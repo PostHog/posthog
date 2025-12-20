@@ -352,16 +352,6 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
-        "AgentArtifactContent": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/DocumentArtifactContent"
-                },
-                {
-                    "$ref": "#/definitions/VisualizationArtifactContent"
-                }
-            ]
-        },
         "AgentMode": {
             "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
@@ -444,35 +434,6 @@
                 }
             ],
             "description": "The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM."
-        },
-        "AnyAssistantSupportedQuery": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RetentionQuery"
-                },
-                {
-                    "$ref": "#/definitions/HogQLQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
-                },
-                {
-                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
-                }
-            ],
-            "description": "The union type with all supported base queries for the assistant."
         },
         "AnyDataNode": {
             "anyOf": [
@@ -592,6 +553,12 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogAttributesQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogValuesQuery"
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
@@ -764,6 +731,12 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/LogAttributesQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/LogValuesQueryResponse"
                 }
             ]
         },
@@ -1613,6 +1586,7 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "description": "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks.",
                     "items": {
                         "additionalProperties": {},
                         "type": "object"
@@ -1717,6 +1691,9 @@
                     "$ref": "#/definitions/AssistantGroupPropertyFilter"
                 }
             ]
+        },
+        "AssistantQuerySchema": {
+            "$ref": "#/definitions/QuerySchema"
         },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
@@ -1941,6 +1918,7 @@
                 "list_tasks",
                 "list_task_runs",
                 "list_repositories",
+                "web_search",
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
@@ -3560,6 +3538,9 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
                 },
                 "timeseries": {
                     "items": {
@@ -10064,6 +10045,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -11064,6 +11049,12 @@
                 },
                 {
                     "$ref": "#/definitions/SessionReplayBlock"
+                },
+                {
+                    "$ref": "#/definitions/LoadingBlock"
+                },
+                {
+                    "$ref": "#/definitions/ErrorBlock"
                 }
             ]
         },
@@ -11404,6 +11395,11 @@
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
                 },
+                "debug": {
+                    "default": false,
+                    "description": "Whether to include debug information (such as the executed HogQL) in the response.",
+                    "type": "boolean"
+                },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
                     "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
@@ -11493,6 +11489,25 @@
         "EntityType": {
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
+        },
+        "ErrorBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "Optional artifact ID if the error is related to a specific artifact",
+                    "type": ["string", "null"]
+                },
+                "message": {
+                    "description": "Error message to display",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "error",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "message"],
+            "type": "object"
         },
         "ErrorTrackingBreakdownsQuery": {
             "additionalProperties": false,
@@ -12765,6 +12780,20 @@
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
                 },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
+                },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
                     "type": "boolean"
@@ -13159,6 +13188,9 @@
                 "kind": {
                     "const": "ExperimentExposureQuery",
                     "type": "string"
+                },
+                "sample_ratio_mismatch": {
+                    "$ref": "#/definitions/SampleRatioMismatch"
                 },
                 "timeseries": {
                     "items": {
@@ -16400,6 +16432,9 @@
                 "useMaterializedViews": {
                     "type": "boolean"
                 },
+                "usePreaggregatedIntermediateResults": {
+                    "type": "boolean"
+                },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
@@ -16563,6 +16598,9 @@
                     "type": "string"
                 },
                 "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "trace_id": {
                     "type": "string"
                 },
                 "type": {
@@ -17816,6 +17854,119 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "LoadingBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "The artifact ID that is being loaded",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "loading",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
+            "type": "object"
+        },
+        "LogAttributesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "attributeType": {
+                    "type": "string"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "LogAttributesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/LogAttributesQueryResponse"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["attributeType", "kind"],
+            "type": "object"
+        },
+        "LogAttributesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "number"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["count", "results"],
+            "type": "object"
+        },
         "LogEntryPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -17935,6 +18086,117 @@
         "LogSeverityLevel": {
             "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
             "type": "string"
+        },
+        "LogValueResult": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
+        "LogValuesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "attributeKey": {
+                    "type": "string"
+                },
+                "attributeType": {
+                    "type": "string"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "LogValuesQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/LogValuesQueryResponse"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["attributeKey", "attributeType", "kind"],
+            "type": "object"
+        },
+        "LogValuesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogValueResult"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "LogsQuery": {
             "additionalProperties": false,
@@ -20101,6 +20363,8 @@
                 "ErrorTrackingBreakdownsQuery",
                 "ErrorTrackingIssueCorrelationQuery",
                 "LogsQuery",
+                "LogAttributesQuery",
+                "LogValuesQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -20345,13 +20609,24 @@
         "NotebookArtifactContent": {
             "additionalProperties": false,
             "properties": {
+                "blocks": {
+                    "description": "Structured blocks for the notebook content",
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                },
                 "content_type": {
                     "const": "notebook",
                     "description": "Notebook",
                     "type": "string"
+                },
+                "title": {
+                    "description": "Title for the notebook",
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["content_type"],
+            "required": ["content_type", "blocks"],
             "type": "object"
         },
         "NotebookInfo": {
@@ -21005,6 +21280,7 @@
                 "survey_bulk_duplicated",
                 "survey_edited",
                 "survey_analyzed",
+                "quick_survey_started",
                 "revenue_analytics_viewed",
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
@@ -22496,6 +22772,9 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "sample_ratio_mismatch": {
+                            "$ref": "#/definitions/SampleRatioMismatch"
                         },
                         "timeseries": {
                             "items": {
@@ -25085,6 +25364,89 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "count": {
+                            "type": "number"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["count", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LogValueResult"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -25580,6 +25942,12 @@
                 },
                 {
                     "$ref": "#/definitions/LogsQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogAttributesQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogValuesQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
@@ -27349,6 +27717,22 @@
                 }
             ]
         },
+        "SampleRatioMismatch": {
+            "additionalProperties": false,
+            "properties": {
+                "expected": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                },
+                "p_value": {
+                    "type": "number"
+                }
+            },
+            "required": ["expected", "p_value"],
+            "type": "object"
+        },
         "SamplingRate": {
             "additionalProperties": false,
             "properties": {
@@ -27434,6 +27818,10 @@
                 },
                 "showEventFilter": {
                     "description": "Include an event filter above the table (EventsNode only)",
+                    "type": "boolean"
+                },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
                     "type": "boolean"
                 },
                 "showExport": {
@@ -27673,6 +28061,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -30690,13 +31092,16 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "plan": {
+                    "type": ["string", "null"]
+                },
                 "query": {
                     "anyOf": [
                         {
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/AssistantQuerySchema"
                         }
                     ]
                 }
@@ -30707,15 +31112,48 @@
         "VisualizationBlock": {
             "additionalProperties": false,
             "properties": {
-                "artifact_id": {
-                    "type": "string"
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                        }
+                    ],
+                    "description": "The query to render (same as VisualizationArtifactContent.query)"
+                },
+                "title": {
+                    "description": "Optional title for the visualization",
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "const": "visualization",
                     "type": "string"
                 }
             },
-            "required": ["type", "artifact_id"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VisualizationItem": {
@@ -30727,7 +31165,28 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         }
                     ]
                 },
@@ -30754,7 +31213,28 @@
                             "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         }
                     ]
                 },

@@ -125,10 +125,8 @@ export function SessionEventItem({
 
     const playerLogicProps = sessionId
         ? { sessionRecordingId: sessionId, playerKey: `session-profile-${sessionId}` }
-        : null
-    const { seekToTime } = useActions(
-        playerLogicProps ? sessionRecordingPlayerLogic(playerLogicProps) : { actions: {} }
-    )
+        : { sessionRecordingId: '', playerKey: 'session-profile-key' }
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic(playerLogicProps))
 
     const handleJumpToRecording = (e: React.MouseEvent): void => {
         e.stopPropagation()

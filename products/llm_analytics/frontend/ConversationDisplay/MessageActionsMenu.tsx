@@ -70,8 +70,9 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         setTimeout(() => insertQuoteIntoEditor(quotedContent), EDITOR_RETRY_DELAY_MS)
     }
 
-    const showDiscussions = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]
-    const showTranslation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
+    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const showDiscussions = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]
+    const showTranslation = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
 
     const menuItems: LemonMenuItems = [
         ...(showDiscussions

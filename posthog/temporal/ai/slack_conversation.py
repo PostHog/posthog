@@ -129,6 +129,7 @@ class SlackConversationRunnerWorkflowInputs:
     user_message_ts: str | None
     messages: list[dict[str, Any]]
     slack_thread_key: str
+    user_id: int
     conversation_id: str | None = None  # Provided if continuing an existing conversation
 
 
@@ -179,35 +180,13 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     from posthog.models import Team, User
     from posthog.models.integration import Integration
-    from posthog.models.organization import OrganizationMembership
 
     from ee.hogai.chat_agent.runner import ChatAgentRunner
     from ee.models import Conversation
 
     team = await Team.objects.aget(id=inputs.team_id)
     integration = await Integration.objects.aget(id=inputs.integration_id)
-
-    # Get a user from the team to run the agent as (use a team member)
-    membership = (
-        await OrganizationMembership.objects.filter(organization_id=team.organization_id)
-        .select_related("user")
-        .afirst()
-    )
-    if not membership or not membership.user:
-        logger.error("slack_conversation_no_user", team_id=inputs.team_id)
-        if inputs.user_message_ts:
-            await _remove_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "hourglass_flowing_sand")
-            await _add_slack_reaction(integration, inputs.channel, inputs.user_message_ts, "x")
-        await _delete_slack_message(integration, inputs.channel, inputs.initial_message_ts)
-        await _post_slack_message(
-            integration,
-            inputs.channel,
-            inputs.thread_ts,
-            "Sorry, I couldn't process your request - no team user found.",
-        )
-        return
-
-    user: User = membership.user
+    user = await User.objects.aget(id=inputs.user_id)
 
     # Get or create conversation for this Slack thread, keyed by slack_thread_key
     # First, fetch workspace domain from Slack API if we don't have it yet

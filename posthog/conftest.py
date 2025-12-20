@@ -93,7 +93,6 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
@@ -113,7 +112,6 @@ def reset_clickhouse_tables():
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,

@@ -8,6 +8,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
@@ -250,7 +251,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
             ].filter(Boolean)}
         >
             <LemonButton type="secondary" icon={<IconDownload />} data-attr="data-table-export-menu" size="small">
-                Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
+                Export{filterCount > 0 ? ` (${pluralize(filterCount, 'filter')})` : ''}
             </LemonButton>
         </LemonMenu>
     )

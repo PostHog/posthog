@@ -8,6 +8,7 @@ from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 
 from django.conf import settings
+from django.contrib.auth import logout
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
@@ -597,9 +598,6 @@ class SessionAgeMiddleware:
 
                 current_time = time.time()
                 if current_time - session_created_at > session_age:
-                    # Log out the user
-                    from django.contrib.auth import logout
-
                     logout(request)
                     return redirect("/login?message=Your session has expired. Please log in again.")
 
@@ -812,6 +810,39 @@ class SocialAuthExceptionMiddleware:
         return None
 
 
+class ActiveOrganizationMiddleware:
+    """
+    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    """
+
+    _IGNORED_PATHS = ("/logout", "/api", "/admin")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Skip middleware for static assets, logout, and org switching endpoints
+        if any(request.path.startswith(path) for path in self._IGNORED_PATHS):
+            return self.get_response(request)
+
+        if not request.user.is_authenticated or request.user.is_anonymous:
+            return self.get_response(request)
+
+        user = cast(User, request.user)
+
+        if user.current_organization is None:
+            return self.get_response(request)
+
+        if user.current_organization.is_active is not False:
+            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+
+        return (
+            self.get_response(request)
+            if request.path == "/organization-deactivated"
+            else redirect("/organization-deactivated")
+        )
+
+
 # Session key used to mark an impersonation session as read-only
 IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
 
@@ -832,6 +863,8 @@ IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
 ]
 
 

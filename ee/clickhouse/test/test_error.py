@@ -67,6 +67,16 @@ from posthog.errors import ch_error_type, wrap_query_error
             None,
             "CHQueryErrorTimeoutExceeded",
         ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet",
+                code=499,
+            ),
+            "CHQueryErrorS3Error",
+            "Code: 499.\nS3 error occurred. Try again later.",
+            499,
+            "CHQueryErrorS3Error",
+        ),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):

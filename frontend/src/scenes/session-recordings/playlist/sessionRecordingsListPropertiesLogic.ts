@@ -38,12 +38,12 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
 
                     const query = hogql`
-                        SELECT 
-                            $session_id as session_id, 
-                            any(properties.$geoip_country_code) as $geoip_country_code, 
-                            any(properties.$browser) as $browser, 
-                            any(properties.$device_type) as $device_type, 
-                            any(properties.$os) as $os, 
+                        SELECT
+                            $session_id as session_id,
+                            any(properties.$geoip_country_code) as $geoip_country_code,
+                            any(properties.$browser) as $browser,
+                            any(properties.$device_type) as $device_type,
+                            any(properties.$os) as $os,
                             any(properties.$os_name) as $os_name,
                             any(session.$entry_referring_domain) as $entry_referring_domain,
                             any(properties.$geoip_subdivision_1_name) as $geoip_subdivision_1_name,
@@ -53,14 +53,14 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         WHERE event IN ${Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP['events'])}
                         AND session_id IN ${sessionIds}
                         -- the timestamp range here is only to avoid querying too much of the events table
-                        -- we don't really care about the absolute value, 
+                        -- we don't really care about the absolute value,
                         -- but we do care about whether timezones have an odd impact
                         -- so, we extend the range by a day on each side so that timezones don't cause issues
                         AND timestamp >= ${dayjs(oldestTimestamp).subtract(1, 'day')}
                         AND timestamp <= ${dayjs(newestTimestamp).add(1, 'day')}
                         GROUP BY session_id`
 
-                    const response = await api.queryHogQL(query)
+                    const response = await api.queryHogQL(query, { scene: 'Replay', productKey: 'session_replay' })
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
