@@ -199,7 +199,7 @@ def prepare_ast_for_printing(
         # Add EAV JOINs for event properties with EAV materialization
         with context.timings.measure("add_eav_joins"):
             if isinstance(node, ast.SelectQuery):
-                node = add_eav_joins(node, context)
+                node = add_eav_joins(node, context)  # type: ignore[assignment]
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

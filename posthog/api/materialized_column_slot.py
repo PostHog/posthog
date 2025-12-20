@@ -226,6 +226,8 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         async def _start():
             client = await async_connect()
 
+            workflow_input: BackfillEAVPropertyWorkflowInputs | BackfillMaterializedPropertyInputs
+
             # Choose workflow based on materialization type
             if slot.materialization_type == MaterializationType.EAV:
                 workflow_name = "backfill-eav-property"

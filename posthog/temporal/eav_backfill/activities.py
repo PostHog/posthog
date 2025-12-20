@@ -145,7 +145,7 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> int:
 
         # Use a single node since writable_event_properties is a distributed table
         # that will route inserts to the correct shards
-        cluster.any_host().execute(query, params)
+        cluster.any_host(run_insert).result()
 
         logger.info(
             "EAV backfill completed",

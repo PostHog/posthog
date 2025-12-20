@@ -37,8 +37,9 @@ class EAVPropertyFinder(TraversingVisitor):
         property_name = str(node.chain[0])
         prop_info = self.context.property_swapper.event_properties.get(property_name, {})
 
-        if "eav" in prop_info:
-            self.eav_properties[property_name] = prop_info["eav"]
+        eav_column = prop_info.get("eav")
+        if eav_column is not None:
+            self.eav_properties[property_name] = eav_column
 
 
 class EAVJoinRewriter(CloningVisitor):
@@ -165,8 +166,8 @@ def _get_events_alias(node: ast.SelectQuery) -> str | None:
     if not node.select_from:
         return None
 
-    join = node.select_from
-    while join:
+    join: ast.JoinExpr | None = node.select_from
+    while join is not None:
         if isinstance(join.table, ast.Field):
             table_name = join.table.chain[0] if join.table.chain else None
             if table_name == "events":
