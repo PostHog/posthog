@@ -68,23 +68,6 @@ class OAuthApplication(AbstractApplication):
 
             parsed_uri = urlparse(uri)
 
-            if not parsed_uri.netloc:
-                raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
-
-            is_loopback = is_loopback_host(parsed_uri.hostname)
-
-            all_schemes = cast(list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["https"]))
-            # http is only allowed for loopback addresses (localhost, 127.x.x.x)
-            non_loopback_schemes = [s for s in all_schemes if s != "http"]
-            allowed_schemes = all_schemes if is_loopback else non_loopback_schemes
-
-            if parsed_uri.scheme not in allowed_schemes:
-                raise ValidationError(
-                    {
-                        "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
-                    }
-                )
-
             if parsed_uri.fragment:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 
@@ -93,8 +76,6 @@ class OAuthApplication(AbstractApplication):
             is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
 
             if is_custom_scheme:
-                from django.conf import settings
-
                 allowed_schemes = cast(
                     list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
                 )
@@ -111,6 +92,7 @@ class OAuthApplication(AbstractApplication):
 
                 is_loopback = is_loopback_host(parsed_uri.hostname)
 
+                # http is only allowed for loopback addresses (localhost, 127.x.x.x)
                 allowed_schemes = ["http", "https"] if is_loopback else ["https"]
 
                 if parsed_uri.scheme not in allowed_schemes:
