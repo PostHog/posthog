@@ -2,10 +2,13 @@ import { Fernet } from 'fernet-nodejs'
 
 import { PluginsServerConfig } from '../../types'
 
+/** Narrowed config type for EncryptedFields */
+export type EncryptedFieldsConfig = Pick<PluginsServerConfig, 'ENCRYPTION_SALT_KEYS'>
+
 export class EncryptedFields {
     private fernets: Fernet[] = []
 
-    constructor(config: PluginsServerConfig) {
+    constructor(config: EncryptedFieldsConfig) {
         const saltKeys = config.ENCRYPTION_SALT_KEYS.split(',').filter((key) => key)
 
         if (!saltKeys.length) {
