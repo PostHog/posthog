@@ -625,6 +625,11 @@ class TestGetIpAddress(TestCase):
             # Valid IPv6
             ("::1", None, "::1"),
             ("2001:db8::1", None, "2001:db8::1"),
+            # Valid IPv6 with port (bracketed format)
+            (None, "[2001:db8::1]:8080", "2001:db8::1"),
+            (None, "[::1]:443", "::1"),
+            # IPv6 with brackets but no port
+            (None, "[2001:db8::1]", "2001:db8::1"),
             # Invalid/malformed - should return empty string
             (None, "not-an-ip", ""),
             (None, "192.168.1", ""),

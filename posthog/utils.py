@@ -709,7 +709,15 @@ def get_ip_address(request: HttpRequest) -> str:
         return ""
 
     # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
-    if len(ip.split(":")) == 2:
+    # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
+    # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
+    if ip.startswith("["):
+        # IPv6 with brackets, possibly with port
+        bracket_end = ip.find("]")
+        if bracket_end != -1:
+            ip = ip[1:bracket_end]
+    elif ip.count(":") == 1:
+        # IPv4 with port (single colon)
         ip = ip.split(":")[0]
 
     # Validate IP format to prevent malformed input from reaching downstream code
