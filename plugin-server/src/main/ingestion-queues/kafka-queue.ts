@@ -2,12 +2,22 @@ import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { Hub } from '../../types'
+import { Hub, PluginsServerConfig } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { killGracefully } from '../../utils/utils'
 import { addMetricsEventListeners } from './kafka-metrics'
+
+/** Narrowed Hub type for KafkaJSIngestionConsumer */
+export type KafkaJSIngestionConsumerHub = Pick<
+    PluginsServerConfig,
+    | 'KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS'
+    | 'KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS'
+    | 'KAFKA_HOSTS'
+    | 'KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY'
+> &
+    Pick<Hub, 'kafka'>
 
 type ConsumerManagementPayload = {
     topic: string
@@ -17,7 +27,7 @@ type ConsumerManagementPayload = {
 type KafkaJSBatchFunction = (payload: EachBatchPayload, queue: KafkaJSIngestionConsumer) => Promise<void>
 
 export class KafkaJSIngestionConsumer {
-    public pluginsServer: Hub
+    public pluginsServer: KafkaJSIngestionConsumerHub
     public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
@@ -27,7 +37,12 @@ export class KafkaJSIngestionConsumer {
     private kafka: Kafka
     private wasConsumerRan: boolean
 
-    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: KafkaJSBatchFunction) {
+    constructor(
+        pluginsServer: KafkaJSIngestionConsumerHub,
+        topic: string,
+        consumerGroupId: string,
+        batchHandler: KafkaJSBatchFunction
+    ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.topic = topic
