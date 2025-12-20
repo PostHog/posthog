@@ -1,11 +1,11 @@
 import { CursorUtils, UtilsExtension } from '@posthog/plugin-scaffold'
 
-import { Hub } from '../../../types'
+import { LegacyPluginHub } from '../../types'
 import { postgresIncrement, postgresSetOnce } from '../utils'
 
 // These are not utils for internal use!
 // These are general utility functions passed as utils in the plugin meta
-export function createUtils(server: Hub, pluginConfigId: number): UtilsExtension {
+export function createUtils(server: LegacyPluginHub, pluginConfigId: number): UtilsExtension {
     // Safe cursor utils for multi-threaded applications
     const cursor: CursorUtils = {
         init: async function (key, initialValue) {

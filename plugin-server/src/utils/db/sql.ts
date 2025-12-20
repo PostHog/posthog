@@ -2,6 +2,9 @@ import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, Plug
 import { InlinePluginDescription } from '../../worker/vm/inline/inline'
 import { PostgresUse } from './postgres'
 
+/** Narrowed Hub type for SQL functions that only need db access */
+export type SqlHub = Pick<Hub, 'db'>
+
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     const fields = specificField
         ? `posthog_pluginconfig.${specificField}`
@@ -99,7 +102,7 @@ const PLUGIN_UPSERT_RETURNING = `INSERT INTO posthog_plugin
     RETURNING *
 `
 
-export async function getPlugin(hub: Hub, pluginId: number): Promise<Plugin | undefined> {
+export async function getPlugin(hub: SqlHub, pluginId: number): Promise<Plugin | undefined> {
     const result = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
         `${PLUGIN_SELECT} WHERE posthog_plugin.id = $1`,
@@ -109,7 +112,7 @@ export async function getPlugin(hub: Hub, pluginId: number): Promise<Plugin | un
     return result.rows[0]
 }
 
-export async function getActivePluginRows(hub: Hub): Promise<Plugin[]> {
+export async function getActivePluginRows(hub: SqlHub): Promise<Plugin[]> {
     const { rows }: { rows: Plugin[] } = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
         `${PLUGIN_SELECT}
@@ -122,7 +125,7 @@ export async function getActivePluginRows(hub: Hub): Promise<Plugin[]> {
     return rows
 }
 
-export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmentDB[]> {
+export async function getPluginAttachmentRows(hub: SqlHub): Promise<PluginAttachmentDB[]> {
     const { rows }: { rows: PluginAttachmentDB[] } = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
         `SELECT posthog_pluginattachment.* FROM posthog_pluginattachment
@@ -133,7 +136,7 @@ export async function getPluginAttachmentRows(hub: Hub): Promise<PluginAttachmen
     return rows
 }
 
-export async function getPluginConfigRows(hub: Hub): Promise<PluginConfig[]> {
+export async function getPluginConfigRows(hub: SqlHub): Promise<PluginConfig[]> {
     const { rows }: { rows: PluginConfig[] } = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
         pluginConfigsInForceQuery(),
@@ -144,7 +147,7 @@ export async function getPluginConfigRows(hub: Hub): Promise<PluginConfig[]> {
 }
 
 export async function setPluginCapabilities(
-    hub: Hub,
+    hub: SqlHub,
     pluginId: number,
     capabilities: PluginCapabilities
 ): Promise<void> {
@@ -156,7 +159,7 @@ export async function setPluginCapabilities(
     )
 }
 
-export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): Promise<void> {
+export async function disablePlugin(hub: SqlHub, pluginConfigId: PluginConfigId): Promise<void> {
     await hub.db.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
@@ -168,7 +171,7 @@ export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): P
 
 // Given an inline plugin description, upsert it into the known plugins table, returning the full
 // Plugin object. Matching is done based on plugin url, not id, since that varies by region.
-export async function upsertInlinePlugin(hub: Hub, inline: InlinePluginDescription): Promise<Plugin> {
+export async function upsertInlinePlugin(hub: SqlHub, inline: InlinePluginDescription): Promise<Plugin> {
     const fullPlugin: Plugin = {
         id: 0,
         name: inline.name,

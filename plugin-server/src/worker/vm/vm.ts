@@ -4,7 +4,8 @@ import { VM } from 'vm2'
 
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
+import { PluginConfig, PluginConfigVMResponse } from '../../types'
+import { LegacyPluginHub } from '../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createPosthog } from './extensions/posthog'
@@ -32,7 +33,7 @@ const vmSetupMsSummary = new Summary({
 })
 
 export function createPluginConfigVM(
-    hub: Hub,
+    hub: LegacyPluginHub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
 ): PluginConfigVMResponse {

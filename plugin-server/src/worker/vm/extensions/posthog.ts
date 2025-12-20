@@ -4,8 +4,9 @@ import { Counter } from 'prom-client'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, RawEventMessage } from '../../../types'
+import { PluginConfig, RawEventMessage } from '../../../types'
 import { UUIDT } from '../../../utils/utils'
+import { LegacyPluginHub } from '../../types'
 import { ApiExtension, createApi } from './api'
 
 const { version } = require('../../../../package.json')
@@ -24,7 +25,7 @@ export interface DummyPostHog {
     api: ApiExtension
 }
 
-async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalData): Promise<void> {
+async function queueEvent(hub: LegacyPluginHub, pluginConfig: PluginConfig, data: InternalData): Promise<void> {
     const partitionKeyHash = crypto.createHash('sha256')
     partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
     const partitionKey = partitionKeyHash.digest('hex')
@@ -55,7 +56,7 @@ const vmPosthogExtensionCaptureCalledCounter = new Counter({
     labelNames: ['plugin_id'],
 })
 
-export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHog {
+export function createPosthog(hub: LegacyPluginHub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
     return {

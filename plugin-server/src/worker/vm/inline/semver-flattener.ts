@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { LegacyPluginHub } from '../../types'
 import { PluginInstance } from '../lazy'
 
 export class SemverFlattener implements PluginInstance {
@@ -10,11 +11,11 @@ export class SemverFlattener implements PluginInstance {
     usedImports: Set<string> | undefined
     methods: PluginMethods
 
-    hub: Hub
+    hub: LegacyPluginHub
     config: PluginConfig
     targetProps: string[]
 
-    constructor(hub: Hub, pluginConfig: PluginConfig) {
+    constructor(hub: LegacyPluginHub, pluginConfig: PluginConfig) {
         this.hub = hub
         this.config = pluginConfig
         this.usedImports = new Set()

@@ -5,7 +5,6 @@ import { VM } from 'vm2'
 import { RetryError } from '@posthog/plugin-scaffold'
 
 import {
-    Hub,
     PluginConfig,
     PluginConfigVMResponse,
     PluginLogEntrySource,
@@ -17,6 +16,7 @@ import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { logger } from '../../utils/logger'
 import { getNextRetryMs } from '../../utils/retries'
 import { pluginDigest } from '../../utils/utils'
+import { LegacyPluginHub } from '../types'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { constructInlinePluginInstance } from './inline/inline'
 import { createPluginConfigVM } from './vm'
@@ -43,7 +43,7 @@ const pluginDisabledBySystemCounter = new Counter({
     labelNames: ['plugin_id'],
 })
 
-export function constructPluginInstance(hub: Hub, pluginConfig: PluginConfig): PluginInstance {
+export function constructPluginInstance(hub: LegacyPluginHub, pluginConfig: PluginConfig): PluginInstance {
     if (pluginConfig.plugin?.plugin_type == 'inline') {
         return constructInlinePluginInstance(hub, pluginConfig)
     }
@@ -77,10 +77,10 @@ export class LazyPluginVM implements PluginInstance {
     ready: boolean
     vmResponseVariable: string | null
     pluginConfig: PluginConfig
-    hub: Hub
+    hub: LegacyPluginHub
     inErroredState: boolean
 
-    constructor(hub: Hub, pluginConfig: PluginConfig) {
+    constructor(hub: LegacyPluginHub, pluginConfig: PluginConfig) {
         this.totalInitAttemptsCounter = 0
         this.initRetryTimeout = null
         this.ready = false
@@ -301,7 +301,7 @@ export class LazyPluginVM implements PluginInstance {
     }
 }
 
-export async function populatePluginCapabilities(hub: Hub, pluginId: number): Promise<void> {
+export async function populatePluginCapabilities(hub: LegacyPluginHub, pluginId: number): Promise<void> {
     logger.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
     const plugin = await getPlugin(hub, pluginId)
     if (!plugin) {

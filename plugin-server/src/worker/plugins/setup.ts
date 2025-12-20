@@ -1,7 +1,8 @@
 import { Gauge, Summary } from 'prom-client'
 
-import { Hub, StatelessInstanceMap } from '../../types'
+import { StatelessInstanceMap } from '../../types'
 import { logger } from '../../utils/logger'
+import { LegacyPluginHub } from '../types'
 import { constructPluginInstance } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
@@ -18,7 +19,7 @@ const setupPluginsMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export async function setupPlugins(hub: Hub): Promise<void> {
+export async function setupPlugins(hub: LegacyPluginHub): Promise<void> {
     const startTime = Date.now()
     logger.info('🔁', `Loading plugin configs...`)
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)

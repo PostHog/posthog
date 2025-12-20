@@ -1,10 +1,11 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
+import { Plugin, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { parseJSON } from '../../utils/json-parse'
 import { pluginDigest } from '../../utils/utils'
+import { LegacyPluginHub } from '../types'
 
 function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string | null {
     const fullPath = path.resolve(baseDir, plugin.url!.substring(5), file)
@@ -14,7 +15,7 @@ function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string
     return null
 }
 
-export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<boolean> {
+export async function loadPlugin(hub: LegacyPluginHub, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
     const isLocalPlugin = plugin?.plugin_type === 'local'
 

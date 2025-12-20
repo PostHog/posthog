@@ -2,7 +2,8 @@ import { detect } from 'detect-browser'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { LegacyPluginHub } from '../../types'
 import { PluginInstance } from '../lazy'
 
 export type UserAgentPluginConfiguration = {
@@ -25,14 +26,14 @@ export class UserAgentPlugin implements PluginInstance {
     usedImports: Set<string> | undefined
     methods: PluginMethods
 
-    hub: Hub
+    hub: LegacyPluginHub
     config: PluginConfig
 
     enableSegmentAnalyticsJs: boolean
     overrideUserAgentDetails: boolean
     debugMode: boolean
 
-    constructor(hub: Hub, pluginConfig: PluginConfig) {
+    constructor(hub: LegacyPluginHub, pluginConfig: PluginConfig) {
         this.hub = hub
         this.config = pluginConfig
         this.usedImports = new Set()

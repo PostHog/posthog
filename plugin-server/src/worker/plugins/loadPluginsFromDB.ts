@@ -2,8 +2,9 @@ import { Summary } from 'prom-client'
 
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginMethod, TeamId } from '../../types'
+import { Plugin, PluginConfig, PluginConfigId, PluginId, PluginMethod, TeamId } from '../../types'
 import { getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../../utils/db/sql'
+import { LegacyPluginHub } from '../types'
 
 const loadPluginsMsSummary = new Summary({
     name: 'load_plugins_ms',
@@ -27,8 +28,8 @@ const loadPluginsTotalMsSummary = new Summary({
 })
 
 export async function loadPluginsFromDB(
-    hub: Hub
-): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
+    hub: LegacyPluginHub
+): Promise<Pick<LegacyPluginHub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
     const startTimer = new Date()
     const pluginRows = await getActivePluginRows(hub)
     const plugins = new Map<PluginId, Plugin>()

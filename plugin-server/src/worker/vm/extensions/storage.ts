@@ -2,9 +2,10 @@ import { Counter, Summary } from 'prom-client'
 
 import { StorageExtension } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig } from '../../../types'
+import { PluginConfig } from '../../../types'
 import { PostgresUse } from '../../../utils/db/postgres'
 import { parseJSON } from '../../../utils/json-parse'
+import { LegacyPluginHub } from '../../types'
 import { postgresGet } from '../utils'
 
 const vmExtensionStorageGetCounter = new Counter({
@@ -19,7 +20,7 @@ const vmExtensionStorageSetMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageExtension {
+export function createStorage(server: LegacyPluginHub, pluginConfig: PluginConfig): StorageExtension {
     const get = async function (key: string, defaultValue: unknown): Promise<unknown> {
         vmExtensionStorageGetCounter.labels(String(pluginConfig.plugin?.id)).inc()
 

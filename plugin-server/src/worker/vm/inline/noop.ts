@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
+import { LegacyPluginHub } from '../../types'
 import { PluginInstance } from '../lazy'
 
 export class NoopInlinePlugin implements PluginInstance {
@@ -10,10 +11,10 @@ export class NoopInlinePlugin implements PluginInstance {
     usedImports: Set<string> | undefined
     methods: PluginMethods
 
-    hub: Hub
+    hub: LegacyPluginHub
     config: PluginConfig
 
-    constructor(hub: Hub, pluginConfig: PluginConfig) {
+    constructor(hub: LegacyPluginHub, pluginConfig: PluginConfig) {
         this.hub = hub
         this.config = pluginConfig
         this.usedImports = new Set()

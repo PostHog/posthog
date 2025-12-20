@@ -1,14 +1,15 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginCapabilities, PluginConfig, PluginLogLevel } from '../../../types'
+import { PluginCapabilities, PluginConfig, PluginLogLevel } from '../../../types'
 import { upsertInlinePlugin } from '../../../utils/db/sql'
 import { logger } from '../../../utils/logger'
+import { LegacyPluginHub } from '../../types'
 import { PluginInstance } from '../lazy'
 import { NoopInlinePlugin } from './noop'
 import { SEMVER_FLATTENER_CONFIG_SCHEMA, SemverFlattener } from './semver-flattener'
 import { USER_AGENT_CONFIG_SCHEMA, UserAgentPlugin } from './user-agent'
 
-export function constructInlinePluginInstance(hub: Hub, pluginConfig: PluginConfig): PluginInstance {
+export function constructInlinePluginInstance(hub: LegacyPluginHub, pluginConfig: PluginConfig): PluginInstance {
     const url = pluginConfig.plugin?.url
 
     if (!INLINE_PLUGIN_URLS.includes(url as InlinePluginId)) {
@@ -20,7 +21,7 @@ export function constructInlinePluginInstance(hub: Hub, pluginConfig: PluginConf
 }
 
 export interface RegisteredInlinePlugin {
-    constructor: (hub: Hub, config: PluginConfig) => PluginInstance
+    constructor: (hub: LegacyPluginHub, config: PluginConfig) => PluginInstance
     description: Readonly<InlinePluginDescription>
 }
 
@@ -30,7 +31,7 @@ type InlinePluginId = (typeof INLINE_PLUGIN_URLS)[number]
 // TODO - add all inline plugins here
 export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> = {
     'inline://noop': {
-        constructor: (hub: Hub, config: PluginConfig) => new NoopInlinePlugin(hub, config),
+        constructor: (hub: LegacyPluginHub, config: PluginConfig) => new NoopInlinePlugin(hub, config),
         description: {
             name: 'Noop Plugin',
             description: 'A plugin that does nothing',
@@ -46,7 +47,7 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
     },
 
     'inline://semver-flattener': {
-        constructor: (hub: Hub, config: PluginConfig) => new SemverFlattener(hub, config),
+        constructor: (hub: LegacyPluginHub, config: PluginConfig) => new SemverFlattener(hub, config),
         description: {
             name: 'posthog-semver-flattener',
             description:
@@ -65,7 +66,7 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
     },
 
     'inline://user-agent': {
-        constructor: (hub: Hub, config: PluginConfig) => new UserAgentPlugin(hub, config),
+        constructor: (hub: LegacyPluginHub, config: PluginConfig) => new UserAgentPlugin(hub, config),
         description: {
             name: 'User Agent Populator',
             description: 'Enhances events with user agent details',
@@ -100,7 +101,7 @@ export interface InlinePluginDescription {
     log_level: PluginLogLevel
 }
 
-export async function syncInlinePlugins(hub: Hub): Promise<void> {
+export async function syncInlinePlugins(hub: LegacyPluginHub): Promise<void> {
     logger.info('⚡', 'Syncing inline plugins')
     for (const url of INLINE_PLUGIN_URLS) {
         const plugin = INLINE_PLUGIN_MAP[url]
