@@ -255,15 +255,19 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
-            actions.setEditMode(false)
-
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 const formMode = parsedId === 'new' ? FORM_MODES.create : FORM_MODES.update
                 const existingProps = values.experimentLogicRef?.props
                 const matchesExistingLogic =
                     existingProps?.experimentId === parsedId && existingProps?.formMode === formMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === formMode
 
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
+
+                actions.setEditMode(false)
                 actions.setSceneState(parsedId, formMode)
 
                 if (parsedId === 'new') {
@@ -310,6 +314,11 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 const existingProps = values.experimentLogicRef?.props
                 const matchesExistingLogic =
                     existingProps?.experimentId === parsedId && existingProps?.formMode === parsedFormMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === parsedFormMode
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
 
                 actions.setSceneState(parsedId, parsedFormMode)
 
