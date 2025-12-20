@@ -1,9 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_redis::{Client as RedisClient, CustomRedisError};
+use metrics::gauge;
 use serde::Deserialize;
-use tracing::{info, warn};
+use tokio::sync::RwLock;
+use tokio::time::interval;
+use tracing::{error, info, warn};
 
 const REDIS_KEY_PREFIX: &str = "event_ingestion_restriction_dynamic_config";
 
@@ -216,6 +221,134 @@ impl RestrictionManager {
         );
 
         Ok(manager)
+    }
+}
+
+/// Service that manages event restrictions with background refresh and fail-open behavior.
+#[derive(Clone)]
+pub struct EventRestrictionService {
+    manager: Arc<RwLock<RestrictionManager>>,
+    last_successful_refresh: Arc<AtomicI64>,
+    fail_open_after: Duration,
+    pipeline: IngestionPipeline,
+}
+
+impl EventRestrictionService {
+    /// Create a new service. Call `start_refresh_task` to begin background updates.
+    pub fn new(pipeline: IngestionPipeline, fail_open_after: Duration) -> Self {
+        Self {
+            manager: Arc::new(RwLock::new(RestrictionManager::new())),
+            last_successful_refresh: Arc::new(AtomicI64::new(0)),
+            fail_open_after,
+            pipeline,
+        }
+    }
+
+    /// Returns a future that refreshes restrictions periodically. Caller should spawn this.
+    pub async fn start_refresh_task(
+        &self,
+        redis: Arc<dyn RedisClient + Send + Sync>,
+        refresh_interval: Duration,
+    ) {
+        let manager = self.manager.clone();
+        let last_successful_refresh = self.last_successful_refresh.clone();
+        let pipeline = self.pipeline;
+        let pipeline_str = pipeline.as_str();
+
+        let mut interval = interval(refresh_interval);
+
+        loop {
+            interval.tick().await;
+
+            match RestrictionManager::fetch_from_redis(&redis, pipeline).await {
+                Ok(new_manager) => {
+                    let total_restrictions: usize =
+                        new_manager.restrictions.values().map(|v| v.len()).sum();
+                    let total_tokens = new_manager.restrictions.len();
+
+                    // Update the manager
+                    {
+                        let mut guard = manager.write().await;
+                        *guard = new_manager;
+                    }
+
+                    // Update last successful refresh timestamp
+                    let now = chrono::Utc::now().timestamp();
+                    last_successful_refresh.store(now, Ordering::SeqCst);
+
+                    // Update metrics
+                    gauge!(
+                        "capture_event_restrictions_last_refresh_timestamp",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(now as f64);
+
+                    gauge!(
+                        "capture_event_restrictions_loaded_count",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(total_restrictions as f64);
+
+                    gauge!(
+                        "capture_event_restrictions_tokens_count",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(total_tokens as f64);
+
+                    gauge!(
+                        "capture_event_restrictions_stale",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(0.0);
+                }
+                Err(e) => {
+                    error!(
+                        pipeline = %pipeline_str,
+                        error = %e,
+                        "Failed to refresh event restrictions from Redis"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Manually update restrictions (useful for testing).
+    pub async fn update(&self, new_manager: RestrictionManager) {
+        let mut guard = self.manager.write().await;
+        *guard = new_manager;
+        self.last_successful_refresh
+            .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+    }
+
+    /// Check if the cache is stale (fail-open should be active).
+    fn is_stale(&self) -> bool {
+        let last_refresh = self.last_successful_refresh.load(Ordering::SeqCst);
+        if last_refresh == 0 {
+            return true;
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let age = Duration::from_secs((now - last_refresh) as u64);
+        age > self.fail_open_after
+    }
+
+    /// Get restrictions for an event. Returns empty set if fail-open is active.
+    pub async fn get_restrictions(
+        &self,
+        token: &str,
+        event: &EventContext,
+    ) -> HashSet<RestrictionType> {
+        if self.is_stale() {
+            gauge!(
+                "capture_event_restrictions_stale",
+                "pipeline" => self.pipeline.as_str().to_string()
+            )
+            .set(1.0);
+            return HashSet::new();
+        }
+
+        let guard = self.manager.read().await;
+        guard.get_restrictions(token, event)
     }
 }
 
