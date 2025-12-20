@@ -16,6 +16,7 @@ export {
 
 export {
     createPreprocessingPipeline,
+    PreprocessingHub,
     PreprocessingPipelineConfig,
     PreprocessingPipelineContext,
     PreprocessingPipelineInput,

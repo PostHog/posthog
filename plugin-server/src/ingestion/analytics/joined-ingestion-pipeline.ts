@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, PipelineEvent } from '../../types'
+import { PipelineEvent } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
@@ -18,11 +18,11 @@ import { MemoryRateLimiter } from '../utils/overflow-detector'
 import { PerEventProcessingConfig, PerEventProcessingInput } from './per-event-processing-subpipeline'
 import { createPerEventProcessingSubpipeline } from './per-event-processing-subpipeline'
 import { PostTeamPreprocessingSubpipelineInput } from './post-team-preprocessing-subpipeline'
-import { PreprocessingPipelineConfig, createPreprocessingPipeline } from './preprocessing-pipeline'
+import { PreprocessingHub, PreprocessingPipelineConfig, createPreprocessingPipeline } from './preprocessing-pipeline'
 
 export interface JoinedIngestionPipelineConfig {
     // Preprocessing config
-    hub: Hub
+    hub: PreprocessingHub
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
