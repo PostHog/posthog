@@ -1,4 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use common_redis::{Client as RedisClient, CustomRedisError};
+use serde::Deserialize;
+use tracing::{info, warn};
+
+const REDIS_KEY_PREFIX: &str = "event_ingestion_restriction_dynamic_config";
 
 /// Restriction types that can be applied to events in capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -141,6 +148,116 @@ impl RestrictionManager {
             .filter(|r| r.matches(event))
             .map(|r| r.restriction_type)
             .collect()
+    }
+
+    /// Fetch restrictions from Redis for the given pipeline.
+    pub async fn fetch_from_redis(
+        redis: &Arc<dyn RedisClient + Send + Sync>,
+        pipeline: IngestionPipeline,
+    ) -> Result<Self, CustomRedisError> {
+        info!(pipeline = %pipeline.as_str(), "Fetching event restrictions from Redis");
+
+        let mut manager = Self::new();
+        let pipeline_str = pipeline.as_str();
+
+        for restriction_type in [
+            RestrictionType::DropEvent,
+            RestrictionType::ForceOverflow,
+            RestrictionType::RedirectToDlq,
+        ] {
+            let key = format!("{}:{}", REDIS_KEY_PREFIX, restriction_type.redis_key());
+
+            let json_str = match redis.get(key.clone()).await {
+                Ok(s) => s,
+                Err(CustomRedisError::NotFound) => continue,
+                Err(e) => {
+                    warn!(key = %key, error = %e, "Failed to fetch restrictions from Redis");
+                    continue;
+                }
+            };
+
+            let entries: Vec<RedisRestrictionEntry> = match serde_json::from_str(&json_str) {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(key = %key, error = %e, "Failed to parse restrictions from Redis");
+                    continue;
+                }
+            };
+
+            for entry in entries {
+                // Skip if this entry doesn't apply to our pipeline
+                if !entry.pipelines.contains(&pipeline_str.to_string()) {
+                    continue;
+                }
+
+                // Skip old format entries (version must be 1)
+                if entry.version != Some(1) {
+                    continue;
+                }
+
+                let token = entry.token.clone();
+                let restriction = entry.into_restriction(restriction_type);
+                manager
+                    .restrictions
+                    .entry(token)
+                    .or_default()
+                    .push(restriction);
+            }
+        }
+
+        let total_restrictions: usize = manager.restrictions.values().map(|v| v.len()).sum();
+        let total_tokens = manager.restrictions.len();
+
+        info!(
+            pipeline = %pipeline_str,
+            total_restrictions = total_restrictions,
+            total_tokens = total_tokens,
+            "Fetched event restrictions from Redis"
+        );
+
+        Ok(manager)
+    }
+}
+
+/// Redis entry format (version 1)
+#[derive(Debug, Clone, Deserialize)]
+struct RedisRestrictionEntry {
+    version: Option<i32>,
+    token: String,
+    #[serde(default)]
+    pipelines: Vec<String>,
+    #[serde(default)]
+    distinct_ids: Vec<String>,
+    #[serde(default)]
+    session_ids: Vec<String>,
+    #[serde(default)]
+    event_names: Vec<String>,
+    #[serde(default)]
+    event_uuids: Vec<String>,
+}
+
+impl RedisRestrictionEntry {
+    fn into_restriction(self, restriction_type: RestrictionType) -> Restriction {
+        let has_filters = !self.distinct_ids.is_empty()
+            || !self.session_ids.is_empty()
+            || !self.event_names.is_empty()
+            || !self.event_uuids.is_empty();
+
+        let scope = if has_filters {
+            RestrictionScope::Filtered(RestrictionFilters {
+                distinct_ids: self.distinct_ids.into_iter().collect(),
+                session_ids: self.session_ids.into_iter().collect(),
+                event_names: self.event_names.into_iter().collect(),
+                event_uuids: self.event_uuids.into_iter().collect(),
+            })
+        } else {
+            RestrictionScope::AllEvents
+        };
+
+        Restriction {
+            restriction_type,
+            scope,
+        }
     }
 }
 
@@ -306,5 +423,56 @@ mod tests {
         // unknown token
         let restrictions_unknown = manager.get_restrictions("unknown", &event);
         assert!(restrictions_unknown.is_empty());
+    }
+
+    #[test]
+    fn test_redis_entry_parsing() {
+        let json = r#"[
+            {
+                "version": 1,
+                "token": "token1",
+                "pipelines": ["analytics"],
+                "distinct_ids": ["user1", "user2"],
+                "event_names": ["$pageview"]
+            },
+            {
+                "version": 1,
+                "token": "token2",
+                "pipelines": ["analytics", "session_recordings"]
+            }
+        ]"#;
+
+        let entries: Vec<RedisRestrictionEntry> = serde_json::from_str(json).unwrap();
+        assert_eq!(entries.len(), 2);
+
+        let entry1 = &entries[0];
+        assert_eq!(entry1.token, "token1");
+        assert_eq!(entry1.distinct_ids, vec!["user1", "user2"]);
+        assert_eq!(entry1.event_names, vec!["$pageview"]);
+        assert!(entry1.session_ids.is_empty());
+
+        let restriction1 = entries[0].clone().into_restriction(RestrictionType::DropEvent);
+        assert!(matches!(restriction1.scope, RestrictionScope::Filtered(_)));
+
+        let entry2 = &entries[1];
+        assert_eq!(entry2.token, "token2");
+        assert!(entry2.distinct_ids.is_empty());
+
+        let restriction2 = entries[1].clone().into_restriction(RestrictionType::DropEvent);
+        assert!(matches!(restriction2.scope, RestrictionScope::AllEvents));
+    }
+
+    #[test]
+    fn test_redis_entry_skips_old_version() {
+        let json = r#"[
+            {
+                "token": "token1",
+                "pipelines": ["analytics"]
+            }
+        ]"#;
+
+        let entries: Vec<RedisRestrictionEntry> = serde_json::from_str(json).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].version, None);
     }
 }
