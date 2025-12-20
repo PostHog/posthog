@@ -42,8 +42,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         }),
         setEditMode: (editing: boolean) => ({ editing }),
         resetExperimentState: (experimentConfig: Experiment) => ({ experimentConfig }),
-        loadExperimentData: true,
-        loadExposuresData: (forceRefresh: boolean = false) => ({ forceRefresh }),
     }),
     reducers({
         activeTabKey: [
@@ -199,7 +197,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     listeners(({ actions, sharedListeners, values }) => ({
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            actions.loadExperimentData()
+            values.experimentLogicRef?.logic.actions.loadExperiment()
         },
         setEditMode: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
@@ -210,14 +208,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             if (payload.experimentConfig) {
                 values.experimentLogicRef?.logic.actions.resetExperiment(payload.experimentConfig)
             }
-        },
-        loadExperimentData: (payload, breakpoint, action, previousState) => {
-            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExperiment()
-        },
-        loadExposuresData: (payload, breakpoint, action, previousState) => {
-            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExposures(payload.forceRefresh)
         },
     })),
     tabAwareActionToUrl(({ values }) => {
