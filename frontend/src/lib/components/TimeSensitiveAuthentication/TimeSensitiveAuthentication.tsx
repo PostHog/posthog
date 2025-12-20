@@ -103,6 +103,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
                         extraQueryParams={extraQueryParams}
+                        showPasskey={true}
                     />
                     {precheckResponse?.saml_available ? (
                         <SSOEnforcedLoginButton
