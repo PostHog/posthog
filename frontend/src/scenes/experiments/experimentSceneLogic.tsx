@@ -281,16 +281,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                             name: query.name ?? '',
                         })
                     }
-                } else {
-                    // Only load if this is a different experiment or we have no cached logic yet
-                    const shouldLoad = currentLocation.initial || !matchesExistingLogic
-
-                    if (shouldLoad) {
-                        actions.loadExperimentData()
-                        if (values.isExperimentRunning) {
-                            actions.loadExposuresData()
-                        }
-                    }
                 }
             }
         },
@@ -321,14 +311,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
 
                 actions.setSceneState(parsedId, parsedFormMode)
-
-                // For form modes, always reload to ensure proper data transformation (duplicate/edit)
-                // unless we're just switching back to a tab that already has this exact experiment+formMode loaded
-                const shouldLoad = currentLocation.initial || !matchesExistingLogic
-
-                if (shouldLoad) {
-                    actions.loadExperimentData()
-                }
             }
         },
     })),
