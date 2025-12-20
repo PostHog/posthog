@@ -18,6 +18,7 @@ pub enum RestrictionType {
     DropEvent,
     ForceOverflow,
     RedirectToDlq,
+    SkipPersonProcessing,
 }
 
 impl RestrictionType {
@@ -26,6 +27,7 @@ impl RestrictionType {
             "drop_event_from_ingestion" => Some(Self::DropEvent),
             "force_overflow_from_ingestion" => Some(Self::ForceOverflow),
             "redirect_to_dlq" => Some(Self::RedirectToDlq),
+            "skip_person_processing" => Some(Self::SkipPersonProcessing),
             _ => None,
         }
     }
@@ -35,6 +37,7 @@ impl RestrictionType {
             Self::DropEvent => "drop_event",
             Self::ForceOverflow => "force_overflow",
             Self::RedirectToDlq => "redirect_to_dlq",
+            Self::SkipPersonProcessing => "skip_person_processing",
         }
     }
 
@@ -43,6 +46,7 @@ impl RestrictionType {
             Self::DropEvent => "drop_event_from_ingestion",
             Self::ForceOverflow => "force_overflow_from_ingestion",
             Self::RedirectToDlq => "redirect_to_dlq",
+            Self::SkipPersonProcessing => "skip_person_processing",
         }
     }
 }
@@ -169,6 +173,7 @@ impl RestrictionManager {
             RestrictionType::DropEvent,
             RestrictionType::ForceOverflow,
             RestrictionType::RedirectToDlq,
+            RestrictionType::SkipPersonProcessing,
         ] {
             let key = format!("{}:{}", REDIS_KEY_PREFIX, restriction_type.redis_key());
 
@@ -423,6 +428,10 @@ mod tests {
         );
         assert_eq!(
             RestrictionType::from_redis_key("skip_person_processing"),
+            Some(RestrictionType::SkipPersonProcessing)
+        );
+        assert_eq!(
+            RestrictionType::from_redis_key("unknown_type"),
             None
         );
     }
