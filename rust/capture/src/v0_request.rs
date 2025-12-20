@@ -184,6 +184,8 @@ pub struct ProcessedEventMetadata {
     pub force_overflow: bool,
     /// Skip person processing for this event (set by event restrictions)
     pub skip_person_processing: bool,
+    /// Redirect this event to DLQ topic (set by event restrictions)
+    pub redirect_to_dlq: bool,
 }
 
 #[cfg(test)]

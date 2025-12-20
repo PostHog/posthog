@@ -135,6 +135,7 @@ pub struct KafkaSink {
     heatmaps_topic: String,
     replay_overflow_limiter: Option<RedisLimiter>,
     replay_overflow_topic: String,
+    dlq_topic: String,
 }
 
 impl KafkaSink {
@@ -224,6 +225,7 @@ impl KafkaSink {
             heatmaps_topic: config.kafka_heatmaps_topic,
             replay_overflow_topic: config.kafka_replay_overflow_topic,
             replay_overflow_limiter,
+            dlq_topic: config.kafka_dlq_topic,
         })
     }
 
@@ -245,6 +247,7 @@ impl KafkaSink {
         let session_id = metadata.session_id.clone();
         let force_overflow = metadata.force_overflow;
         let skip_person_processing = metadata.skip_person_processing;
+        let redirect_to_dlq = metadata.redirect_to_dlq;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
@@ -256,7 +259,16 @@ impl KafkaSink {
             headers.set_force_disable_person_processing(true);
         }
 
-        let (topic, partition_key): (&str, Option<&str>) = match data_type {
+        // Check for redirect_to_dlq first - takes priority over all other routing
+        let (topic, partition_key): (&str, Option<&str>) = if redirect_to_dlq {
+            counter!(
+                "capture_events_rerouted_dlq",
+                &[("reason", "event_restriction")]
+            )
+            .increment(1);
+            (&self.dlq_topic, Some(event_key.as_str()))
+        } else {
+            match data_type {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // Check for force_overflow from event restrictions first
@@ -331,6 +343,7 @@ impl KafkaSink {
                     (&self.main_topic, Some(session_id))
                 }
             }
+        }
         };
 
         match self.producer.send_result(FutureRecord {
@@ -485,6 +498,7 @@ mod tests {
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+            kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
@@ -527,6 +541,7 @@ mod tests {
             event_name: "test_event".to_string(),
             force_overflow: false,
             skip_person_processing: false,
+            redirect_to_dlq: false,
         };
 
         let event = ProcessedEvent {

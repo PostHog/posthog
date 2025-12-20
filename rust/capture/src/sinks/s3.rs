@@ -340,6 +340,7 @@ mod tests {
                 event_name: "test_event".to_string(),
                 force_overflow: false,
                 skip_person_processing: false,
+                redirect_to_dlq: false,
             },
         }
     }

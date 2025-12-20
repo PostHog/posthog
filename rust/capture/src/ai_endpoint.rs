@@ -521,6 +521,7 @@ fn build_kafka_event(
         event_name: parsed.event_name,
         force_overflow: false,
         skip_person_processing: false,
+        redirect_to_dlq: false,
     };
 
     // Create ProcessedEvent

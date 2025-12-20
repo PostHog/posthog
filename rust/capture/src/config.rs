@@ -218,6 +218,8 @@ pub struct KafkaConfig {
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,
+    #[envconfig(default = "events_plugin_ingestion_dlq")]
+    pub kafka_dlq_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]

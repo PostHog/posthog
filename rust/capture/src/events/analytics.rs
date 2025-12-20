@@ -84,6 +84,7 @@ pub fn process_single_event(
         event_name: event_name.clone(),
         force_overflow: false,
         skip_person_processing: false,
+        redirect_to_dlq: false,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
@@ -199,7 +200,15 @@ pub async fn process_events<'a>(
                 event.metadata.skip_person_processing = true;
             }
 
-            // TODO: Handle RedirectToDlq - send to DLQ topic
+            if restrictions.contains(&RestrictionType::RedirectToDlq) {
+                counter!(
+                    "capture_event_restrictions_applied",
+                    "restriction_type" => "redirect_to_dlq",
+                    "pipeline" => "analytics"
+                )
+                .increment(1);
+                event.metadata.redirect_to_dlq = true;
+            }
 
             filtered_events.push(event);
         }

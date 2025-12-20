@@ -279,6 +279,7 @@ pub async fn process_replay_events<'a>(
         event_name: "$snapshot_items".to_string(),
         force_overflow: false,
         skip_person_processing: false,
+        redirect_to_dlq: false,
     };
 
     // Serialize snapshot data synchronously
