@@ -5,16 +5,18 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2Pool } from '~/common/redis/redis-v2'
+import { CdpRedisPoolConfig } from '~/utils/db/redis'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import {
     CdpSourceWebhooksConsumer,
+    CdpSourceWebhooksConsumerHub,
     HogFunctionWebhookResult,
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerService } from './hog-transformations/hog-transformer.service'
+import { HogTransformerHub, HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -33,6 +35,15 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+
+/**
+ * Hub type for CdpApi.
+ * Combines all hub types needed by CdpApi and its dependencies.
+ */
+export type CdpApiHub = CdpSourceWebhooksConsumerHub &
+    HogTransformerHub &
+    CdpRedisPoolConfig &
+    Pick<Hub, 'teamManager' | 'SITE_URL'>
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -54,7 +65,7 @@ export class CdpApi {
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: Hub) {
+    constructor(private hub: CdpApiHub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
