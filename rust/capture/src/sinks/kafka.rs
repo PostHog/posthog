@@ -243,47 +243,70 @@ impl KafkaSink {
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
+        let force_overflow = metadata.force_overflow;
+        let skip_person_processing = metadata.skip_person_processing;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
+        // Apply skip_person_processing from event restrictions
+        if skip_person_processing {
+            headers.set_force_disable_person_processing(true);
+        }
+
         let (topic, partition_key): (&str, Option<&str>) = match data_type {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
-                // TODO: deprecate capture-led overflow or move logic in handler
-                let overflow_result = match &self.partition {
-                    None => OverflowLimiterResult::NotLimited,
-                    Some(partition) => partition.is_limited(&event_key),
-                };
+                // Check for force_overflow from event restrictions first
+                if force_overflow {
+                    counter!(
+                        "capture_events_rerouted_overflow",
+                        &[("reason", "event_restriction")]
+                    )
+                    .increment(1);
+                    // Drop partition key if skip_person_processing is set
+                    let key = if skip_person_processing {
+                        None
+                    } else {
+                        Some(event_key.as_str())
+                    };
+                    (&self.overflow_topic, key)
+                } else {
+                    // TODO: deprecate capture-led overflow or move logic in handler
+                    let overflow_result = match &self.partition {
+                        None => OverflowLimiterResult::NotLimited,
+                        Some(partition) => partition.is_limited(&event_key),
+                    };
 
-                match overflow_result {
-                    OverflowLimiterResult::ForceLimited => {
-                        headers.set_force_disable_person_processing(true);
-                        counter!(
-                            "capture_events_rerouted_overflow",
-                            &[("reason", "force_limited")]
-                        )
-                        .increment(1);
-                        (&self.overflow_topic, None)
-                    }
-                    OverflowLimiterResult::Limited => {
-                        counter!(
-                            "capture_events_rerouted_overflow",
-                            &[("reason", "rate_limited")]
-                        )
-                        .increment(1);
-                        if self.partition.as_ref().unwrap().should_preserve_locality() {
-                            (&self.overflow_topic, Some(event_key.as_str()))
-                        } else {
+                    match overflow_result {
+                        OverflowLimiterResult::ForceLimited => {
+                            headers.set_force_disable_person_processing(true);
+                            counter!(
+                                "capture_events_rerouted_overflow",
+                                &[("reason", "force_limited")]
+                            )
+                            .increment(1);
                             (&self.overflow_topic, None)
                         }
-                    }
-                    OverflowLimiterResult::NotLimited => {
-                        // event_key is "<token>:<distinct_id>" for std events or
-                        // "<token>:<ip_addr>" for cookieless events
-                        (&self.main_topic, Some(event_key.as_str()))
+                        OverflowLimiterResult::Limited => {
+                            counter!(
+                                "capture_events_rerouted_overflow",
+                                &[("reason", "rate_limited")]
+                            )
+                            .increment(1);
+                            if self.partition.as_ref().unwrap().should_preserve_locality() {
+                                (&self.overflow_topic, Some(event_key.as_str()))
+                            } else {
+                                (&self.overflow_topic, None)
+                            }
+                        }
+                        OverflowLimiterResult::NotLimited => {
+                            // event_key is "<token>:<distinct_id>" for std events or
+                            // "<token>:<ip_addr>" for cookieless events
+                            (&self.main_topic, Some(event_key.as_str()))
+                        }
                     }
                 }
             }
@@ -502,6 +525,8 @@ mod tests {
             session_id: None,
             computed_timestamp: None,
             event_name: "test_event".to_string(),
+            force_overflow: false,
+            skip_person_processing: false,
         };
 
         let event = ProcessedEvent {

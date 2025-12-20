@@ -82,6 +82,8 @@ pub fn process_single_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: event_name.clone(),
+        force_overflow: false,
+        skip_person_processing: false,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
@@ -175,10 +177,31 @@ pub async fn process_events<'a>(
                 continue;
             }
 
-            // TODO: Handle ForceOverflow - mark event for overflow topic
+            let mut event = e;
+
+            if restrictions.contains(&RestrictionType::ForceOverflow) {
+                counter!(
+                    "capture_event_restrictions_applied",
+                    "restriction_type" => "force_overflow",
+                    "pipeline" => "analytics"
+                )
+                .increment(1);
+                event.metadata.force_overflow = true;
+            }
+
+            if restrictions.contains(&RestrictionType::SkipPersonProcessing) {
+                counter!(
+                    "capture_event_restrictions_applied",
+                    "restriction_type" => "skip_person_processing",
+                    "pipeline" => "analytics"
+                )
+                .increment(1);
+                event.metadata.skip_person_processing = true;
+            }
+
             // TODO: Handle RedirectToDlq - send to DLQ topic
 
-            filtered_events.push(e);
+            filtered_events.push(event);
         }
 
         events = filtered_events;

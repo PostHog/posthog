@@ -277,6 +277,8 @@ pub async fn process_replay_events<'a>(
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp),
         event_name: "$snapshot_items".to_string(),
+        force_overflow: false,
+        skip_person_processing: false,
     };
 
     // Serialize snapshot data synchronously

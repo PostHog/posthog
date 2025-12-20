@@ -519,6 +519,8 @@ fn build_kafka_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
+        force_overflow: false,
+        skip_person_processing: false,
     };
 
     // Create ProcessedEvent

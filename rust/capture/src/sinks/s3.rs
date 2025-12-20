@@ -338,6 +338,8 @@ mod tests {
                 session_id: None,
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),
+                force_overflow: false,
+                skip_person_processing: false,
             },
         }
     }
