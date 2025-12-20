@@ -20,7 +20,7 @@ import { HogFunctionFilterGlobals } from '../types'
 import { ProducedPersonPropertiesEvent } from '../types-person-properties'
 import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 
 export type PersonPropertyFilterGlobals = {
     person: {
@@ -53,12 +53,20 @@ export const histogramBatchProcessingSteps = new Histogram({
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
 })
 
+/**
+ * Hub type for CdpPrecalculatedFiltersConsumer.
+ * Extends CdpConsumerBaseHub with db access for filter management.
+ */
+export type CdpPrecalculatedFiltersConsumerHub = CdpConsumerBaseHub & Pick<Hub, 'db'>
+
 export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
     protected name = 'CdpPrecalculatedFiltersConsumer'
     private eventKafkaConsumer: KafkaConsumer
     private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
 
-    constructor(hub: Hub) {
+    declare protected hub: CdpPrecalculatedFiltersConsumerHub
+
+    constructor(hub: CdpPrecalculatedFiltersConsumerHub) {
         super(hub)
         this.eventKafkaConsumer = new KafkaConsumer({
             groupId: 'cdp-precalculated-filters-consumer',

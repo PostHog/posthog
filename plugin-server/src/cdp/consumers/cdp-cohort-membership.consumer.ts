@@ -9,7 +9,7 @@ import { HealthCheckResult, Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
@@ -22,11 +22,19 @@ const CohortMembershipChangeSchema = z.object({
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
 
+/**
+ * Hub type for CdpCohortMembershipConsumer.
+ * Extends CdpConsumerBaseHub with postgres for cohort membership persistence.
+ */
+export type CdpCohortMembershipConsumerHub = CdpConsumerBaseHub & Pick<Hub, 'postgres'>
+
 export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumer
 
-    constructor(hub: Hub) {
+    declare protected hub: CdpCohortMembershipConsumerHub
+
+    constructor(hub: CdpCohortMembershipConsumerHub) {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({
             groupId: 'cdp-cohort-membership-consumer',

@@ -78,7 +78,6 @@ export class CdpApi {
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
         this.emailTrackingService = new EmailTrackingService(
-            hub,
             this.hogFunctionManager,
             this.hogFlowManager,
             this.hogFunctionMonitoringService
