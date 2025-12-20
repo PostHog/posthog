@@ -739,7 +739,14 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps' | 'add-experiment' | 'edit-experiment'
+export type ToolbarUserIntent =
+    | 'add-action'
+    | 'edit-action'
+    | 'heatmaps'
+    | 'add-experiment'
+    | 'edit-experiment'
+    | 'add-product-tour'
+    | 'edit-product-tour'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -759,6 +766,7 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     toolbarFlagsKey?: string
+    productTourId?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -3298,7 +3306,6 @@ export interface ProductTourDisplayConditions {
         }[]
     } | null
     events?: {
-        repeatedActivation?: boolean
         values: SurveyEventsWithProperties[]
     } | null
     cancelEvents?: {
@@ -5325,6 +5332,8 @@ export type RawBatchExportRun = {
     data_interval_start?: string
     data_interval_end: string
     last_updated_at?: string
+    records_completed?: number
+    bytes_exported?: number
 }
 
 export type BatchExportRun = {
@@ -5343,6 +5352,8 @@ export type BatchExportRun = {
     data_interval_start?: Dayjs
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
+    records_completed?: number
+    bytes_exported?: number
 }
 
 export type GroupedBatchExportRuns = {

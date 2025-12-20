@@ -6136,6 +6136,50 @@
   LIMIT 21
   '''
 # ---
+# name: TestDecideRemoteConfig.test_definitely_loads_via_remote_config
+  dict({
+    'analytics': dict({
+      'endpoint': '/i/v0/e/',
+    }),
+    'autocaptureExceptions': False,
+    'autocapture_opt_out': False,
+    'captureDeadClicks': False,
+    'capturePerformance': dict({
+      'network_timing': True,
+      'web_vitals': False,
+      'web_vitals_allowed_metrics': None,
+    }),
+    'config': dict({
+      'enable_collect_everything': True,
+    }),
+    'defaultIdentifiedOnly': True,
+    'elementsChainAsString': True,
+    'errorTracking': dict({
+      'autocaptureExceptions': False,
+      'suppressionRules': list([
+      ]),
+    }),
+    'errorsWhileComputingFlags': False,
+    'featureFlagPayloads': dict({
+    }),
+    'featureFlags': dict({
+    }),
+    'heatmaps': False,
+    'isAuthenticated': False,
+    'productTours': False,
+    'requestId': 'request_id',
+    'sessionRecording': False,
+    'siteApps': list([
+    ]),
+    'supportedCompression': list([
+      'gzip',
+      'gzip-js',
+    ]),
+    'surveys': False,
+    'toolbarParams': dict({
+    }),
+  })
+# ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts
   '''
   SELECT "posthog_team"."id",

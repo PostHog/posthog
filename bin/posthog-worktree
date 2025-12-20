@@ -39,6 +39,40 @@ done
 # Worktree base directory (configurable via POSTHOG_WORKTREE_BASE)
 WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
 
+# Copy helper that uses copy-on-write clones when available (APFS/Btrfs)
+# Returns 0 on success, 1 if CoW not available and require_cow is true
+clone_path() {
+    local source_path="$1"
+    local destination_path="$2"
+    local require_cow="${3:-false}"  # If true, fail when CoW unavailable
+    local cp_args=("-a")
+
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        # macOS: cp -c fails if cloning not supported
+        if cp -c "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
+            return 0
+        fi
+    else
+        # Linux: --reflink=auto silently falls back to regular copy,
+        # so use --reflink=always when CoW is required
+        if [[ "$require_cow" == "true" ]]; then
+            if cp --reflink=always "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
+                return 0
+            fi
+        else
+            if cp --reflink=auto "${cp_args[@]}" "$source_path" "$destination_path" 2>/dev/null; then
+                return 0
+            fi
+        fi
+    fi
+
+    # CoW not available or failed - either fall back to regular copy or skip
+    if [[ "$require_cow" == "true" ]]; then
+        return 1
+    fi
+
+    cp "${cp_args[@]}" "$source_path" "$destination_path"
+}
 
 # Function to create a new worktree
 create_worktree() {
@@ -210,22 +244,45 @@ setup_worktree_environment() {
     
     # Copy both .flox manifest and .envrc for direnv
     mkdir -p "${worktree_path}/.flox/env"
-    cp "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
-    cp "${main_repo}/.envrc" "${worktree_path}/"
-    
+    clone_path "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
+    clone_path "${main_repo}/.envrc" "${worktree_path}/"
+
     # Copy .vscode/settings.json if it exists
     if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
         print_color blue "Copying .vscode/settings.json…"
         mkdir -p "${worktree_path}/.vscode"
-        cp "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
+        clone_path "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
     fi
-    
+
     # Copy .env and .env.* files if they exist
-    if find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f | grep -q .; then
-        print_color blue "Copying .env files…"
-        find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -exec cp {} "${worktree_path}/" \;
+    local env_files_found=false
+    while IFS= read -r -d '' env_file; do
+        if [[ "${env_files_found}" == "false" ]]; then
+            env_files_found=true
+            print_color blue "Copying .env files…"
+        fi
+        clone_path "${env_file}" "${worktree_path}/"
+    done < <(find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -print0)
+
+    # Clone flox cache venv using copy-on-write if available (the real Python venv used by flox)
+    if [[ -d "${main_repo}/.flox/cache/venv" && ! -e "${worktree_path}/.flox/cache/venv" ]]; then
+        mkdir -p "${worktree_path}/.flox/cache"
+        if clone_path "${main_repo}/.flox/cache/venv" "${worktree_path}/.flox/cache/venv" true; then
+            print_color blue "Cloned .flox/cache/venv (copy-on-write)"
+        else
+            print_color yellow "Skipping venv copy (CoW not available) — flox activate will create it"
+        fi
     fi
-    
+
+    # Clone node_modules using copy-on-write if available
+    if [[ -d "${main_repo}/node_modules" && ! -e "${worktree_path}/node_modules" ]]; then
+        if clone_path "${main_repo}/node_modules" "${worktree_path}/node_modules" true; then
+            print_color blue "Cloned node_modules (copy-on-write)"
+        else
+            print_color yellow "Skipping node_modules copy (CoW not available) — pnpm install will create it"
+        fi
+    fi
+
     # Initialize Flox in the new worktree
     cd "${worktree_path}"
     print_color blue "Initializing Flox environment (this will share packages from cache)…"
