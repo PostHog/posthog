@@ -8,13 +8,35 @@ import {
     HealthCheckResultOk,
     Hub,
     PluginServerService,
+    PluginsServerConfig,
 } from '../../types'
 import { logger } from '../../utils/logger'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { setupEventHandlers } from './kafka-queue'
 
-export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<PluginServerService> => {
+/** Narrowed Hub type for async webhooks handler consumer */
+export type AsyncWebhooksHandlerHub = Pick<
+    PluginsServerConfig,
+    | 'KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS'
+    | 'KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+    | 'TASKS_PER_WORKER'
+> &
+    Pick<
+        Hub,
+        | 'kafka'
+        | 'postgres'
+        | 'teamManager'
+        | 'actionMatcher'
+        | 'actionManager'
+        | 'rustyHook'
+        | 'appMetrics'
+        | 'groupTypeManager'
+        | 'groupRepository'
+    >
+
+export const startAsyncWebhooksHandlerConsumer = async (hub: AsyncWebhooksHandlerHub): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
