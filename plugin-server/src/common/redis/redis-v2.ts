@@ -1,7 +1,13 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import { CdpRedisPoolConfig, REDIS_SERVER_KIND, RedisPoolConfig, createRedis } from '../../utils/db/redis'
+import {
+    CdpRedisPoolConfig,
+    LogsRedisPoolConfig,
+    REDIS_SERVER_KIND,
+    RedisPoolConfig,
+    createRedis,
+} from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -36,10 +42,15 @@ export type RedisV2 = {
 // NOTE: This is intended to replace the general redis client with a nicer wrapper for using the client safely with the acquire locking
 // Overload for CDP-specific config
 export function createRedisV2Pool(config: CdpRedisPoolConfig, kind: 'cdp'): RedisV2
+// Overload for Logs-specific config
+export function createRedisV2Pool(config: LogsRedisPoolConfig, kind: 'logs'): RedisV2
 // General overload
 export function createRedisV2Pool(config: RedisPoolConfig, kind: REDIS_SERVER_KIND): RedisV2
 // Implementation
-export function createRedisV2Pool(config: RedisPoolConfig | CdpRedisPoolConfig, kind: REDIS_SERVER_KIND): RedisV2 {
+export function createRedisV2Pool(
+    config: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig,
+    kind: REDIS_SERVER_KIND
+): RedisV2 {
     // Cast to full config - the overloads ensure correct usage at call sites
     const redisConfig = config as RedisPoolConfig
     const pool = createPool<RedisClient>(
