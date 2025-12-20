@@ -8,12 +8,14 @@ use std::sync::Arc;
 use chrono::DateTime;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
+use metrics::counter;
 use serde_json;
 use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
     debug_or_info,
+    event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService, RestrictionType},
     prometheus::report_dropped_events,
     router, sinks,
     utils::uuid_v7,
@@ -120,6 +122,7 @@ pub fn process_single_event(
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
+    restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
@@ -145,7 +148,46 @@ pub async fn process_events<'a>(
         }
     });
 
-    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered ProcessedEvents batch");
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
+
+    // Apply event restrictions if service is configured
+    if let Some(ref service) = restriction_service {
+        let mut filtered_events = Vec::with_capacity(events.len());
+
+        for e in events {
+            let event_ctx = RestrictionEventContext {
+                distinct_id: Some(e.event.distinct_id.clone()),
+                session_id: e.event.session_id.clone(),
+                event_name: Some(e.event.event.clone()),
+                event_uuid: Some(e.event.uuid.to_string()),
+            };
+
+            let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
+
+            if restrictions.contains(&RestrictionType::DropEvent) {
+                counter!(
+                    "capture_event_restrictions_applied",
+                    "restriction_type" => "drop_event",
+                    "pipeline" => "analytics"
+                )
+                .increment(1);
+                report_dropped_events("event_restriction_drop", 1);
+                continue;
+            }
+
+            // TODO: Handle ForceOverflow - mark event for overflow topic
+            // TODO: Handle RedirectToDlq - send to DLQ topic
+
+            filtered_events.push(e);
+        }
+
+        events = filtered_events;
+        debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
+    }
+
+    if events.is_empty() {
+        return Ok(());
+    }
 
     if events.len() == 1 {
         sink.send(events[0].clone()).await?;

@@ -72,6 +72,7 @@ pub async fn event(
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
+                state.event_restriction_service.clone(),
                 state.historical_cfg.clone(),
                 &events,
                 &context,
