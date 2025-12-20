@@ -48,6 +48,8 @@ export type HedgehogBuddyProps = {
     hedgehogConfig?: HedgehogConfig
     tooltip?: JSX.Element
     static?: boolean
+    /** When true, pauses the animation loop without unmounting. Useful for background tabs. */
+    paused?: boolean
 }
 
 type Box = {
@@ -930,7 +932,7 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode, paused },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -943,7 +945,8 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     const actor = actorRef.current
     const [_, setTimerLoop] = useState(0)
     const { currentLocation } = useValues(router)
-    const { isVisible } = usePageVisibility()
+
+    const shouldAnimate = !paused
 
     useEffect(() => {
         if (currentLocation.pathname.includes('/heatmaps')) {
@@ -970,7 +973,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [staticMode, actor.static])
 
     useEffect(() => {
-        if (!isVisible) {
+        if (!shouldAnimate) {
             return
         }
 
@@ -986,7 +989,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         return () => {
             clearTimeout(timer)
         }
-    }, [actor, isVisible])
+    }, [actor, shouldAnimate])
 
     useEffect(() => {
         if (actor.isDragging) {
@@ -1018,6 +1021,7 @@ export function MyHedgehogBuddy({
     const [actor, setActor] = useState<HedgehogActor | null>(null)
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { user } = useValues(userLogic)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
         return actor?.setupKeyboardListeners()
@@ -1071,6 +1075,7 @@ export function MyHedgehogBuddy({
                 onClick={onClick}
                 onPositionChange={onPositionChange}
                 hedgehogConfig={hedgehogConfig}
+                paused={!isPageVisible}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
                         <div className="flex justify-center items-center p-2 whitespace-nowrap">

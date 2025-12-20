@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -66,7 +66,7 @@ export function SessionProfileScene(): JSX.Element {
                         <ViewRecordingButton
                             sessionId={sessionData?.session_id}
                             recordingStatus={hasRecording ? 'active' : 'none'}
-                            inModal={true}
+                            openPlayerIn={RecordingPlayerType.Modal}
                             size="small"
                             type="secondary"
                             loading={hasRecordingLoading}

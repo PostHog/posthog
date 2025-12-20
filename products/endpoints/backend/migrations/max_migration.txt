@@ -1,1 +1,1 @@
-0006_endpoint_derived_from_insight
+0007_fix_hogql_variable_keys

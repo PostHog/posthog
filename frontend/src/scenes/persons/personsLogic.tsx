@@ -45,6 +45,7 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
+        showEventsFilter: true,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,

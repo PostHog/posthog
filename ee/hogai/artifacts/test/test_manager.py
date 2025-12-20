@@ -161,7 +161,7 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
         assert enriched is not None
         assert isinstance(enriched.content, VisualizationArtifactContent)
         self.assertEqual(enriched.content.name, "test query")
-        self.assertEqual(enriched.content.description, "test plan")
+        self.assertEqual(enriched.content.plan, "test plan")
 
     async def test_state_source_without_state_messages_raises(self):
         message = ArtifactRefMessage(
@@ -254,7 +254,7 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
 
         self.assertEqual(len(contents), 1)
         self.assertEqual(contents[artifact_msg_id].name, "state query")
-        self.assertEqual(contents[artifact_msg_id].description, "state plan")
+        self.assertEqual(contents[artifact_msg_id].plan, "state plan")
 
 
 class TestArtifactManagerEnrichMessages(BaseTest):

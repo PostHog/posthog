@@ -232,6 +232,12 @@ pub trait Client {
         seconds: u64,
         format: RedisValueFormat,
     ) -> Result<bool, CustomRedisError>;
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;

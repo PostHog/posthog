@@ -3,19 +3,25 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
+import { workflowTemplateLogic } from './workflowTemplateLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, deleteWorkflow } =
         useActions(logic)
+    const templateLogic = workflowTemplateLogic(props)
+    const { showSaveAsTemplateModal } = useActions(templateLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isManualWorkflow = ['manual', 'schedule', 'batch'].includes(workflow?.trigger?.type || '')
@@ -42,6 +48,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     return (
         <>
+            <SaveAsTemplateModal {...props} />
             <SceneTitleSection
                 name={workflow?.name}
                 description={workflow?.description}
@@ -100,6 +107,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 size="small"
                             >
                                 Clear changes
+                            </LemonButton>
+                        )}
+                        {canCreateTemplates && (
+                            <LemonButton type="primary" size="small" onClick={showSaveAsTemplateModal}>
+                                Save as template
                             </LemonButton>
                         )}
                         <LemonButton

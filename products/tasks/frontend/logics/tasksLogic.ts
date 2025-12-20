@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { Task, TaskRun, TaskUpsertProps } from '../types'
+import { Task, TaskUpsertProps } from '../types'
 import type { tasksLogicType } from './tasksLogicType'
 
 export const tasksLogic = kea<tasksLogicType>([
@@ -14,7 +14,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     actions({
         openTask: (taskId: Task['id']) => ({ taskId }),
-        updateTaskRun: (taskId: Task['id'], run: TaskRun) => ({ taskId, run }),
+        updateTask: (task: Task) => ({ task }),
     }),
 
     loaders(({ values }) => ({
@@ -41,8 +41,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     reducers({
         tasks: {
-            updateTaskRun: (state, { taskId, run }) =>
-                state.map((task) => (task.id === taskId ? { ...task, latest_run: run } : task)),
+            updateTask: (state, { task }) => state.map((t) => (t.id === task.id ? task : t)),
         },
     }),
 

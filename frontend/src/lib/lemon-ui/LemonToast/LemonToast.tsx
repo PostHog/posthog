@@ -3,9 +3,11 @@ import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'r
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
+import { isChristmas } from 'lib/holidays'
+
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
-import { IconErrorOutline } from '../icons'
+import { IconErrorOutline, IconGift } from '../icons'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (
@@ -84,7 +86,7 @@ export const lemonToast = {
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
         toastOptions = ensureToastId(toastOptions)
         toast.success(<ToastContent type="success" message={message} button={button} id={toastOptions.toastId} />, {
-            icon: <IconCheckCircle />,
+            icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
             ...toastOptions,
         })
     },
@@ -129,7 +131,6 @@ export const lemonToast = {
     promise(
         promise: Promise<any>,
         messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
-        icons: { pending?: JSX.Element; success?: JSX.Element; error?: JSX.Element } = {},
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
         toastOptions = ensureToastId(toastOptions)
@@ -139,19 +140,19 @@ export const lemonToast = {
             {
                 pending: {
                     render: <ToastContent type="info" message={messages.pending} button={button} />,
-                    icon: icons.pending ?? <Spinner />,
+                    icon: <Spinner />,
                 },
                 success: {
                     render({ data }: ToastifyRenderProps<string>) {
                         return <ToastContent type="success" message={data || messages.success} button={button} />
                     },
-                    icon: icons.success ?? <IconCheckCircle />,
+                    icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
                 },
                 error: {
                     render({ data }: ToastifyRenderProps<Error>) {
                         return <ToastContent type="error" message={data?.message || messages.error} button={button} />
                     },
-                    icon: icons.error ?? <IconErrorOutline />,
+                    icon: <IconErrorOutline />,
                 },
             },
             toastOptions

@@ -188,6 +188,68 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
 
+    def test_uses_db_data_directly_when_provided(self):
+        """Test that _fix_and_record uses db_data to set cache directly, bypassing update_fn."""
+        mock_config = MagicMock()
+        db_data = {"flags": ["flag1", "flag2"]}
+
+        result = VerificationResult()
+
+        _fix_and_record(
+            team=self.team,
+            config=mock_config,
+            issue_type="cache_miss",
+            cache_type="test_cache",
+            result=result,
+            db_data=db_data,
+        )
+
+        # Should call set_cache_value with db_data, NOT update_fn
+        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, db_data)
+        mock_config.update_fn.assert_not_called()
+        assert result.cache_miss_fixed == 1
+
+    def test_falls_back_to_update_fn_when_db_data_is_none(self):
+        """Test that _fix_and_record falls back to update_fn when db_data is None."""
+        mock_config = MagicMock()
+        mock_config.update_fn.return_value = True
+
+        result = VerificationResult()
+
+        _fix_and_record(
+            team=self.team,
+            config=mock_config,
+            issue_type="cache_miss",
+            cache_type="test_cache",
+            result=result,
+            db_data=None,
+        )
+
+        # Should call update_fn, NOT set_cache_value
+        mock_config.update_fn.assert_called_once_with(self.team)
+        mock_config.hypercache.set_cache_value.assert_not_called()
+        assert result.cache_miss_fixed == 1
+
+    def test_db_data_set_cache_value_exception_increments_fix_failed(self):
+        """Test that exceptions in set_cache_value (db_data path) increment fix_failed."""
+        mock_config = MagicMock()
+        mock_config.hypercache.set_cache_value.side_effect = Exception("Redis error")
+        db_data = {"flags": ["flag1"]}
+
+        result = VerificationResult()
+
+        _fix_and_record(
+            team=self.team,
+            config=mock_config,
+            issue_type="cache_miss",
+            cache_type="test_cache",
+            result=result,
+            db_data=db_data,
+        )
+
+        assert result.cache_miss_fixed == 0
+        assert result.fix_failed == 1
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixBatch(BaseTest):
@@ -197,11 +259,12 @@ class TestVerifyAndFixBatch(BaseTest):
         """Test that cache match status doesn't trigger a fix."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
 
         result = VerificationResult()
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "match", "issue": None}
 
         with patch(
@@ -223,11 +286,12 @@ class TestVerifyAndFixBatch(BaseTest):
         """Test that cache miss status triggers a fix."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
 
         result = VerificationResult()
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
@@ -241,17 +305,19 @@ class TestVerifyAndFixBatch(BaseTest):
 
         assert result.total == 1
         assert result.cache_miss_fixed == 1
+        # When db_batch_data is None (no batch_load_fn), it falls back to update_fn
         mock_config.update_fn.assert_called_once_with(self.team)
 
     def test_mismatch_status_triggers_fix(self):
         """Test that cache mismatch status triggers a fix."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
 
         result = VerificationResult()
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "mismatch", "issue": "DATA_MISMATCH"}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
@@ -270,12 +336,13 @@ class TestVerifyAndFixBatch(BaseTest):
         """Test that missing expiry tracking triggers fix even when cache matches."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
         mock_config.update_fn.return_value = True
 
         result = VerificationResult()
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "match", "issue": None}
 
         # Expiry status shows team is NOT tracked (False)
@@ -292,16 +359,18 @@ class TestVerifyAndFixBatch(BaseTest):
 
         assert result.total == 1
         assert result.expiry_missing_fixed == 1
+        # When db_batch_data is None (no batch_load_fn), it falls back to update_fn
         mock_config.update_fn.assert_called_once_with(self.team)
 
     def test_verification_error_increments_errors(self):
         """Test that verification errors are counted."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
 
         result = VerificationResult()
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             raise Exception("Verification failed")
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
@@ -319,15 +388,16 @@ class TestVerifyAndFixBatch(BaseTest):
 
     def test_batch_load_fn_called_when_available(self) -> None:
         mock_config = MagicMock()
-        mock_batch_data: dict = {self.team.id: {"flags": []}}
-        mock_config.hypercache.batch_load_fn.return_value = mock_batch_data
+        mock_db_batch_data: dict = {self.team.id: {"flags": []}}
+        mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
 
         result = VerificationResult()
-        received_batch_data = []
+        received_db_batch_data = []
 
-        def verify_fn(team, batch_data):
-            received_batch_data.append(batch_data)
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            received_db_batch_data.append(db_batch_data)
             return {"status": "match", "issue": None}
 
         with patch(
@@ -342,7 +412,90 @@ class TestVerifyAndFixBatch(BaseTest):
             )
 
         mock_config.hypercache.batch_load_fn.assert_called_once_with([self.team])
-        assert received_batch_data[0] == mock_batch_data
+        mock_config.hypercache.batch_get_from_cache.assert_called_once_with([self.team])
+        assert received_db_batch_data[0] == mock_db_batch_data
+
+    def test_fix_uses_db_batch_data_directly(self):
+        """Test that fixes use pre-loaded db_batch_data to avoid redundant DB queries."""
+        mock_config = MagicMock()
+        mock_db_batch_data: dict = {self.team.id: {"flags": ["flag1", "flag2"]}}
+        mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # Should call set_cache_value with db_batch_data, NOT update_fn
+        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": ["flag1", "flag2"]})
+        mock_config.update_fn.assert_not_called()
+        assert result.cache_miss_fixed == 1
+
+    def test_fix_falls_back_to_update_fn_without_batch_load(self):
+        """Test that fixes fall back to update_fn when batch_load_fn is not available."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # Should call update_fn, NOT set_cache_value
+        mock_config.update_fn.assert_called_once_with(self.team)
+        mock_config.hypercache.set_cache_value.assert_not_called()
+        assert result.cache_miss_fixed == 1
+
+    def test_batch_get_from_cache_error_falls_back_to_empty_dict(self):
+        """Test that batch_get_from_cache errors fall back to empty dict (individual lookups)."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.side_effect = Exception("Redis connection failed")
+        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
+
+        result = VerificationResult()
+        received_cache_batch_data = []
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            received_cache_batch_data.append(cache_batch_data)
+            return {"status": "match", "issue": None}
+
+        with patch(
+            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={str(self.team.id): True}
+        ):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        # verify_fn should receive empty dict when batch_get_from_cache fails
+        assert received_cache_batch_data[0] == {}
+        assert result.total == 1
+        assert result.errors == 0  # Should not count as error, just fallback
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -353,9 +506,10 @@ class TestVerifyAndFixAllTeams(BaseTest):
         """Test that all teams are processed in chunks."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.side_effect = lambda t: str(t.id)
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "match", "issue": None}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
@@ -373,9 +527,10 @@ class TestVerifyAndFixAllTeams(BaseTest):
         """Test that results are aggregated across all chunks."""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.update_fn.return_value = True
 
-        def verify_fn(team, batch_data):
+        def verify_fn(team, db_batch_data, cache_batch_data):
             return {"status": "miss", "issue": "CACHE_MISS"}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):

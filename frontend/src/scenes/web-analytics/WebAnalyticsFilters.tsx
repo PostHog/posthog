@@ -409,6 +409,7 @@ const AddAuthorizedUrlForm = (): JSX.Element => {
             props={{
                 actionId: null,
                 experimentId: null,
+                productTourId: null,
                 type: AuthorizedUrlListType.WEB_ANALYTICS,
                 allowWildCards: false,
             }}
@@ -417,7 +418,12 @@ const AddAuthorizedUrlForm = (): JSX.Element => {
         >
             <div className="p-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
                 <LemonField name="url">
-                    <LemonInput size="small" placeholder="https://example.com" autoFocus />
+                    <LemonInput
+                        size="small"
+                        placeholder="https://example.com"
+                        autoFocus
+                        data-attr="web-authorized-url-input"
+                    />
                 </LemonField>
                 <div className="flex gap-2 justify-end">
                     <LemonButton size="small" type="secondary" onClick={cancelProposingAuthorizedUrl}>

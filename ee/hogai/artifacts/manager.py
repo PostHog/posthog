@@ -271,7 +271,7 @@ class ArtifactManager(AssistantContextMixin):
                     return VisualizationArtifactContent(
                         query=msg.answer,
                         name=msg.query,
-                        description=msg.plan,
+                        plan=msg.plan,
                     )
                 except ValidationError as e:
                     capture_exception(e)

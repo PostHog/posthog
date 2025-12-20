@@ -85,7 +85,7 @@ async def get_person_count_activity(
 
     async with get_client(team_id=inputs.team_id) as client:
         async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
-            return PersonCountResult(count=row["count"])
+            return PersonCountResult(count=int(row["count"]))
 
     return PersonCountResult(count=0)
 

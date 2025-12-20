@@ -27,36 +27,43 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C", "query_metadata": "B"},
         "extra_fields": ["name", "description", "query_metadata", "query"],
+        "filters": {"deleted": False, "saved": True},
     },
     "dashboard": {
         "klass": Dashboard,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"deleted": False},
     },
     "experiment": {
         "klass": Experiment,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"deleted": False},
     },
     "feature_flag": {
         "klass": FeatureFlag,
         "search_fields": {"key": "A", "name": "C"},
         "extra_fields": ["key", "name"],
+        "filters": {"deleted": False},
     },
     "action": {
         "klass": Action,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"deleted": False},
     },
     "cohort": {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C", "filters": "B"},
         "extra_fields": ["name", "description", "filters"],
+        "filters": {"deleted": False},
     },
     "survey": {
         "klass": Survey,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "filters": {"archived": False},
     },
     "error_tracking_issue": {
         "klass": ErrorTrackingIssue,

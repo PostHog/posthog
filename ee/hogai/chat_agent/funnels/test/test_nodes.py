@@ -29,7 +29,7 @@ class TestFunnelsGeneratorNode(BaseTest):
 
         with patch.object(FunnelGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
-                lambda _: FunnelsSchemaGeneratorOutput(query=self.schema).model_dump()
+                lambda _: FunnelsSchemaGeneratorOutput(query=self.schema, name="", description="").model_dump()
             )
             # Call through __call__ to ensure config is set before context_manager is created
             new_state = await node(

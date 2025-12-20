@@ -16,6 +16,7 @@ from posthog.storage.team_metadata_cache import (
     get_team_metadata,
     get_teams_with_expiring_caches,
     update_team_metadata_cache,
+    verify_team_metadata,
 )
 from posthog.tasks.team_metadata import update_team_metadata_cache_task
 
@@ -292,6 +293,70 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         self.assertEqual(len(result), 0)
+
+
+class TestVerifyTeamMetadata(BaseTest):
+    """Test verify_team_metadata functionality."""
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_ignores_extra_cached_fields(self, mock_get_metadata):
+        """
+        Verify that extra fields in cache (not in TEAM_METADATA_FIELDS) are ignored.
+
+        This allows removing fields from TEAM_METADATA_FIELDS without triggering
+        unnecessary cache fixes for stale fields that remain in cached data.
+        """
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        # Get the actual serialized data for this team (what DB would return)
+        db_data = _serialize_team_to_metadata(self.team)
+
+        # Create cached data that matches DB data but has extra fields
+        cached_data = db_data.copy()
+        cached_data.update(
+            {
+                # Extra fields that might exist in old cached data but are no longer in TEAM_METADATA_FIELDS
+                "removed_field_1": "stale_value",
+                "removed_field_2": {"old": "data"},
+                "updated_at": "2025-01-01T00:00:00Z",  # Common field that might be removed
+                "app_urls": [],  # Another removed field
+            }
+        )
+        mock_get_metadata.return_value = cached_data
+
+        # Verify should report a match since extra fields are ignored
+        result = verify_team_metadata(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "match", f"Expected match but got {result}")
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_detects_mismatch_in_tracked_fields(self, mock_get_metadata):
+        """Verify that mismatches in TEAM_METADATA_FIELDS are still detected."""
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        # Get the actual serialized data for this team
+        db_data = _serialize_team_to_metadata(self.team)
+
+        # Create cached data with a mismatch in a tracked field
+        cached_data = db_data.copy()
+        cached_data["name"] = "Wrong Name"  # Mismatch in a tracked field
+        mock_get_metadata.return_value = cached_data
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "DATA_MISMATCH")
+        self.assertIn("name", result["diff_fields"])
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
+        """Verify returns cache miss when no data is cached."""
+        mock_get_metadata.return_value = None
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], "miss")
+        self.assertEqual(result["issue"], "CACHE_MISS")
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")

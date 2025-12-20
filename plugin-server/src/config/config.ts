@@ -52,16 +52,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
               : '',
-        PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -208,6 +198,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        DISABLE_OPENTELEMETRY_TRACING: false, // Disable OpenTelemetry spans for better performance (keeps metrics and timeouts)
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
@@ -325,11 +316,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
-        PERSONS_DUAL_WRITE_ENABLED: false,
-        PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
         PERSONS_PREFETCH_ENABLED: false,
-        GROUPS_DUAL_WRITE_ENABLED: false,
-        GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // SES (Workflows email sending)
