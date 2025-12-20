@@ -72,9 +72,9 @@ class PolicyEngine:
         approver_config = policy.approver_config
 
         if not policy.allow_self_approve and self._actor_is_approver(actor, approver_config, context):
-            message = f"Requires {approver_config['quorum']} approval(s) from others"
+            message = "A change request has been created and is pending approval from others."
         else:
-            message = f"Requires {approver_config['quorum']} approval(s)"
+            message = "A change request has been created and is pending approval."
 
         return PolicyDecision(
             result="REQUIRE_APPROVAL",
