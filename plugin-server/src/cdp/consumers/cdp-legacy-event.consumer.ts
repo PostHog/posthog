@@ -7,11 +7,22 @@ import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { runOnEvent } from '../../worker/plugins/run'
+import { RunOnEventHub, runOnEvent } from '../../worker/plugins/run'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
-import { CdpEventsConsumer } from './cdp-events.consumer'
+import { CdpEventsConsumer, CdpEventsConsumerHub } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
+
+/**
+ * Hub type for CdpLegacyEventsConsumer.
+ * Extends CdpEventsConsumerHub with legacy plugin-specific fields.
+ */
+export type CdpLegacyEventsConsumerHub = CdpEventsConsumerHub &
+    RunOnEventHub &
+    Pick<
+        Hub,
+        'CDP_LEGACY_EVENT_REDIRECT_TOPIC' | 'CDP_LEGACY_EVENT_CONSUMER_TOPIC' | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID'
+    >
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
@@ -21,8 +32,9 @@ import { counterParseError } from './metrics'
 export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
+    declare protected hub: CdpLegacyEventsConsumerHub
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpLegacyEventsConsumerHub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
         logger.info('🔁', `CdpLegacyEventsConsumer setup`, {

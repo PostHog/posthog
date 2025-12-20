@@ -94,7 +94,7 @@ export abstract class CdpConsumerBase {
 
     protected heartbeat = () => {}
 
-    constructor(protected hub: Hub) {
+    constructor(protected hub: CdpConsumerBaseHub) {
         this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
