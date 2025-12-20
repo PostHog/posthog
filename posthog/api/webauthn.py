@@ -584,14 +584,14 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         # Verify the credential ID matches (convert pk to int for comparison)
         try:
-            pk_int = int(pk)
+            pk_str = str(pk)
         except (ValueError, TypeError):
             return Response(
                 {"error": "Invalid credential ID."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if session_credential_id != pk_int:
+        if session_credential_id != pk_str:
             return Response(
                 {"error": "Credential ID mismatch."},
                 status=status.HTTP_400_BAD_REQUEST,
