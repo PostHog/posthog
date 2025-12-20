@@ -12,6 +12,7 @@ import hashlib
 import secrets
 import datetime
 import datetime as dt
+import ipaddress
 import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager, suppress
@@ -687,19 +688,35 @@ def friendly_time(seconds: float):
     ).strip()
 
 
+def _is_valid_ip_address(ip: str) -> bool:
+    """Validate that a string is a properly formatted IP address."""
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
+
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.headers.get("x-forwarded-for")
     if x_forwarded_for:
-        ip: str | None = x_forwarded_for.split(",")[0]
+        ip: str | None = x_forwarded_for.split(",")[0].strip()
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
 
+    if not ip:
+        return ""
+
     # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
-    if ip and len(ip.split(":")) == 2:
+    if len(ip.split(":")) == 2:
         ip = ip.split(":")[0]
 
-    return ip or ""
+    # Validate IP format to prevent malformed input from reaching downstream code
+    if not _is_valid_ip_address(ip):
+        return ""
+
+    return ip
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
