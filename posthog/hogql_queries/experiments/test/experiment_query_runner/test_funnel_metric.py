@@ -683,6 +683,50 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     timestamp=datetime(2023, 1, i + 1),
                 )
 
+        # Create purchase events for users who should complete the funnel
+        # For the funnel to succeed:
+        # 1. Exposure happens first
+        # 2. Then purchase event (with matching $user_id)
+        # 3. Then DW entry
+        #
+        # From usage.csv, DW entries happen on dates 01-01 through 01-07
+        # We need purchase events between exposure and DW dates
+        #
+        # For control (expect 1 success): user_control_1 has exposure on 01-02, DW on 01-03
+        # For test (expect 3 successes): user_test_0 (01-01 exp, 01-02 DW), user_test_1 (01-02 exp, 01-03 DW), user_test_2 (01-03 exp, 01-04 DW)
+
+        # Control: 1 purchase that completes the funnel
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="distinct_control_1",
+            properties={"$user_id": "user_control_1"},
+            timestamp=datetime(2023, 1, 2, 12, 0),  # After exposure (01-02), before DW (01-03)
+        )
+
+        # Test: 3 purchases that complete the funnel
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="distinct_test_0",
+            properties={"$user_id": "user_test_0"},
+            timestamp=datetime(2023, 1, 1, 12, 0),  # After exposure (01-01), before DW (01-02)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="distinct_test_1",
+            properties={"$user_id": "user_test_1"},
+            timestamp=datetime(2023, 1, 2, 12, 0),  # After exposure (01-02), before DW (01-03)
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="distinct_test_2",
+            properties={"$user_id": "user_test_2"},
+            timestamp=datetime(2023, 1, 3, 12, 0),  # After exposure (01-03), before DW (01-04)
+        )
+
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
