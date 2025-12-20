@@ -3,6 +3,9 @@ import { logger } from '../logger'
 import { UUIDT } from '../utils'
 import { PostgresUse } from './postgres'
 
+/** Narrowed Hub type for activity log functions */
+export type ActivityLogHub = Pick<Hub, 'teamManager' | 'db'>
+
 interface Trigger {
     job_type: string
     job_id: string
@@ -10,7 +13,7 @@ interface Trigger {
 }
 
 export async function createPluginActivityLog(
-    hub: Hub,
+    hub: ActivityLogHub,
     team: TeamId | Team,
     pluginConfigId: number,
     activity: string,
