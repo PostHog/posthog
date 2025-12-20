@@ -4,6 +4,9 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { Evaluation, EvaluationInfo } from '../types'
 
+/** Narrowed Hub type for EvaluationManagerService */
+export type EvaluationManagerServiceHub = Pick<Hub, 'postgres' | 'pubSub'>
+
 const EVALUATION_FIELDS = [
     'id',
     'team_id',
@@ -22,7 +25,7 @@ export class EvaluationManagerService {
     private lazyLoader: LazyLoader<Evaluation>
     private lazyLoaderByTeam: LazyLoader<EvaluationInfo[]>
 
-    constructor(private hub: Hub) {
+    constructor(private hub: EvaluationManagerServiceHub) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'evaluation_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamEvaluations(teamIds),

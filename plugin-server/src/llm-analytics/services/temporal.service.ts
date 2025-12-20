@@ -2,9 +2,20 @@ import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/clien
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
-import { Hub, RawKafkaEvent } from '../../types'
+import { PluginsServerConfig, RawKafkaEvent } from '../../types'
 import { isDevEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
+
+/** Narrowed Hub type for TemporalService */
+export type TemporalServiceHub = Pick<
+    PluginsServerConfig,
+    | 'TEMPORAL_CLIENT_ROOT_CA'
+    | 'TEMPORAL_CLIENT_CERT'
+    | 'TEMPORAL_CLIENT_KEY'
+    | 'TEMPORAL_PORT'
+    | 'TEMPORAL_HOST'
+    | 'TEMPORAL_NAMESPACE'
+>
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'general-purpose-task-queue'
 
@@ -18,7 +29,7 @@ export class TemporalService {
     private client?: Client
     private connecting?: Promise<Client>
 
-    constructor(private hub: Hub) {}
+    constructor(private hub: TemporalServiceHub) {}
 
     private async ensureConnected(): Promise<Client> {
         if (this.client) {
