@@ -72,6 +72,37 @@ pub struct RestrictionFilters {
     pub event_uuids: HashSet<String>,
 }
 
+impl RestrictionFilters {
+    /// Check if an event matches these filters.
+    /// AND logic between filter types, OR logic within each type.
+    /// Empty filter = matches all for that field.
+    pub fn matches(&self, event: &EventContext) -> bool {
+        self.matches_field(&self.distinct_ids, event.distinct_id.as_deref())
+            && self.matches_field(&self.session_ids, event.session_id.as_deref())
+            && self.matches_field(&self.event_names, event.event_name.as_deref())
+            && self.matches_field(&self.event_uuids, event.event_uuid.as_deref())
+    }
+
+    fn matches_field(&self, filter: &HashSet<String>, value: Option<&str>) -> bool {
+        if filter.is_empty() {
+            return true; // no filter = matches all
+        }
+        match value {
+            Some(v) => filter.contains(v),
+            None => false, // filter set but no value = no match
+        }
+    }
+}
+
+/// Event data for matching against restrictions.
+#[derive(Debug, Clone, Default)]
+pub struct EventContext {
+    pub distinct_id: Option<String>,
+    pub session_id: Option<String>,
+    pub event_name: Option<String>,
+    pub event_uuid: Option<String>,
+}
+
 /// What events a restriction applies to.
 #[derive(Debug, Clone)]
 pub enum RestrictionScope {
@@ -97,6 +128,28 @@ pub struct RestrictionManager {
 impl RestrictionManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Get all restriction types that apply to an event.
+    pub fn get_restrictions(&self, token: &str, event: &EventContext) -> HashSet<RestrictionType> {
+        let Some(restrictions) = self.restrictions.get(token) else {
+            return HashSet::new();
+        };
+
+        restrictions
+            .iter()
+            .filter(|r| r.matches(event))
+            .map(|r| r.restriction_type)
+            .collect()
+    }
+}
+
+impl Restriction {
+    pub fn matches(&self, event: &EventContext) -> bool {
+        match &self.scope {
+            RestrictionScope::AllEvents => true,
+            RestrictionScope::Filtered(filters) => filters.matches(event),
+        }
     }
 }
 
@@ -139,5 +192,119 @@ mod tests {
             Some(IngestionPipeline::Ai)
         );
         assert_eq!(IngestionPipeline::from_str("unknown"), None);
+    }
+
+    #[test]
+    fn test_restriction_scope_all_events() {
+        let restriction = Restriction {
+            restriction_type: RestrictionType::DropEvent,
+            scope: RestrictionScope::AllEvents,
+        };
+        let event = EventContext::default();
+        assert!(restriction.matches(&event));
+    }
+
+    #[test]
+    fn test_restriction_filters_empty_matches_all() {
+        let filters = RestrictionFilters::default();
+        let event = EventContext {
+            distinct_id: Some("user1".to_string()),
+            event_name: Some("$pageview".to_string()),
+            ..Default::default()
+        };
+        assert!(filters.matches(&event));
+    }
+
+    #[test]
+    fn test_restriction_filters_distinct_id_match() {
+        let mut filters = RestrictionFilters::default();
+        filters.distinct_ids.insert("user1".to_string());
+        filters.distinct_ids.insert("user2".to_string());
+
+        let event_match = EventContext {
+            distinct_id: Some("user1".to_string()),
+            ..Default::default()
+        };
+        assert!(filters.matches(&event_match));
+
+        let event_no_match = EventContext {
+            distinct_id: Some("user3".to_string()),
+            ..Default::default()
+        };
+        assert!(!filters.matches(&event_no_match));
+    }
+
+    #[test]
+    fn test_restriction_filters_and_logic() {
+        let mut filters = RestrictionFilters::default();
+        filters.distinct_ids.insert("user1".to_string());
+        filters.event_names.insert("$pageview".to_string());
+
+        // both match
+        let event_both = EventContext {
+            distinct_id: Some("user1".to_string()),
+            event_name: Some("$pageview".to_string()),
+            ..Default::default()
+        };
+        assert!(filters.matches(&event_both));
+
+        // only distinct_id matches
+        let event_wrong_event = EventContext {
+            distinct_id: Some("user1".to_string()),
+            event_name: Some("$identify".to_string()),
+            ..Default::default()
+        };
+        assert!(!filters.matches(&event_wrong_event));
+
+        // only event_name matches
+        let event_wrong_user = EventContext {
+            distinct_id: Some("user2".to_string()),
+            event_name: Some("$pageview".to_string()),
+            ..Default::default()
+        };
+        assert!(!filters.matches(&event_wrong_user));
+    }
+
+    #[test]
+    fn test_restriction_manager_get_restrictions() {
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "token1".to_string(),
+            vec![
+                Restriction {
+                    restriction_type: RestrictionType::DropEvent,
+                    scope: RestrictionScope::AllEvents,
+                },
+                Restriction {
+                    restriction_type: RestrictionType::ForceOverflow,
+                    scope: RestrictionScope::Filtered({
+                        let mut f = RestrictionFilters::default();
+                        f.event_names.insert("$pageview".to_string());
+                        f
+                    }),
+                },
+            ],
+        );
+
+        let event = EventContext {
+            event_name: Some("$pageview".to_string()),
+            ..Default::default()
+        };
+
+        let restrictions = manager.get_restrictions("token1", &event);
+        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
+
+        let event_other = EventContext {
+            event_name: Some("$identify".to_string()),
+            ..Default::default()
+        };
+        let restrictions_other = manager.get_restrictions("token1", &event_other);
+        assert!(restrictions_other.contains(&RestrictionType::DropEvent));
+        assert!(!restrictions_other.contains(&RestrictionType::ForceOverflow));
+
+        // unknown token
+        let restrictions_unknown = manager.get_restrictions("unknown", &event);
+        assert!(restrictions_unknown.is_empty());
     }
 }
