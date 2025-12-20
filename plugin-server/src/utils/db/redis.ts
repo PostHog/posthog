@@ -11,87 +11,144 @@ const REDIS_ERROR_COUNTER_LIMIT = 10
 
 export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording' | 'cookieless' | 'cdp' | 'logs'
 
+/** Minimal config needed for Redis pool creation */
+export type RedisPoolConfig = Pick<
+    PluginsServerConfig,
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'POSTHOG_REDIS_HOST'
+    | 'POSTHOG_REDIS_PORT'
+    | 'POSTHOG_REDIS_PASSWORD'
+    | 'INGESTION_REDIS_HOST'
+    | 'INGESTION_REDIS_PORT'
+    | 'POSTHOG_SESSION_RECORDING_REDIS_HOST'
+    | 'POSTHOG_SESSION_RECORDING_REDIS_PORT'
+    | 'COOKIELESS_REDIS_HOST'
+    | 'COOKIELESS_REDIS_PORT'
+    | 'CDP_REDIS_HOST'
+    | 'CDP_REDIS_PORT'
+    | 'CDP_REDIS_PASSWORD'
+    | 'LOGS_REDIS_HOST'
+    | 'LOGS_REDIS_PORT'
+    | 'LOGS_REDIS_PASSWORD'
+    | 'LOGS_REDIS_TLS'
+>
+
+/** CDP-specific redis config */
+export type CdpRedisPoolConfig = Pick<
+    PluginsServerConfig,
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'CDP_REDIS_HOST'
+    | 'CDP_REDIS_PORT'
+    | 'CDP_REDIS_PASSWORD'
+>
+
+// Overload for CDP-specific config
 export function getRedisConnectionOptions(
-    serverConfig: PluginsServerConfig,
+    serverConfig: CdpRedisPoolConfig,
+    kind: 'cdp'
+): { url: string; options?: RedisOptions }
+// General overload
+export function getRedisConnectionOptions(
+    serverConfig: RedisPoolConfig,
+    kind: REDIS_SERVER_KIND
+): { url: string; options?: RedisOptions }
+// Implementation
+export function getRedisConnectionOptions(
+    serverConfig: RedisPoolConfig | CdpRedisPoolConfig,
     kind: REDIS_SERVER_KIND
 ): {
     url: string
     options?: RedisOptions
 } {
-    const fallback = { url: serverConfig.REDIS_URL }
+    // Cast to full config - the overloads ensure correct usage
+    const config = serverConfig as RedisPoolConfig
+    const fallback = { url: config.REDIS_URL }
     switch (kind) {
         case 'posthog':
-            return serverConfig.POSTHOG_REDIS_HOST
+            return config.POSTHOG_REDIS_HOST
                 ? {
-                      url: serverConfig.POSTHOG_REDIS_HOST,
+                      url: config.POSTHOG_REDIS_HOST,
                       options: {
-                          port: serverConfig.POSTHOG_REDIS_PORT,
-                          password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                          port: config.POSTHOG_REDIS_PORT,
+                          password: config.POSTHOG_REDIS_PASSWORD,
                       },
                   }
                 : fallback
         case 'ingestion':
-            return serverConfig.INGESTION_REDIS_HOST
+            return config.INGESTION_REDIS_HOST
                 ? {
-                      url: serverConfig.INGESTION_REDIS_HOST,
+                      url: config.INGESTION_REDIS_HOST,
                       options: {
-                          port: serverConfig.INGESTION_REDIS_PORT,
+                          port: config.INGESTION_REDIS_PORT,
                       },
                   }
-                : serverConfig.POSTHOG_REDIS_HOST
+                : config.POSTHOG_REDIS_HOST
                   ? {
-                        url: serverConfig.POSTHOG_REDIS_HOST,
+                        url: config.POSTHOG_REDIS_HOST,
                         options: {
-                            port: serverConfig.POSTHOG_REDIS_PORT,
-                            password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                            port: config.POSTHOG_REDIS_PORT,
+                            password: config.POSTHOG_REDIS_PASSWORD,
                         },
                     }
                   : fallback
         case 'session-recording':
-            return serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
+            return config.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
-                      url: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+                      url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
                       options: {
-                          port: serverConfig.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                          port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
                       },
                   }
                 : fallback
         case 'cookieless':
-            return serverConfig.COOKIELESS_REDIS_HOST
+            return config.COOKIELESS_REDIS_HOST
                 ? {
-                      url: serverConfig.COOKIELESS_REDIS_HOST,
+                      url: config.COOKIELESS_REDIS_HOST,
                       options: {
-                          port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379,
+                          port: config.COOKIELESS_REDIS_PORT ?? 6379,
                       },
                   }
                 : fallback
         case 'cdp':
-            return serverConfig.CDP_REDIS_HOST
+            return config.CDP_REDIS_HOST
                 ? {
-                      url: serverConfig.CDP_REDIS_HOST,
+                      url: config.CDP_REDIS_HOST,
                       options: {
-                          port: serverConfig.CDP_REDIS_PORT,
-                          password: serverConfig.CDP_REDIS_PASSWORD,
+                          port: config.CDP_REDIS_PORT,
+                          password: config.CDP_REDIS_PASSWORD,
                       },
                   }
                 : fallback
         case 'logs':
-            return serverConfig.LOGS_REDIS_HOST
+            return config.LOGS_REDIS_HOST
                 ? {
-                      url: serverConfig.LOGS_REDIS_HOST,
+                      url: config.LOGS_REDIS_HOST,
                       options: {
-                          port: serverConfig.LOGS_REDIS_PORT,
+                          port: config.LOGS_REDIS_PORT,
                           // TLS is an object that lets you define certificate, ca, etc
                           // we just want the default config so weirdly we pass empty object to enable it
-                          tls: serverConfig.LOGS_REDIS_TLS ? {} : undefined,
+                          tls: config.LOGS_REDIS_TLS ? {} : undefined,
                       },
                   }
                 : fallback
     }
 }
 
-export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
-    const { url, options } = getRedisConnectionOptions(serverConfig, kind)
+// Overload for CDP-specific config
+export function createRedis(serverConfig: CdpRedisPoolConfig, kind: 'cdp'): Promise<Redis.Redis>
+// General overload
+export function createRedis(serverConfig: RedisPoolConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis>
+// Implementation
+export async function createRedis(
+    serverConfig: RedisPoolConfig | CdpRedisPoolConfig,
+    kind: REDIS_SERVER_KIND
+): Promise<Redis.Redis> {
+    // Cast to full config - the overloads ensure correct usage at call sites
+    const { url, options } = getRedisConnectionOptions(serverConfig as RedisPoolConfig, kind)
     return createRedisClient(url, options)
 }
 

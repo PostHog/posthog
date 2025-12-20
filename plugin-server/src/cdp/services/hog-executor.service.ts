@@ -37,6 +37,22 @@ import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
+export type HogExecutorServiceHub = Pick<
+    Hub,
+    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+    | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+    | 'CDP_FETCH_BACKOFF_BASE_MS'
+    | 'CDP_FETCH_BACKOFF_MAX_MS'
+    | 'CDP_FETCH_RETRIES'
+    | 'integrationManager'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SITE_URL'
+    | 'SES_ACCESS_KEY_ID'
+    | 'SES_SECRET_ACCESS_KEY'
+    | 'SES_REGION'
+    | 'SES_ENDPOINT'
+>
+
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
     help: 'HTTP requests and their outcomes',
@@ -137,7 +153,7 @@ export class HogExecutorService {
     private emailService: EmailService
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: Hub) {
+    constructor(private hub: HogExecutorServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)

@@ -23,6 +23,8 @@ import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '..
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch } from './hog-executor.service'
 
+export type LegacyPluginExecutorServiceHub = Pick<Hub, 'db' | 'geoipService'>
+
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
     help: 'Processing time and success status of plugins',
@@ -43,7 +45,7 @@ export type PluginState = {
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
 export class LegacyPluginExecutorService {
-    constructor(private hub: Hub) {}
+    constructor(private hub: LegacyPluginExecutorServiceHub) {}
     private pluginState: Record<string, PluginState> = {}
     private cachedGeoIp?: GeoIp
 
