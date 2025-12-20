@@ -1629,6 +1629,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-redis",
  "common-types",
+ "dashmap 6.1.0",
  "envconfig",
  "flate2",
  "futures",
