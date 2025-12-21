@@ -3,7 +3,6 @@
 from django.conf import settings
 
 import structlog
-from asgiref.sync import sync_to_async
 from google import genai
 from google.genai.types import GenerateContentConfig
 from rest_framework import exceptions
@@ -15,13 +14,13 @@ from .schema import SummarizationResponse
 logger = structlog.get_logger(__name__)
 
 
-def _summarize_sync(
+async def summarize_with_gemini(
     text_repr: str,
     team_id: int,
     mode: SummarizationMode,
     model: GeminiModel,
 ) -> SummarizationResponse:
-    """Generate summary using Gemini API with structured outputs (sync version)."""
+    """Generate summary using Gemini API with structured outputs."""
     if not text_repr:
         raise exceptions.ValidationError("text_repr cannot be empty")
 
@@ -37,7 +36,7 @@ def _summarize_sync(
     )
 
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=model,
             contents=user_prompt,
             config=config,
@@ -51,13 +50,3 @@ def _summarize_sync(
     except Exception as e:
         logger.exception("Gemini API call failed", error=str(e), team_id=team_id, model=model)
         raise exceptions.APIException("Failed to generate summary due to an internal error")
-
-
-async def summarize_with_gemini(
-    text_repr: str,
-    team_id: int,
-    mode: SummarizationMode,
-    model: GeminiModel,
-) -> SummarizationResponse:
-    """Generate summary using Gemini API with structured outputs."""
-    return await sync_to_async(_summarize_sync, thread_sensitive=False)(text_repr, team_id, mode, model)

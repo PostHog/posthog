@@ -146,7 +146,7 @@ class TestSummarizeWithGemini:
             mock_settings.GEMINI_API_KEY = "test-key"
             mock_client = MagicMock()
             mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.return_value = mock_response
+            mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
             result = await summarize_with_gemini(
                 text_repr="L1: Test content",
@@ -170,7 +170,7 @@ class TestSummarizeWithGemini:
             mock_settings.GEMINI_API_KEY = "test-key"
             mock_client = MagicMock()
             mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.return_value = mock_response
+            mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
             with pytest.raises(exceptions.ValidationError, match="empty response"):
                 await summarize_with_gemini(
@@ -189,7 +189,7 @@ class TestSummarizeWithGemini:
             mock_settings.GEMINI_API_KEY = "test-key"
             mock_client = MagicMock()
             mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.side_effect = Exception("API Error")
+            mock_client.aio.models.generate_content = AsyncMock(side_effect=Exception("API Error"))
 
             with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
                 await summarize_with_gemini(
@@ -211,7 +211,7 @@ class TestSummarizeWithGemini:
             mock_settings.GEMINI_API_KEY = "test-key"
             mock_client = MagicMock()
             mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.return_value = mock_response
+            mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
             await summarize_with_gemini(
                 text_repr="L1: Test",
@@ -220,7 +220,7 @@ class TestSummarizeWithGemini:
                 model=GeminiModel.GEMINI_2_0_FLASH,
             )
 
-            call_kwargs = mock_client.models.generate_content.call_args[1]
+            call_kwargs = mock_client.aio.models.generate_content.call_args[1]
             assert call_kwargs["model"] == GeminiModel.GEMINI_2_0_FLASH
 
     @pytest.mark.asyncio
@@ -235,7 +235,7 @@ class TestSummarizeWithGemini:
             mock_settings.GEMINI_API_KEY = "test-key"
             mock_client = MagicMock()
             mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.return_value = mock_response
+            mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
             await summarize_with_gemini(
                 text_repr="L1: Test",
@@ -244,7 +244,7 @@ class TestSummarizeWithGemini:
                 model=GeminiModel.GEMINI_3_FLASH_PREVIEW,
             )
 
-            call_kwargs = mock_client.models.generate_content.call_args[1]
+            call_kwargs = mock_client.aio.models.generate_content.call_args[1]
             config = call_kwargs["config"]
             assert config.response_mime_type == "application/json"
             assert config.response_json_schema is not None
