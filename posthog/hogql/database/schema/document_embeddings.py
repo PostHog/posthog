@@ -13,9 +13,13 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.visitor import CloningVisitor
 
 # Import the model table definitions
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+
+# Distance functions that can use vector similarity indexes
+VECTOR_DISTANCE_FUNCTIONS = {"cosineDistance", "L2Distance", "L1Distance", "LinfDistance", "LpDistance"}
 
 # Note: Using union view as fallback when model not specified
 DOCUMENT_EMBEDDINGS_VIEW = "posthog_document_embeddings_union_view"
@@ -56,6 +60,85 @@ def get_field_val_pair(node) -> tuple[Optional[ast.Field], Optional[ast.Constant
     if not isinstance(left, ast.Field) or not isinstance(right, ast.Constant):
         return None, None
     return left, right
+
+
+def is_vector_distance_call(expr: ast.Expr) -> bool:
+    """Check if an expression is a vector distance function call involving the embedding field."""
+    if isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if isinstance(expr, ast.Call) and expr.name in VECTOR_DISTANCE_FUNCTIONS:
+        # Check if any argument references the embedding field
+        for arg in expr.args:
+            # Unwrap Alias if present
+            if isinstance(arg, ast.Alias):
+                arg = arg.expr
+            if isinstance(arg, ast.Field) and len(arg.chain) > 0:
+                # Check if the last part of the chain is "embedding"
+                if arg.chain[-1] == "embedding":
+                    return True
+    return False
+
+
+def find_vector_distance_in_select(node: ast.SelectQuery) -> bool:
+    """Check if the SELECT clause contains a vector distance function on embedding."""
+    if not node.select:
+        return False
+    for select_expr in node.select:
+        if is_vector_distance_call(select_expr):
+            return True
+    return False
+
+
+def resolve_order_by_alias(order_expr: ast.OrderExpr, node: ast.SelectQuery) -> Optional[ast.Expr]:
+    """If the ORDER BY references an alias in SELECT that is a distance function, return the function call."""
+    expr = order_expr.expr
+
+    if isinstance(expr, ast.Field) and len(expr.chain) == 1 and node.select:
+        alias_name = expr.chain[0]
+        for select_expr in node.select:
+            if isinstance(select_expr, ast.Alias) and select_expr.alias == alias_name:
+                if is_vector_distance_call(select_expr.expr):
+                    return select_expr.expr
+    return None
+
+
+def is_vector_distance_order_by(order_expr: ast.OrderExpr, node: Optional[ast.SelectQuery] = None) -> bool:
+    """Check if an ORDER BY expression involves a vector distance function on the embedding field.
+
+    This handles two cases:
+    1. Direct call: ORDER BY cosineDistance(embedding, ...)
+    2. Alias reference: SELECT cosineDistance(embedding, ...) as dist ... ORDER BY dist
+    """
+    expr = order_expr.expr
+
+    # Case 1: Direct call in ORDER BY
+    if is_vector_distance_call(expr):
+        return True
+
+    # Case 2: Reference to an alias that is a distance function
+    if node and resolve_order_by_alias(order_expr, node) is not None:
+        return True
+
+    return False
+
+
+class FieldReferenceRewriter(CloningVisitor):
+    """Rewrites field references to use the inner table name."""
+
+    def __init__(self, outer_table_alias: str, inner_table_name: str):
+        super().__init__(clear_locations=True)
+        self.outer_table_alias = outer_table_alias
+        self.inner_table_name = inner_table_name
+
+    def visit_field(self, node: ast.Field):
+        # If the field references the outer table alias (e.g., "document_embeddings.embedding"),
+        # rewrite it to use the inner table name (e.g., "document_embeddings_text_embedding_3_large_3072.embedding")
+        if len(node.chain) >= 2 and node.chain[0] == self.outer_table_alias:
+            return ast.Field(chain=[self.inner_table_name, *node.chain[1:]])
+        # If it's just a field name without table prefix, add the inner table prefix
+        elif len(node.chain) == 1:
+            return ast.Field(chain=[self.inner_table_name, node.chain[0]])
+        return ast.Field(chain=list(node.chain))
 
 
 # Gonna level with you homie this isn't the greatest code I've ever written
@@ -147,11 +230,41 @@ class DocumentEmbeddingsTable(LazyTable):
                 else:
                     exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
 
+            # Check if we should push ORDER BY and LIMIT down for vector similarity index usage
+            # ClickHouse vector similarity indexes only work when ORDER BY <distance_func>(...) LIMIT N
+            # is directly on the table read, not on a subquery wrapper
+            inner_order_by: list[ast.OrderExpr] | None = None
+            inner_limit: ast.Expr | None = None
+
+            if node and node.order_by and node.limit:
+                # Check if any ORDER BY expression involves a vector distance function on embedding
+                has_vector_order = any(is_vector_distance_order_by(order_expr, node) for order_expr in node.order_by)
+
+                if has_vector_order:
+                    # Rewrite field references in ORDER BY to use the inner table name
+                    rewriter = FieldReferenceRewriter("document_embeddings", table_name)
+                    inner_order_by = []
+                    for order_expr in node.order_by:
+                        # If this ORDER BY references an alias that is a distance function,
+                        # replace the alias reference with the actual function call
+                        resolved_expr = resolve_order_by_alias(order_expr, node)
+                        if resolved_expr:
+                            # Clone and rewrite the resolved expression
+                            new_expr = rewriter.visit(resolved_expr)
+                            inner_order_by.append(ast.OrderExpr(expr=new_expr, order=order_expr.order))
+                        else:
+                            # Just rewrite the existing expression
+                            inner_order_by.append(rewriter.visit(order_expr))
+                    # Push limit down to inner query
+                    inner_limit = CloningVisitor(clear_locations=True).visit(node.limit)
+
             return ast.SelectQuery(
                 select=exprs,
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=[table_name]),
                 ),
+                order_by=inner_order_by,
+                limit=inner_limit,
             )
         else:
             raise ValueError(f"Invalid model name: {model_name}")
