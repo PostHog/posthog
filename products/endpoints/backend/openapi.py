@@ -2,6 +2,8 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
+from posthog.schema import DashboardFilter, EndpointRunRequest
+
 from products.endpoints.backend.models import Endpoint
 
 
@@ -82,107 +84,20 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
 
 
 def _build_component_schemas(endpoint: Endpoint) -> dict:
-    """Build the components/schemas section with reusable schema definitions."""
+    """Build the components/schemas section dynamically from Pydantic models."""
+    # Generate JSON Schema from the actual Pydantic models
+    request_schema = EndpointRunRequest.model_json_schema(mode="serialization")
+    filter_schema = DashboardFilter.model_json_schema(mode="serialization")
+
+    # Convert Pydantic's $defs to OpenAPI components/schemas format
+    schemas = _convert_pydantic_schema(request_schema, "EndpointRunRequest")
+
+    # Merge in DashboardFilter and its dependencies
+    filter_schemas = _convert_pydantic_schema(filter_schema, "DashboardFilter")
+    schemas.update(filter_schemas)
+
+    # Add endpoint-specific customizations
     query_kind = endpoint.query.get("kind")
-
-    schemas: dict = {
-        "EndpointRunRequest": {
-            "type": "object",
-            "properties": {
-                "client_query_id": {
-                    "type": "string",
-                    "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
-                },
-                "filters_override": {
-                    "$ref": "#/components/schemas/DashboardFilter",
-                },
-                "refresh": {
-                    "type": "string",
-                    "enum": ["blocking", "force_blocking"],
-                    "default": "blocking",
-                    "description": (
-                        "Whether results should be calculated sync or async. "
-                        "'blocking' returns when done unless fresh cache exists. "
-                        "'force_blocking' always calculates fresh."
-                    ),
-                },
-                "version": {
-                    "type": "integer",
-                    "description": f"Specific endpoint version to execute (1-{endpoint.current_version}). Defaults to latest.",
-                },
-            },
-        },
-        "DashboardFilter": {
-            "type": "object",
-            "description": "Override dashboard/query filters including date range and properties.",
-            "properties": {
-                "date_from": {
-                    "type": "string",
-                    "description": "Start date for the query (e.g., '-7d', '2024-01-01', 'mStart').",
-                    "examples": ["-7d", "-30d", "2024-01-01", "mStart"],
-                },
-                "date_to": {
-                    "type": "string",
-                    "description": "End date for the query (e.g., 'now', '2024-12-31'). Defaults to now.",
-                    "examples": ["now", "2024-12-31", "dStart"],
-                },
-                "properties": {
-                    "type": "array",
-                    "description": "Property filters to apply to the query.",
-                    "items": {"$ref": "#/components/schemas/PropertyFilter"},
-                },
-            },
-        },
-        "PropertyFilter": {
-            "type": "object",
-            "description": "A property filter to narrow down results.",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "The property key to filter on.",
-                },
-                "value": {
-                    "description": "The value(s) to filter for.",
-                    "oneOf": [
-                        {"type": "string"},
-                        {"type": "number"},
-                        {"type": "array", "items": {"type": "string"}},
-                    ],
-                },
-                "operator": {
-                    "type": "string",
-                    "enum": [
-                        "exact",
-                        "is_not",
-                        "icontains",
-                        "not_icontains",
-                        "regex",
-                        "not_regex",
-                        "gt",
-                        "lt",
-                        "gte",
-                        "lte",
-                        "is_set",
-                        "is_not_set",
-                        "is_date_exact",
-                        "is_date_before",
-                        "is_date_after",
-                        "in",
-                        "not_in",
-                    ],
-                    "description": "The comparison operator.",
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["event", "person", "session", "cohort", "group", "hogql"],
-                    "description": "The type of property filter.",
-                },
-            },
-            "required": ["key"],
-        },
-    }
-
-    # Add variables schema for HogQL queries
     if query_kind == "HogQLQuery":
         variables = endpoint.query.get("variables")
         if variables:
@@ -190,15 +105,50 @@ def _build_component_schemas(endpoint: Endpoint) -> dict:
                 "$ref": "#/components/schemas/Variables",
             }
             schemas["Variables"] = _build_variables_schema(variables)
-    else:
-        # Insight queries support query_override
-        schemas["EndpointRunRequest"]["properties"]["query_override"] = {
-            "type": "object",
-            "description": "Override insight query parameters (e.g., series, dateRange, interval).",
-            "additionalProperties": True,
-        }
 
     return schemas
+
+
+def _convert_pydantic_schema(pydantic_schema: dict, root_name: str) -> dict:
+    """Convert Pydantic JSON Schema to OpenAPI components/schemas format.
+
+    Pydantic generates schemas with $defs for nested types. OpenAPI uses
+    components/schemas with $ref pointing to #/components/schemas/TypeName.
+    """
+    schemas = {}
+
+    # Extract the root schema (without $defs)
+    root_schema = {k: v for k, v in pydantic_schema.items() if k != "$defs"}
+
+    # Fix $ref paths from #/$defs/X to #/components/schemas/X
+    root_schema = _fix_refs(root_schema)
+    schemas[root_name] = root_schema
+
+    # Extract all $defs as separate schemas
+    if "$defs" in pydantic_schema:
+        for def_name, def_schema in pydantic_schema["$defs"].items():
+            fixed_schema = _fix_refs(def_schema)
+            schemas[def_name] = fixed_schema
+
+    return schemas
+
+
+def _fix_refs(schema: dict | list) -> dict | list:
+    """Recursively fix $ref paths from Pydantic format to OpenAPI format."""
+    if isinstance(schema, dict):
+        result = {}
+        for key, value in schema.items():
+            if key == "$ref" and isinstance(value, str) and value.startswith("#/$defs/"):
+                # Convert #/$defs/TypeName to #/components/schemas/TypeName
+                type_name = value.replace("#/$defs/", "")
+                result[key] = f"#/components/schemas/{type_name}"
+            else:
+                result[key] = _fix_refs(value)
+        return result
+    elif isinstance(schema, list):
+        return [_fix_refs(item) for item in schema]
+    else:
+        return schema
 
 
 def _build_variables_schema(variables: dict) -> dict:
