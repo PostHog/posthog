@@ -2,13 +2,15 @@
 
 from temporalio.common import RetryPolicy
 
+from products.llm_analytics.backend.summarization.models import GeminiModel, SummarizationMode, SummarizationProvider
+
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conservative for worst-case 30s/trace)
 DEFAULT_BATCH_SIZE = 5  # Number of traces to process in parallel per batch
-DEFAULT_MODE = "detailed"  # Summary detail level: 'minimal' or 'detailed' (detailed provides more context for embeddings/clustering)
+DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
-DEFAULT_PROVIDER = "gemini"  # LLM provider for batch summarization (gemini-3-flash-preview offers better quality)
-DEFAULT_MODEL = "gemini-3-flash-preview"  # LLM model for batch summarization
+DEFAULT_PROVIDER = SummarizationProvider.GEMINI
+DEFAULT_MODEL = GeminiModel.GEMINI_3_FLASH_PREVIEW
 
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs

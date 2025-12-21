@@ -40,6 +40,8 @@ from posthog.temporal.llm_analytics.trace_summarization.models import (
 from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+
 logger = structlog.get_logger(__name__)
 
 
@@ -61,11 +63,11 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             team_id=int(inputs[0]),
             max_traces=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_TRACES_PER_WINDOW,
             batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
-            mode=inputs[3] if len(inputs) > 3 else DEFAULT_MODE,
+            mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[5] if len(inputs) > 5 else None,
             window_end=inputs[6] if len(inputs) > 6 else None,
-            provider=inputs[7] if len(inputs) > 7 else DEFAULT_PROVIDER,
+            provider=SummarizationProvider(inputs[7]) if len(inputs) > 7 else DEFAULT_PROVIDER,
             model=inputs[8] if len(inputs) > 8 else DEFAULT_MODEL,
         )
 
