@@ -33,6 +33,9 @@ export function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): valu
 // TODO we shouldn't be ever converting to filters any more, but I won't unpick this in this PR
 export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilters): UniversalFilterValue[] => {
     const group = filters.filter_group.values[0]
+    if (group == null) {
+        return []
+    }
     if (isUniversalFiltersGroup(group)) {
         return group.values as UniversalFilterValue[]
     }
