@@ -141,7 +141,7 @@ pub struct Config {
 
     // Initial buffer size for body reads in KB. The buffer starts at this size
     // (or the request limit, whichever is smaller) and grows as needed.
-    #[envconfig(default = "64")]
+    #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
     #[envconfig(nested = true)]

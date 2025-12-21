@@ -86,7 +86,7 @@ mod tests {
     use futures::stream;
     use std::time::Duration;
 
-    const TEST_CHUNK_SIZE_KB: usize = 64;
+    const TEST_CHUNK_SIZE_KB: usize = 256;
 
     #[tokio::test]
     async fn test_extract_body_no_timeout() {

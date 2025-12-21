@@ -494,7 +494,7 @@ mod tests {
 
         // Use a short chunk timeout
         let timeout = Some(StdDuration::from_millis(100));
-        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, 64, "/test").await;
+        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, 256, "/test").await;
 
         // Should get a BodyReadTimeout error
         assert!(matches!(
@@ -510,7 +510,7 @@ mod tests {
 
         // Normal body with no timeout
         let body = Body::from(r#"{"event": "test"}"#);
-        let result = extract_body_with_timeout(body, 1024 * 1024, None, 64, "/test").await;
+        let result = extract_body_with_timeout(body, 1024 * 1024, None, 256, "/test").await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), r#"{"event": "test"}"#.as_bytes());
