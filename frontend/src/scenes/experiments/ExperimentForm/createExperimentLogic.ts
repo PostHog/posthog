@@ -255,8 +255,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     listeners(({ values, actions, props }) => ({
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
-            // Only auto-generate flag key in create mode, not when editing
-            if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode) {
+            // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
+            if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode && values.mode === 'create') {
                 const key = generateFeatureFlagKey(value)
                 actions.setFeatureFlagConfig({
                     feature_flag_key: key,

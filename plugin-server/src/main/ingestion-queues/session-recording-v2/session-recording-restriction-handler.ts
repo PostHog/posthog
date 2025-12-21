@@ -36,7 +36,7 @@ export class SessionRecordingRestrictionHandler {
                 continue
             }
 
-            const restrictions = this.restrictionManager.getAppliedRestrictions(token, { distinct_id, session_id })
+            const restrictions = this.restrictionManager.getAppliedRestrictions(token, headers)
 
             // Check if this message should be dropped
             if (restrictions.has(Restriction.DROP_EVENT)) {

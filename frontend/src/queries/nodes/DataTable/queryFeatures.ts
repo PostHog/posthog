@@ -91,6 +91,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (isPersonsNode(query) || isActorsQuery(query)) {
         features.add(QueryFeature.personPropertyFilters)
         features.add(QueryFeature.personsSearch)
+        features.add(QueryFeature.columnConfigurator)
 
         if (isActorsQuery(query)) {
             features.add(QueryFeature.selectAndOrderByColumns)

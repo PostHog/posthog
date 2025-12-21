@@ -205,10 +205,14 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # Handle auto_launch changes
         if auto_launch_changed:
-            if auto_launch_enabled and not instance.internal_targeting_flag:
-                # auto_launch turned ON and no flag exists - create one
-                self._create_internal_targeting_flag(instance)
-            elif not auto_launch_enabled and instance.internal_targeting_flag:
+            if auto_launch_enabled:
+                if not instance.internal_targeting_flag:
+                    # auto_launch turned ON and no flag exists - create one
+                    self._create_internal_targeting_flag(instance)
+                else:
+                    # auto_launch turned ON and flag exists - update its state
+                    self._update_internal_targeting_flag_state(instance)
+            elif instance.internal_targeting_flag:
                 # auto_launch turned OFF - deactivate the flag
                 instance.internal_targeting_flag.active = False
                 instance.internal_targeting_flag.save(update_fields=["active"])

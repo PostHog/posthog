@@ -593,6 +593,9 @@ jobs:
         needs: changes
         if: needs.changes.outputs.label_removed == 'true'
         uses: ./.github/workflows/cleanup-hobby-preview.yml
+        # these permissions are required by cleanup-hobby-preview.yml
+        permissions:
+            deployments: write
         with:
             pr_number: ${{ github.event.pull_request.number }}
         secrets: inherit

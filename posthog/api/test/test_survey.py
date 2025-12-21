@@ -31,7 +31,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, surveys_hypercache
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 from products.product_tours.backend.models import ProductTour
@@ -499,7 +499,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -3369,6 +3369,11 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
 
+        # Clear the surveys hypercache to ensure we're testing against fresh data.
+        # The hypercache stores data in both Redis/LocMemCache AND S3 object storage,
+        # and cache.clear() only clears the former.
+        surveys_hypercache.clear_cache(self.team.api_token)
+
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             # First time builds the remote config which uses a bunch of queries
             with self.assertNumQueries(3):
@@ -3397,6 +3402,11 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
         )
         self.client.logout()
+
+        # Clear the surveys hypercache to ensure we're testing against fresh data.
+        # The hypercache stores data in both Redis/LocMemCache AND S3 object storage,
+        # and cache.clear() only clears the former.
+        surveys_hypercache.clear_cache(self.team.api_token)
 
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             cache_response = self._get_surveys(token=self.team.api_token).json()

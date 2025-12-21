@@ -207,12 +207,11 @@ dev = [
     "fakeredis[lua]==2.23.3",
     "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
-    "inline-snapshot==0.19.*",
     "ipython>=9.3.0",
     "mypy~=1.18.2",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.1a22",
+    "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
