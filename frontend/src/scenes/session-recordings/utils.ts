@@ -23,7 +23,11 @@ export const isUniversalFilters = (
 }
 
 export function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): value is UniversalFiltersGroup {
-    return (value as UniversalFiltersGroup).type !== undefined && (value as UniversalFiltersGroup).values !== undefined
+    return (
+        (value as UniversalFiltersGroup).type !== undefined &&
+        (value as UniversalFiltersGroup).values !== undefined &&
+        Array.isArray((value as UniversalFiltersGroup).values)
+    )
 }
 
 // TODO we shouldn't be ever converting to filters any more, but I won't unpick this in this PR
