@@ -84,10 +84,6 @@ class RateLimit:
     def run(self, *args, **kwargs):
         applicable = not self.applicable or self.applicable(*args, **kwargs)
 
-        # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
-        if self.team_id and self.team_id == 117239:
-            self.max_concurrency = 30
-
         if applicable:
             running_task_key, task_id = self.use(*args, **kwargs)
 
