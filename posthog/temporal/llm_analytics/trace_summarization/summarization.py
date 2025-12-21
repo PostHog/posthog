@@ -44,6 +44,7 @@ async def generate_and_save_summary_activity(
     batch_run_id: str,
     provider: str,
     model: str | None = None,
+    max_length: int | None = None,
 ) -> SummarizationActivityResult:
     """
     Generate summary for a trace and save it to ClickHouse.
@@ -53,7 +54,7 @@ async def generate_and_save_summary_activity(
     """
 
     def _fetch_trace_and_format(
-        trace_id: str, team_id: int, window_start: str, window_end: str
+        trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
     ) -> tuple[dict, list, str, Team, str] | None:
         """Fetch trace data and format text representation.
 
@@ -83,6 +84,7 @@ async def generate_and_save_summary_activity(
             "truncated": False,
             "include_markers": False,
             "collapsed": False,
+            "max_length": max_length,
         }
 
         text_repr, _ = format_trace_text_repr(
@@ -155,7 +157,7 @@ async def generate_and_save_summary_activity(
 
     # Fetch trace data and format text representation
     result = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
-        trace_id, team_id, window_start, window_end
+        trace_id, team_id, window_start, window_end, max_length
     )
 
     # Handle trace not found in window

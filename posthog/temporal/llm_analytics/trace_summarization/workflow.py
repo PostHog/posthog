@@ -28,6 +28,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
+    MAX_LENGTH_BY_PROVIDER,
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
 )
@@ -82,6 +83,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         batch_run_id: str,
         provider: str | None,
         model: str | None,
+        max_length: int | None,
     ) -> SummarizationActivityResult:
         """Process a single trace with semaphore-controlled concurrency."""
         async with semaphore:
@@ -96,6 +98,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     batch_run_id,
                     provider,
                     model,
+                    max_length,
                 ],
                 activity_id=f"summarize-{trace_id}",
                 schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
@@ -147,6 +150,9 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         metrics.traces_queried = len(trace_ids)
 
         # Process traces in batches
+        # Look up max_length based on provider for context window safety
+        max_length = MAX_LENGTH_BY_PROVIDER.get(inputs.provider)
+
         semaphore = asyncio.Semaphore(inputs.batch_size)
         tasks: list[Coroutine[Any, Any, SummarizationActivityResult]] = [
             self._process_trace(
@@ -159,6 +165,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 batch_run_id=batch_run_id,
                 provider=inputs.provider,
                 model=inputs.model,
+                max_length=max_length,
             )
             for trace_id in trace_ids
         ]

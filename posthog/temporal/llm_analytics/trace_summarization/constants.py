@@ -12,6 +12,16 @@ DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches sched
 DEFAULT_PROVIDER = SummarizationProvider.GEMINI
 DEFAULT_MODEL = GeminiModel.GEMINI_3_FLASH_PREVIEW
 
+# Max text representation length by provider (in characters)
+# Gemini models have ~1M token context. At typical 2.5:1 char/token ratio,
+# 1.5M chars = ~600K tokens, leaving room for system prompt and output.
+# OpenAI GPT-4.1-mini has 1M token context with better token efficiency,
+# so 2M chars = ~800K tokens is safe.
+MAX_LENGTH_BY_PROVIDER: dict[SummarizationProvider, int] = {
+    SummarizationProvider.GEMINI: 1_500_000,
+    SummarizationProvider.OPENAI: 2_000_000,
+}
+
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 

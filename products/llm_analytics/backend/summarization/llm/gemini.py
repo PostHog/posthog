@@ -47,6 +47,6 @@ async def summarize_with_gemini(
         return SummarizationResponse.model_validate_json(response.text)
     except exceptions.ValidationError:
         raise
-    except Exception as e:
-        logger.exception("Gemini API call failed", error=str(e), team_id=team_id, model=model)
+    except Exception:
+        logger.exception("Gemini API call failed")
         raise exceptions.APIException("Failed to generate summary due to an internal error")
