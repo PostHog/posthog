@@ -1247,7 +1247,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
 
         # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
-        if self.team_id and self.team_id == 117239:
+        if self.team.pk and self.team.pk == 117239:
             return 30
 
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
