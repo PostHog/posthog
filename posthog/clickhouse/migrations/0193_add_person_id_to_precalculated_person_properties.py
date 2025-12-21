@@ -15,7 +15,7 @@ from posthog.models.precalculated_person_properties.sql import (
 def ADD_PERSON_ID_TO_SHARDED_TABLE():
     return """
     ALTER TABLE IF EXISTS sharded_precalculated_person_properties
-    ADD COLUMN IF NOT EXISTS person_id UUID AFTER distinct_id
+    ADD COLUMN person_id UUID AFTER distinct_id
     """
 
 
