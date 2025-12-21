@@ -1248,7 +1248,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
         if self.team.pk and self.team.pk == 117239:
-            return 30
+            return 20  # Matches org-level limit
 
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None
