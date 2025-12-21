@@ -64,7 +64,7 @@ export function Navigation({
     }
 
     return (
-        <TooltipBase.Provider delay={350}>
+        <TooltipBase.Provider>
             
         {/* eslint-disable-next-line react/forbid-dom-props */}
         <div
