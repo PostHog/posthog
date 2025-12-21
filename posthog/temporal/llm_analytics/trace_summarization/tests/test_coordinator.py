@@ -18,6 +18,8 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     get_allowed_team_ids,
 )
 
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+
 
 class TestGetAllowedTeamIds:
     """Tests for get_allowed_team_ids function."""
@@ -73,9 +75,9 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                 BatchTraceSummarizationCoordinatorInputs(
                     max_traces=200,
                     batch_size=20,
-                    mode="detailed",
+                    mode=SummarizationMode.DETAILED,
                     window_minutes=30,
-                    provider="openai",
+                    provider=SummarizationProvider.OPENAI,
                     model="gpt-4.1-mini",
                 ),
                 id="full_inputs",
