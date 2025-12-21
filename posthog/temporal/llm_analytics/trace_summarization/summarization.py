@@ -42,7 +42,7 @@ async def generate_and_save_summary_activity(
     window_end: str,
     mode: str,
     batch_run_id: str,
-    provider: str | None = None,
+    provider: str,
     model: str | None = None,
 ) -> SummarizationActivityResult:
     """
@@ -179,7 +179,7 @@ async def generate_and_save_summary_activity(
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
     # Convert string inputs to enum types
     mode_enum = SummarizationMode(mode)
-    provider_enum = SummarizationProvider(provider) if provider else SummarizationProvider.OPENAI
+    provider_enum = SummarizationProvider(provider)
     model_enum: OpenAIModel | GeminiModel | None = None
     if model:
         if provider_enum == SummarizationProvider.GEMINI:
