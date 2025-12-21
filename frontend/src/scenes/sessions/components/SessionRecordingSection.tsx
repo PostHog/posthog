@@ -47,7 +47,7 @@ export function SessionRecordingSection(): JSX.Element | null {
                                     autoPlay={false}
                                     noMeta
                                     noBorder
-                                    noInspector
+                                    withSidebar={false}
                                 />
                             </div>
                         ) : (
