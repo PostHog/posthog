@@ -62,6 +62,10 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
+// import { TooltipPopup, TooltipPortal, TooltipPositioner, TooltipProvider, TooltipRoot, TooltipTrigger, TooltipViewport } from 'lib/ui/Tooltip/TooltipPrimitive'
+import { Tooltip as TooltipBase } from '@base-ui/react/tooltip'
+const demoTooltip = TooltipBase.createHandle<{ text: string }>();
+
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -303,422 +307,506 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
     return (
         <>
-            <div className="flex gap-0 relative">
-                <nav
-                    className={cn(
-                        navBarStyles({
-                            isLayoutNavCollapsed,
-                            isMobileLayout,
-                        })
-                    )}
-                    ref={containerRef}
-                >
-                    <div
+            <TooltipBase.Root>
+                <div className="flex gap-0 relative">
+                    <nav
                         className={cn(
-                            'flex justify-between p-1 pl-[5px] items-center',
-                            isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
+                            navBarStyles({
+                                isLayoutNavCollapsed,
+                                isMobileLayout,
+                            })
                         )}
+                        ref={containerRef}
                     >
                         <div
-                            className={cn('flex gap-1 rounded-md w-full', {
-                                'flex-col items-center pt-px': isLayoutNavCollapsed,
-                            })}
+                            className={cn(
+                                'flex justify-between p-1 pl-[5px] items-center',
+                                isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
+                            )}
                         >
-                            <OrganizationMenu
-                                showName={false}
-                                buttonProps={{
-                                    variant: 'panel',
-                                    className: cn('px-px', {
-                                        hidden: isLayoutNavCollapsed,
-                                    }),
-                                    iconOnly: isLayoutNavCollapsed,
-                                    tooltipCloseDelayMs: 0,
-                                    tooltipPlacement: 'bottom',
-                                    tooltip: 'Switch organization',
-                                }}
-                                iconOnly={isLayoutNavCollapsed}
-                            />
-                            <ProjectMenu
-                                buttonProps={{
-                                    className: 'max-w-[175px]',
-                                    variant: 'panel',
-                                    tooltipCloseDelayMs: 0,
-                                    iconOnly: isLayoutNavCollapsed,
-                                    tooltipPlacement: 'bottom',
-                                    tooltip: 'Switch project',
-                                }}
-                                iconOnly={isLayoutNavCollapsed}
-                            />
+                            <div
+                                className={cn('flex gap-1 rounded-md w-full', {
+                                    'flex-col items-center pt-px': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <OrganizationMenu
+                                    showName={false}
+                                    buttonProps={{
+                                        variant: 'panel',
+                                        className: cn('px-px', {
+                                            hidden: isLayoutNavCollapsed,
+                                        }),
+                                        iconOnly: isLayoutNavCollapsed,
+                                        tooltipCloseDelayMs: 0,
+                                        tooltipPlacement: 'bottom',
+                                        tooltip: 'Switch organization',
+                                    }}
+                                    iconOnly={isLayoutNavCollapsed}
+                                />
+                                <ProjectMenu
+                                    buttonProps={{
+                                        className: 'max-w-[175px]',
+                                        variant: 'panel',
+                                        tooltipCloseDelayMs: 0,
+                                        iconOnly: isLayoutNavCollapsed,
+                                        tooltipPlacement: 'bottom',
+                                        tooltip: 'Switch project',
+                                    }}
+                                    iconOnly={isLayoutNavCollapsed}
+                                />
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
-                        <ScrollableShadows
-                            className={cn('flex-1', { 'rounded-tr-sm': !isLayoutPanelVisible })}
-                            innerClassName="overflow-y-auto"
-                            direction="vertical"
-                            styledScrollbars
-                        >
-                            <ListBox className="flex flex-col gap-px">
-                                <div
-                                    className={cn('px-1 flex flex-col gap-px', {
-                                        'items-center': isLayoutNavCollapsed,
-                                    })}
-                                >
-                                    {navItems.map((item) => {
-                                        const tooltip = isLayoutNavCollapsed
-                                            ? Array.isArray(item.collapsedTooltip)
-                                                ? isLayoutPanelVisible && activePanelIdentifier === item.identifier
-                                                    ? item.collapsedTooltip[1]
-                                                    : item.collapsedTooltip[0]
-                                                : item.collapsedTooltip
-                                            : undefined
+                        <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
+                            <ScrollableShadows
+                                className={cn('flex-1', { 'rounded-tr-sm': !isLayoutPanelVisible })}
+                                innerClassName="overflow-y-auto"
+                                direction="vertical"
+                                styledScrollbars
+                            >
+                                <ListBox className="flex flex-col gap-px">
+                                    <div
+                                        className={cn('px-1 flex flex-col gap-px', {
+                                            'items-center': isLayoutNavCollapsed,
+                                        })}
+                                    >
+                                        {navItems.map((item) => {
+                                            const tooltip = isLayoutNavCollapsed
+                                                ? Array.isArray(item.collapsedTooltip)
+                                                    ? isLayoutPanelVisible && activePanelIdentifier === item.identifier
+                                                        ? item.collapsedTooltip[1]
+                                                        : item.collapsedTooltip[0]
+                                                    : item.collapsedTooltip
+                                                : undefined
 
-                                        const iconClassName = 'flex text-tertiary group-hover:text-primary'
+                                            const iconClassName = 'flex text-tertiary group-hover:text-primary'
 
-                                        const listItem = (
-                                            <ListBox.Item
-                                                key={item.identifier}
-                                                asChild
-                                                onClick={() => item.onClick?.()}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        item.onClick?.(e)
-                                                    }
-                                                }}
-                                            >
-                                                {item.showChevron ? (
-                                                    <ButtonPrimitive
-                                                        active={
-                                                            activePanelIdentifier === item.identifier ||
-                                                            activePanelIdentifierFromUrl === item.identifier
+                                            const listItem = (
+                                                <ListBox.Item
+                                                    key={item.identifier}
+                                                    asChild
+                                                    onClick={() => item.onClick?.()}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            item.onClick?.(e)
                                                         }
-                                                        className="group"
-                                                        menuItem={!isLayoutNavCollapsed}
-                                                        iconOnly={isLayoutNavCollapsed}
-                                                        tooltip={tooltip}
-                                                        tooltipPlacement="right"
-                                                        tooltipDocLink={item.documentationUrl}
-                                                        data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
-                                                    >
-                                                        <span className={iconClassName}>{item.icon}</span>
-                                                        {!isLayoutNavCollapsed && (
-                                                            <>
-                                                                <span className="truncate">{item.label}</span>
-                                                                <span className="ml-auto pr-1">
-                                                                    <IconChevronRight className="size-3 text-tertiary" />
-                                                                </span>
-                                                            </>
-                                                        )}
-                                                    </ButtonPrimitive>
-                                                ) : (
-                                                    <ButtonGroupPrimitive
-                                                        fullWidth
-                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
-                                                    >
-                                                        <Link
-                                                            data-attr={`menu-item-${item.identifier
-                                                                .toString()
-                                                                .toLowerCase()}`}
-                                                            buttonProps={{
-                                                                menuItem: !isLayoutNavCollapsed,
-                                                                className: 'group',
-                                                                iconOnly: isLayoutNavCollapsed,
-                                                                active: isStaticNavItemActive(item.identifier),
-                                                            }}
-                                                            to={item.to}
+                                                    }}
+                                                >
+                                                    {item.showChevron ? (
+                                                        <ButtonPrimitive
+                                                            active={
+                                                                activePanelIdentifier === item.identifier ||
+                                                                activePanelIdentifierFromUrl === item.identifier
+                                                            }
+                                                            className="group"
+                                                            menuItem={!isLayoutNavCollapsed}
+                                                            iconOnly={isLayoutNavCollapsed}
                                                             tooltip={tooltip}
                                                             tooltipPlacement="right"
                                                             tooltipDocLink={item.documentationUrl}
+                                                            data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                         >
                                                             <span className={iconClassName}>{item.icon}</span>
                                                             {!isLayoutNavCollapsed && (
-                                                                <span className="truncate">{item.label}</span>
+                                                                <>
+                                                                    <span className="truncate">{item.label}</span>
+                                                                    <span className="ml-auto pr-1">
+                                                                        <IconChevronRight className="size-3 text-tertiary" />
+                                                                    </span>
+                                                                </>
                                                             )}
-                                                        </Link>
-                                                    </ButtonGroupPrimitive>
-                                                )}
-                                            </ListBox.Item>
-                                        )
-
-                                        if (item.identifier === 'ProjectHomepage') {
-                                            return (
-                                                <ContextMenu key={item.identifier}>
-                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
-                                                    <ContextMenuContent className="max-w-[300px]">
-                                                        <ContextMenuGroup>
-                                                            <ContextMenuItem asChild>
-                                                                <ButtonPrimitive
-                                                                    menuItem
-                                                                    onClick={() => setIsConfigurePinnedTabsOpen(true)}
-                                                                >
-                                                                    <IconGear /> Configure tabs & home
-                                                                </ButtonPrimitive>
-                                                            </ContextMenuItem>
-                                                        </ContextMenuGroup>
-                                                    </ContextMenuContent>
-                                                </ContextMenu>
+                                                        </ButtonPrimitive>
+                                                    ) : (
+                                                        <ButtonGroupPrimitive
+                                                            fullWidth
+                                                            className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                        >
+                                                            <Link
+                                                                data-attr={`menu-item-${item.identifier
+                                                                    .toString()
+                                                                    .toLowerCase()}`}
+                                                                buttonProps={{
+                                                                    menuItem: !isLayoutNavCollapsed,
+                                                                    className: 'group',
+                                                                    iconOnly: isLayoutNavCollapsed,
+                                                                    active: isStaticNavItemActive(item.identifier),
+                                                                }}
+                                                                to={item.to}
+                                                                tooltip={tooltip}
+                                                                tooltipPlacement="right"
+                                                                tooltipDocLink={item.documentationUrl}
+                                                            >
+                                                                <span className={iconClassName}>{item.icon}</span>
+                                                                {!isLayoutNavCollapsed && (
+                                                                    <span className="truncate">{item.label}</span>
+                                                                )}
+                                                            </Link>
+                                                        </ButtonGroupPrimitive>
+                                                    )}
+                                                </ListBox.Item>
                                             )
-                                        } else if (item.identifier === 'Activity' && item.to) {
-                                            return (
-                                                <ContextMenu key={item.identifier}>
-                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
-                                                    <ContextMenuContent className="max-w-[300px]">
-                                                        <ContextMenuGroup>
-                                                            <BrowserLikeMenuItems
-                                                                MenuItem={ContextMenuItem}
-                                                                href={item.to}
-                                                                resetPanelLayout={resetPanelLayout}
-                                                            />
-                                                        </ContextMenuGroup>
-                                                    </ContextMenuContent>
-                                                </ContextMenu>
-                                            )
-                                        }
 
-                                        return listItem
-                                    })}
-                                </div>
+                                            if (item.identifier === 'ProjectHomepage') {
+                                                return (
+                                                    <ContextMenu key={item.identifier}>
+                                                        <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                        <ContextMenuContent className="max-w-[300px]">
+                                                            <ContextMenuGroup>
+                                                                <ContextMenuItem asChild>
+                                                                    <ButtonPrimitive
+                                                                        menuItem
+                                                                        onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                    >
+                                                                        <IconGear /> Configure tabs & home
+                                                                    </ButtonPrimitive>
+                                                                </ContextMenuItem>
+                                                            </ContextMenuGroup>
+                                                        </ContextMenuContent>
+                                                    </ContextMenu>
+                                                )
+                                            } else if (item.identifier === 'Activity' && item.to) {
+                                                return (
+                                                    <ContextMenu key={item.identifier}>
+                                                        <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                        <ContextMenuContent className="max-w-[300px]">
+                                                            <ContextMenuGroup>
+                                                                <BrowserLikeMenuItems
+                                                                    MenuItem={ContextMenuItem}
+                                                                    href={item.to}
+                                                                    resetPanelLayout={resetPanelLayout}
+                                                                />
+                                                            </ContextMenuGroup>
+                                                        </ContextMenuContent>
+                                                    </ContextMenu>
+                                                )
+                                            }
 
-                                <div className="border-b border-primary h-px my-1" />
+                                            return listItem
+                                        })}
+                                    </div>
 
-                                <div
-                                    className={cn(
-                                        'relative flex flex-col gap-px h-full',
-                                        !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
-                                    )}
-                                >
-                                    <PinnedFolder />
-                                </div>
-                            </ListBox>
-                        </ScrollableShadows>
+                                    <div className="border-b border-primary h-px my-1" />
 
-                        <div className="border-b border-primary h-px " />
+                                    <div
+                                        className={cn(
+                                            'relative flex flex-col gap-px h-full',
+                                            !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
+                                        )}
+                                    >
+                                        <PinnedFolder />
+                                    </div>
+                                </ListBox>
+                            </ScrollableShadows>
 
-                        <div className="p-1 flex flex-col gap-px items-center">
-                            <DebugNotice isCollapsed={isLayoutNavCollapsed} />
-                            <NavPanelAdvertisement />
+                            <div className="border-b border-primary h-px " />
 
-                            <AppShortcut
-                                name="Search"
-                                keybind={[keyBinds.search]}
-                                intent="Search"
-                                interaction="click"
-                                asChild
-                            >
-                                {/* Button is hidden, keep to register shortcut */}
-                                <ButtonPrimitive
-                                    className="hidden"
-                                    aria-hidden="true"
-                                    onClick={() => {
-                                        if (
-                                            removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
-                                        ) {
-                                            handleSearchClick()
-                                        } else {
-                                            router.actions.push(urls.newTab())
-                                        }
-                                    }}
-                                />
-                            </AppShortcut>
+                            <div className="p-1 flex flex-col gap-px items-center">
+                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                                <NavPanelAdvertisement />
 
-                            <AppShortcut
-                                name="ToggleShortcutMenu"
-                                keybind={[keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback]}
-                                intent="Toggle shortcut menu"
-                                interaction="click"
-                                asChild
-                            >
-                                {/* Button is hidden, keep to register shortcut */}
-                                <ButtonPrimitive
-                                    iconOnly={isLayoutNavCollapsed}
-                                    tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
-                                    tooltipPlacement="right"
-                                    onClick={() => setAppShortcutMenuOpen(!appShortcutMenuOpen)}
-                                    menuItem={!isLayoutNavCollapsed}
-                                    className="hidden"
-                                />
-                            </AppShortcut>
-
-                            <ButtonPrimitive
-                                iconOnly={isLayoutNavCollapsed}
-                                tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
-                                tooltipPlacement="right"
-                                onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
-                                menuItem={!isLayoutNavCollapsed}
-                            >
-                                {isLayoutNavCollapsed ? (
-                                    <>
-                                        <IconSidebarClose className="text-tertiary" />
-                                    </>
-                                ) : (
-                                    <>
-                                        <IconSidebarOpen className="text-tertiary" />
-                                        Collapse nav
-                                    </>
-                                )}
-                            </ButtonPrimitive>
-
-                            {visibleTabs.includes(SidePanelTab.Activation) && (
-                                <ButtonPrimitive
-                                    menuItem={!isLayoutNavCollapsed}
-                                    onClick={() =>
-                                        sidePanelOpen && selectedTab === SidePanelTab.Activation
-                                            ? closeSidePanel()
-                                            : openSidePanel(SidePanelTab.Activation)
-                                    }
-                                    data-attr="activation-button"
-                                    tooltip={isLayoutNavCollapsed ? 'Quick start' : undefined}
-                                    tooltipPlacement="right"
-                                    iconOnly={isLayoutNavCollapsed}
-                                >
-                                    <span>
-                                        <SidePanelActivationIcon size={16} />
-                                    </span>
-                                    {!isLayoutNavCollapsed && 'Quick start'}
-                                </ButtonPrimitive>
-                            )}
-                            {(user?.is_staff ||
-                                user?.is_impersonated ||
-                                preflight?.is_debug ||
-                                preflight?.instance_preferences?.debug_queries) && (
                                 <AppShortcut
-                                    name="DebugClickhouseQueries"
-                                    keybind={[['command', 'option', 'tab']]}
-                                    intent="Debug clickhouse queries"
+                                    name="Search"
+                                    keybind={[keyBinds.search]}
+                                    intent="Search"
                                     interaction="click"
                                     asChild
                                 >
                                     {/* Button is hidden, keep to register shortcut */}
                                     <ButtonPrimitive
-                                        menuItem={!isLayoutNavCollapsed}
-                                        onClick={() => {
-                                            openCHQueriesDebugModal()
-                                        }}
-                                        iconOnly={isLayoutNavCollapsed}
-                                        tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
-                                        tooltipPlacement="right"
-                                        data-attr="menu-item-debug-ch-queries"
                                         className="hidden"
-                                    >
-                                        <IconDatabase />
-                                        {!isLayoutNavCollapsed && 'Debug CH queries'}
-                                    </ButtonPrimitive>
+                                        aria-hidden="true"
+                                        onClick={() => {
+                                            if (
+                                                removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
+                                            ) {
+                                                handleSearchClick()
+                                            } else {
+                                                router.actions.push(urls.newTab())
+                                            }
+                                        }}
+                                    />
                                 </AppShortcut>
-                            )}
 
-                            <Link
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    className: 'group',
-                                    iconOnly: isLayoutNavCollapsed,
-                                    active: isStaticNavItemActive('Toolbar'),
-                                }}
-                                to={urls.toolbarLaunch()}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
-                                }}
-                                tooltip={isLayoutNavCollapsed ? 'Toolbar' : undefined}
-                                tooltipDocLink="https://posthog.com/docs/toolbar"
-                                tooltipPlacement="right"
-                                data-attr="menu-item-toolbar"
-                            >
-                                <span className="flex text-tertiary group-hover:text-primary">
-                                    <IconToolbar />
-                                </span>
-                                {!isLayoutNavCollapsed && 'Toolbar'}
-                            </Link>
+                                <AppShortcut
+                                    name="ToggleShortcutMenu"
+                                    keybind={[keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback]}
+                                    intent="Toggle shortcut menu"
+                                    interaction="click"
+                                    asChild
+                                >
+                                    {/* Button is hidden, keep to register shortcut */}
+                                    <ButtonPrimitive
+                                        iconOnly={isLayoutNavCollapsed}
+                                        tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
+                                        tooltipPlacement="right"
+                                        onClick={() => setAppShortcutMenuOpen(!appShortcutMenuOpen)}
+                                        menuItem={!isLayoutNavCollapsed}
+                                        className="hidden"
+                                    />
+                                </AppShortcut>
 
-                            <Link
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    className: 'group',
-                                    iconOnly: isLayoutNavCollapsed,
-                                    active: isStaticNavItemActive('Settings'),
-                                }}
-                                to={urls.settings('project')}
-                                onClick={() => {
-                                    handleStaticNavbarItemClick(urls.settings('project'), true)
-                                }}
-                                tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
-                                tooltipPlacement="right"
-                                data-attr="menu-item-settings"
-                            >
-                                <span className="flex text-tertiary group-hover:text-primary">
-                                    <IconGear />
-                                </span>
-                                {!isLayoutNavCollapsed && 'Settings'}
-                            </Link>
-
-                            <AccountMenu
-                                align="end"
-                                side="right"
-                                alignOffset={10}
-                                trigger={
+                                <TooltipBase.Trigger payload={{ text: 'Expand nav' }} handle={demoTooltip} render={(props) => ( 
+                                <ButtonPrimitive
+                                    {...props}
+                                    iconOnly={isLayoutNavCollapsed}
+                                    tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
+                                    tooltipPlacement="right"
+                                    onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
+                                    menuItem={!isLayoutNavCollapsed}
+                                >
+                                    {isLayoutNavCollapsed ? (
+                                        <>
+                                            <IconSidebarClose className="text-tertiary" />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <IconSidebarOpen className="text-tertiary" />
+                                            Collapse nav
+                                        </>
+                                    )}
+                                </ButtonPrimitive>
+                                )}/>
+                                {visibleTabs.includes(SidePanelTab.Activation) && (
                                     <ButtonPrimitive
                                         menuItem={!isLayoutNavCollapsed}
-                                        tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
+                                        onClick={() =>
+                                            sidePanelOpen && selectedTab === SidePanelTab.Activation
+                                                ? closeSidePanel()
+                                                : openSidePanel(SidePanelTab.Activation)
+                                        }
+                                        data-attr="activation-button"
+                                        tooltip={isLayoutNavCollapsed ? 'Quick start' : undefined}
                                         tooltipPlacement="right"
                                         iconOnly={isLayoutNavCollapsed}
-                                        data-attr="menu-item-me"
                                     >
-                                        <ProfilePicture user={user} size="xs" />
-                                        {!isLayoutNavCollapsed && (
-                                            <>
-                                                {user?.first_name ? (
-                                                    <span>{user?.first_name}</span>
-                                                ) : (
-                                                    <span>{user?.email}</span>
-                                                )}
-                                                <IconChevronRight className="size-3 text-secondary ml-auto" />
-                                            </>
-                                        )}
+                                        <span>
+                                            <SidePanelActivationIcon size={16} />
+                                        </span>
+                                        {!isLayoutNavCollapsed && 'Quick start'}
                                     </ButtonPrimitive>
-                                }
-                            />
+                                )}
+                                {(user?.is_staff ||
+                                    user?.is_impersonated ||
+                                    preflight?.is_debug ||
+                                    preflight?.instance_preferences?.debug_queries) && (
+                                    <AppShortcut
+                                        name="DebugClickhouseQueries"
+                                        keybind={[['command', 'option', 'tab']]}
+                                        intent="Debug clickhouse queries"
+                                        interaction="click"
+                                        asChild
+                                    >
+                                        {/* Button is hidden, keep to register shortcut */}
+                                        <TooltipBase.Trigger payload={{ text: 'Debug CH queries' }} handle={demoTooltip} render={(props) => (
+                                            <ButtonPrimitive
+                                            {...props}
+                                            menuItem={!isLayoutNavCollapsed}
+                                            onClick={() => {
+                                                openCHQueriesDebugModal()
+                                            }}
+                                            iconOnly={isLayoutNavCollapsed}
+                                            tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
+                                            tooltipPlacement="right"
+                                            data-attr="menu-item-debug-ch-queries"
+                                            className="hidden"
+                                        >
+                                            <IconDatabase />
+                                            {!isLayoutNavCollapsed && 'Debug CH queries'}
+                                        </ButtonPrimitive>
+                                        )}/>
+                                    </AppShortcut>
+                                )}
+
+                                <TooltipBase.Trigger payload={{ text: 'Toolbar' }} handle={demoTooltip} render={(props) => (
+                                <Link
+                                    {...props}
+                                    buttonProps={{
+                                        menuItem: !isLayoutNavCollapsed,
+                                        className: 'group',
+                                        iconOnly: isLayoutNavCollapsed,
+                                        active: isStaticNavItemActive('Toolbar'),
+                                    }}
+                                    to={urls.toolbarLaunch()}
+                                    onClick={() => {
+                                        handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                                    }}
+                                    data-attr="menu-item-toolbar"
+                                >
+                                    <span className="flex text-tertiary group-hover:text-primary">
+                                        <IconToolbar />
+                                    </span>
+                                    {!isLayoutNavCollapsed && 'Toolbar'}
+                                </Link>
+                                )}/>
+                                <TooltipBase.Trigger payload={{ text: 'Settings' }} handle={demoTooltip} render={(props) => (
+                                    <Link
+                                        {...props}
+                                        buttonProps={{
+                                            menuItem: !isLayoutNavCollapsed,
+                                            className: 'group',
+                                            iconOnly: isLayoutNavCollapsed,
+                                            active: isStaticNavItemActive('Settings'),
+                                        }}
+                                        to={urls.settings('project')}
+                                        onClick={() => {
+                                            handleStaticNavbarItemClick(urls.settings('project'), true)
+                                        }}
+                                        // tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                        // tooltipPlacement="right"
+                                        data-attr="menu-item-settings"
+                                        >
+                                        <span className="flex text-tertiary group-hover:text-primary">
+                                            <IconGear />
+                                        </span>
+                                        {!isLayoutNavCollapsed && 'Settings'}
+                                    </Link>
+                                )}/>
+
+                                <AccountMenu
+                                    align="end"
+                                    side="right"
+                                    alignOffset={10}
+                                    trigger={
+                                        <ButtonPrimitive
+                                            menuItem={!isLayoutNavCollapsed}
+                                            tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
+                                            tooltipPlacement="right"
+                                            iconOnly={isLayoutNavCollapsed}
+                                            data-attr="menu-item-me"
+                                        >
+                                            <ProfilePicture user={user} size="xs" />
+                                            {!isLayoutNavCollapsed && (
+                                                <>
+                                                    {user?.first_name ? (
+                                                        <span>{user?.first_name}</span>
+                                                    ) : (
+                                                        <span>{user?.email}</span>
+                                                    )}
+                                                    <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                                </>
+                                            )}
+                                        </ButtonPrimitive>
+                                    }
+                                />
+
+                                <TooltipBase.Root handle={demoTooltip} >
+                                        {({ payload }) => (
+                                        <TooltipBase.Portal>
+                                            <TooltipBase.Positioner
+                                            sideOffset={10}
+                                            side="right"
+                                            className="
+                                                h-(--positioner-height) w-(--positioner-width)
+                                                max-w-(--available-width)
+                                                transition-[top,left,right,bottom,transform]
+                                                duration-[0.35s]
+                                                ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                data-instant:transition-none"
+                                            >
+                                            <TooltipBase.Popup
+                                                className="
+                                                relative
+                                                h-(--popup-height,auto) w-(--popup-width,auto)
+                                                max-w-[500px]
+                                                rounded-md
+                                                bg-[canvas]
+                                                text-sm
+                                                z-top
+                                                origin-(--transform-origin)
+                                                shadow-lg shadow-gray-200 outline-1 outline-gray-200
+                                                transition-[width,height,opacity,scale]
+                                                duration-[0.35s]
+                                                ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                data-ending-style:opacity-0 data-ending-style:scale-90
+                                                data-instant:transition-none
+                                                data-starting-style:opacity-0 data-starting-style:scale-90
+                                                dark:shadow-none dark:outline-gray-300 dark:-outline-offset-1"
+                                            >
+                                                <TooltipBase.Viewport
+                                                className="
+                                                    [--viewport-inline-padding:0.5rem]
+                                                    relative
+                                                    h-full w-full
+                                                    overflow-clip
+                                                    px-[var(--viewport-inline-padding)] py-1
+                                                    [&_[data-previous]]:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding))]
+                                                    [&_[data-previous]]:translate-x-0
+                                                    [&_[data-previous]]:opacity-100
+                                                    [&_[data-previous]]:transition-[translate,opacity]
+                                                    [&_[data-previous]]:duration-[350ms,175ms]
+                                                    [&_[data-previous]]:ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                    [&_[data-current]]:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding))]
+                                                    [&_[data-current]]:translate-x-0
+                                                    [&_[data-current]]:opacity-100
+                                                    [&_[data-current]]:transition-[translate,opacity]
+                                                    [&_[data-current]]:duration-[350ms,175ms]
+                                                    [&_[data-current]]:ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                    data-[activation-direction~='left']:[&_[data-current][data-starting-style]]:-translate-x-1/2
+                                                    data-[activation-direction~='left']:[&_[data-current][data-starting-style]]:opacity-0
+                                                    data-[activation-direction~='right']:[&_[data-current][data-starting-style]]:translate-x-1/2
+                                                    data-[activation-direction~='right']:[&_[data-current][data-starting-style]]:opacity-0
+                                                    [[data-instant]_&_[data-previous]]:transition-none
+                                                    [[data-instant]_&_[data-current]]:transition-none
+                                                    data-[activation-direction~='left']:[&_[data-previous][data-ending-style]]:translate-x-1/2
+                                                    data-[activation-direction~='left']:[&_[data-previous][data-ending-style]]:opacity-0
+                                                    data-[activation-direction~='right']:[&_[data-previous][data-ending-style]]:-translate-x-1/2
+                                                    data-[activation-direction~='right']:[&_[data-previous][data-ending-style]]:opacity-0"
+                                                >
+                                                {payload !== undefined && (
+                                                    <span>
+                                                    Tooltip opened by {payload.text}
+                                                    </span>
+                                                )}
+                                                </TooltipBase.Viewport>
+                                            </TooltipBase.Popup>
+                                            </TooltipBase.Positioner>
+                                        </TooltipBase.Portal>
+                                        )}
+                                    </TooltipBase.Root>
+                            </div>
                         </div>
-                    </div>
-                    {!isMobileLayout && (
-                        <Resizer
-                            logicKey="panel-layout-navbar"
-                            placement="right"
-                            containerRef={containerRef}
-                            closeThreshold={100}
-                            onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
-                            onDoubleClick={() => toggleLayoutNavCollapsed()}
-                            data-attr="tree-navbar-resizer"
-                            className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
-                                // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
-                                'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
-                                'top-0': isLayoutPanelVisible,
-                            })}
-                            offset={0}
+                        {!isMobileLayout && (
+                            <Resizer
+                                logicKey="panel-layout-navbar"
+                                placement="right"
+                                containerRef={containerRef}
+                                closeThreshold={100}
+                                onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
+                                onDoubleClick={() => toggleLayoutNavCollapsed()}
+                                data-attr="tree-navbar-resizer"
+                                className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
+                                    // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
+                                    'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
+                                    'top-0': isLayoutPanelVisible,
+                                })}
+                                offset={0}
+                            />
+                        )}
+                    </nav>
+
+                    {children}
+
+                    {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && (
+                        <div
+                            onClick={() => {
+                                showLayoutNavBar(false)
+                                clearActivePanelIdentifier()
+                            }}
+                            className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                         />
                     )}
-                </nav>
 
-                {children}
-
-                {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && (
-                    <div
-                        onClick={() => {
-                            showLayoutNavBar(false)
-                            clearActivePanelIdentifier()
-                        }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
-                    />
-                )}
-
-                {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && (
-                    <div
-                        onClick={() => {
-                            showLayoutPanel(false)
-                            clearActivePanelIdentifier()
-                        }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
-                    />
-                )}
+                    {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && (
+                        <div
+                            onClick={() => {
+                                showLayoutPanel(false)
+                                clearActivePanelIdentifier()
+                            }}
+                            className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
+                        />
+                    )}
             </div>
+                </TooltipBase.Root>
             <ConfigurePinnedTabsModal
                 isOpen={isConfigurePinnedTabsOpen}
                 onClose={() => setIsConfigurePinnedTabsOpen(false)}

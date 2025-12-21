@@ -20,6 +20,7 @@ import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
+import { Tooltip as TooltipBase } from '@base-ui/react/tooltip'
 
 export function Navigation({
     children,
@@ -63,7 +64,9 @@ export function Navigation({
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
+        <TooltipBase.Provider>
+            
+        {/* eslint-disable-next-line react/forbid-dom-props */}
         <div
             className={cn(
                 'Navigation3000',
@@ -84,7 +87,6 @@ export function Navigation({
             <ProjectDragAndDropProvider>
                 <PanelLayout />
 
-                <FloatingContainerContext.Provider value={mainRef}>
                     <main
                         ref={mainRef}
                         role="main"
@@ -125,8 +127,9 @@ export function Navigation({
                         </SceneLayout>
                     </main>
                     <SidePanel />
-                </FloatingContainerContext.Provider>
             </ProjectDragAndDropProvider>
         </div>
+
+        </TooltipBase.Provider>
     )
 }
