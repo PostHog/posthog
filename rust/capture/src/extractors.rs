@@ -25,10 +25,11 @@ pub async fn extract_body_with_timeout(
     body: Body,
     limit: usize,
     chunk_timeout: Option<Duration>,
+    chunk_size_kb: usize,
     path: &str,
 ) -> Result<Bytes, CaptureError> {
     let mut stream = body.into_data_stream();
-    let mut buf = BytesMut::with_capacity(std::cmp::min(limit, 64 * 1024)); // Start with 64KB or limit
+    let mut buf = BytesMut::with_capacity(std::cmp::min(limit, chunk_size_kb * 1024));
 
     loop {
         let chunk_result = match chunk_timeout {
@@ -85,10 +86,12 @@ mod tests {
     use futures::stream;
     use std::time::Duration;
 
+    const TEST_CHUNK_SIZE_KB: usize = 64;
+
     #[tokio::test]
     async fn test_extract_body_no_timeout() {
         let body = Body::from("hello world");
-        let result = extract_body_with_timeout(body, 1024, None, "/test").await;
+        let result = extract_body_with_timeout(body, 1024, None, TEST_CHUNK_SIZE_KB, "/test").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello world"));
     }
@@ -97,7 +100,8 @@ mod tests {
     async fn test_extract_body_with_timeout_success() {
         let body = Body::from("hello world");
         let timeout = Some(Duration::from_secs(5));
-        let result = extract_body_with_timeout(body, 1024, timeout, "/test").await;
+        let result =
+            extract_body_with_timeout(body, 1024, timeout, TEST_CHUNK_SIZE_KB, "/test").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Bytes::from("hello world"));
     }
@@ -105,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn test_extract_body_exceeds_limit() {
         let body = Body::from("hello world this is a long message");
-        let result = extract_body_with_timeout(body, 10, None, "/test").await;
+        let result = extract_body_with_timeout(body, 10, None, TEST_CHUNK_SIZE_KB, "/test").await;
         assert!(matches!(result, Err(CaptureError::EventTooBig(_))));
     }
 
@@ -117,7 +121,8 @@ mod tests {
         let body = Body::from_stream(slow_stream);
 
         let timeout = Some(Duration::from_millis(50));
-        let result = extract_body_with_timeout(body, 1024, timeout, "/test").await;
+        let result =
+            extract_body_with_timeout(body, 1024, timeout, TEST_CHUNK_SIZE_KB, "/test").await;
 
         assert!(matches!(result, Err(CaptureError::BodyReadTimeout)));
     }
@@ -125,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn test_extract_body_empty() {
         let body = Body::empty();
-        let result = extract_body_with_timeout(body, 1024, None, "/test").await;
+        let result = extract_body_with_timeout(body, 1024, None, TEST_CHUNK_SIZE_KB, "/test").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }

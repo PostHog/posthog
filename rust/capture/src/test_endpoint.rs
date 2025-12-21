@@ -48,6 +48,7 @@ pub async fn test_black_hole(
         body,
         state.event_size_limit,
         state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
         "/test/black_hole",
     )
     .await?;
