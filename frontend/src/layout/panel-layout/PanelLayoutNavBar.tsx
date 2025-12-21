@@ -1,3 +1,5 @@
+// import { TooltipPopup, TooltipPortal, TooltipPositioner, TooltipProvider, TooltipRoot, TooltipTrigger, TooltipViewport } from 'lib/ui/Tooltip/TooltipPrimitive'
+import { Tooltip as TooltipBase } from '@base-ui/react/tooltip'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -62,10 +64,8 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-// import { TooltipPopup, TooltipPortal, TooltipPositioner, TooltipProvider, TooltipRoot, TooltipTrigger, TooltipViewport } from 'lib/ui/Tooltip/TooltipPrimitive'
-import { Tooltip as TooltipBase } from '@base-ui/react/tooltip'
-const demoTooltip = TooltipBase.createHandle<{ text: string }>();
 
+const demoTooltip = TooltipBase.createHandle<{ text: string }>()
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -455,7 +455,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                 <ContextMenuItem asChild>
                                                                     <ButtonPrimitive
                                                                         menuItem
-                                                                        onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                        onClick={() =>
+                                                                            setIsConfigurePinnedTabsOpen(true)
+                                                                        }
                                                                     >
                                                                         <IconGear /> Configure tabs & home
                                                                     </ButtonPrimitive>
@@ -517,7 +519,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         aria-hidden="true"
                                         onClick={() => {
                                             if (
-                                                removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()
+                                                removeProjectIdIfPresent(router.values.location.pathname) ===
+                                                urls.newTab()
                                             ) {
                                                 handleSearchClick()
                                             } else {
@@ -545,27 +548,32 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </AppShortcut>
 
-                                <TooltipBase.Trigger payload={{ text: 'Expand nav' }} handle={demoTooltip} render={(props) => ( 
-                                <ButtonPrimitive
-                                    {...props}
-                                    iconOnly={isLayoutNavCollapsed}
-                                    tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
-                                    tooltipPlacement="right"
-                                    onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
-                                    menuItem={!isLayoutNavCollapsed}
-                                >
-                                    {isLayoutNavCollapsed ? (
-                                        <>
-                                            <IconSidebarClose className="text-tertiary" />
-                                        </>
-                                    ) : (
-                                        <>
-                                            <IconSidebarOpen className="text-tertiary" />
-                                            Collapse nav
-                                        </>
+                                <TooltipBase.Trigger
+                                    payload={{ text: 'Expand nav' }}
+                                    handle={demoTooltip}
+                                    delay={350}
+                                    render={(props) => (
+                                        <ButtonPrimitive
+                                            {...props}
+                                            iconOnly={isLayoutNavCollapsed}
+                                            tooltip={isLayoutNavCollapsed ? 'Expand nav' : undefined}
+                                            tooltipPlacement="right"
+                                            onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
+                                            menuItem={!isLayoutNavCollapsed}
+                                        >
+                                            {isLayoutNavCollapsed ? (
+                                                <>
+                                                    <IconSidebarClose className="text-tertiary" />
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <IconSidebarOpen className="text-tertiary" />
+                                                    Collapse nav
+                                                </>
+                                            )}
+                                        </ButtonPrimitive>
                                     )}
-                                </ButtonPrimitive>
-                                )}/>
+                                />
                                 {visibleTabs.includes(SidePanelTab.Activation) && (
                                     <ButtonPrimitive
                                         menuItem={!isLayoutNavCollapsed}
@@ -597,70 +605,82 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         asChild
                                     >
                                         {/* Button is hidden, keep to register shortcut */}
-                                        <TooltipBase.Trigger payload={{ text: 'Debug CH queries' }} handle={demoTooltip} render={(props) => (
-                                            <ButtonPrimitive
-                                            {...props}
-                                            menuItem={!isLayoutNavCollapsed}
-                                            onClick={() => {
-                                                openCHQueriesDebugModal()
-                                            }}
-                                            iconOnly={isLayoutNavCollapsed}
-                                            tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
-                                            tooltipPlacement="right"
-                                            data-attr="menu-item-debug-ch-queries"
-                                            className="hidden"
-                                        >
-                                            <IconDatabase />
-                                            {!isLayoutNavCollapsed && 'Debug CH queries'}
-                                        </ButtonPrimitive>
-                                        )}/>
+                                        <TooltipBase.Trigger
+                                            payload={{ text: 'Debug CH queries' }}
+                                            handle={demoTooltip}
+                                            render={(props) => (
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem={!isLayoutNavCollapsed}
+                                                    onClick={() => {
+                                                        openCHQueriesDebugModal()
+                                                    }}
+                                                    iconOnly={isLayoutNavCollapsed}
+                                                    tooltip={isLayoutNavCollapsed ? 'Debug CH queries' : undefined}
+                                                    tooltipPlacement="right"
+                                                    data-attr="menu-item-debug-ch-queries"
+                                                    className="hidden"
+                                                >
+                                                    <IconDatabase />
+                                                    {!isLayoutNavCollapsed && 'Debug CH queries'}
+                                                </ButtonPrimitive>
+                                            )}
+                                        />
                                     </AppShortcut>
                                 )}
 
-                                <TooltipBase.Trigger payload={{ text: 'Toolbar' }} handle={demoTooltip} render={(props) => (
-                                <Link
-                                    {...props}
-                                    buttonProps={{
-                                        menuItem: !isLayoutNavCollapsed,
-                                        className: 'group',
-                                        iconOnly: isLayoutNavCollapsed,
-                                        active: isStaticNavItemActive('Toolbar'),
-                                    }}
-                                    to={urls.toolbarLaunch()}
-                                    onClick={() => {
-                                        handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
-                                    }}
-                                    data-attr="menu-item-toolbar"
-                                >
-                                    <span className="flex text-tertiary group-hover:text-primary">
-                                        <IconToolbar />
-                                    </span>
-                                    {!isLayoutNavCollapsed && 'Toolbar'}
-                                </Link>
-                                )}/>
-                                <TooltipBase.Trigger payload={{ text: 'Settings' }} handle={demoTooltip} render={(props) => (
-                                    <Link
-                                        {...props}
-                                        buttonProps={{
-                                            menuItem: !isLayoutNavCollapsed,
-                                            className: 'group',
-                                            iconOnly: isLayoutNavCollapsed,
-                                            active: isStaticNavItemActive('Settings'),
-                                        }}
-                                        to={urls.settings('project')}
-                                        onClick={() => {
-                                            handleStaticNavbarItemClick(urls.settings('project'), true)
-                                        }}
-                                        // tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
-                                        // tooltipPlacement="right"
-                                        data-attr="menu-item-settings"
+                                <TooltipBase.Trigger
+                                    payload={{ text: 'Toolbar' }}
+                                    handle={demoTooltip}
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            buttonProps={{
+                                                menuItem: !isLayoutNavCollapsed,
+                                                className: 'group',
+                                                iconOnly: isLayoutNavCollapsed,
+                                                active: isStaticNavItemActive('Toolbar'),
+                                            }}
+                                            to={urls.toolbarLaunch()}
+                                            onClick={() => {
+                                                handleStaticNavbarItemClick(urls.toolbarLaunch(), true)
+                                            }}
+                                            data-attr="menu-item-toolbar"
                                         >
-                                        <span className="flex text-tertiary group-hover:text-primary">
-                                            <IconGear />
-                                        </span>
-                                        {!isLayoutNavCollapsed && 'Settings'}
-                                    </Link>
-                                )}/>
+                                            <span className="flex text-tertiary group-hover:text-primary">
+                                                <IconToolbar />
+                                            </span>
+                                            {!isLayoutNavCollapsed && 'Toolbar'}
+                                        </Link>
+                                    )}
+                                />
+                                <TooltipBase.Trigger
+                                    payload={{ text: 'Settings' }}
+                                    handle={demoTooltip}
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            buttonProps={{
+                                                menuItem: !isLayoutNavCollapsed,
+                                                className: 'group',
+                                                iconOnly: isLayoutNavCollapsed,
+                                                active: isStaticNavItemActive('Settings'),
+                                            }}
+                                            to={urls.settings('project')}
+                                            onClick={() => {
+                                                handleStaticNavbarItemClick(urls.settings('project'), true)
+                                            }}
+                                            // tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                            // tooltipPlacement="right"
+                                            data-attr="menu-item-settings"
+                                        >
+                                            <span className="flex text-tertiary group-hover:text-primary">
+                                                <IconGear />
+                                            </span>
+                                            {!isLayoutNavCollapsed && 'Settings'}
+                                        </Link>
+                                    )}
+                                />
 
                                 <AccountMenu
                                     align="end"
@@ -689,80 +709,77 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     }
                                 />
 
-                                <TooltipBase.Root handle={demoTooltip} >
-                                        {({ payload }) => (
+                                <TooltipBase.Root handle={demoTooltip}>
+                                    {({ payload }) => (
                                         <TooltipBase.Portal>
                                             <TooltipBase.Positioner
-                                            sideOffset={10}
-                                            side="right"
-                                            className="
+                                                sideOffset={10}
+                                                side="right"
+                                                className="
                                                 h-(--positioner-height) w-(--positioner-width)
                                                 max-w-(--available-width)
-                                                transition-[top,left,right,bottom,transform]
                                                 duration-[0.35s]
                                                 ease-[cubic-bezier(0.22,1,0.36,1)]
                                                 data-instant:transition-none"
                                             >
-                                            <TooltipBase.Popup
-                                                className="
-                                                relative
-                                                h-(--popup-height,auto) w-(--popup-width,auto)
-                                                max-w-[500px]
-                                                rounded-md
-                                                bg-[canvas]
-                                                text-sm
-                                                z-top
-                                                origin-(--transform-origin)
-                                                shadow-lg shadow-gray-200 outline-1 outline-gray-200
-                                                transition-[width,height,opacity,scale]
-                                                duration-[0.35s]
-                                                ease-[cubic-bezier(0.22,1,0.36,1)]
-                                                data-ending-style:opacity-0 data-ending-style:scale-90
-                                                data-instant:transition-none
-                                                data-starting-style:opacity-0 data-starting-style:scale-90
-                                                dark:shadow-none dark:outline-gray-300 dark:-outline-offset-1"
-                                            >
-                                                <TooltipBase.Viewport
-                                                className="
-                                                    [--viewport-inline-padding:0.5rem]
-                                                    relative
-                                                    h-full w-full
-                                                    overflow-clip
-                                                    px-[var(--viewport-inline-padding)] py-1
-                                                    [&_[data-previous]]:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding))]
-                                                    [&_[data-previous]]:translate-x-0
-                                                    [&_[data-previous]]:opacity-100
-                                                    [&_[data-previous]]:transition-[translate,opacity]
-                                                    [&_[data-previous]]:duration-[350ms,175ms]
-                                                    [&_[data-previous]]:ease-[cubic-bezier(0.22,1,0.36,1)]
-                                                    [&_[data-current]]:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding))]
-                                                    [&_[data-current]]:translate-x-0
-                                                    [&_[data-current]]:opacity-100
-                                                    [&_[data-current]]:transition-[translate,opacity]
-                                                    [&_[data-current]]:duration-[350ms,175ms]
-                                                    [&_[data-current]]:ease-[cubic-bezier(0.22,1,0.36,1)]
-                                                    data-[activation-direction~='left']:[&_[data-current][data-starting-style]]:-translate-x-1/2
-                                                    data-[activation-direction~='left']:[&_[data-current][data-starting-style]]:opacity-0
-                                                    data-[activation-direction~='right']:[&_[data-current][data-starting-style]]:translate-x-1/2
-                                                    data-[activation-direction~='right']:[&_[data-current][data-starting-style]]:opacity-0
-                                                    [[data-instant]_&_[data-previous]]:transition-none
-                                                    [[data-instant]_&_[data-current]]:transition-none
-                                                    data-[activation-direction~='left']:[&_[data-previous][data-ending-style]]:translate-x-1/2
-                                                    data-[activation-direction~='left']:[&_[data-previous][data-ending-style]]:opacity-0
-                                                    data-[activation-direction~='right']:[&_[data-previous][data-ending-style]]:-translate-x-1/2
-                                                    data-[activation-direction~='right']:[&_[data-previous][data-ending-style]]:opacity-0"
+                                                <TooltipBase.Popup
+                                                    className="
+                                                        relative
+                                                        h-(--popup-height,auto) w-(--popup-width,auto)
+                                                        max-w-[500px]
+                                                        rounded-md
+                                                        bg-[canvas]
+                                                        text-sm
+                                                        z-top
+                                                        origin-(--transform-origin)
+                                                        shadow-lg shadow-gray-200 outline-1 outline-gray-200
+                                                        transition-[width,height,opacity,scale]
+                                                        duration-[0.35s]
+                                                        ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                        data-ending-style:opacity-0 data-ending-style:scale-90
+                                                        data-instant:transition-none
+                                                        data-starting-style:opacity-0 data-starting-style:scale-90
+                                                        dark:shadow-none dark:outline-gray-300 dark:-outline-offset-1"
                                                 >
-                                                {payload !== undefined && (
-                                                    <span>
-                                                    Tooltip opened by {payload.text}
-                                                    </span>
-                                                )}
-                                                </TooltipBase.Viewport>
-                                            </TooltipBase.Popup>
+                                                    <TooltipBase.Viewport
+                                                        className="
+                                                            [--viewport-inline-padding:0.5rem]
+                                                            relative
+                                                            h-full w-full
+                                                            overflow-clip
+                                                            px-[var(--viewport-inline-padding)] py-1
+                                                            [&_[data-previous]]:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding))]
+                                                            [&_[data-previous]]:translate-x-0
+                                                            [&_[data-previous]]:opacity-100
+                                                            [&_[data-previous]]:transition-[translate,opacity]
+                                                            [&_[data-previous]]:duration-[350ms,175ms]
+                                                            [&_[data-previous]]:ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                            [&_[data-current]]:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding))]
+                                                            [&_[data-current]]:translate-x-0
+                                                            [&_[data-current]]:opacity-100
+                                                            [&_[data-current]]:transition-[translate,opacity]
+                                                            [&_[data-current]]:duration-[350ms,175ms]
+                                                            [&_[data-current]]:ease-[cubic-bezier(0.22,1,0.36,1)]
+                                                            data-[activation-direction~='left']:[&_[data-current][data-starting-style]]:-translate-x-1/2
+                                                            data-[activation-direction~='left']:[&_[data-current][data-starting-style]]:opacity-0
+                                                            data-[activation-direction~='right']:[&_[data-current][data-starting-style]]:translate-x-1/2
+                                                            data-[activation-direction~='right']:[&_[data-current][data-starting-style]]:opacity-0
+                                                            [[data-instant]_&_[data-previous]]:transition-none
+                                                            [[data-instant]_&_[data-current]]:transition-none
+                                                            data-[activation-direction~='left']:[&_[data-previous][data-ending-style]]:translate-x-1/2
+                                                            data-[activation-direction~='left']:[&_[data-previous][data-ending-style]]:opacity-0
+                                                            data-[activation-direction~='right']:[&_[data-previous][data-ending-style]]:-translate-x-1/2
+                                                            data-[activation-direction~='right']:[&_[data-previous][data-ending-style]]:opacity-0"
+                                                    >
+                                                        {payload !== undefined && (
+                                                            <span>Tooltip opened by {payload.text}</span>
+                                                        )}
+                                                    </TooltipBase.Viewport>
+                                                </TooltipBase.Popup>
                                             </TooltipBase.Positioner>
                                         </TooltipBase.Portal>
-                                        )}
-                                    </TooltipBase.Root>
+                                    )}
+                                </TooltipBase.Root>
                             </div>
                         </div>
                         {!isMobileLayout && (
@@ -805,8 +822,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
                         />
                     )}
-            </div>
-                </TooltipBase.Root>
+                </div>
+            </TooltipBase.Root>
             <ConfigurePinnedTabsModal
                 isOpen={isConfigurePinnedTabsOpen}
                 onClose={() => setIsConfigurePinnedTabsOpen(false)}
