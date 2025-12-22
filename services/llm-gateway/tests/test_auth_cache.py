@@ -102,6 +102,55 @@ class TestAuthCache:
         hit, _ = cache.get("key1")
         assert hit is False
 
+    def test_token_expiry_returns_miss(self) -> None:
+        cache = AuthCache(max_size=100, ttl=60)
+        expired_user = AuthenticatedUser(
+            user_id=1,
+            team_id=2,
+            auth_method="oauth_access_token",
+            scopes=["task:write"],
+            token_expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
+
+        cache.set("expired_token", expired_user)
+        hit, user = cache.get("expired_token")
+
+        assert hit is False
+        assert user is None
+        assert cache.size == 0
+
+    def test_token_without_expiry_returns_hit(self) -> None:
+        cache = AuthCache(max_size=100, ttl=60)
+        user = AuthenticatedUser(
+            user_id=1,
+            team_id=2,
+            auth_method="personal_api_key",
+            scopes=["task:write"],
+            token_expires_at=None,
+        )
+
+        cache.set("api_key", user)
+        hit, cached_user = cache.get("api_key")
+
+        assert hit is True
+        assert cached_user == user
+
+    def test_token_with_future_expiry_returns_hit(self) -> None:
+        cache = AuthCache(max_size=100, ttl=60)
+        user = AuthenticatedUser(
+            user_id=1,
+            team_id=2,
+            auth_method="oauth_access_token",
+            scopes=["task:write"],
+            token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+        cache.set("valid_token", user)
+        hit, cached_user = cache.get("valid_token")
+
+        assert hit is True
+        assert cached_user == user
+
 
 class TestAuthServiceCaching:
     @pytest.fixture

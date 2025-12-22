@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from cachetools import LRUCache
 
@@ -26,10 +27,15 @@ class AuthCache:
             return False, None
 
         if time.monotonic() > entry.expires_at:
-            del self._cache[key]
+            self._cache.pop(key, None)
             return False, None
 
-        return True, entry.user
+        user = entry.user
+        if user and user.token_expires_at and user.token_expires_at < datetime.now(UTC):
+            self._cache.pop(key, None)
+            return False, None
+
+        return True, user
 
     def set(self, key: str, user: AuthenticatedUser | None) -> None:
         expires_at = time.monotonic() + self._ttl

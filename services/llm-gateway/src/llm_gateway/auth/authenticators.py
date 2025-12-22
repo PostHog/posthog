@@ -118,4 +118,5 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 team_id=row["current_team_id"],
                 auth_method=self.auth_type,
                 scopes=scopes,
+                token_expires_at=expires,
             )
