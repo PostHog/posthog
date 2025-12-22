@@ -314,6 +314,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             Object.values(legacyFetchTracker.requests).flat().length > 0
         ) {
             logger.info('🔁', 'Legacy plugin executor results', {
+                teamId: event.teamId,
                 vmFetches: Object.entries(vmFetchTracker.requests).map(([key, value]) => ({
                     key,
                     value: value?.map((request) => ({
