@@ -14,6 +14,11 @@ class MaterializedColumnSlotState(models.TextChoices):
     ERROR = "ERROR", "Error"
 
 
+class MaterializationType(models.TextChoices):
+    DMAT = "dmat", "Dynamic Materialized Column"
+    EAV = "eav", "EAV Table"
+
+
 class MaterializedColumnSlot(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -40,6 +45,11 @@ class MaterializedColumnSlot(UUIDTModel):
     )
     backfill_temporal_workflow_id = models.CharField(max_length=400, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
+    materialization_type = models.CharField(
+        max_length=10,
+        choices=MaterializationType.choices,
+        default=MaterializationType.DMAT,
+    )
 
     class Meta:
         constraints = [

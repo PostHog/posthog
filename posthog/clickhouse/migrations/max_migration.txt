@@ -1,1 +1,1 @@
-0192_cleanup_old_embeddings_mvs
+0193_event_properties_eav_table
