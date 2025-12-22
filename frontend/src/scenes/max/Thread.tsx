@@ -72,6 +72,8 @@ import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
 import { ContextSummary } from './Context'
+import { ErrorTrackingFiltersArtifactAnswer } from './ErrorTrackingFiltersArtifactAnswer'
+import { ErrorTrackingImpactArtifactAnswer } from './ErrorTrackingImpactArtifactAnswer'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { TicketPrompt } from './TicketPrompt'
@@ -95,6 +97,8 @@ import {
     isAssistantMessage,
     isAssistantToolCallMessage,
     isDeepResearchReportCompletion,
+    isErrorTrackingFiltersArtifactContent,
+    isErrorTrackingImpactArtifactContent,
     isFailureMessage,
     isHumanMessage,
     isMultiQuestionFormMessage,
@@ -550,6 +554,24 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
                                 <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                            )
+                        } else if (isErrorTrackingFiltersArtifactContent(message.content)) {
+                            return (
+                                <ErrorTrackingFiltersArtifactAnswer
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                />
+                            )
+                        } else if (isErrorTrackingImpactArtifactContent(message.content)) {
+                            return (
+                                <ErrorTrackingImpactArtifactAnswer
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                />
                             )
                         }
                         return null

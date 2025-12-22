@@ -230,8 +230,12 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
         contents = await self.manager.aget_contents_by_message_id(messages)
 
         self.assertEqual(len(contents), 2)
-        self.assertEqual(contents[msg1_id].name, "First")
-        self.assertEqual(contents[msg2_id].name, "Second")
+        content1 = contents[msg1_id]
+        content2 = contents[msg2_id]
+        assert isinstance(content1, VisualizationArtifactContent)
+        assert isinstance(content2, VisualizationArtifactContent)
+        self.assertEqual(content1.name, "First")
+        self.assertEqual(content2.name, "Second")
 
     async def test_extracts_content_from_state_visualization_messages(self):
         viz_id = str(uuid4())
@@ -253,8 +257,10 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
         contents = await self.manager.aget_contents_by_message_id(messages)
 
         self.assertEqual(len(contents), 1)
-        self.assertEqual(contents[artifact_msg_id].name, "state query")
-        self.assertEqual(contents[artifact_msg_id].plan, "state plan")
+        state_content = contents[artifact_msg_id]
+        assert isinstance(state_content, VisualizationArtifactContent)
+        self.assertEqual(state_content.name, "state query")
+        self.assertEqual(state_content.plan, "state plan")
 
 
 class TestArtifactManagerEnrichMessages(BaseTest):

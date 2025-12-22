@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconDashboard, IconGraph } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconWarning } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -30,6 +30,7 @@ import {
     MaxContextTaxonomicFilterOption,
     MaxContextType,
     MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
@@ -77,10 +78,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
         addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
+        addOrUpdateContextErrorTrackingIssue: (data: MaxErrorTrackingIssueContext) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
         removeContextDashboard: (id: string | number) => ({ id }),
         removeContextEvent: (id: string | number) => ({ id }),
         removeContextAction: (id: string | number) => ({ id }),
+        removeContextErrorTrackingIssue: (id: string | number) => ({ id }),
         loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
         loadAndProcessInsight: (
             data: InsightItemInfo,
@@ -149,6 +152,20 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     addOrUpdateEntity(state, actionToMaxContextPayload(data)),
                 removeContextAction: (state: MaxActionContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
+                resetContext: () => [],
+            },
+        ],
+        contextErrorTrackingIssues: [
+            [] as MaxErrorTrackingIssueContext[],
+            {
+                addOrUpdateContextErrorTrackingIssue: (
+                    state: MaxErrorTrackingIssueContext[],
+                    { data }: { data: MaxErrorTrackingIssueContext }
+                ) => addOrUpdateEntity(state, data),
+                removeContextErrorTrackingIssue: (
+                    state: MaxErrorTrackingIssueContext[],
+                    { id }: { id: string | number }
+                ) => removeEntity(state, id),
                 resetContext: () => [],
             },
         ],
@@ -324,6 +341,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                       preloaded: null,
                                   }
                         }
+                        if (_item.type === MaxContextType.ERROR_TRACKING_ISSUE) {
+                            return {
+                                type: MaxContextType.ERROR_TRACKING_ISSUE,
+                                id: _item.value,
+                                data: _item,
+                            }
+                        }
                     }
 
                     // Handle direct selections
@@ -396,6 +420,16 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         revenueAnalyticsQuery
                     )
                 }
+
+                // Handle error tracking issue selection - data is available from scene context
+                if (itemInfo.type === MaxContextType.ERROR_TRACKING_ISSUE) {
+                    const contextItem = item as MaxContextTaxonomicFilterOption
+                    actions.addOrUpdateContextErrorTrackingIssue({
+                        type: MaxContextType.ERROR_TRACKING_ISSUE,
+                        id: contextItem.value as string,
+                        name: contextItem.name,
+                    })
+                }
             } catch (error) {
                 console.error('Error handling taxonomic filter change:', error)
             }
@@ -442,6 +476,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 return eventToMaxContextPayload(item.data)
                             case MaxContextType.ACTION:
                                 return actionToMaxContextPayload(item.data)
+                            case MaxContextType.ERROR_TRACKING_ISSUE:
+                                return item.data
                             default:
                                 return null
                         }
@@ -480,6 +516,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 icon: IconGraph,
                             })
                         })
+                    } else if (item.type == MaxContextType.ERROR_TRACKING_ISSUE) {
+                        options.push({
+                            id: item.id.toString(),
+                            name: item.name || `Issue ${item.id}`,
+                            value: item.id,
+                            type: MaxContextType.ERROR_TRACKING_ISSUE,
+                            icon: IconWarning,
+                        })
                     }
                 })
 
@@ -511,13 +555,23 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
         compiledContext: [
-            (s: any) => [s.hasData, s.contextInsights, s.contextDashboards, s.contextEvents, s.contextActions],
+            (s: any) => [
+                s.hasData,
+                s.contextInsights,
+                s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
+                s.contextErrorTrackingIssues,
+                s.sceneContext,
+            ],
             (
                 hasData: boolean,
                 contextInsights: MaxInsightContext[],
                 contextDashboards: MaxDashboardContext[],
                 contextEvents: MaxEventContext[],
-                contextActions: MaxActionContext[]
+                contextActions: MaxActionContext[],
+                contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
+                sceneContext: MaxContextItem[]
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
@@ -573,18 +627,68 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     context.actions = contextActions
                 }
 
+                // Add error tracking issues
+                // Merge strategy:
+                // 1. Start with manually added issues (contextErrorTrackingIssues) - these take priority
+                // 2. Add scene-injected issues (sceneErrorTrackingIssues) that aren't already in the manual list
+                // This ensures user-selected issues override scene context, while still including
+                // auto-detected issues from the current page when not explicitly selected.
+                const sceneErrorTrackingIssues = sceneContext.filter(
+                    (item): item is MaxErrorTrackingIssueContext => item.type === MaxContextType.ERROR_TRACKING_ISSUE
+                )
+                const allErrorTrackingIssues = [
+                    ...contextErrorTrackingIssues,
+                    ...sceneErrorTrackingIssues.filter(
+                        (sceneIssue) => !contextErrorTrackingIssues.some((issue) => issue.id === sceneIssue.id)
+                    ),
+                ]
+
+                // Context shape depends on where the user is:
+                // - Issue detail page (/error_tracking/<id>): Send singular `error_tracking_issue`
+                //   so the backend injects "current issue" context for natural "this issue" references
+                // - List view or other pages: Send `error_tracking_issues` array for multi-issue context
+                if (allErrorTrackingIssues.length > 0) {
+                    const pathname = router.values.location?.pathname || ''
+                    const onIssuePage = /^\/error_tracking\/[^/]+$/.test(pathname)
+                    if (onIssuePage) {
+                        context.error_tracking_issue = allErrorTrackingIssues[0]
+                    } else {
+                        context.error_tracking_issues = allErrorTrackingIssues
+                    }
+                }
+
                 return hasData ? context : null
             },
         ],
         hasData: [
-            (s: any) => [s.contextInsights, s.contextDashboards, s.contextEvents, s.contextActions],
+            (s: any) => [
+                s.contextInsights,
+                s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
+                s.contextErrorTrackingIssues,
+                s.sceneContext,
+            ],
             (
                 contextInsights: MaxInsightContext[],
                 contextDashboards: MaxDashboardContext[],
                 contextEvents: MaxEventContext[],
-                contextActions: MaxActionContext[]
+                contextActions: MaxActionContext[],
+                contextErrorTrackingIssues: MaxErrorTrackingIssueContext[],
+                sceneContext: MaxContextItem[]
             ): boolean => {
-                return [contextInsights, contextDashboards, contextEvents, contextActions].some((arr) => arr.length > 0)
+                // Check if scene context has any error tracking issues
+                const sceneErrorTrackingIssues = sceneContext.filter(
+                    (item) => item.type === MaxContextType.ERROR_TRACKING_ISSUE
+                )
+                return [
+                    contextInsights,
+                    contextDashboards,
+                    contextEvents,
+                    contextActions,
+                    contextErrorTrackingIssues,
+                    sceneErrorTrackingIssues,
+                ].some((arr) => arr.length > 0)
             },
         ],
         toolContextItems: [

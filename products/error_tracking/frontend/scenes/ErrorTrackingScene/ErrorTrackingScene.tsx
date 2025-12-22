@@ -22,7 +22,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
@@ -62,8 +61,6 @@ export function ErrorTrackingScene(): JSX.Element {
                             <Header />
 
                             <ErrorTrackingIssueFilteringTool />
-
-                            {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
 
                             {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                             {hasIssueCorrelation ? (

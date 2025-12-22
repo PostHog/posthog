@@ -40,6 +40,7 @@ from ee.hogai.chat_agent.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
+from ee.hogai.core.agent_modes.presets.error_tracking import error_tracking_agent
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
@@ -97,6 +98,7 @@ CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
     AgentMode.SQL: sql_agent,
     AgentMode.SESSION_REPLAY: session_replay_agent,
+    AgentMode.ERROR_TRACKING: error_tracking_agent,
 }
 
 
