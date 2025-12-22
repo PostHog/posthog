@@ -54,6 +54,7 @@ export function VirtualizedLogsList({
         attributeColumnWidths,
         selectedLogIds,
         selectedCount,
+        prettifiedLogIds,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
@@ -65,6 +66,7 @@ export function VirtualizedLogsList({
         selectAll,
         clearSelection,
         selectLogRange,
+        togglePrettifyLog,
     } = useActions(logsViewerLogic)
 
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
@@ -198,6 +200,8 @@ export function VirtualizedLogsList({
                                         selectLogRange(anchorIndex, clickedIndex)
                                         userSetCursorIndex(clickedIndex)
                                     }}
+                                    isPrettified={prettifiedLogIds.has(log.uuid)}
+                                    onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
                                 />
                             </div>
                         )}
@@ -222,6 +226,8 @@ export function VirtualizedLogsList({
             selectedLogIds,
             toggleSelectLog,
             selectLogRange,
+            prettifiedLogIds,
+            togglePrettifyLog,
         ]
     )
 

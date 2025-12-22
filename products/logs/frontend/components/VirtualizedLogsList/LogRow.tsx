@@ -1,4 +1,4 @@
-import { IconChevronRight, IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { IconBrackets, IconChevronRight, IconPin, IconPinFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -32,7 +32,8 @@ const CHECKBOX_WIDTH = 28
 const EXPAND_WIDTH = 28
 const TIMESTAMP_WIDTH = 180
 const MESSAGE_MIN_WIDTH = 300
-const ACTIONS_WIDTH = 70
+const ACTIONS_WIDTH = 120
+const ROW_GAP = 8
 const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH + ACTIONS_WIDTH
 
 // Get width for an attribute column
@@ -51,12 +52,22 @@ const getTotalAttributeColumnsWidth = (
     return attributeColumns.reduce((sum, key) => sum + getAttributeColumnWidth(key, attributeColumnWidths), 0)
 }
 
+// Calculate total gaps: between (controls, timestamp, each attr column, message, actions)
+// = 4 fixed gaps + 1 gap per attribute column
+const getTotalGapsWidth = (attributeColumnCount: number): number => {
+    return (4 + attributeColumnCount) * ROW_GAP
+}
+
 // Calculate total width of fixed-width columns (excludes message flex column)
 export const getFixedColumnsWidth = (
     attributeColumns: string[] = [],
     attributeColumnWidths: Record<string, number> = {}
 ): number => {
-    return FIXED_COLUMNS_TOTAL_WIDTH + getTotalAttributeColumnsWidth(attributeColumns, attributeColumnWidths)
+    return (
+        FIXED_COLUMNS_TOTAL_WIDTH +
+        getTotalAttributeColumnsWidth(attributeColumns, attributeColumnWidths) +
+        getTotalGapsWidth(attributeColumns.length)
+    )
 }
 
 // Calculate total minimum width for horizontal scrolling
@@ -67,7 +78,8 @@ export const getMinRowWidth = (
     return (
         FIXED_COLUMNS_TOTAL_WIDTH +
         MESSAGE_MIN_WIDTH +
-        getTotalAttributeColumnsWidth(attributeColumns, attributeColumnWidths)
+        getTotalAttributeColumnsWidth(attributeColumns, attributeColumnWidths) +
+        getTotalGapsWidth(attributeColumns.length)
     )
 }
 
@@ -101,6 +113,9 @@ export interface LogRowProps {
     isSelected?: boolean
     onToggleSelect?: () => void
     onShiftClick?: (logIndex: number) => void
+    // Per-row prettify
+    isPrettified?: boolean
+    onTogglePrettify?: (log: ParsedLogMessage) => void
 }
 
 export function LogRow({
@@ -122,6 +137,8 @@ export function LogRow({
     isSelected = false,
     onToggleSelect,
     onShiftClick,
+    isPrettified = false,
+    onTogglePrettify,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
     const flexWidth = rowWidth
@@ -142,10 +159,14 @@ export function LogRow({
     }
 
     return (
-        <div className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}>
+        <div
+            className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}
+            style={{ minWidth: rowWidth }}
+        >
             <div
+                style={{ gap: ROW_GAP }}
                 className={cn(
-                    'flex items-center gap-2 cursor-pointer hover:bg-fill-highlight-100 group',
+                    'flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
                     isSelected && 'bg-fill-highlight-100',
                     isAtCursor && 'bg-primary-highlight',
                     pinned && 'bg-warning-highlight',
@@ -210,14 +231,27 @@ export function LogRow({
                 {/* Message */}
                 <MessageCell
                     message={log.cleanBody}
-                    wrapBody={wrapBody}
-                    prettifyJson={prettifyJson}
+                    wrapBody={isPrettified || wrapBody}
+                    prettifyJson={isPrettified || prettifyJson}
                     parsedBody={log.parsedBody}
                     style={getMessageStyle(flexWidth)}
                 />
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 justify-end shrink-0 px-1" style={{ width: ACTIONS_WIDTH }}>
+                    <LemonButton
+                        size="xsmall"
+                        noPadding
+                        icon={<IconBrackets />}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            onTogglePrettify?.(log)
+                        }}
+                        tooltip={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
+                        className={cn(
+                            isPrettified ? 'text-brand-blue' : 'text-muted opacity-0 group-hover:opacity-100'
+                        )}
+                    />
                     <LemonButton
                         size="xsmall"
                         noPadding
@@ -274,8 +308,8 @@ export function LogRowHeader({
 
     return (
         <div
-            className="flex items-center gap-2 h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
-            style={{ width: rowWidth }}
+            style={{ width: rowWidth, gap: ROW_GAP }}
+            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
         >
             {/* Severity + Checkbox + Expand header space */}
             <div className="flex items-center self-stretch">
