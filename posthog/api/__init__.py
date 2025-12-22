@@ -931,20 +931,6 @@ projects_router.register(r"search", search.SearchViewSet, "project_search", ["pr
 
 projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
 
-projects_router.register(
-    r"change_requests",
-    approval_api.ChangeRequestViewSet,
-    "project_change_requests",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"approval_policies",
-    approval_api.ApprovalPolicyViewSet,
-    "project_approval_policies",
-    ["team_id"],
-)
-
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
 )
@@ -1097,5 +1083,19 @@ environments_router.register(
     r"llm_analytics/evaluation_config",
     EvaluationConfigViewSet,
     "environment_llm_analytics_evaluation_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"change_requests",
+    approval_api.ChangeRequestViewSet,
+    "environment_change_requests",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"approval_policies",
+    approval_api.ApprovalPolicyViewSet,
+    "environment_approval_policies",
     ["team_id"],
 )

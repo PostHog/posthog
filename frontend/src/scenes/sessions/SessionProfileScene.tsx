@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -21,6 +20,7 @@ import { ActivityTab } from '~/types'
 import { SessionDetailsCard } from './components/SessionDetailsCard'
 import { SessionEventsList } from './components/SessionEventsList'
 import { SessionMetricsCard } from './components/SessionMetricsCard'
+import { SessionRecordingSection } from './components/SessionRecordingSection'
 import { SessionProfileLogicProps, sessionProfileLogic } from './sessionProfileLogic'
 
 export const scene: SceneExport<SessionProfileLogicProps> = {
@@ -30,15 +30,8 @@ export const scene: SceneExport<SessionProfileLogicProps> = {
 }
 
 export function SessionProfileScene(): JSX.Element {
-    const {
-        sessionId,
-        sessionData,
-        isInitialLoading,
-        sessionDataLoading,
-        sessionEventsLoading,
-        hasRecording,
-        hasRecordingLoading,
-    } = useValues(sessionProfileLogic)
+    const { sessionId, sessionData, isInitialLoading, sessionDataLoading, sessionEventsLoading } =
+        useValues(sessionProfileLogic)
     const { loadSessionData } = useActions(sessionProfileLogic)
 
     if (!sessionData && !isInitialLoading) {
@@ -62,24 +55,14 @@ export function SessionProfileScene(): JSX.Element {
                     key: 'sessions',
                 }}
                 actions={
-                    <>
-                        <ViewRecordingButton
-                            sessionId={sessionData?.session_id}
-                            recordingStatus={hasRecording ? 'active' : 'none'}
-                            openPlayerIn={RecordingPlayerType.Modal}
-                            size="small"
-                            type="secondary"
-                            loading={hasRecordingLoading}
-                        />
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            onClick={() => loadSessionData()}
-                            loading={sessionDataLoading || sessionEventsLoading}
-                        >
-                            Refresh
-                        </LemonButton>
-                    </>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={() => loadSessionData()}
+                        loading={sessionDataLoading || sessionEventsLoading}
+                    >
+                        Refresh
+                    </LemonButton>
                 }
             />
             <SceneDivider />
@@ -122,6 +105,7 @@ export function SessionProfileScene(): JSX.Element {
                     )}
                     <SessionMetricsCard />
                     <SessionDetailsCard />
+                    <SessionRecordingSection />
                     <SessionEventsList />
                 </div>
             </BindLogic>
