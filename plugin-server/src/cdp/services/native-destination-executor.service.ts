@@ -1,7 +1,6 @@
 import { Histogram } from 'prom-client'
 
 import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
-import { PluginsServerConfig } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../utils/logger'
@@ -10,13 +9,7 @@ import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
-
-/** Narrowed config type for NativeDestinationExecutorService */
-export type NativeDestinationExecutorConfig = Pick<
-    PluginsServerConfig,
-    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
->
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
@@ -53,7 +46,7 @@ const convertFetchResponse = (response: FetchResponse, text: string): Response =
  */
 
 export class NativeDestinationExecutorService {
-    constructor(private serverConfig: NativeDestinationExecutorConfig) {}
+    constructor(private serverConfig: CdpFetchConfig) {}
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction

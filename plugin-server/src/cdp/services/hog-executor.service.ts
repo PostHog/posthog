@@ -37,6 +37,9 @@ import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
+/** Narrowed config type for CDP fetch retry settings, used by destination executors */
+export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+
 export type HogExecutorServiceHub = Pick<
     Hub,
     | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'

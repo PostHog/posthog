@@ -2,7 +2,6 @@ import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
 import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
-import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
 import { FetchOptions, FetchResponse, Response } from '../../utils/request'
@@ -11,13 +10,7 @@ import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
-
-/** Narrowed config type for SegmentDestinationExecutorService */
-export type SegmentDestinationExecutorConfig = Pick<
-    PluginsServerConfig,
-    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
->
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -102,7 +95,7 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
  */
 
 export class SegmentDestinationExecutorService {
-    constructor(private serverConfig: SegmentDestinationExecutorConfig) {}
+    constructor(private serverConfig: CdpFetchConfig) {}
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction

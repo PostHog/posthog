@@ -4,7 +4,7 @@ import { CdpRedisPoolConfig } from '~/utils/db/redis'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
-import { HogExecutorService, HogExecutorServiceHub } from '../services/hog-executor.service'
+import { CdpFetchConfig, HogExecutorService, HogExecutorServiceHub } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -21,22 +21,15 @@ import {
 } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherServiceHub } from '../services/monitoring/hog-watcher.service'
-import {
-    NativeDestinationExecutorConfig,
-    NativeDestinationExecutorService,
-} from '../services/native-destination-executor.service'
-import {
-    SegmentDestinationExecutorConfig,
-    SegmentDestinationExecutorService,
-} from '../services/segment-destination-executor.service'
+import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
 /**
  * Combined Hub type for CdpConsumerBase and all CDP consumers.
  * This includes all fields needed by the base consumer and its services.
  */
 export type CdpConsumerBaseHub = CdpRedisPoolConfig &
-    NativeDestinationExecutorConfig &
-    SegmentDestinationExecutorConfig &
+    CdpFetchConfig &
     HogFunctionManagerHub &
     HogExecutorServiceHub &
     HogFunctionMonitoringServiceHub &
