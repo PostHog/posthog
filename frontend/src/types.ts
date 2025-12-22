@@ -4753,6 +4753,7 @@ export type APIScopeObject =
     | 'annotation'
     | 'batch_export'
     | 'cohort'
+    | 'customer_profile_config'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
@@ -6428,6 +6429,16 @@ export interface ChangeRequest {
     can_cancel: boolean
     is_requester: boolean
     user_decision: string | null
+}
+
+export interface CustomerProfileConfigType {
+    id: string
+    team: number
+    content: Record<string, any>
+    sidebar: Record<string, any>
+    scope: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
+    created_at: string
+    updated_at: string
 }
 
 export interface ApprovalPolicy {
