@@ -90,10 +90,7 @@ const Sampling = ({
     return (
         <div>
             <LemonLabel className="text-base">Sampling</LemonLabel>
-            <IngestionControls.SamplingTrigger
-                initialSampleRate={initialValue * 100}
-                onChange={(v) => onChange(v / 100)}
-            />
+            <IngestionControls.SamplingTrigger initialSampleRate={initialValue * 100} onChange={onChange} />
             <p>Choose how many exceptions to capture. 100% = capture every exception, 50% = capture roughly half.</p>
         </div>
     )

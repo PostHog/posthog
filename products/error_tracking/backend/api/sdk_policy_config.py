@@ -44,12 +44,10 @@ class ErrorTrackingSDKPolicyConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Model
     serializer_class = ErrorTrackingSDKPolicyConfigSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        context = self.request.query_params.get("context")
-        queryset = (
-            queryset.prefetch_related("assignments")
-            .filter(team=self.team, assignments__context=context, assignments__isnull=False)
-            .distinct()
-        )
+        queryset = queryset.prefetch_related("assignments").filter(team=self.team)
+        if self.action == "list":
+            context = self.request.query_params.get("context")
+            queryset = queryset.filter(assignments__context=context, assignments__isnull=False).distinct()
         return queryset
 
     def list(self, request, *args, **kwargs):
