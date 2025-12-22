@@ -18,7 +18,7 @@ impl Throttler {
 
     pub fn throttle(&mut self) {
         let now = Instant::now();
-        
+
         // Remove expired entries before checking limit
         while let Some(&oldest) = self.history.front() {
             if now - oldest >= self.duration {
@@ -27,7 +27,7 @@ impl Throttler {
                 break;
             }
         }
-        
+
         // If at limit, wait for oldest to expire
         if self.history.len() >= self.limit {
             if let Some(&oldest) = self.history.front() {
@@ -39,10 +39,9 @@ impl Throttler {
                 self.history.pop_front();
             }
         }
-        
+
         // Add current request
         self.history.push_back(Instant::now());
-    }
     }
 }
 
