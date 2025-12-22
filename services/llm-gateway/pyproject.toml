@@ -22,6 +22,7 @@ dependencies = [
     "structlog>=24.4.0",
     "httpx>=0.28.0",
     "posthog>=3.0.0",
+    "cachetools>=5.5.0",
 ]
 
 [dependency-groups]
@@ -36,6 +37,7 @@ dev = [
     "anthropic>=0.40.0",
     "fakeredis==2.23.3",
     "asyncpg-stubs>=0.30.0",
+    "types-cachetools>=5.5.0",
 ]
 
 [build-system]

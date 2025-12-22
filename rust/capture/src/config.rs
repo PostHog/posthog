@@ -134,6 +134,11 @@ pub struct Config {
     // Set env var to enable; unset to disable.
     pub http1_header_read_timeout_ms: Option<u64>,
 
+    // Body chunk read timeout in milliseconds. If a client stops sending data
+    // for this duration mid-upload, the request is aborted with 504.
+    // Set env var to enable; unset to disable (existing behavior).
+    pub body_chunk_read_timeout_ms: Option<u64>,
+
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 }

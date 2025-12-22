@@ -9,10 +9,11 @@ use chrono::DateTime;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use serde_json;
-use tracing::{debug, error, info, instrument, Span};
+use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
+    debug_or_info,
     prometheus::report_dropped_events,
     router, sinks,
     utils::uuid_v7,
@@ -133,11 +134,7 @@ pub async fn process_events<'a>(
         .map(|e| process_single_event(e, historical_cfg.clone(), context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
-    if chatty_debug_enabled {
-        info!(context=?context, event_count=?events.len(), "CHATTY: created ProcessedEvents batch");
-    } else {
-        debug!(context=?context, event_count=?events.len(), "created ProcessedEvents batch");
-    }
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
     events.retain(|e| {
         if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
@@ -148,11 +145,7 @@ pub async fn process_events<'a>(
         }
     });
 
-    if chatty_debug_enabled {
-        info!(context=?context, event_count=?events.len(), "CHATTY: filtered ProcessedEvents batch");
-    } else {
-        debug!(context=?context, event_count=?events.len(), "filtered ProcessedEvents batch");
-    }
+    debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered ProcessedEvents batch");
 
     if events.len() == 1 {
         sink.send(events[0].clone()).await?;
@@ -160,11 +153,7 @@ pub async fn process_events<'a>(
         sink.send_batch(events).await?;
     }
 
-    if chatty_debug_enabled {
-        info!(context=?context, "CHATTY: sent analytics events");
-    } else {
-        debug!(context=?context, "sent analytics events");
-    }
+    debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
 
     Ok(())
 }

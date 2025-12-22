@@ -37,9 +37,6 @@ importers:
       lint-staged:
         specifier: ~15.4.3
         version: 15.4.3
-      turbo:
-        specifier: ^2.4.2
-        version: 2.4.2
       uuid:
         specifier: ^10.0.0
         version: 10.0.0
@@ -80,6 +77,9 @@ importers:
       syncpack:
         specifier: ^13.0.4
         version: 13.0.4(typescript@5.2.2)
+      turbo:
+        specifier: ^2.4.2
+        version: 2.4.2
     optionalDependencies:
       fsevents:
         specifier: ^2.3.3
@@ -2200,8 +2200,14 @@ importers:
         specifier: ^6.1.1
         version: 6.1.1
       '@types/node':
-        specifier: ^22.15.34
+        specifier: ^22.17.2
         version: 22.18.8
+      ajv:
+        specifier: ^8.17.1
+        version: 8.17.1
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.17.1)
       dotenv:
         specifier: ^16.4.7
         version: 16.4.7
@@ -40856,7 +40862,7 @@ snapshots:
 
   table@6.8.1:
     dependencies:
-      ajv: 8.12.0
+      ajv: 8.17.1
       lodash.truncate: 4.4.2
       slice-ansi: 4.0.0
       string-width: 4.2.3

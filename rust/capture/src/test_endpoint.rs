@@ -1,6 +1,7 @@
 use std::{io::Read, ops::Deref};
 
 use axum::{
+    body::Body,
     debug_handler,
     extract::{MatchedPath, Query, State},
     http::{HeaderMap, Method},
@@ -14,6 +15,7 @@ use tracing::error;
 
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
+    extractors::extract_body_with_timeout,
     payload::{decompression::GZIP_MAGIC_NUMBERS, Compression, EventFormData, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -39,8 +41,17 @@ pub async fn test_black_hole(
     headers: HeaderMap,
     _method: Method,
     _path: MatchedPath,
-    body: Bytes,
+    body: Body,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
+    // Extract body with optional chunk timeout
+    let body = extract_body_with_timeout(
+        body,
+        state.event_size_limit,
+        state.body_chunk_read_timeout,
+        "/test/black_hole",
+    )
+    .await?;
+
     metrics::counter!(REQUEST_SEEN).increment(1);
     let comp = match meta.compression {
         Some(Compression::Gzip) => String::from("gzip"),
