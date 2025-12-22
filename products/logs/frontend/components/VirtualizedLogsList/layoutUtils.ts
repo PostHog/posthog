@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 // Layout constants for log rows
 export const DEFAULT_ATTRIBUTE_COLUMN_WIDTH = 150
 export const MIN_ATTRIBUTE_COLUMN_WIDTH = 80
@@ -35,7 +37,7 @@ export const getMinRowWidth = (
     attributeColumnWidths: Record<string, number> = {}
 ): number => getFixedColumnsWidth(attributeColumns, attributeColumnWidths) + MESSAGE_MIN_WIDTH
 
-export const getMessageStyle = (flexWidth?: number): React.CSSProperties => ({
+export const getMessageStyle = (flexWidth?: number): CSSProperties => ({
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: flexWidth ? Math.max(flexWidth, MESSAGE_MIN_WIDTH) : MESSAGE_MIN_WIDTH,
