@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconChevronRight, IconExternal } from '@posthog/icons'
 
@@ -7,22 +7,15 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
-import api from '~/lib/api'
 import { Query } from '~/queries/Query/Query'
-import { InsightQueryNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 
 import { QUERY_TYPES_METADATA } from '../saved-insights/SavedInsights'
-import { insightLogic } from './insightLogic'
+import { InsightSuggestion, insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 
 export interface InsightDiveDeeperSectionProps {
+    insightId: number
     query: InsightQueryNode
-    analysisContext?: string
-}
-
-export type InsightSuggestion = {
-    title: string
-    description?: string
-    targetQuery: InsightVizNode
 }
 
 function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.Element {
@@ -67,51 +60,10 @@ function DiveDeeperRow({ suggestion }: { suggestion: InsightSuggestion }): JSX.E
     )
 }
 
-export function InsightDiveDeeperSection({
-    query,
-    analysisContext,
-}: InsightDiveDeeperSectionProps): JSX.Element | null {
-    const { insight } = useValues(insightLogic)
-    const [suggestions, setSuggestions] = useState<InsightSuggestion[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+export function InsightDiveDeeperSection({ insightId, query }: InsightDiveDeeperSectionProps): JSX.Element | null {
+    const { suggestions, suggestionsLoading } = useValues(insightAIAnalysisLogic({ insightId, query }))
 
-    useEffect(() => {
-        let isMounted = true
-
-        const fetchSuggestions = async (): Promise<void> => {
-            if (!insight.id) {
-                setIsLoading(false)
-                return
-            }
-
-            try {
-                setIsLoading(true)
-
-                const response = await api.insights.getSuggestions(insight.id, analysisContext)
-
-                if (isMounted) {
-                    setSuggestions(response)
-                }
-            } catch (e) {
-                console.error('[DiveDeeperSection] Error fetching suggestions', e)
-                if (isMounted) {
-                    setSuggestions([])
-                }
-            } finally {
-                if (isMounted) {
-                    setIsLoading(false)
-                }
-            }
-        }
-
-        void fetchSuggestions()
-
-        return () => {
-            isMounted = false
-        }
-    }, [insight.id, JSON.stringify(query), analysisContext])
-
-    if (isLoading) {
+    if (suggestionsLoading) {
         return (
             <div className="mt-4 flex items-center gap-2 text-muted">
                 <Spinner className="text-xl" />
