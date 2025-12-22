@@ -37,7 +37,7 @@ import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-ace
 import { Celery } from './celery'
 import { DB } from './db'
 import { PostgresRouter } from './postgres'
-import { createRedisPool } from './redis'
+import { createCookielessRedisPool, createIngestionRedisPool } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -99,11 +99,11 @@ export async function createHub(
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)
-    const redisPool = createRedisPool(serverConfig, 'ingestion')
+    const redisPool = createIngestionRedisPool(serverConfig)
     logger.info('👍', `Ingestion Redis ready`)
 
     logger.info('🤔', `Connecting to cookieless Redis...`)
-    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    const cookielessRedisPool = createCookielessRedisPool(serverConfig)
     logger.info('👍', `Cookieless Redis ready`)
 
     const db = new DB(

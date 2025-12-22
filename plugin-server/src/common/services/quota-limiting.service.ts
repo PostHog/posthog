@@ -1,4 +1,4 @@
-import { createRedisPool } from '~/utils/db/redis'
+import { createPosthogRedisPool } from '~/utils/db/redis'
 import { TeamManager } from '~/utils/team-manager'
 
 import { PluginsServerConfig, RedisPool } from '../../types'
@@ -28,7 +28,7 @@ export class QuotaLimiting {
         config: PluginsServerConfig,
         private readonly teamManager: TeamManager
     ) {
-        this.redisPool = createRedisPool(config, 'posthog')
+        this.redisPool = createPosthogRedisPool(config)
 
         this.limitedTokensLoader = new LazyLoader({
             name: 'quota_limited_tokens',

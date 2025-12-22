@@ -1,7 +1,7 @@
 import { Redis } from 'ioredis'
 
 import { RedisPool } from '../types'
-import { createRedisPool } from './db/redis'
+import { createIngestionRedisPool } from './db/redis'
 import {
     EventIngestionRestrictionManager,
     REDIS_KEY_PREFIX,
@@ -21,11 +21,11 @@ jest.mock('./db/redis', () => {
     }
 
     return {
-        createRedisPool: jest.fn().mockReturnValue(redisPool),
+        createIngestionRedisPool: jest.fn().mockReturnValue(redisPool),
     }
 })
 
-const mockCreateRedisPool = createRedisPool as jest.MockedFunction<typeof createRedisPool>
+const mockCreateRedisPool = createIngestionRedisPool as jest.MockedFunction<typeof createIngestionRedisPool>
 
 type DynamicConfigInput = {
     dropTokens?: string[]
@@ -92,7 +92,7 @@ describe('EventIngestionRestrictionManager', () => {
             ]),
         }
 
-        redisPool = mockCreateRedisPool({} as any, 'posthog')
+        redisPool = mockCreateRedisPool({} as any)
         redisClient = await redisPool.acquire()
         redisClient.pipeline = jest.fn().mockReturnValue(pipelineMock)
 
@@ -228,7 +228,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('handles Redis pool acquisition errors gracefully', async () => {
-            require('./db/redis').createRedisPool().acquire.mockRejectedValueOnce(new Error('Pool error'))
+            require('./db/redis').createIngestionRedisPool().acquire.mockRejectedValueOnce(new Error('Pool error'))
 
             await eventIngestionRestrictionManager.forceRefresh()
 

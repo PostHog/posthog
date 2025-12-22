@@ -8,7 +8,7 @@ import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { SessionRecordingRedisConfig, createRedisPool } from '../../../utils/db/redis'
+import { SessionRecordingRedisConfig, createSessionRecordingRedisPool } from '../../../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
@@ -137,7 +137,7 @@ export class SessionRecordingIngester {
         this.topTracker = new TopTracker()
         this.kafkaParser = new KafkaMessageParser(this.topTracker)
 
-        this.redisPool = createRedisPool(this.hub, 'session-recording')
+        this.redisPool = createSessionRecordingRedisPool(this.hub)
 
         const teamService = new TeamService(postgres)
 

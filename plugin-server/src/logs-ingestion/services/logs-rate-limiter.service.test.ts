@@ -1,5 +1,5 @@
 import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createLogsRedisV2Pool } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
@@ -29,7 +29,7 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 10
             hub.LOGS_LIMITER_TTL_SECONDS = 60 * 60 * 24
 
-            redis = createRedisV2Pool(hub, 'logs')
+            redis = createLogsRedisV2Pool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             rateLimiter = new LogsRateLimiterService(hub, redis)
@@ -233,7 +233,7 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
             hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
 
-            redis = createRedisV2Pool(hub, 'logs')
+            redis = createLogsRedisV2Pool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             rateLimiter = new LogsRateLimiterService(hub, redis)
@@ -424,7 +424,7 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
             hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
 
-            redis = createRedisV2Pool(hub, 'logs')
+            redis = createLogsRedisV2Pool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
         })
 

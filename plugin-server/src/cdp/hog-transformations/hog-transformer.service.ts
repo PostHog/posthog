@@ -2,7 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createCdpRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
@@ -136,7 +136,7 @@ export class HogTransformerService {
 
     constructor(hub: HogTransformerHub) {
         this.hub = hub
-        this.redis = createRedisV2Pool(hub, 'cdp')
+        this.redis = createCdpRedisV2Pool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub.db, hub.geoipService)

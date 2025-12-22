@@ -1,13 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import {
-    CdpRedisPoolConfig,
-    LogsRedisPoolConfig,
-    REDIS_SERVER_KIND,
-    RedisPoolConfig,
-    createRedis,
-} from '../../utils/db/redis'
+import { CdpRedisPoolConfig, LogsRedisPoolConfig, createCdpRedis, createLogsRedis } from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -40,26 +34,18 @@ export type RedisV2 = {
 }
 
 // NOTE: This is intended to replace the general redis client with a nicer wrapper for using the client safely with the acquire locking
-// Overload for CDP-specific config
-export function createRedisV2Pool(config: CdpRedisPoolConfig, kind: 'cdp'): RedisV2
-// Overload for Logs-specific config
-export function createRedisV2Pool(config: LogsRedisPoolConfig, kind: 'logs'): RedisV2
-// General overload
-export function createRedisV2Pool(config: RedisPoolConfig, kind: REDIS_SERVER_KIND): RedisV2
-// Implementation
-export function createRedisV2Pool(
-    config: RedisPoolConfig | CdpRedisPoolConfig | LogsRedisPoolConfig,
-    kind: REDIS_SERVER_KIND
+
+// Shared pool creation logic
+function createRedisV2PoolInternal<TConfig extends { REDIS_POOL_MIN_SIZE: number; REDIS_POOL_MAX_SIZE: number }>(
+    config: TConfig,
+    createClient: () => Promise<Redis>
 ): RedisV2 {
-    // Cast to full config - the overloads ensure correct usage at call sites
-    const redisConfig = config as RedisPoolConfig
     const pool = createPool<RedisClient>(
         {
             create: async () => {
-                const client = await createRedis(redisConfig, kind)
-
+                const client = await createClient()
                 defineLuaTokenBucket(client)
-
+                // defineLuaTokenBucket mutates client to add custom methods
                 return client as RedisClient
             },
             destroy: async (client) => {
@@ -67,8 +53,8 @@ export function createRedisV2Pool(
             },
         },
         {
-            min: redisConfig.REDIS_POOL_MIN_SIZE,
-            max: redisConfig.REDIS_POOL_MAX_SIZE,
+            min: config.REDIS_POOL_MIN_SIZE,
+            max: config.REDIS_POOL_MAX_SIZE,
             autostart: true,
         }
     )
@@ -109,6 +95,15 @@ export function createRedisV2Pool(
         useClient,
         usePipeline,
     }
+}
+
+// Type-safe pool creators (no config casts)
+export function createCdpRedisV2Pool(config: CdpRedisPoolConfig): RedisV2 {
+    return createRedisV2PoolInternal(config, () => createCdpRedis(config))
+}
+
+export function createLogsRedisV2Pool(config: LogsRedisPoolConfig): RedisV2 {
+    return createRedisV2PoolInternal(config, () => createLogsRedis(config))
 }
 
 export type RedisPipelineResults = [Error | null, any][]

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createLogsRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
@@ -123,7 +123,7 @@ export class LogsIngestionConsumer {
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
-        this.redis = createRedisV2Pool(hub, 'logs')
+        this.redis = createLogsRedisV2Pool(hub)
         this.rateLimiter = new LogsRateLimiterService(hub, this.redis)
     }
 

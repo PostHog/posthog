@@ -6,7 +6,7 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
-import { createRedisV2Pool } from '~/common/redis/redis-v2'
+import { createCdpRedisV2Pool } from '~/common/redis/redis-v2'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
@@ -533,7 +533,7 @@ describe('CDP API', () => {
     describe('hog function states', () => {
         beforeEach(async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
-            const redis = createRedisV2Pool(hub, 'cdp')
+            const redis = createCdpRedisV2Pool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
         })
 

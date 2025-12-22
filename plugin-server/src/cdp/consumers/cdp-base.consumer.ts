@@ -1,4 +1,4 @@
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createCdpRedisV2Pool } from '~/common/redis/redis-v2'
 import { CdpRedisPoolConfig } from '~/utils/db/redis'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -86,7 +86,7 @@ export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsu
     protected heartbeat = () => {}
 
     constructor(protected hub: THub) {
-        this.redis = createRedisV2Pool(hub, 'cdp')
+        this.redis = createCdpRedisV2Pool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
