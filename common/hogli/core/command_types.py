@@ -165,11 +165,11 @@ def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:
                         click.echo(f"    {m.app}: {m.name} ({cached})")
                     click.echo()
 
-                    click.echo("Run 'hogli db:migrations sync' to roll them back.\n")
+                    click.echo("Run 'hogli migrations:sync' to roll them back.\n")
 
                     if not yes:
                         if not click.confirm("Continue anyway?", default=False):
-                            click.echo("Aborted. Run 'hogli db:migrations sync' first.")
+                            click.echo("Aborted. Run 'hogli migrations:sync' first.")
                             return False
 
             except Exception as e:
