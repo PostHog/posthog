@@ -50,7 +50,7 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                     </LemonBanner>
                 )}
                 <div className="flex flex-col gap-y-2">
-                    <IngestionControlsSummary triggers={triggers} />
+                    <IngestionControlsSummary triggers={triggers} controlDescription="exceptions captured" />
                     <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
                         <UrlConfig
                             logicProps={{

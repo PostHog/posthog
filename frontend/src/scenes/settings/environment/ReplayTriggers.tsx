@@ -304,7 +304,16 @@ const RecordingTriggersSummary = ({
         )
     }
 
-    return <IngestionControlsSummary triggers={triggers} />
+    return (
+        <IngestionControlsSummary
+            triggers={triggers}
+            controlDescription="sessions recorded"
+            docsLink={{
+                to: 'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record',
+                label: 'Read about how to start and stop sessions in our docs.',
+            }}
+        />
+    )
 }
 
 const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: 'web' | 'mobile'): Trigger[] => {
