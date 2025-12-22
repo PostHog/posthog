@@ -303,6 +303,7 @@ export function LogRowHeader({
                         key={`attr-${attributeKey}`}
                         defaultWidth={width + RESIZER_HANDLE_WIDTH}
                         minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
+                        maxWidth={Infinity}
                         onResize={(newWidth) =>
                             onResizeAttributeColumn?.(attributeKey, newWidth - RESIZER_HANDLE_WIDTH)
                         }
