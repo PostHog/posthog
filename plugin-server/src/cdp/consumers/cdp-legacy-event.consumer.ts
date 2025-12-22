@@ -309,22 +309,27 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         }
 
         // Log the object just without bodies
-        logger.info('🔁', 'Legacy plugin executor results', {
-            vmFetches: Object.entries(vmFetchTracker.requests).map(([key, value]) => ({
-                key,
-                value: value?.map((request) => ({
-                    url: request.url,
-                    method: request.method,
+        if (
+            Object.values(vmFetchTracker.requests).flat().length > 0 ||
+            Object.values(legacyFetchTracker.requests).flat().length > 0
+        ) {
+            logger.info('🔁', 'Legacy plugin executor results', {
+                vmFetches: Object.entries(vmFetchTracker.requests).map(([key, value]) => ({
+                    key,
+                    value: value?.map((request) => ({
+                        url: request.url,
+                        method: request.method,
+                    })),
                 })),
-            })),
-            legacyFetches: Object.entries(legacyFetchTracker.requests).map(([key, value]) => ({
-                key,
-                value: value?.map((request) => ({
-                    url: request.url,
-                    method: request.method,
+                legacyFetches: Object.entries(legacyFetchTracker.requests).map(([key, value]) => ({
+                    key,
+                    value: value?.map((request) => ({
+                        url: request.url,
+                        method: request.method,
+                    })),
                 })),
-            })),
-        })
+            })
+        }
 
         vmFetchTracker.clearRequests()
         legacyFetchTracker.clearRequests()
