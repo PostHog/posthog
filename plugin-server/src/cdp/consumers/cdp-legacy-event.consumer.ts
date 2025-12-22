@@ -307,6 +307,15 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 })
             )
         }
+    }
+
+    @instrumented('cdpLegacyEventsConsumer.processBatch')
+    public async processBatch(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
+        if (invocationGlobals.length) {
+            await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
+        }
 
         // Log the object just without bodies
         if (
@@ -314,7 +323,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             Object.values(legacyFetchTracker.requests).flat().length > 0
         ) {
             logger.info('🔁', 'Legacy plugin executor results', {
-                teamId: event.teamId,
+                teams: Array.from(new Set(invocationGlobals.map((x) => x.project.id))).join(', '),
                 vmFetches: Object.entries(vmFetchTracker.requests).map(([key, value]) => ({
                     key,
                     value: value?.map((request) => ({
@@ -334,16 +343,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
         vmFetchTracker.clearRequests()
         legacyFetchTracker.clearRequests()
-    }
-
-    @instrumented('cdpLegacyEventsConsumer.processBatch')
-    public async processBatch(
-        invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
-        if (invocationGlobals.length) {
-            await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
-        }
-
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: this.promiseScheduler.waitForAll(),
