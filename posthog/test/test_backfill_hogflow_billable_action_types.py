@@ -15,7 +15,6 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
 
     def test_backfill_with_various_billable_action_types(self):
         """Test that the command correctly backfills various billable action configurations"""
-        # Create test HogFlows
         flow1 = HogFlow.objects.create(
             team=self.team,
             created_by=self.user,
@@ -79,7 +78,6 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
         output = out.getvalue()
         # Should have processed flows and updated at least the 3 we created
         self.assertIn("Backfill completed", output)
-        # Verify our specific flows were updated correctly (the actual check above is sufficient)
 
     def test_dry_run_mode(self):
         """Test that dry-run mode doesn't make changes"""
@@ -92,16 +90,12 @@ class BackfillHogFlowBillableActionTypesTest(TestCase):
             billable_action_types=None,  # Simulate unmigrated flow
         )
 
-        # Run in dry-run mode
         out = StringIO()
         call_command("backfill_hogflow_billable_action_types", "--dry-run", stdout=out)
 
-        # Check that nothing was updated
         flow.refresh_from_db()
-        # Should still be None since dry-run doesn't update
         self.assertIsNone(flow.billable_action_types)
 
-        # Check output
         output = out.getvalue()
         self.assertIn("DRY RUN mode", output)
         self.assertIn("DRY RUN completed", output)
