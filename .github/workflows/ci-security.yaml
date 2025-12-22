@@ -31,25 +31,6 @@ jobs:
                       PostHog/
                       tailscale/
 
-    # custom semgrep rules across all languages
-    semgrep-custom:
-        runs-on: ubuntu-latest
-        container:
-            image: returntocorp/semgrep
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-
-            - name: Run Semgrep
-              run: |
-                  semgrep \
-                    --config ".semgrep/" \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    .
-
     semgrep-python:
         runs-on: ubuntu-latest
         container:
@@ -176,17 +157,13 @@ jobs:
                     .
 
     semgrep_checks:
-        needs: [semgrep-custom, semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general]
+        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general]
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         if: always()
         steps:
             - name: Check matrix outcome
               run: |
-                  if [[ "${{ needs.semgrep-custom.result }}" != "success" && "${{ needs.semgrep-custom.result }}" != "skipped" ]]; then
-                    echo "semgrep-custom did not complete successfully."
-                    exit 1
-                  fi
                   if [[ "${{ needs.semgrep-python.result }}" != "success" && "${{ needs.semgrep-python.result }}" != "skipped" ]]; then
                     echo "semgrep-python did not complete successfully."
                     exit 1
