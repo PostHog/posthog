@@ -14,8 +14,8 @@ pub enum DsymSubcommand {
 
 /// Represents a dSYM bundle ready for upload
 pub struct DsymFile {
-    /// The UUID of the dSYM (used as chunk_id for matching)
-    pub uuid: String,
+    /// The UUIDs of the dSYM (one per architecture, used as chunk_id for matching)
+    pub uuids: Vec<String>,
     /// The zipped dSYM bundle data
     pub data: Vec<u8>,
     /// Optional release ID
@@ -38,34 +38,37 @@ impl DsymFile {
             );
         }
 
-        // Extract UUID from the dSYM
-        let uuid = extract_dsym_uuid(path)?;
+        // Extract UUIDs from the dSYM (one per architecture for universal binaries)
+        let uuids = extract_dsym_uuids(path)?;
 
         // Zip the dSYM bundle
         let data = zip_dsym_bundle(path)?;
 
         Ok(Self {
-            uuid,
+            uuids,
             data,
             release_id: None,
         })
     }
 }
 
-impl TryInto<SymbolSetUpload> for DsymFile {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<SymbolSetUpload> {
-        Ok(SymbolSetUpload {
-            chunk_id: self.uuid,
-            release_id: self.release_id,
-            data: self.data,
-        })
+impl DsymFile {
+    /// Convert to SymbolSetUploads (one per UUID/architecture)
+    pub fn into_uploads(self) -> Vec<SymbolSetUpload> {
+        self.uuids
+            .into_iter()
+            .map(|uuid| SymbolSetUpload {
+                chunk_id: uuid,
+                release_id: self.release_id.clone(),
+                data: self.data.clone(),
+            })
+            .collect()
     }
 }
 
-/// Extract the UUID from a dSYM bundle using dwarfdump
-fn extract_dsym_uuid(dsym_path: &PathBuf) -> Result<String> {
+/// Extract all UUIDs from a dSYM bundle using dwarfdump
+/// Universal binaries have multiple UUIDs (one per architecture)
+fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<String>> {
     use std::process::Command;
 
     let output = Command::new("dwarfdump")
@@ -82,23 +85,29 @@ fn extract_dsym_uuid(dsym_path: &PathBuf) -> Result<String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Parse output like: "UUID: 12345678-1234-1234-1234-123456789ABC (arm64) /path/to/file"
-    // There may be multiple UUIDs for universal binaries, we take the first one
-    for line in stdout.lines() {
-        if let Some(uuid_start) = line.find("UUID: ") {
-            let uuid_part = &line[uuid_start + 6..];
-            if let Some(uuid_end) = uuid_part.find(' ') {
-                let uuid = &uuid_part[..uuid_end];
-                // Uppercase for standard UUID format
-                return Ok(uuid.to_uppercase());
-            }
-        }
+    // Universal binaries have multiple lines, one per architecture
+    let uuids: Vec<String> = stdout
+        .lines()
+        .filter_map(|line| {
+            line.find("UUID: ").and_then(|uuid_start| {
+                let uuid_part = &line[uuid_start + 6..];
+                uuid_part.find(' ').map(|uuid_end| {
+                    // Uppercase for standard UUID format
+                    uuid_part[..uuid_end].to_uppercase()
+                })
+            })
+        })
+        .collect();
+
+    if uuids.is_empty() {
+        anyhow::bail!(
+            "Could not extract any UUIDs from dSYM at {}. dwarfdump output: {}",
+            dsym_path.display(),
+            stdout
+        );
     }
 
-    anyhow::bail!(
-        "Could not extract UUID from dSYM at {}. dwarfdump output: {}",
-        dsym_path.display(),
-        stdout
-    )
+    Ok(uuids)
 }
 
 /// Zip a dSYM bundle into memory

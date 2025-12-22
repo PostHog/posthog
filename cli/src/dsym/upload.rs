@@ -177,15 +177,14 @@ pub fn upload(args: &Args) -> Result<()> {
         match DsymFile::new(&dsym_path) {
             Ok(mut dsym_file) => {
                 dsym_file.release_id = release_id.clone();
-                info!("  UUID: {}", dsym_file.uuid);
+                info!(
+                    "  UUIDs: {} ({})",
+                    dsym_file.uuids.join(", "),
+                    dsym_file.uuids.len()
+                );
                 info!("  Size: {} bytes", dsym_file.data.len());
 
-                match dsym_file.try_into() {
-                    Ok(upload) => uploads.push(upload),
-                    Err(e) => {
-                        tracing::warn!("Failed to prepare dSYM for upload: {}", e);
-                    }
-                }
+                uploads.extend(dsym_file.into_uploads());
             }
             Err(e) => {
                 tracing::warn!("Failed to process dSYM {}: {}", dsym_path.display(), e);
