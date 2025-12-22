@@ -37,12 +37,6 @@ export const workflowE2eLagMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const destinationE2eLagMsSummary = new Summary({
-    name: 'destination_e2e_lag_ms',
-    help: 'Time difference in ms between event capture time and destination finishing time',
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-})
-
 export const cookielessRedisErrorCounter = new Counter({
     name: 'cookieless_redis_error',
     help: 'Count redis errors.',
