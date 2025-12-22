@@ -12,18 +12,15 @@ import { Counter } from 'prom-client'
 import { execHog } from '../../cdp/utils/hog-exec'
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import {
-    EvaluationManagerService,
-    EvaluationManagerServiceHub,
-} from '../../llm-analytics/services/evaluation-manager.service'
+import { EvaluationManagerService } from '../../llm-analytics/services/evaluation-manager.service'
 import { TemporalService, TemporalServiceHub } from '../../llm-analytics/services/temporal.service'
 import { Evaluation, EvaluationConditionSet } from '../../llm-analytics/types'
-import { PluginServerService, RawKafkaEvent } from '../../types'
+import { Hub, PluginServerService, RawKafkaEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 
 /** Narrowed Hub type for evaluation scheduler */
-export type EvaluationSchedulerHub = TemporalServiceHub & EvaluationManagerServiceHub
+export type EvaluationSchedulerHub = TemporalServiceHub & Pick<Hub, 'postgres' | 'pubSub'>
 
 const evaluationSchedulerEventsProcessed = new Counter({
     name: 'evaluation_scheduler_events_processed',
@@ -183,7 +180,7 @@ export const startEvaluationScheduler = async (hub: EvaluationSchedulerHub): Pro
     logger.info('🤖', 'Starting evaluation scheduler')
 
     const temporalService = new TemporalService(hub)
-    const evaluationManager = new EvaluationManagerService(hub)
+    const evaluationManager = new EvaluationManagerService(hub.postgres, hub.pubSub)
 
     const kafkaConsumer = new KafkaConsumer({
         groupId: `${KAFKA_PREFIX}evaluation-scheduler`,

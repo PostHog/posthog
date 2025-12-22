@@ -76,7 +76,7 @@ export function processUnhandledException(error: Error, server: LegacyPluginHub,
     }
 
     if (pluginConfig) {
-        void processError(server, pluginConfig, error)
+        void processError(server.db, server.instanceId, pluginConfig, error)
         return
     }
 

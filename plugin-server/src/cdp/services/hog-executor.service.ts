@@ -14,7 +14,7 @@ import {
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -114,14 +114,8 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     return canRetry
 }
 
-/** Narrowed config type for retry time calculation */
-export type RetryConfig = Pick<PluginsServerConfig, 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
-
-export const getNextRetryTime = (config: RetryConfig, tries: number): DateTime => {
-    const backoffMs = Math.min(
-        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
-        config.CDP_FETCH_BACKOFF_MAX_MS
-    )
+export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tries: number): DateTime => {
+    const backoffMs = Math.min(backoffBaseMs * tries + Math.floor(Math.random() * backoffBaseMs), backoffMaxMs)
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }
 

@@ -277,7 +277,7 @@ export class LazyPluginVM implements PluginInstance {
 
     private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
         pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
-        await processError(this.hub, this.pluginConfig, error)
+        await processError(this.hub.db, this.hub.instanceId, this.pluginConfig, error)
         // Temp disabled on 26/09/24, due to customer issue. TODO - we should actually disable in the case of bad plugin configs, assuming we revisit this before throwing the whole plugin concept out
         // await disablePlugin(this.hub.db, this.pluginConfig.id)
         await this.hub.celery.applyAsync('posthog.tasks.plugin_server.fatal_plugin_error', [

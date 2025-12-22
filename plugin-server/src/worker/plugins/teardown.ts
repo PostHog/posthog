@@ -23,7 +23,7 @@ export async function teardownPlugins(server: LegacyPluginHub, pluginConfig?: Pl
                                 instanceId: server.instanceId,
                             })
                         } catch (error) {
-                            await processError(server, pluginConfig, error)
+                            await processError(server.db, server.instanceId, pluginConfig, error)
                             await server.db.queuePluginLogEntry({
                                 pluginConfig,
                                 source: PluginLogEntrySource.System,

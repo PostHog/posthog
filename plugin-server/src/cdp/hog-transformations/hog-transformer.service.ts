@@ -139,7 +139,7 @@ export class HogTransformerService {
         this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.pluginExecutor = new LegacyPluginExecutorService(hub)
+        this.pluginExecutor = new LegacyPluginExecutorService(hub.db, hub.geoipService)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
     }

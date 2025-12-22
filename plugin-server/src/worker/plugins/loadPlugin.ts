@@ -41,7 +41,12 @@ export async function loadPlugin(hub: LegacyPluginHub, pluginConfig: PluginConfi
                 config = parseJSON(configJson)
             } catch (e) {
                 pluginConfig.instance?.failInitialization!()
-                await processError(hub, pluginConfig, `Could not load "plugin.json" for ${pluginDigest(plugin)}`)
+                await processError(
+                    hub.db,
+                    hub.instanceId,
+                    pluginConfig,
+                    `Could not load "plugin.json" for ${pluginDigest(plugin)}`
+                )
                 return false
             }
         }
@@ -70,7 +75,8 @@ export async function loadPlugin(hub: LegacyPluginHub, pluginConfig: PluginConfi
 
             if (!hasFrontend && !hasSite) {
                 await processError(
-                    hub,
+                    hub.db,
+                    hub.instanceId,
                     pluginConfig,
                     `Could not load source code for ${pluginDigest(plugin)}. Tried: ${
                         config['main'] || 'index.ts, index.js'
@@ -81,7 +87,7 @@ export async function loadPlugin(hub: LegacyPluginHub, pluginConfig: PluginConfi
         }
     } catch (error) {
         pluginConfig.instance?.failInitialization!()
-        await processError(hub, pluginConfig, error)
+        await processError(hub.db, hub.instanceId, pluginConfig, error)
     }
     return false
 }

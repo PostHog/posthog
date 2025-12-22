@@ -333,7 +333,11 @@ export class SegmentDestinationExecutorService {
                     // We have retries left so we can trigger a retry
                     result.finished = false
                     result.invocation.queuePriority = metadata.tries
-                    result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
+                    result.invocation.queueScheduledAt = getNextRetryTime(
+                        this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS,
+                        this.serverConfig.CDP_FETCH_BACKOFF_MAX_MS,
+                        metadata.tries
+                    )
                     return result
                 }
             }

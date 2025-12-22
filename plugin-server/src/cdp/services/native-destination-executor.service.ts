@@ -246,7 +246,11 @@ export class NativeDestinationExecutorService {
                     result.finished = false
                     result.invocation.queue = 'hog'
                     result.invocation.queuePriority = metadata.tries
-                    result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
+                    result.invocation.queueScheduledAt = getNextRetryTime(
+                        this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS,
+                        this.serverConfig.CDP_FETCH_BACKOFF_MAX_MS,
+                        metadata.tries
+                    )
                     return result
                 } else {
                     result.finished = true

@@ -7,8 +7,8 @@ import { logger } from '../../utils/logger'
 import { HogExecutorService, HogExecutorServiceHub } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
-import { HogFlowManagerService, HogFlowManagerServiceHub } from '../services/hogflows/hogflow-manager.service'
-import { LegacyPluginExecutorService, LegacyPluginExecutorServiceHub } from '../services/legacy-plugin-executor.service'
+import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { GroupsManagerService, GroupsManagerServiceHub } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerHub, HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
@@ -39,10 +39,8 @@ export type CdpConsumerBaseHub = CdpRedisPoolConfig &
     SegmentDestinationExecutorConfig &
     HogFunctionManagerHub &
     HogExecutorServiceHub &
-    HogFlowManagerServiceHub &
     HogFunctionMonitoringServiceHub &
     HogWatcherServiceHub &
-    LegacyPluginExecutorServiceHub &
     GroupsManagerServiceHub &
     Pick<
         Hub,
@@ -54,6 +52,11 @@ export type CdpConsumerBaseHub = CdpRedisPoolConfig &
         | 'quotaLimiting'
         // CDP overflow queue
         | 'CDP_OVERFLOW_QUEUE_ENABLED'
+        // LegacyPluginExecutorService
+        | 'db'
+        | 'geoipService'
+        // HogFlowManagerService
+        | 'pubSub'
     >
 
 export interface TeamIDWithConfig {
@@ -92,7 +95,7 @@ export abstract class CdpConsumerBase {
     constructor(protected hub: CdpConsumerBaseHub) {
         this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFlowManager = new HogFlowManagerService(hub)
+        this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
@@ -113,7 +116,7 @@ export abstract class CdpConsumerBase {
         this.personsManager = new PersonsManagerService(this.hub.personRepository)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
-        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub)
+        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub.db, this.hub.geoipService)
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(this.hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(this.hub)
     }

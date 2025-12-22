@@ -1,11 +1,13 @@
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
-import { ProcessErrorHub, processError } from '../../utils/db/error'
+import { processError } from '../../utils/db/error'
 import { convertToOnEventPayload, mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { pluginActionMsSummary } from '../metrics'
 
 /** Narrowed Hub type for runOnEvent and related functions */
-export type RunOnEventHub = ProcessErrorHub &
-    Pick<Hub, 'pluginConfigsPerTeam' | 'pluginConfigsToSkipElementsParsing' | 'appMetrics'>
+export type RunOnEventHub = Pick<
+    Hub,
+    'db' | 'instanceId' | 'pluginConfigsPerTeam' | 'pluginConfigsToSkipElementsParsing' | 'appMetrics'
+>
 
 async function runSingleTeamPluginOnEvent(
     hub: RunOnEventHub,
@@ -46,7 +48,7 @@ async function runSingleTeamPluginOnEvent(
     } else {
         return {
             backgroundTask: Promise.all([
-                processError(hub, pluginConfig, error, onEventPayload),
+                processError(hub.db, hub.instanceId, pluginConfig, error, onEventPayload),
                 hub.appMetrics.queueError(
                     {
                         teamId: event.teamId,

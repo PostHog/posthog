@@ -1,10 +1,9 @@
-import { Hub, Team, TeamId } from '../../types'
+import { Team, TeamId } from '../../types'
 import { logger } from '../logger'
+import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
+import { DB } from './db'
 import { PostgresUse } from './postgres'
-
-/** Narrowed Hub type for activity log functions */
-export type ActivityLogHub = Pick<Hub, 'teamManager' | 'db'>
 
 interface Trigger {
     job_type: string
@@ -13,19 +12,20 @@ interface Trigger {
 }
 
 export async function createPluginActivityLog(
-    hub: ActivityLogHub,
+    teamManager: TeamManager,
+    db: DB,
     team: TeamId | Team,
     pluginConfigId: number,
     activity: string,
     details: { trigger: Trigger }
 ) {
-    const teamObject: Team | null = typeof team === 'number' ? await hub.teamManager.getTeam(team) : team
+    const teamObject: Team | null = typeof team === 'number' ? await teamManager.getTeam(team) : team
     if (!teamObject) {
         logger.warn('🤔', `Could not find team ${team} to create an activity log for. Skipping.`)
         return
     }
 
-    await hub.db.postgres.query(
+    await db.postgres.query(
         PostgresUse.COMMON_WRITE,
         `
         INSERT INTO posthog_activitylog (id, team_id, organization_id, activity, item_id, detail, scope, is_system, created_at)
