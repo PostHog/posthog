@@ -8,6 +8,7 @@ import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'

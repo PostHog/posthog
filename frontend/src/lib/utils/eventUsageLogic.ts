@@ -702,8 +702,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
         reportCustomerAnalyticsDashboardConfigurationButtonClicked: () => true,
+        reportCustomerAnalyticsDashboardConfigurationViewed: () => true,
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: ({ event }) => ({ event }),
         reportCustomerAnalyticsDashboardDateFilterApplied: ({ filter }) => ({ filter }),
+        reportCustomerAnalyticsDashboardEventPickerClicked: ({ event }) => ({ event }),
+        reportCustomerAnalyticsDashboardEventsSaved: () => true,
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
+        reportGroupProfileViewed: (delay?: number) => ({ delay }),
+        reportGroupListViewed: (delay?: number) => ({ delay }),
+        reportPersonProfileViewed: (delay?: number) => ({ delay }),
+        reportPersonListViewed: (delay?: number) => ({ delay }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1717,11 +1725,52 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardConfigurationButtonClicked: async () => {
             posthog.capture('customer analytics dashboard configuration button clicked')
         },
+        reportCustomerAnalyticsDashboardConfigurationViewed: async (_, breakpoint) => {
+            await breakpoint(500)
+            posthog.capture('customer analytics dashboard configuration viewed')
+        },
+        reportCustomerAnalyticsDashboardEventPickerClicked: async ({ event }) => {
+            posthog.capture('customer analytics dashboard event picker clicked', { event })
+        },
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: async ({ event }) => {
+            posthog.capture('customer analytics dashboard configure event with AI clicked', { event })
+        },
+        reportCustomerAnalyticsDashboardEventsSaved: async () => {
+            posthog.capture('customer analytics dashboard events saved')
+        },
         reportCustomerAnalyticsViewed: async ({ delay }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500)
             }
             const eventName = delay ? 'customer analytics analyzed' : 'customer analytics viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportGroupProfileViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'group profile analyzed' : 'group profile viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportGroupListViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'group list analyzed' : 'group list viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportPersonProfileViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
+            posthog.capture(eventName, { delay })
+        },
+        reportPersonListViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'person list analyzed' : 'person list viewed'
             posthog.capture(eventName, { delay })
         },
     })),

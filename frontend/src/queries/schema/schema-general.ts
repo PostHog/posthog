@@ -5091,6 +5091,7 @@ export enum ProductIntentContext {
     CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = 'customer_analytics_dashboard_business_mode_changed',
     CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = 'customer_analytics_dashboard_configuration_button_clicked',
     CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = 'customer_analytics_dashboard_filters_changed',
+    CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED = 'customer_analytics_dashboard_events_saved',
     CUSTOMER_ANALYTICS_VIEWED = 'customer_analytics_viewed',
 
     // Nav Panel Advertisement
