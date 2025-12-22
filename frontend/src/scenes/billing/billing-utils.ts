@@ -25,7 +25,6 @@ export const isProductVariantSecondary = (productType: string): boolean =>
         'data_warehouse_historical',
         'workflows_destinations',
         'workflows_push',
-        'workflows_sms',
     ].includes(productType)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
