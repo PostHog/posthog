@@ -33,28 +33,17 @@ import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { HogInputsService } from './hog-inputs.service'
-import { EmailService } from './messaging/email.service'
+import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
+import { EmailService, EmailServiceHub } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by destination executors */
 export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
 
-export type HogExecutorServiceHub = Pick<
-    Hub,
-    | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
-    | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
-    | 'CDP_FETCH_BACKOFF_BASE_MS'
-    | 'CDP_FETCH_BACKOFF_MAX_MS'
-    | 'CDP_FETCH_RETRIES'
-    | 'integrationManager'
-    | 'ENCRYPTION_SALT_KEYS'
-    | 'SITE_URL'
-    | 'SES_ACCESS_KEY_ID'
-    | 'SES_SECRET_ACCESS_KEY'
-    | 'SES_REGION'
-    | 'SES_ENDPOINT'
->
+export type HogExecutorServiceHub = CdpFetchConfig &
+    HogInputsServiceHub &
+    EmailServiceHub &
+    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
