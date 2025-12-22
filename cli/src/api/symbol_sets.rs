@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use reqwest::blocking::multipart::{Form, Part};
+use reqwest::blocking::{
+    multipart::{Form, Part},
+    Client,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Debug, iter, thread::sleep, time::Duration};
 use tracing::{debug, info, warn};
@@ -61,6 +64,10 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
         })
         .collect();
 
+    let s3_client = &context()
+        .build_http_client()
+        .context("Failed to build storage client")?;
+
     for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         let start_response = start_upload(batch)?;
@@ -83,7 +90,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
                 ))?;
 
                 let content_hash = content_hash([&upload.data]);
-                upload_to_s3(data.presigned_url.clone(), &upload.data)?;
+                upload_to_s3(data.presigned_url.clone(), &upload.data, s3_client)?;
                 Ok((data.symbol_set_id, content_hash))
             })
             .collect();
@@ -117,8 +124,7 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
     Ok(res.json()?)
 }
 
-fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
-    let client = &context().build_http_client()?;
+fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8], client: &Client) -> Result<()> {
     retry(retry_policy(500, 2, 3), |_| -> Result<()> {
         let mut form = Form::new();
         for (key, value) in &presigned_url.fields {
