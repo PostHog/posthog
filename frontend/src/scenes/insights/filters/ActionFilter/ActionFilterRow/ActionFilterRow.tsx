@@ -316,8 +316,6 @@ export function ActionFilterRow({
         value = filter.name || filter.id
     }
 
-    // console.log("[ActionFilterRow] value, filter", getValue(value, filter), filter)
-
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
             <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>{index + 1}</SeriesGlyph>
