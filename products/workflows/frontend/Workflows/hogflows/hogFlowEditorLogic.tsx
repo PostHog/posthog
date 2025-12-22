@@ -104,6 +104,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             dropzoneNodes,
         }),
         showDropzones: true,
+        hideDropzones: true,
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
@@ -113,11 +114,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragOver: (event: DragEvent) => ({ event }),
-        onDrop: (event: DragEvent) => ({ event }),
-        setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
+        onDrop: (event?: DragEvent) => ({ event }),
+        setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         startMovingNode: (node: HogFlowActionNode) => ({ node }),
+        stopMovingNode: true,
+        moveNodeToHighlightedDropzone: true,
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -161,17 +164,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
-        isMovingSelectedNode: [
-            false as boolean,
+        isMovingNode: [
+            false,
             {
                 startMovingNode: () => true,
                 stopMovingNode: () => false,
             },
         ],
-        newDraggingNode: [
-            null as CreateActionType | null,
+        nodeToBeAdded: [
+            null as CreateActionType | HogFlowActionNode | null,
             {
-                setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
+                setNodeToBeAdded: (_, { nodeToBeAdded }) => nodeToBeAdded,
+                startMovingNode: (_, { node }) => node,
             },
         ],
         reactFlowInstance: [
@@ -451,16 +455,23 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         currentEdgeId: edge.id,
                     })
 
-                    dropzoneNodes.push({
-                        id: `dropzone_edge_${edge.id}`,
-                        type: 'dropzone',
-                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
-                        data: {
-                            edge,
-                        },
-                        draggable: false,
-                        selectable: false,
-                    })
+                    // If we're moving a node, we shouldn't show dropzones on edges connected to that node as this would be a noop.
+                    const shouldShowDropzone = values.isMovingNode
+                        ? ![edge.source, edge.target].includes(values.nodeToBeAdded?.id)
+                        : true
+
+                    if (shouldShowDropzone) {
+                        dropzoneNodes.push({
+                            id: `dropzone_edge_${edge.id}`,
+                            type: 'dropzone',
+                            position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                            data: {
+                                edge,
+                            },
+                            draggable: false,
+                            selectable: false,
+                        })
+                    }
 
                     // If this branch edge has same target as other edges, we also add a single dropzone near the target node
                     const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
@@ -494,18 +505,22 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setDropzoneNodes(dropzoneNodes)
         },
 
+        hideDropzones: () => {
+            actions.setDropzoneNodes([])
+        },
+
         onDragOver: ({ event }) => {
             event.preventDefault()
             event.dataTransfer.dropEffect = 'move'
         },
 
         onDrop: ({ event }) => {
-            event.preventDefault()
+            event?.preventDefault()
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
 
-            if (values.newDraggingNode && dropzoneNode) {
+            if (values.nodeToBeAdded && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const partialNewAction = values.newDraggingNode
+                const partialNewAction = values.nodeToBeAdded
 
                 const newAction = {
                     id: `action_${partialNewAction.type}_${uuid()}`,
@@ -599,11 +614,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
                 actions.setWorkflowInfo({ actions: newActions, edges: newEdges })
-                actions.setNewDraggingNode(null)
+                actions.setNodeToBeAdded(null)
                 actions.setSelectedNodeId(newAction.id)
             }
             // We can clear the dropzones now
-            actions.setDropzoneNodes([])
+            actions.hideDropzones()
         },
         setReactFlowInstance: () => {
             // TRICKY: Slight race condition here where the react flow instance is not set yet
@@ -644,9 +659,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 duration: duration ?? 100,
             })
         },
-        startMovingNode: ({ node }) => {
+        startMovingNode: () => {
             actions.showDropzones()
-            actions.startMovingNode()
+        },
+        stopMovingNode: () => {
+            actions.hideDropzones()
+        },
+        moveNodeToHighlightedDropzone: () => {
+            // Copy action, move to new spot
+            actions.onDrop()
+            // Clear moving node ID
+            actions.stopMovingNode()
+            // Delete old node ID
+            actions.onNodesDelete([{ id: values.movingNodeId! } as HogFlowActionNode])
         },
     })),
 

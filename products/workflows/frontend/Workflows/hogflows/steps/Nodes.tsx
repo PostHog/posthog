@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconShortcut } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
@@ -19,7 +19,8 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     const [isHighlighted, setIsHighlighted] = useState(false)
-    const { setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
+    const { isMovingNode } = useValues(hogFlowEditorLogic)
+    const { setHighlightedDropzoneNodeId, moveNodeToHighlightedDropzone } = useActions(hogFlowEditorLogic)
 
     useEffect(() => {
         setHighlightedDropzoneNodeId(isHighlighted ? id : null)
@@ -29,8 +30,9 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
         <div
             onDragOver={() => setIsHighlighted(true)}
             onDragLeave={() => setIsHighlighted(false)}
+            onClick={isMovingNode ? () => moveNodeToHighlightedDropzone() : undefined}
             className={clsx(
-                'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer',
+                'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer hover:border-primary hover:bg-surface-primary',
                 isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -40,7 +42,13 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             }}
         >
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
-                <IconPlus className="text-sm text-primary" />
+                {isMovingNode ? (
+                    // Show a shortcut icon when a node is being moved
+                    <IconShortcut className="text-sm text-primary" />
+                ) : (
+                    // Show a plus icon when adding a node
+                    <IconPlus className="text-sm text-primary" />
+                )}
             </div>
         </div>
     )
@@ -49,7 +57,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
-    const { nodesById, selectedNodeId, isMovingSelectedNode } = useValues(hogFlowEditorLogic)
+    const { nodesById, movingNodeId } = useValues(hogFlowEditorLogic)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -57,7 +65,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const shouldWiggleMovingNode = isMovingSelectedNode && selectedNodeId === props.id
+    const shouldWiggleMovingNode = movingNodeId === props.id
 
     return (
         <div className={clsx('transition-all hover:translate-y-[-2px]', shouldWiggleMovingNode && 'animate-bounce')}>
