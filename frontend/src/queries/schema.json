@@ -1925,7 +1925,8 @@
                 "filter_session_recordings",
                 "create_insight",
                 "create_form",
-                "task"
+                "task",
+                "upsert_dashboard"
             ],
             "type": "string"
         },
@@ -10097,6 +10098,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -10703,6 +10708,7 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
+                "revenue_analytics_mrr",
                 "revenue_analytics_product",
                 "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
@@ -11097,6 +11103,12 @@
                 },
                 {
                     "$ref": "#/definitions/SessionReplayBlock"
+                },
+                {
+                    "$ref": "#/definitions/LoadingBlock"
+                },
+                {
+                    "$ref": "#/definitions/ErrorBlock"
                 }
             ]
         },
@@ -11437,6 +11449,11 @@
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
                 },
+                "debug": {
+                    "default": false,
+                    "description": "Whether to include debug information (such as the executed HogQL) in the response.",
+                    "type": "boolean"
+                },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
                     "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
@@ -11526,6 +11543,25 @@
         "EntityType": {
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
+        },
+        "ErrorBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "Optional artifact ID if the error is related to a specific artifact",
+                    "type": ["string", "null"]
+                },
+                "message": {
+                    "description": "Error message to display",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "error",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "message"],
+            "type": "object"
         },
         "ErrorTrackingBreakdownsQuery": {
             "additionalProperties": false,
@@ -12797,6 +12833,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -16604,6 +16654,9 @@
                 "parent_tool_call_id": {
                     "type": "string"
                 },
+                "trace_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "human",
                     "type": "string"
@@ -17854,6 +17907,21 @@
         "LinkedinAdsTableKeywords": {
             "enum": ["campaigns"],
             "type": "string"
+        },
+        "LoadingBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "The artifact ID that is being loaded",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "loading",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
+            "type": "object"
         },
         "LogAttributesQuery": {
             "additionalProperties": false,
@@ -20595,13 +20663,24 @@
         "NotebookArtifactContent": {
             "additionalProperties": false,
             "properties": {
+                "blocks": {
+                    "description": "Structured blocks for the notebook content",
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                },
                 "content_type": {
                     "const": "notebook",
                     "description": "Notebook",
                     "type": "string"
+                },
+                "title": {
+                    "description": "Title for the notebook",
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["content_type"],
+            "required": ["content_type", "blocks"],
             "type": "object"
         },
         "NotebookInfo": {
@@ -21260,6 +21339,10 @@
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
+                "marketing_analytics_source_configured",
+                "marketing_analytics_settings_updated",
+                "marketing_analytics_dashboard_interaction",
+                "marketing_analytics_ads_integration_visited",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "vercel_integration"
@@ -27795,6 +27878,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -28032,6 +28119,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -31049,6 +31150,9 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "plan": {
+                    "type": ["string", "null"]
+                },
                 "query": {
                     "anyOf": [
                         {
@@ -31066,15 +31170,48 @@
         "VisualizationBlock": {
             "additionalProperties": false,
             "properties": {
-                "artifact_id": {
-                    "type": "string"
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMetricsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsMRRQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                        }
+                    ],
+                    "description": "The query to render (same as VisualizationArtifactContent.query)"
+                },
+                "title": {
+                    "description": "Optional title for the visualization",
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "const": "visualization",
                     "type": "string"
                 }
             },
-            "required": ["type", "artifact_id"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VisualizationItem": {

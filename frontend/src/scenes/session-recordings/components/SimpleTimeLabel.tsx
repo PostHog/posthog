@@ -4,6 +4,7 @@ import { memo } from 'react'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
+import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 function formattedReplayTime(
@@ -32,9 +33,9 @@ function formatStringFor(d: Dayjs, timeOnly?: boolean): string {
 
     const today = dayjs()
     if (d.isSame(today, 'year')) {
-        return 'DD/MMM, HH:mm:ss'
+        return `${formatLocalizedDate()}, HH:mm:ss`
     }
-    return 'DD/MM/YYYY HH:mm:ss'
+    return `${formatLocalizedDate()} YYYY, HH:mm:ss`
 }
 
 const truncateToSeconds = (time: string | number | Dayjs): number => {

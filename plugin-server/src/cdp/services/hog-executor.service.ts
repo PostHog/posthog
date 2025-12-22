@@ -6,7 +6,6 @@ import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
@@ -29,6 +28,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
+import { destinationE2eLagMsSummary } from '../utils'
 import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -675,7 +675,7 @@ export class HogExecutorService {
                 message += ` Retrying in ${backoffMs}ms.`
             }
 
-            addLog('warn', message)
+            addLog('error', message)
 
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 await fetchResponse?.dump()

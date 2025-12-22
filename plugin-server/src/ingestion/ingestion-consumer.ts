@@ -126,7 +126,7 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,

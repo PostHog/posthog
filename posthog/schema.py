@@ -324,6 +324,7 @@ class AssistantTool(StrEnum):
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
     TASK = "task"
+    UPSERT_DASHBOARD = "upsert_dashboard"
 
 
 class AssistantToolCall(BaseModel):
@@ -975,6 +976,7 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+    REVENUE_ANALYTICS_MRR = "revenue_analytics_mrr"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
     REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
@@ -1168,6 +1170,17 @@ class EntityType(StrEnum):
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
     NEW_ENTITY = "new_entity"
+
+
+class ErrorBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str | None = Field(
+        default=None, description="Optional artifact ID if the error is related to a specific artifact"
+    )
+    message: str = Field(..., description="Error message to display")
+    type: Literal["error"] = "error"
 
 
 class Population(BaseModel):
@@ -1998,6 +2011,14 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
 
 
+class LoadingBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., description="The artifact ID that is being loaded")
+    type: Literal["loading"] = "loading"
+
+
 class LogPropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
@@ -2489,13 +2510,6 @@ class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
     CAMPAIGN = "Campaign"
 
 
-class NotebookArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
-
-
 class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2650,6 +2664,10 @@ class ProductIntentContext(StrEnum):
     REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
     REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
+    MARKETING_ANALYTICS_SOURCE_CONFIGURED = "marketing_analytics_source_configured"
+    MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
+    MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
+    MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = "marketing_analytics_ads_integration_visited"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     VERCEL_INTEGRATION = "vercel_integration"
@@ -3547,14 +3565,6 @@ class VectorSearchResponseItem(BaseModel):
     )
     distance: float
     id: str
-
-
-class VisualizationBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str
-    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -5543,6 +5553,10 @@ class SavedInsightNode(BaseModel):
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
     )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showFilters: bool | None = None
@@ -9265,13 +9279,6 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
-class DocumentArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock]
-
-
 class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9303,6 +9310,9 @@ class EndpointRunRequest(BaseModel):
     )
     client_query_id: str | None = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    debug: bool | None = Field(
+        default=False, description="Whether to include debug information (such as the executed HogQL) in the response."
     )
     filters_override: DashboardFilter | None = Field(
         default=None,
@@ -15320,6 +15330,28 @@ class StickinessActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    ) = Field(..., description="The query to render (same as VisualizationArtifactContent.query)")
+    title: str | None = Field(default=None, description="Optional title for the visualization")
+    type: Literal["visualization"] = "visualization"
+
+
 class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15623,6 +15655,17 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
+        ..., description="Structured blocks for the notebook content"
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    title: str | None = Field(default=None, description="Title for the notebook")
+
+
 class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15869,6 +15912,13 @@ class DatabaseSchemaQueryResponse(BaseModel):
     ]
 
 
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
+
+
 class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16103,6 +16153,7 @@ class SessionBatchEventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -16227,6 +16278,7 @@ class EventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -16363,6 +16415,10 @@ class DataTableNode(BaseModel):
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
     )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showHogQLEditor: bool | None = Field(default=None, description="Include a HogQL query editor above HogQL tables")
@@ -16588,6 +16644,7 @@ class HumanMessage(BaseModel):
     content: str
     id: str | None = None
     parent_tool_call_id: str | None = None
+    trace_id: str | None = None
     type: Literal["human"] = "human"
     ui_context: MaxUIContext | None = None
 
@@ -17220,6 +17277,7 @@ class VisualizationArtifactContent(BaseModel):
     )
     description: str | None = None
     name: str | None = None
+    plan: str | None = None
     query: (
         AssistantTrendsQuery
         | AssistantFunnelsQuery

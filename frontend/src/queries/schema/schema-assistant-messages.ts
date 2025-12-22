@@ -4,6 +4,7 @@ import type { MaxUIContext } from 'scenes/max/maxTypes'
 import type { Category, NotebookInfo } from '~/types'
 import type { InsightShortId } from '~/types'
 
+import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -86,6 +87,7 @@ export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
     ui_context?: MaxUIContext
+    trace_id?: string
 }
 
 export interface AssistantFormOption {
@@ -275,10 +277,15 @@ export interface VisualizationArtifactContent {
     query: AnyAssistantGeneratedQuery | AssistantQuerySchema
     name?: string | null
     description?: string | null
+    plan?: string | null
 }
 
 export interface NotebookArtifactContent {
     content_type: ArtifactContentType.Notebook
+    /** Structured blocks for the notebook content */
+    blocks: DocumentBlock[]
+    /** Title for the notebook */
+    title?: string | null
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
@@ -389,6 +396,7 @@ export type AssistantTool =
     | 'create_insight'
     | 'create_form'
     | 'task'
+    | 'upsert_dashboard'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

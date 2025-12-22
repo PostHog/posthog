@@ -26,7 +26,7 @@ import {
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
-import { AnimatedLogomark } from 'lib/brand/AnimatedLogomark'
+import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
@@ -341,13 +341,13 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading, isExiting } =
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isExiting, isLoading } =
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const { selectedTourId } = useValues(productToursLogic)
+    const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
@@ -379,13 +379,17 @@ export function Toolbar(): JSX.Element | null {
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
+
+        if (userIntent === 'add-product-tour' || userIntent === 'edit-product-tour') {
+            setVisibleMenu('product-tours')
+        }
     }, [userIntent]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (isEmbeddedInApp) {
         return null
     }
 
-    const showEditingBar = selectedTourId !== null
+    const showEditingBar = selectedTourId !== null && !isPreviewing
 
     return (
         <>

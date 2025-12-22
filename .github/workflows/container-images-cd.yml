@@ -265,7 +265,7 @@ jobs:
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/export_recording|^posthog/temporal/import_recording|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
@@ -277,10 +277,18 @@ jobs:
               run: |
                   echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
-            - name: Check for changes that affect analytics platform temporal worker
-              id: check_changes_analytics_platform_temporal_worker
+            - name: Check for config file changes that affect analytics platform temporal worker
+              id: check_non_python_changes_analytics_platform_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/tasks/exporter.py$|^ee/api/subscription.py$|^posthog/temporal/schedule.py$|^posthog/tasks/exports/|^ee/tasks/subscriptions/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  # Check for non-Python files that can't be detected via import analysis
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Check for Python dependency changes that affect analytics platform temporal worker
+              id: check_python_changes_analytics_platform_temporal_worker
+              run: |
+                  CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
+                  RESULT=$(python3 bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || RESULT="true"
+                  echo "changed=$RESULT" >> $GITHUB_OUTPUT
 
             - name: Trigger Billing Temporal Worker Cloud deployment
               if: steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
@@ -367,7 +375,7 @@ jobs:
                       }
 
             - name: Trigger Analytics Platform Temporal Worker Cloud deployment
-              if: steps.check_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
+              if: steps.check_non_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -502,8 +510,13 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Check for changes that affect data modeling temporal worker
+              id: check_changes_data_modeling_temporal_worker
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              if: steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
               with:
                   token: ${{ steps.deployer.outputs.token }}

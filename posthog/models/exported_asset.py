@@ -87,6 +87,8 @@ class ExportedAsset(models.Model):
     content_location = models.TextField(null=True, blank=True, max_length=1000)
     # If there is an exception in calculating this export, record it here to display to the user.
     exception = models.TextField(null=True, blank=True)
+    # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
+    exception_type = models.CharField(max_length=255, null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)

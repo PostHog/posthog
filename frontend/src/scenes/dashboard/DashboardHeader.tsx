@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+    IconCode2,
     IconGraph,
     IconGridMasonry,
     IconNotebook,
@@ -30,6 +31,7 @@ import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -107,6 +109,9 @@ export function DashboardHeader(): JSX.Element | null {
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
+    const [terraformModalOpen, setTerraformModalOpen] = useState(false)
+    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
+
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -155,6 +160,8 @@ export function DashboardHeader(): JSX.Element | null {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
 
+    const hasUpsertDashboardFeatureFlag = useFeatureFlag('POSTHOG_AI_UPSERT_DASHBOARD')
+
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -187,6 +194,13 @@ export function DashboardHeader(): JSX.Element | null {
                     {canEditDashboard && <DuplicateDashboardModal />}
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
+                    {terraformFeatureEnabled && (
+                        <TerraformExportModal
+                            isOpen={terraformModalOpen}
+                            onClose={() => setTerraformModalOpen(false)}
+                            resource={{ type: 'dashboard', data: dashboard }}
+                        />
+                    )}
                 </>
             )}
 
@@ -327,6 +341,17 @@ export function DashboardHeader(): JSX.Element | null {
                                     : []),
                             ]}
                         />
+                    )}
+
+                    {dashboard && terraformFeatureEnabled && (
+                        <ButtonPrimitive
+                            onClick={() => setTerraformModalOpen(true)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </ButtonPrimitive>
                     )}
 
                     {user?.is_staff && (
@@ -518,7 +543,11 @@ export function DashboardHeader(): JSX.Element | null {
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            identifier="edit_current_dashboard"
+                                            identifier={
+                                                hasUpsertDashboardFeatureFlag
+                                                    ? 'upsert_dashboard'
+                                                    : 'edit_current_dashboard'
+                                            }
                                             context={{
                                                 current_dashboard: dashboard
                                                     ? {

@@ -23,9 +23,17 @@ def generate_funnel_schema() -> dict:
             "type": "object",
             "properties": {
                 "query": dereference_schema(schema),
+                "name": {
+                    "type": "string",
+                    "description": "Short, concise name of the insight (2-7 words) that will be displayed as a header in the insight tile.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Short, concise description of the insight (1 sentence)",
+                },
             },
             "additionalProperties": False,
-            "required": ["query"],
+            "required": ["query", "name", "description"],
         },
     }
 

@@ -146,8 +146,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     if key != holdout_key:
                         rollout_percentages[key] = rollout_percentages[key] * (remaining / 100)
 
-        # Exclude MULTIPLE_VARIANT_KEY
-        total_observed = sum(count for key, count in total_exposures.items() if key != MULTIPLE_VARIANT_KEY)
+        # Exclude MULTIPLE_VARIANT_KEY and variants with 0% rollout
+        # Filter out 0% rollout variants before calculating total to ensure
+        # sum(observed) == sum(expected) for scipy.chisquare()
+        total_observed = sum(
+            count
+            for key, count in total_exposures.items()
+            if key != MULTIPLE_VARIANT_KEY and rollout_percentages.get(key, 0) > 0
+        )
         if total_observed < SRM_MINIMUM_SAMPLE_SIZE:
             return None
 
