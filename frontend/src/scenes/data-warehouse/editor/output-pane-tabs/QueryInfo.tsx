@@ -252,13 +252,14 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                             <div>
                                 <p className="text-xs">
                                     Materialized views are a way to pre-compute data in your data warehouse. This allows
-                                    you to run queries faster and more efficiently. Learn more about materialization{' '}
+                                    you to run queries faster and more efficiently.
+                                    <br />
                                     <Link
                                         data-attr="materializing-help"
                                         to="https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view"
                                         target="_blank"
                                     >
-                                        here
+                                        Learn more about materialization
                                     </Link>
                                     .
                                 </p>

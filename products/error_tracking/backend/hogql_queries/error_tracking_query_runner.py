@@ -637,11 +637,13 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if event_tuple is None:
             return None
         else:
+            properties = event_tuple[3]
+
             return {
                 "uuid": str(event_tuple[0]),
                 "distinct_id": str(event_tuple[1]),
                 "timestamp": str(event_tuple[2]),
-                "properties": event_tuple[3],
+                "properties": properties,
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:

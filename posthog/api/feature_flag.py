@@ -14,7 +14,7 @@ from django.db.models import Prefetch, Q, QuerySet, deletion
 import requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -26,12 +26,20 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.approvals.decorators import approval_gate
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
+from posthog.constants import (
+    PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
+    SURVEY_TARGETING_FLAG_PREFIX,
+    AvailableFeature,
+    FlagRequestType,
+)
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -45,7 +53,7 @@ from posthog.helpers.encrypted_flag_payloads import (
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
@@ -75,6 +83,8 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+
+from products.product_tours.backend.models import ProductTour
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -373,12 +383,19 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    CREATION_CONTEXT_CHOICES = (
+        "feature_flags",
+        "experiments",
+        "surveys",
+        "early_access_features",
+        "web_experiments",
+        "product_tours",
+    )
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
         required=False,
-        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
@@ -841,6 +858,7 @@ class FeatureFlagSerializer(
 
         return instance
 
+    @approval_gate(["feature_flag.enable", "feature_flag.disable"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # This is a workaround to ensure update works when called from a scheduled task.
@@ -1127,6 +1145,86 @@ def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> N
     update_feature_flag_dashboard(feature_flag, old_key)
 
 
+class GroupsJSONField(serializers.CharField):
+    """
+    CharField that parses JSON object strings.
+    Matches legacy behavior of json.loads(request.GET.get("groups", "{}")).
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("default", "{}")
+        kwargs.setdefault("allow_blank", True)
+        kwargs.setdefault("help_text", "Groups for feature flag evaluation (JSON object string)")
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        # Handle case where data is already a dict (from previous parsing or direct assignment)
+        if isinstance(data, dict):
+            return data
+
+        value = super().to_internal_value(data)
+        if not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+            if not isinstance(parsed, dict):
+                raise serializers.ValidationError("groups must be a JSON object")
+            return parsed
+        except (json.JSONDecodeError, ValueError):
+            raise serializers.ValidationError("Invalid JSON in groups parameter")
+
+
+class MyFlagsQuerySerializer(serializers.Serializer):
+    groups = GroupsJSONField()
+
+
+class LocalEvaluationQuerySerializer(serializers.Serializer):
+    send_cohorts = serializers.BooleanField(
+        required=False, default=False, allow_null=True, help_text="Include cohorts in response"
+    )
+
+    def to_internal_value(self, data):
+        # Handle ?send_cohorts without a value (empty string) as True
+        if "send_cohorts" in data and data["send_cohorts"] == "":
+            data = data.copy()
+            data["send_cohorts"] = True
+        return super().to_internal_value(data)
+
+
+class EvaluationReasonsQuerySerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
+    groups = GroupsJSONField()
+
+
+class ActivityQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
+class EvaluationReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="The reason for the evaluation result")
+    condition_index = serializers.IntegerField(
+        allow_null=True, help_text="The index of the condition that matched, if applicable"
+    )
+
+
+class FlagEvaluationResultSerializer(serializers.Serializer):
+    value = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
+    evaluation = EvaluationReasonSerializer()
+
+
+class EvaluationReasonsResponseSerializer(serializers.Serializer):
+    """
+    Response for evaluation_reasons endpoint.
+
+    Structure: Dict[flag_key: str, FlagEvaluationResultSerializer]
+    See OpenApiExample for concrete shape.
+    """
+
+    pass
+
+
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     evaluation_tags = serializers.SerializerMethodField()
@@ -1158,6 +1256,20 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return names or []
         except Exception:
             return []
+
+
+class MyFlagsResponseSerializer(serializers.Serializer):
+    feature_flag = MinimalFeatureFlagSerializer()
+    value = serializers.JSONField()
+
+
+class LocalEvaluationResponseSerializer(serializers.Serializer):
+    flags: serializers.ListSerializer = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
+    group_type_mapping = serializers.DictField(child=serializers.CharField())
+    cohorts = serializers.DictField(
+        child=serializers.JSONField(),
+        help_text="Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).",
+    )
 
 
 def _proxy_to_flags_service(
@@ -1240,7 +1352,9 @@ def _evaluate_flags_with_fallback(
         # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
         # TODO remove this fallback once we're confident that the proxying works great.
         TOMBSTONE_COUNTER.labels(
-            namespace="feature_flag", operation="proxy_to_flags_service", component="python_fallback"
+            namespace="feature_flags",
+            operation="proxy_to_flags_service",
+            component="python_fallback",
         ).inc()
         logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
 
@@ -1248,6 +1362,7 @@ def _evaluate_flags_with_fallback(
 
 
 class FeatureFlagViewSet(
+    ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1418,14 +1533,12 @@ class FeatureFlagViewSet(
                 )
             )
 
-            survey_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, targeting_flag__isnull=False
-            ).values_list("targeting_flag_id", flat=True)
-            survey_internal_targeting_flags = Survey.objects.filter(
+            survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+            product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
-                Q(id__in=survey_internal_targeting_flags)
+            queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(
+                Q(id__in=product_tour_internal_targeting_flags)
             )
 
             # add additional filters provided by the client
@@ -1648,7 +1761,13 @@ class FeatureFlagViewSet(
             status=200,
         )
 
-    @action(methods=["GET"], detail=False)
+    @validated_request(
+        query_serializer=MyFlagsQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=MyFlagsResponseSerializer(many=True)),
+        },
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
@@ -1660,10 +1779,10 @@ class FeatureFlagViewSet(
         if not feature_flags:
             return Response([])
 
-        try:
-            groups = json.loads(request.GET.get("groups", "{}"))
-        except (json.JSONDecodeError, ValueError):
-            raise exceptions.ValidationError("Invalid JSON in groups parameter")
+        groups = request.validated_query_data.get("groups", {})
+        # Ensure groups is always a dict, not a string
+        if isinstance(groups, str):
+            groups = json.loads(groups) if groups else {}
 
         distinct_id = request.user.distinct_id
         if not distinct_id:
@@ -1751,6 +1870,14 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    @validated_request(
+        query_serializer=LocalEvaluationQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
+            402: OpenApiResponse(response=serializers.DictField()),
+            500: OpenApiResponse(response=serializers.DictField()),
+        },
+    )
     @action(
         methods=["GET"],
         detail=False,
@@ -1764,7 +1891,8 @@ class FeatureFlagViewSet(
         start_time = time.time()
         logger = logging.getLogger(__name__)
 
-        include_cohorts = "send_cohorts" in request.GET
+        # Use validated boolean value from serializer
+        include_cohorts = request.validated_query_data.get("send_cohorts", False)
 
         # Extract client ETag from If-None-Match header
         client_etag = extract_etag_from_header(request.headers.get("If-None-Match"))
@@ -1818,7 +1946,9 @@ class FeatureFlagViewSet(
 
             # Add request for analytics
             if len(flag_keys) > 0 and not all(
-                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag_key in flag_keys
+                flag_key.startswith(SURVEY_TARGETING_FLAG_PREFIX)
+                or flag_key.startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+                for flag_key in flag_keys
             ):
                 increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
@@ -1846,9 +1976,11 @@ class FeatureFlagViewSet(
         if cached_response is None:
             return None
 
-        # Increment request count for analytics (exclude survey targeting flags)
+        # Increment request count for analytics (exclude survey and product tour targeting flags)
         if cached_response.get("flags") and not all(
-            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in cached_response["flags"]
+            flag.get("key", "").startswith(SURVEY_TARGETING_FLAG_PREFIX)
+            or flag.get("key", "").startswith(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+            for flag in cached_response["flags"]
         ):
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
@@ -1895,16 +2027,49 @@ class FeatureFlagViewSet(
                         )
                         continue
 
+    @validated_request(
+        query_serializer=EvaluationReasonsQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=EvaluationReasonsResponseSerializer()),
+        },
+        examples=[
+            OpenApiExample(
+                "Evaluation Reasons Response",
+                description="Example response showing evaluation results for multiple feature flags",
+                response_only=True,
+                value={
+                    "new-signup-flow": {
+                        "value": True,
+                        "evaluation": {
+                            "reason": "condition_match",
+                            "condition_index": 0,
+                        },
+                    },
+                    "dark-mode": {
+                        "value": "variant-a",
+                        "evaluation": {
+                            "reason": "condition_match",
+                            "condition_index": 1,
+                        },
+                    },
+                    "beta-features": {
+                        "value": False,
+                        "evaluation": {
+                            "reason": "no_condition_match",
+                            "condition_index": None,
+                        },
+                    },
+                },
+            )
+        ],
+    )
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
-        distinct_id = request.query_params.get("distinct_id", None)
-        try:
-            groups = json.loads(request.query_params.get("groups", "{}"))
-        except (json.JSONDecodeError, ValueError):
-            raise exceptions.ValidationError("Invalid JSON in groups parameter")
-
-        if not distinct_id:
-            raise exceptions.ValidationError(detail="distinct_id is required")
+        distinct_id = request.validated_query_data["distinct_id"]
+        groups = request.validated_query_data.get("groups", {})
+        # Ensure groups is always a dict, not a string
+        if isinstance(groups, str):
+            groups = json.loads(groups) if groups else {}
 
         result = _evaluate_flags_with_fallback(
             team=self.team,
@@ -1999,10 +2164,16 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @validated_request(
+        query_serializer=ActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
+        },
+    )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
 
         activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
 
@@ -2061,10 +2232,17 @@ class FeatureFlagViewSet(
 
         return Response(decrypted_flag_payloads["true"] or None)
 
+    @validated_request(
+        query_serializer=ActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
+            404: OpenApiResponse(response=None),
+        },
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        limit = request.validated_query_data["limit"]
+        page = request.validated_query_data["page"]
 
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():

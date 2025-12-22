@@ -4,6 +4,7 @@ import datetime as dt
 
 import pytest
 
+import pytest_asyncio
 from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
@@ -45,7 +46,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
     """Clean-up S3 bucket used in Redshift copy activity."""
     yield
@@ -128,7 +129,7 @@ async def _run_activity(
     )
 
     assert copy_inputs.batch_export.batch_export_id is not None
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=copy_inputs.batch_export.team_id,
@@ -144,6 +145,7 @@ async def _run_activity(
             destination_default_fields=redshift_default_fields(),
         ),
     )
+    copy_inputs.batch_export.stage_folder = stage_folder
     result = await activity_environment.run(copy_into_redshift_activity_from_stage, copy_inputs)
 
     if not assert_records:

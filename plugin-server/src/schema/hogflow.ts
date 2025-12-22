@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
+import { CyclotronInputMappingSchema, CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
 const _commonActionFields = {
     id: z.string(),
@@ -51,6 +51,14 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
+    }),
+    z.object({
+        type: z.literal('batch'),
+        filters: z.object({
+            properties: z.array(z.any()),
+        }),
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
         // Future: recurring schedule fields can be added here
     }),
@@ -140,6 +148,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
 
@@ -151,6 +160,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     z.object({
@@ -161,6 +171,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
+            mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
     // Exit

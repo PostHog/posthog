@@ -1,17 +1,28 @@
 import re
 from datetime import timedelta
+from typing import NamedTuple
 
 import structlog
 from temporalio import activity, common, workflow
 
-from posthog.ducklake.common import attach_catalog, configure_connection, get_config
+from posthog.ducklake.common import attach_catalog, get_config
+from posthog.ducklake.storage import configure_connection
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 
 logger = structlog.get_logger(__name__)
 
 # Valid SQL identifier pattern (alphanumeric and underscores only)
 TABLE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+# Valid file size pattern (e.g., "512MB", "1GB", "256KB")
+FILE_SIZE_PATTERN = re.compile(r"^\d+\s*(B|KB|MB|GB|TB)$", re.IGNORECASE)
+
+
+class TableInfo(NamedTuple):
+    schema_name: str
+    table_name: str
 
 
 @activity.defn
@@ -20,6 +31,9 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
 
     This activity connects to DuckLake and runs merge_adjacent_files
     to consolidate small files into larger ones up to target_file_size.
+
+    Uses HeartbeaterSync to send regular heartbeats in a background thread
+    while synchronous DuckDB operations run, preventing heartbeat timeouts.
     """
     import duckdb
 
@@ -31,61 +45,80 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
     )
 
     config = get_config()
+    tables_to_compact: list[TableInfo] = []
+    compaction_results: dict = {}
 
-    # Connect to DuckDB and attach DuckLake catalog
-    conn = duckdb.connect()
+    # Use HeartbeaterSync to send regular heartbeats in a background thread
+    # while synchronous DuckDB operations run
+    with HeartbeaterSync(logger=logger):
+        conn = duckdb.connect()
 
-    try:
-        # Configure S3 access and install DuckLake extension (from core_nightly for production)
-        configure_connection(conn, config, install_extension=True, use_core_nightly=True)
+        try:
+            # Configure S3 access and install DuckLake extension
+            configure_connection(conn, install_extensions=True)
 
-        # Attach the DuckLake catalog
-        attach_catalog(conn, config, alias="ducklake")
+            # Attach the DuckLake catalog
+            attach_catalog(conn, config, alias="ducklake")
 
-        # Set the target file size for compaction
-        conn.execute(f"CALL ducklake.set_option('target_file_size', '{input.target_file_size}')")
+            # Validate and set the target file size for compaction
+            if not FILE_SIZE_PATTERN.match(input.target_file_size.strip()):
+                raise ValueError(f"Invalid target_file_size format: {input.target_file_size!r}")
+            conn.execute(f"CALL ducklake.set_option('target_file_size', '{input.target_file_size}')")
 
-        activity.heartbeat()
+            # Get list of tables to compact
+            if input.tables:
+                # Input tables should be in "schema.table" format
+                for table_spec in input.tables:
+                    if "." in table_spec:
+                        schema_name, table_name = table_spec.split(".", 1)
+                        tables_to_compact.append(TableInfo(schema_name, table_name))
+                    else:
+                        # Assume main schema if not specified
+                        tables_to_compact.append(TableInfo("main", table_spec))
+            else:
+                # Get all tables with their schema names from the ducklake catalog
+                # Query the DuckLake metadata catalog to join tables with schemas
+                result = conn.execute("""
+                    SELECT s.schema_name, t.table_name
+                    FROM ducklake_table_info('ducklake') t
+                    JOIN __ducklake_metadata_ducklake.ducklake_schema s
+                        ON t.schema_id = s.schema_id
+                        AND s.end_snapshot IS NULL
+                """).fetchall()
+                tables_to_compact = [TableInfo(row[0], row[1]) for row in result]
 
-        # Get list of tables to compact
-        if input.tables:
-            tables_to_compact = input.tables
-        else:
-            # Get all tables in the ducklake catalog
-            result = conn.execute("""
-                SELECT table_name
-                FROM ducklake.information_schema.tables
-                WHERE table_schema = 'main'
-            """).fetchall()
-            tables_to_compact = [row[0] for row in result]
+            logger.info("Tables to compact", tables=[(t.schema_name, t.table_name) for t in tables_to_compact])
 
-        logger.info("Tables to compact", tables=tables_to_compact)
+            for table_info in tables_to_compact:
+                table_key = f"{table_info.schema_name}.{table_info.table_name}"
 
-        compaction_results = {}
+                # Validate table and schema names to prevent SQL injection
+                if not TABLE_NAME_PATTERN.match(table_info.table_name):
+                    logger.warning("Skipping invalid table name", table=table_key)
+                    compaction_results[table_key] = {"status": "error", "error": "Invalid table name"}
+                    continue
+                if not TABLE_NAME_PATTERN.match(table_info.schema_name):
+                    logger.warning("Skipping invalid schema name", table=table_key)
+                    compaction_results[table_key] = {"status": "error", "error": "Invalid schema name"}
+                    continue
 
-        for table in tables_to_compact:
-            activity.heartbeat()
-
-            # Validate table name to prevent SQL injection
-            if not TABLE_NAME_PATTERN.match(table):
-                logger.warning("Skipping invalid table name", table=table)
-                compaction_results[table] = {"status": "error", "error": "Invalid table name"}
-                continue
-
-            try:
-                if input.dry_run:
-                    logger.info("Dry run - would compact table", table=table)
-                    compaction_results[table] = {"status": "dry_run"}
-                else:
-                    logger.info("Compacting table", table=table)
-                    conn.execute(f"CALL ducklake.merge_adjacent_files(table => '{table}')")
-                    compaction_results[table] = {"status": "success"}
-                    logger.info("Successfully compacted table", table=table)
-            except Exception as e:
-                logger.exception("Failed to compact table", table=table, error=str(e))
-                compaction_results[table] = {"status": "error", "error": str(e)}
-    finally:
-        conn.close()
+                try:
+                    if input.dry_run:
+                        logger.info("Dry run - would compact table", table=table_key)
+                        compaction_results[table_key] = {"status": "dry_run"}
+                    else:
+                        logger.info("Compacting table", table=table_key)
+                        conn.execute(
+                            f"CALL ducklake_merge_adjacent_files('ducklake', '{table_info.table_name}', "
+                            f"schema => '{table_info.schema_name}')"
+                        )
+                        compaction_results[table_key] = {"status": "success"}
+                        logger.info("Successfully compacted table", table=table_key)
+                except Exception as e:
+                    logger.exception("Failed to compact table", table=table_key, error=str(e))
+                    compaction_results[table_key] = {"status": "error", "error": str(e)}
+        finally:
+            conn.close()
 
     logger.info("DuckLake compaction completed", results=compaction_results)
 

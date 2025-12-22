@@ -1,7 +1,5 @@
-@layer base {
-    .LemonIcon {
-        display: inline-block;
-        width: 1em;
-        vertical-align: -0.15em; // -0.15em ensures vertical centering in inline contexts
-    }
+.LemonIcon {
+    display: inline-block;
+    width: 1em;
+    vertical-align: -0.15em; // -0.15em ensures vertical centering in inline contexts
 }

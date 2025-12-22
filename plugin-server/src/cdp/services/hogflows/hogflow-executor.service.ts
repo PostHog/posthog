@@ -28,7 +28,13 @@ import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
+import {
+    actionIdForLogging,
+    ensureCurrentAction,
+    findContinueAction,
+    shouldSkipAction,
+    trackE2eLag,
+} from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -76,7 +82,12 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService
     ) {
-        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService)
+        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
+        const hogFunctionEmailHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            'email'
+        )
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
@@ -87,7 +98,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
-            function_email: hogFunctionHandler,
+            function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
     }
@@ -149,13 +160,7 @@ export class HogFlowExecutorService {
             return earlyExitResult
         }
 
-        const hasCurrentAction = Boolean(invocation.state.currentAction)
-        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
-        logs.push({
-            level: 'debug',
-            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}`,
-            timestamp: DateTime.now(),
-        })
+        logs.push(this.logExecutionTriggerInfo(invocation))
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
@@ -169,6 +174,8 @@ export class HogFlowExecutorService {
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
+
+                trackE2eLag(result)
             }
 
             logs.push(...result.logs)
@@ -538,6 +545,29 @@ export class HogFlowExecutorService {
                 'debug',
                 `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
             )
+        }
+    }
+
+    private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {
+        const hasCurrentAction = Boolean(invocation.state.currentAction)
+        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
+
+        const hasAssociatedPerson = Boolean(invocation.person)
+        const isWebhookTriggered = invocation.hogFlow.trigger.type !== 'event'
+
+        let triggeredFor = ''
+        if (!hasCurrentAction) {
+            triggeredFor = isWebhookTriggered
+                ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
+                : hasAssociatedPerson
+                  ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
+                  : ''
+        }
+
+        return {
+            level: 'debug',
+            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}${triggeredFor}`,
+            timestamp: DateTime.now(),
         }
     }
 }

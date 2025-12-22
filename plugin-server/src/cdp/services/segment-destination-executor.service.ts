@@ -8,6 +8,7 @@ import { FetchOptions, FetchResponse, Response } from '../../utils/request'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
@@ -313,6 +314,13 @@ export class SegmentDestinationExecutorService {
             addLog('info', `Function completed in ${performance.now() - start}ms.`)
 
             pluginExecutionDuration.observe(performance.now() - start)
+            if (result.finished) {
+                const capturedAt = invocation.state.globals.event?.captured_at
+                if (capturedAt) {
+                    const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                    destinationE2eLagMsSummary.observe(e2eLagMs)
+                }
+            }
         } catch (e) {
             if (e instanceof SegmentFetchError) {
                 if (retriesPossible) {

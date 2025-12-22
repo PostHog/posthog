@@ -177,7 +177,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     }
 
     const singleFilter = entitiesLimit === 1
-    const canAccessEventsCombination = !!featureFlags[FEATURE_FLAGS.EVENTS_COMBINATION_IN_TRENDS]
+    const canAccessEventsCombination = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_TRENDS]
 
     const commonProps = {
         logic,

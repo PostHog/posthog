@@ -21,15 +21,7 @@ The user has provided the following dashboards.
 """.strip()
 
 ROOT_DASHBOARD_CONTEXT_PROMPT = """
-## Dashboard: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-### Dashboard insights:
-
-{{{insights}}}
+## {{{content}}}
 """.strip()
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """
@@ -39,21 +31,7 @@ The user has provided the following insights, which may be relevant to the quest
 """.strip()
 
 ROOT_INSIGHT_CONTEXT_PROMPT = """
-{{{heading}}} Insight: {{{name}}}
-{{#description}}
-
-Description: {{.}}
-{{/description}}
-
-Query schema:
-```json
-{{{query_schema}}}
-```
-
-Results:
-```
-{{{query}}}
-```
+{{{heading}}} {{{insight_prompt}}}
 """.strip()
 
 CONTEXTUAL_TOOLS_REMINDER_PROMPT = """

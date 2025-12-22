@@ -1,20 +1,18 @@
-@layer base {
-    .system-status-scene {
-        margin-bottom: 64px;
+.system-status-scene {
+    margin-bottom: 64px;
 
-        .metric-column {
-            @media (min-width: 750px) {
-                width: 33%;
-            }
+    .metric-column {
+        @media (min-width: 750px) {
+            width: 33%;
         }
     }
+}
 
-    .embedded-svg-wrapper {
-        cursor: text;
+.embedded-svg-wrapper {
+    cursor: text;
 
-        svg {
-            width: 100%;
-            height: 100%;
-        }
+    svg {
+        width: 100%;
+        height: 100%;
     }
 }

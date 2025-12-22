@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 
 import psycopg
+import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
 from infi.clickhouse_orm import Database
@@ -71,7 +72,7 @@ def team(organization):
     team.delete()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
@@ -81,7 +82,7 @@ async def aorganization():
     await sync_to_async(org.delete)()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def ateam(aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
@@ -97,8 +98,8 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture(scope="module")
-async def clickhouse_client(event_loop):
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
@@ -114,7 +115,7 @@ async def clickhouse_client(event_loop):
         yield client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
@@ -129,7 +130,7 @@ async def temporal_client():
     yield client
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def workflows(request):
     """Return Temporal workflows to initialize a test worker.
 
@@ -144,7 +145,7 @@ async def workflows(request):
         return WORKFLOWS
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def activities(request):
     """Return Temporal activities to initialize a test worker.
 
@@ -159,14 +160,7 @@ async def activities(request):
         return ACTIVITIES
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(autouse=True, scope="module")
+@pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
 async def configure_logger_auto() -> None:
     """Configure logger when running in a Temporal activity environment."""
     configure_logger(cache_logger_on_first_use=False)
@@ -215,7 +209,7 @@ def batch_export_schema(request) -> dict | None:
         return None
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift and Postgres export testing.
 
@@ -283,7 +277,7 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
@@ -380,6 +374,24 @@ def test_person_properties(request):
 
 
 @pytest.fixture
+def count_no_prop(request) -> int:
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return 5
+
+
+@pytest.fixture
+def events_table(request) -> str | None:
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return None
+
+
+@pytest.fixture
 async def generate_test_data(
     ateam,
     clickhouse_client,
@@ -389,9 +401,13 @@ async def generate_test_data(
     test_properties,
     test_person_properties,
     insert_sessions,
+    count_no_prop,
+    events_table,
 ):
     """Generate test data in ClickHouse."""
-    if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+    if events_table:
+        table = events_table
+    elif data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
         table = "events_recent"
     else:
         table = "sharded_events"
@@ -416,7 +432,7 @@ async def generate_test_data(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=5,
+        count=count_no_prop,
         count_outside_range=0,
         count_other_team=0,
         properties=None,
@@ -471,7 +487,7 @@ async def generate_test_data(
     return (events_to_export_created, persons_to_export_created)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def generate_test_persons_data(ateam, clickhouse_client, data_interval_start, data_interval_end):
     """Generate test persons data in ClickHouse."""
     persons, _ = await generate_test_persons_in_clickhouse(

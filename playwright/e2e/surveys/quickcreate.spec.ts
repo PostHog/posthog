@@ -231,7 +231,7 @@ test.describe('Quick create survey from feature flag', () => {
         await responsePromise
         await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
         await expect(page.locator('.scene-tab-title').first()).toContainText(name)
-        await expect(page.locator('[data-attr="launch-survey"]')).toBeVisible()
+        await expect(page.locator('[data-attr="launch-survey"]').getByText('Launch', { exact: true })).toBeVisible()
     })
 
     test('warning shown when surveys are disabled', async ({ page }) => {

@@ -1,60 +1,143 @@
 @import '../styles/base';
 
-@layer base {
-    *,
-    *::before,
-    *::after {
-        --z-toolbar: 2147483020;
+*,
+*::before,
+*::after {
+    --z-toolbar: 2147483020;
 
-        box-sizing: border-box;
+    box-sizing: border-box;
+}
+
+:host {
+    // reset fonts
+    all: initial;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+
+    // @include root-variables;
+}
+
+.LemonModal__overlay--force-modal-above-popovers {
+    z-index: calc(var(--z-toolbar) + var(--z-force-modal-above-popovers)) !important;
+}
+
+.section-title {
+    margin-bottom: 10px;
+    font-size: 12px;
+    font-weight: bold;
+    color: hsl(220deg 15% 49% / 100%);
+    text-transform: uppercase;
+}
+
+.fade-component-container {
+    position: fixed;
+    z-index: var(--z-toolbar);
+}
+
+.Toastify__toast-container {
+    z-index: calc(var(--z-toolbar) + 20);
+}
+
+.toolbar-global-fade-container {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+
+    > * {
+        pointer-events: auto;
+    }
+}
+
+.Popover {
+    z-index: calc(var(--z-toolbar) + var(--z-popover)) !important;
+}
+
+.Tooltip {
+    z-index: calc(var(--z-toolbar) + var(--z-tooltip)) !important;
+}
+
+// Product Tours animations
+// Following animation guidelines: ease-out for entering elements, max 0.3s duration
+
+$ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+
+@keyframes Toolbar__SlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
     }
 
-    :host {
-        // reset fonts
-        all: initial;
-        font-family: var(--font-sans);
-        font-size: 14px;
-        line-height: 1.5;
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 
-        // @include root-variables;
+@keyframes Toolbar__Pop {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
     }
 
-    .LemonModal__overlay--force-modal-above-popovers {
-        z-index: calc(var(--z-toolbar) + var(--z-force-modal-above-popovers)) !important;
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes Toolbar__BlurRight {
+    from {
+        filter: blur(4px);
+        opacity: 0;
+        transform: translateX(-8px);
     }
 
-    .section-title {
-        margin-bottom: 10px;
-        font-size: 12px;
-        font-weight: bold;
-        color: hsl(220deg 15% 49% / 100%);
-        text-transform: uppercase;
+    to {
+        filter: blur(0);
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes Toolbar__Fade {
+    from {
+        opacity: 0;
     }
 
-    .fade-component-container {
-        position: fixed;
-        z-index: var(--z-toolbar);
+    to {
+        opacity: 1;
     }
+}
 
-    .Toastify__toast-container {
-        z-index: calc(var(--z-toolbar) + 20);
+.toolbar-animate-slide-up {
+    animation: Toolbar__SlideUp 0.2s $ease-out-quart forwards;
+    will-change: transform, opacity;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: Toolbar__Fade 0.2s $ease-out-quart forwards;
     }
+}
 
-    .toolbar-global-fade-container {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
+.toolbar-animate-pop {
+    animation: Toolbar__Pop 0.2s $ease-out-quart forwards;
+    will-change: transform, opacity;
 
-        > * {
-            pointer-events: auto;
-        }
+    @media (prefers-reduced-motion: reduce) {
+        animation: Toolbar__Fade 0.2s $ease-out-quart forwards;
     }
+}
 
-    .Popover {
-        z-index: calc(var(--z-toolbar) + var(--z-popover)) !important;
-    }
+.toolbar-animate-blur-right {
+    animation: Toolbar__BlurRight 0.2s $ease-out-quart forwards;
+    will-change: transform, opacity, filter;
 
-    .Tooltip {
-        z-index: calc(var(--z-toolbar) + var(--z-tooltip)) !important;
+    @media (prefers-reduced-motion: reduce) {
+        animation: Toolbar__Fade 0.2s $ease-out-quart forwards;
     }
+}
+
+.toolbar-animate-fade {
+    animation: Toolbar__Fade 0.15s $ease-out-quart forwards;
+    will-change: opacity;
 }

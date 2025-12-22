@@ -99,12 +99,15 @@ export default defineConfig(({ mode }) => {
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
             // this is just used in dev
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
-            cors: {
-                // Allow Django backend to access Vite dev server
-                origin: ['http://localhost:8000', 'http://localhost:8010'],
-            },
+            cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
+            proxy: {
+                '/static': {
+                    target: 'http://localhost:8000',
+                    changeOrigin: true,
+                },
+            },
         },
         define: {
             global: 'globalThis',

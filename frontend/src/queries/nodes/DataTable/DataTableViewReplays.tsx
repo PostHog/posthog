@@ -1,17 +1,8 @@
 import { useValues } from 'kea'
 
-import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 
-import { urls } from 'scenes/urls'
-
-import {
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyOperator,
-    RecordingUniversalFilters,
-    ReplayTabs,
-} from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -44,13 +35,11 @@ export function DataTableViewReplays(): JSX.Element | null {
     }
 
     return (
-        <LemonButton
+        <ViewRecordingsPlaylistButton
+            filters={filters}
             type="secondary"
-            icon={<IconRewindPlay />}
-            to={urls.replay(ReplayTabs.Home, filters)}
+            label="View session recordings"
             data-attr="view-replays-from-cohort-button"
-        >
-            View session recordings
-        </LemonButton>
+        />
     )
 }

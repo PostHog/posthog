@@ -54,14 +54,15 @@ export function ErrorTrackingScene(): JSX.Element {
     }, [])
 
     return (
-        <SceneContent>
-            <StyleVariables>
-                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
-                    <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
-                        <ErrorTrackingSetupPrompt>
+        <StyleVariables>
+            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
+                <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
+                    <ErrorTrackingSetupPrompt>
+                        <SceneContent>
                             <Header />
 
                             <ErrorTrackingIssueFilteringTool />
+
                             {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
 
                             {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
@@ -97,11 +98,11 @@ export function ErrorTrackingScene(): JSX.Element {
                                     <IssuesList />
                                 </div>
                             )}
-                        </ErrorTrackingSetupPrompt>
-                    </BindLogic>
+                        </SceneContent>
+                    </ErrorTrackingSetupPrompt>
                 </BindLogic>
-            </StyleVariables>
-        </SceneContent>
+            </BindLogic>
+        </StyleVariables>
     )
 }
 

@@ -48,8 +48,8 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
+from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
-from posthog.temporal.utils import DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -999,7 +999,7 @@ async def test_run_workflow_timeout_exceeded(
         freeze_time(TEST_TIME),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
         unittest.mock.patch(
-            "posthog.temporal.data_modeling.run_workflow.pause_saved_query_schedule"
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
         ) as mock_pause_saved_query_schedule,
     ):
         mock_hogql_table.side_effect = Exception(

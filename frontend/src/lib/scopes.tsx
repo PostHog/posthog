@@ -35,6 +35,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'hog_function', objectPlural: 'hog functions' },
     { key: 'insight', objectPlural: 'insights' },
     { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
+    { key: 'llm_prompt', objectPlural: 'LLM prompts' },
     { key: 'logs', objectPlural: 'logs' },
     { key: 'notebook', objectPlural: 'notebooks' },
     { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
@@ -54,6 +55,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'person', objectPlural: 'persons' },
     { key: 'plugin', objectPlural: 'plugins' },
+    { key: 'product_tour', objectPlural: 'product tours' },
     {
         key: 'project',
         objectPlural: 'projects',
@@ -111,6 +113,7 @@ export const API_KEY_SCOPE_PRESETS: {
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
+    { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     {
         value: 'project_management',
         label: 'Project & user management',

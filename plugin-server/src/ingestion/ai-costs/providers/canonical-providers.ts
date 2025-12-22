@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-08 20:01:52 UTC
+// Generated at: 2025-12-18 20:01:54 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -9,7 +9,6 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'amazon-nova'
     | 'anthropic'
     | 'arcee-ai-bf16'
     | 'atlas-cloud-bf16'
@@ -67,10 +66,13 @@ export type CanonicalProvider =
     | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
+    | 'mara'
     | 'minimax'
     | 'minimax-fp8'
     | 'mistral'
     | 'modelrun'
+    | 'modelrun-fp4'
+    | 'modelrun-fp8'
     | 'moonshotai'
     | 'moonshotai-fp8'
     | 'moonshotai-int4'
@@ -89,6 +91,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita-bf16'
     | 'novita-fp16'
+    | 'novita-fp4'
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
@@ -107,7 +110,7 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
-    | 'sambanova-standard'
+    | 'sambanova-high-throughput'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'
@@ -126,5 +129,6 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xai-fast'
+    | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp8'

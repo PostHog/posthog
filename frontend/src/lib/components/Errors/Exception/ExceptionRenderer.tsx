@@ -18,7 +18,11 @@ export type ExceptionRendererProps = {
 
     renderUndefinedTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
     renderResolvedTrace: StackTraceRenderer
-    renderFilteredTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
+    renderFilteredTrace: (
+        allFrames: ErrorTrackingStackFrame[],
+        exception: ErrorTrackingException,
+        knownException?: KnownException
+    ) => React.ReactNode
 }
 
 export function ExceptionRenderer({
@@ -37,19 +41,19 @@ export function ExceptionRenderer({
             <div>
                 {match(exception.stacktrace)
                     .when(
-                        (stack) => stack === null || stack === undefined || stack.frames.length === 0,
+                        (stack) => stack === null || stack === undefined || !stack.frames || stack.frames.length === 0,
                         () => renderUndefinedTrace(exception, knownException)
                     )
                     .when(
                         (stack) => stack!.type === 'resolved',
                         (stack) => {
-                            let frames = frameFilter ? stack!.frames.filter(frameFilter) : stack!.frames
-                            return match(frames)
+                            let filteredFrames = frameFilter ? stack!.frames.filter(frameFilter) : stack!.frames
+                            return match(filteredFrames)
                                 .when(
                                     (frames) => Array.isArray(frames) && frames.length > 0,
                                     (frames) => renderResolvedTrace(frames, exception, knownException)
                                 )
-                                .otherwise(() => renderFilteredTrace(exception, knownException))
+                                .otherwise(() => renderFilteredTrace(stack!.frames, exception, knownException))
                         }
                     )
                     .otherwise(() => null)}

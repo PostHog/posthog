@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 from functools import cached_property
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -17,7 +17,7 @@ from posthog.schema import AttributionMode
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, raise_if_user_provided_url_unsafe
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -301,7 +301,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
-    instance: Optional[Team]
+    instance: Team | None
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -375,7 +375,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return representation
 
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+    def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
@@ -389,7 +389,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
-    def get_live_events_token(self, team: Team) -> Optional[str]:
+    def get_live_events_token(self, team: Team) -> str | None:
         return encode_jwt(
             {"team_id": team.id, "api_token": team.api_token},
             timedelta(days=7),
@@ -600,6 +600,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_slack_incoming_webhook(self, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        if not settings.DEBUG:
+            try:
+                raise_if_user_provided_url_unsafe(value)
+            except ValueError:
+                raise exceptions.ValidationError(
+                    "Invalid webhook URL. Ensure the URL is valid and points to an external server."
+                )
+        return value
+
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         if value is None:
             return value
@@ -739,6 +751,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             validated_data["session_replay_config"] = {
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
+            }
+
+        # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
+        if "modifiers" in validated_data and validated_data["modifiers"] is not None:
+            validated_data["modifiers"] = {
+                **(instance.modifiers or {}),
+                **validated_data["modifiers"],
             }
 
         updated_team = super().update(instance, validated_data)
@@ -1330,7 +1349,7 @@ class RootTeamViewSet(TeamViewSet):
 
 
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Optional[Team | Project]
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Team | Project | None
 ) -> dict[str, Any]:
     if "primary_dashboard" in attrs:
         if not instance:

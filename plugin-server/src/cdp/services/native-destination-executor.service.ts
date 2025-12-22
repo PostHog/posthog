@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger'
 import { FetchOptions, FetchResponse } from '../../utils/request'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
+import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
@@ -225,6 +226,13 @@ export class NativeDestinationExecutorService {
             addLog('info', `Function completed in ${performance.now() - start}ms.`)
 
             nativeDestinationExecutionDuration.observe(performance.now() - start)
+            if (result.finished) {
+                const capturedAt = invocation.state.globals.event?.captured_at
+                if (capturedAt) {
+                    const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                    destinationE2eLagMsSummary.observe(e2eLagMs)
+                }
+            }
         } catch (e) {
             if (e instanceof FetchError) {
                 if (retriesPossible) {

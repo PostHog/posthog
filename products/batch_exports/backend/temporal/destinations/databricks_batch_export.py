@@ -673,7 +673,19 @@ class DatabricksClient:
         try:
             await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
         except TimeoutError:
+            self.logger.exception(
+                "Merge timed-out",
+                with_schema_evolution=with_schema_evolution,
+                query="MERGE",
+                query_details=merge_query,
+                timeout=timeout,
+            )
             raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
+        except Exception:
+            self.logger.exception(
+                "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
+            )
+            raise
 
     def _get_merge_query_with_schema_evolution(
         self,
@@ -1042,6 +1054,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

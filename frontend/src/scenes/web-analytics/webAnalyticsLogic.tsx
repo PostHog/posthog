@@ -11,7 +11,6 @@ import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -25,6 +24,7 @@ import {
     updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,7 +38,6 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
-    CompareFilter,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
@@ -50,7 +49,6 @@ import {
     WebAnalyticsOrderBy,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
-    WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -66,7 +64,6 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
-    PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -88,7 +85,6 @@ import {
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_INTERVAL,
-    INITIAL_WEB_ANALYTICS_FILTER,
     PathTab,
     ProductTab,
     SourceTab,
@@ -106,7 +102,9 @@ import {
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
 } from './common'
+import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
+import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -123,33 +121,58 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['hasAvailableFeature'],
             preflightLogic,
             ['isDev'],
-            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
-            ['authorizedUrls'],
+            authorizedUrlListLogic({
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            }),
+            ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
+            webAnalyticsHealthLogic,
+            ['webAnalyticsHealthStatus'],
+            webAnalyticsFilterLogic,
+            [
+                'rawWebAnalyticsFilters',
+                'domainFilter',
+                'deviceTypeFilter',
+                'compareFilter',
+                'hasHostFilter',
+                'validatedDomainFilter',
+            ],
+        ],
+        actions: [
+            webAnalyticsHealthLogic,
+            ['trackTabViewed'],
+            authorizedUrlListLogic({
+                type: AuthorizedUrlListType.WEB_ANALYTICS,
+                actionId: null,
+                experimentId: null,
+                productTourId: null,
+            }),
+            [
+                'addUrl as addAuthorizedUrl',
+                'newUrl as newAuthorizedUrl',
+                'cancelProposingUrl as cancelProposingAuthorizedUrl',
+            ],
+            webAnalyticsFilterLogic,
+            [
+                'setWebAnalyticsFilters',
+                'togglePropertyFilter',
+                'setDomainFilter',
+                'setDeviceTypeFilter',
+                'setCompareFilter',
+            ],
         ],
     })),
     actions({
-        setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
-        togglePropertyFilter: (
-            type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session,
-            key: string,
-            value: string | number | null,
-            tabChange?: {
-                graphsTab?: string
-                sourceTab?: string
-                deviceTab?: string
-                pathTab?: string
-                geographyTab?: string
-                activeHoursTab?: string
-            }
-        ) => ({ type, key, value, tabChange }),
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setActiveHoursTab: (tab: string) => ({ tab }),
-        setDomainFilter: (domain: string | null) => ({ domain }),
-        setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
+        openSurveyModal: (path: string) => ({ path }),
+        closeSurveyModal: true,
         clearTablesOrderBy: () => true,
         setTablesOrderBy: (orderBy: WebAnalyticsOrderByFields, direction: WebAnalyticsOrderByDirection) => ({
             orderBy,
@@ -168,7 +191,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
-        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
@@ -220,114 +242,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         },
     })),
     reducers({
-        rawWebAnalyticsFilters: [
-            INITIAL_WEB_ANALYTICS_FILTER,
-            persistConfig,
-            {
-                setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
-                togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
-                    if (value === null) {
-                        // if there's already an isNotSet filter, remove it
-                        const isNotSetFilterExists = oldPropertyFilters.some(
-                            (f) => f.type === type || f.key === key || f.operator === PropertyOperator.IsNotSet
-                        )
-                        if (isNotSetFilterExists) {
-                            return oldPropertyFilters.filter(
-                                (f) => f.type !== type || f.key !== key || f.operator !== PropertyOperator.IsNotSet
-                            )
-                        }
-                        return [
-                            ...oldPropertyFilters,
-                            {
-                                type,
-                                key,
-                                operator: PropertyOperator.IsNotSet,
-                            },
-                        ]
-                    }
-
-                    const similarFilterExists = oldPropertyFilters.some(
-                        (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
-                    )
-
-                    if (similarFilterExists) {
-                        // if there's already a matching property, turn it off or merge them
-                        return oldPropertyFilters
-                            .map((f: WebAnalyticsPropertyFilter) => {
-                                if (
-                                    f.key !== key ||
-                                    f.type !== type ||
-                                    ![PropertyOperator.Exact, PropertyOperator.IsNotSet].includes(f.operator)
-                                ) {
-                                    return f
-                                }
-                                const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: PropertyFilterBaseValue[]
-                                if (oldValue.includes(value)) {
-                                    // If there are multiple values for this filter, reduce that to just the one being clicked
-                                    if (oldValue.length > 1) {
-                                        newValue = [value]
-                                    } else {
-                                        return null
-                                    }
-                                } else {
-                                    newValue = [...oldValue, value]
-                                }
-                                return {
-                                    type: PropertyFilterType.Event,
-                                    key,
-                                    operator: PropertyOperator.Exact,
-                                    value: newValue,
-                                } as const
-                            })
-                            .filter(isNotNil)
-                    }
-
-                    // no matching property, so add one
-                    const newFilter: WebAnalyticsPropertyFilter = {
-                        type,
-                        key,
-                        value,
-                        operator: PropertyOperator.Exact,
-                    }
-
-                    return [...oldPropertyFilters, newFilter]
-                },
-                setDomainFilter: (state) => {
-                    // the domain and host filters don't interact well, so remove the host filter when the domain filter is set
-                    return state.filter((filter) => filter.key !== '$host')
-                },
-            },
-        ],
-        domainFilter: [
+        surveyModalPath: [
             null as string | null,
-            persistConfig,
             {
-                setDomainFilter: (_: string | null, payload: { domain: string | null }) => {
-                    const { domain } = payload
-                    return domain
-                },
-                togglePropertyFilter: (state, { key }) => {
-                    // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
-                    return key === '$host' ? null : state
-                },
-                setWebAnalyticsFilters: (state, { webAnalyticsFilters }) => {
-                    // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
-                    if (webAnalyticsFilters.some((f) => f.key === '$host')) {
-                        return null
-                    }
-                    return state
-                },
-            },
-        ],
-        deviceTypeFilter: [
-            null as DeviceType | null,
-            persistConfig,
-            {
-                setDeviceTypeFilter: (_: DeviceType | null, payload: unknown) => {
-                    const { deviceType } = payload as { deviceType: DeviceType | null }
-                    return deviceType
-                },
+                openSurveyModal: (_, { path }) => path,
+                closeSurveyModal: () => null,
             },
         ],
         _graphsTab: [
@@ -476,13 +395,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setConversionGoalWarning: (_, { warning }) => warning,
             },
         ],
-        compareFilter: [
-            { compare: true } as CompareFilter,
-            persistConfig,
-            {
-                setCompareFilter: (_, { compareFilter }) => compareFilter,
-            },
-        ],
         productTab: [
             ProductTab.ANALYTICS as ProductTab,
             {
@@ -566,9 +478,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled
             },
         ],
-        hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
         webAnalyticsFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.domainFilter, s.deviceTypeFilter],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.validatedDomainFilter, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
@@ -971,6 +882,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
                     canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenModal: true,
                 })
 
                 const createTableTab = (
@@ -1029,7 +941,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                             },
                             canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                            canOpenModal: false,
+                            canOpenModal: true,
                         }
                     }
 
@@ -1057,7 +969,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             columns,
                         },
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                        canOpenModal: false,
+                        canOpenModal: true,
                     }
                 }
 
@@ -1169,6 +1081,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     },
                     {
                         kind: 'tabs',
@@ -2339,6 +2252,36 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
 
         return {
+            setDates: ({ dateFrom, dateTo }) => {
+                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    interval: values.dateFilter.interval,
+                })
+            },
+            setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
+                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    interval,
+                })
+            },
+            setIsPathCleaningEnabled: ({ isPathCleaningEnabled }) => {
+                eventUsageLogic.actions.reportWebAnalyticsPathCleaningToggled({
+                    enabled: isPathCleaningEnabled,
+                })
+            },
+            setWebVitalsPercentile: () => {
+                eventUsageLogic.actions.reportWebAnalyticsFilterApplied({
+                    filter_type: 'percentile',
+                    total_filter_count: values.webAnalyticsFilters.length,
+                })
+            },
+            setProductTab: ({ tab }) => {
+                if (tab === ProductTab.HEALTH) {
+                    actions.trackTabViewed()
+                }
+            },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
             },
@@ -2352,20 +2295,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         breakpoint,
                         actions.setConversionGoalWarning
                     ),
+                ({ conversionGoal }) => {
+                    let goalType: string | null = null
+                    if (conversionGoal && 'actionId' in conversionGoal) {
+                        goalType = 'action'
+                    } else if (conversionGoal && 'customEventName' in conversionGoal) {
+                        goalType = 'custom_event'
+                    }
+                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                },
             ],
-            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
-                const isPreAggregatedEnabled =
-                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
-                const hasConversionGoalPreAggFlag =
-                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
-
-                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
-                    actions.setConversionGoal(null)
-                    lemonToast.info(
-                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
-                    )
-                }
+            addAuthorizedUrl: ({ url }) => {
+                actions.setDomainFilter(url)
             },
         }
     }),

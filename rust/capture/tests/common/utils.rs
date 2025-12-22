@@ -28,6 +28,7 @@ use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
@@ -83,7 +84,21 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_s3_bucket: None,
+    ai_s3_prefix: "llma/".to_string(),
+    ai_s3_endpoint: None,
+    ai_s3_region: "us-east-1".to_string(),
+    ai_s3_access_key_id: None,
+    ai_s3_secret_access_key: None,
     request_timeout_seconds: Some(10),
+    http1_header_read_timeout_ms: Some(5000), // 5 seconds default
+    body_chunk_read_timeout_ms: None,         // disabled by default in tests
+    continuous_profiling: ContinuousProfilingConfig {
+        continuous_profiling_enabled: false,
+        pyroscope_server_address: String::new(),
+        pyroscope_application_name: String::new(),
+        pyroscope_sample_rate: 100,
+    },
 });
 
 static TRACING_INIT: Once = Once::new();

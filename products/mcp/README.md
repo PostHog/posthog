@@ -199,6 +199,15 @@ pnpm run dev
 
 And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
 
+### Developing with local resources
+
+To develop with warm loading for MCP resources (workflows, prompts, examples):
+
+1. Start the [examples](https://github.com/postHog/examples) dev server: `cd ../examples && npm run dev`
+2. Start the MCP server with local resources: `pnpm run dev:local-resources`
+
+Changes in the examples repo will be reflected on the next request.
+
 ## Project Structure
 
 This repository is organized to support multiple language implementations:
@@ -239,5 +248,14 @@ Alternatively, you can use the following configuration in the MCP Inspector:
 
 Use transport type `STDIO`.
 
-- **Command**: `npx`
-- **Arguments**: `-y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"`
+**Command:**
+
+```bash
+npx
+```
+
+**Arguments:**
+
+```bash
+-y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
+```

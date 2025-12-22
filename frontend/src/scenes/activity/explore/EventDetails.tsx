@@ -48,7 +48,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                             sessionId={properties.$session_id}
                                             recordingStatus={properties.$recording_status}
                                             timestamp={event.timestamp}
-                                            inModal={false}
+                                            hasRecording={properties.has_recording as boolean | undefined}
                                             size="small"
                                             type="secondary"
                                             data-attr="conversation-view-session-recording-button"

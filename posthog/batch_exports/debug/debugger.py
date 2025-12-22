@@ -1,8 +1,12 @@
+import re
 import uuid
 import typing
 import functools
+import contextlib
 import dataclasses
 import collections.abc
+from dataclasses import fields
+from typing import cast
 
 from django.conf import settings
 from django.db.models import Q
@@ -10,16 +14,32 @@ from django.db.models import Q
 import pyarrow as pa
 import pyarrow.fs as fs
 import pyarrow.ipc as ipc
+from rich.console import Console
 
+from posthog.batch_exports.service import (
+    DESTINATION_WORKFLOWS,
+    BaseBatchExportInputs,
+    BatchExportModel,
+    BigQueryBatchExportInputs,
+    DatabricksBatchExportInputs,
+)
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.models.integration import DatabricksIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+    BigQueryClient,
+    bigquery_default_fields,
+)
+from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
+    DatabricksClient,
+    databricks_default_fields,
+)
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import postgres_default_fields
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import s3_default_fields
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
-from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_staging_folder
+from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder
 from products.batch_exports.backend.temporal.spmc import (
     BatchExportField,
     compose_filters_clause,
@@ -34,6 +54,8 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_PERSONS,
     SELECT_FROM_PERSONS_BACKFILL,
 )
+
+console = Console()
 
 
 @dataclasses.dataclass
@@ -238,9 +260,30 @@ class BatchExportsDebugger:
             filters["id"] = id
 
         self.loaded_batch_exports = tuple(
-            BatchExport.objects.select_related("destination").filter(team_id=self.team_id, **filters)
+            BatchExport.objects.select_related("destination__integration").filter(team_id=self.team_id, **filters)
         )
         return self.loaded_batch_exports
+
+    @property
+    def batch_export_inputs(self) -> BaseBatchExportInputs:
+        """Get the inputs for the batch export."""
+        _, workflow_inputs = DESTINATION_WORKFLOWS[self.batch_export.destination.type]
+        destination_config_fields = {field.name for field in fields(workflow_inputs)}
+        destination_config = {
+            k: v for k, v in self.batch_export.destination.config.items() if k in destination_config_fields
+        }
+        return workflow_inputs(
+            team_id=self.batch_export.team_id,
+            batch_export_id=str(self.batch_export.id),
+            interval=str(self.batch_export.interval),
+            batch_export_model=BatchExportModel(
+                name=self.batch_export.model or "events",
+                schema=self.batch_export.schema,
+                filters=self.batch_export.filters,
+            ),
+            integration_id=self.batch_export.destination.integration_id,
+            **destination_config,
+        )
 
     def iter_runs(
         self,
@@ -299,7 +342,7 @@ class BatchExportsDebugger:
     def iter_run_record_batches_from_s3(
         self, batch_export_run: BatchExportRun
     ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
-        folder = get_s3_staging_folder(
+        folder = get_base_s3_staging_folder(
             batch_export_run.batch_export.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
             batch_export_run.data_interval_end.isoformat(),
@@ -308,7 +351,19 @@ class BatchExportsDebugger:
             base_dir=f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}", recursive=True
         )
 
-        for file_info in self.s3fs.get_file_info(file_selector):
+        # get the most recent attempt
+        file_infos = self.s3fs.get_file_info(file_selector)
+        matches = [re.search(r"attempt_(\d+)", file_info.path) for file_info in file_infos]
+        attempt_numbers = [int(match.group(1)) for match in matches if match is not None]
+        if attempt_numbers:
+            max_attempt_number = max(attempt_numbers)
+            file_infos = [
+                file_info
+                for file_info, match in zip(file_infos, matches)
+                if match is not None and int(match.group(1)) == max_attempt_number
+            ]
+
+        for file_info in file_infos:
             with self.s3fs.open_input_file(file_info.path) as f:
                 yield from ipc.RecordBatchStreamReader(f)
 
@@ -401,6 +456,8 @@ class BatchExportsDebugger:
                     fields = postgres_default_fields()
                 case BatchExportDestination.Destination.REDSHIFT:
                     fields = redshift_default_fields()
+                case BatchExportDestination.Destination.DATABRICKS:
+                    fields = databricks_default_fields()
                 case t:
                     raise ValueError(f"Unsupported destination: {t}")
 
@@ -441,3 +498,39 @@ class BatchExportsDebugger:
                 column_stats += record_batch
 
         return column_stats
+
+    @contextlib.asynccontextmanager
+    async def get_client(self) -> collections.abc.AsyncIterator[DatabricksClient | BigQueryClient]:
+        """Get a client for the destination.
+
+        Only Databricks and BigQuery are supported at the moment.
+        """
+        match self.batch_export.destination.type:
+            case BatchExportDestination.Destination.DATABRICKS:
+                console.print("[bold green]Getting Databricks client...[/bold green]")
+                databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
+                assert self.batch_export.destination.integration is not None
+                integration = DatabricksIntegration(self.batch_export.destination.integration)
+                client = DatabricksClient(
+                    server_hostname=integration.server_hostname,
+                    http_path=databricks_inputs.http_path,
+                    client_id=integration.client_id,
+                    client_secret=integration.client_secret,
+                    catalog=databricks_inputs.catalog,
+                    schema=databricks_inputs.schema,
+                )
+                async with client.connect() as databricks_client:
+                    yield databricks_client
+            case BatchExportDestination.Destination.BIGQUERY:
+                console.print("[bold green]Getting BigQuery client...[/bold green]")
+                bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
+                async with BigQueryClient.from_service_account_inputs(
+                    private_key=bigquery_inputs.private_key,
+                    private_key_id=bigquery_inputs.private_key_id,
+                    token_uri=bigquery_inputs.token_uri,
+                    client_email=bigquery_inputs.client_email,
+                    project_id=bigquery_inputs.project_id,
+                ) as bigquery_client:
+                    yield bigquery_client
+            case t:
+                raise NotImplementedError(f"get_client not yet implemented for destination: {t}")

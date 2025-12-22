@@ -43,12 +43,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
+    [Scene.MaterializedColumns]: {
+        projectBased: true,
+        name: 'Materialized columns',
+        description: 'Manage materialized column slot assignments for your team.',
+    },
     [Scene.Annotations]: {
         projectBased: true,
         name: 'Annotations',
         description:
             'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
         iconType: 'annotation',
+    },
+    [Scene.Approval]: {
+        projectBased: true,
+        name: 'Approval',
+        description: 'Review and approve a change request',
     },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
@@ -474,6 +484,17 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
     },
+    [Scene.ProductTours]: {
+        projectBased: true,
+        name: 'Product tours',
+        defaultDocsPath: '/docs/product-tours',
+        description: 'Guide users through your product with interactive tours',
+    },
+    [Scene.ProductTour]: {
+        projectBased: true,
+        name: 'Product tour',
+        defaultDocsPath: '/docs/product-tours',
+    },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
@@ -513,6 +534,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'web_analytics',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
+    [Scene.OrganizationDeactivated]: {
+        projectBased: false,
+        organizationBased: true,
+        name: 'Organization Deactivated',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -695,6 +722,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    [urls.productTours()]: [Scene.ProductTours, 'productTours'],
+    [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
+    [urls.approval(':id')]: [Scene.Approval, 'approval'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
@@ -723,6 +753,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.asyncMigrationsFuture()]: [Scene.AsyncMigrations, 'asyncMigrationsFuture'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
@@ -774,5 +805,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
+    [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     ...productRoutes,
 }

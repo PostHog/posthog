@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -14,6 +14,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     actions({
         openTask: (taskId: Task['id']) => ({ taskId }),
+        updateTask: (task: Task) => ({ task }),
     }),
 
     loaders(({ values }) => ({
@@ -37,6 +38,12 @@ export const tasksLogic = kea<tasksLogicType>([
             },
         ],
     })),
+
+    reducers({
+        tasks: {
+            updateTask: (state, { task }) => state.map((t) => (t.id === task.id ? task : t)),
+        },
+    }),
 
     selectors({
         repositories: [

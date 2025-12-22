@@ -127,30 +127,6 @@ export const personShadowModeReturnIntermediateOutcomeCounter = new Counter({
     labelNames: ['method', 'outcome'],
 })
 
-export const twoPhaseCommitFailuresCounter = new Counter({
-    name: 'person_dualwrite_2pc_failures_total',
-    help: 'Two-phase commit failures for dual-write person repository',
-    labelNames: ['tag', 'phase'], // phase: fn_failed, prepare_left_failed, prepare_right_failed, commit_left_failed, commit_right_failed, rollback_left_failed, rollback_right_failed, run_failed
-})
-
-export const maxPreparedTransactionsExceededCounter = new Counter({
-    name: 'person_dualwrite_max_prepared_transactions_exceeded_total',
-    help: 'Number of times max_prepared_transactions limit was exceeded during two-phase commit',
-    labelNames: ['tag', 'side'], // side: left, right
-})
-
-export const dualWriteComparisonCounter = new Counter({
-    name: 'person_dualwrite_comparison_total',
-    help: 'Comparison results between primary and secondary databases in dual-write mode',
-    labelNames: ['operation', 'comparison_type', 'result'], // operation: createPerson, updatePerson, etc., comparison_type: success_match, data_mismatch, error_mismatch, result: match, mismatch
-})
-
-export const dualWriteDataMismatchCounter = new Counter({
-    name: 'person_dualwrite_data_mismatch_total',
-    help: 'Detailed data mismatches between primary and secondary databases',
-    labelNames: ['operation', 'field'], // field: properties, version, is_identified, etc.
-})
-
 export function getVersionBucketLabel(version: number): string {
     if (version === 0) {
         return 'v0'

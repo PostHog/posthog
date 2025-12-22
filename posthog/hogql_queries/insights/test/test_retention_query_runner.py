@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     create_person_id_override_by_distinct_id,
@@ -38,13 +39,6 @@ from posthog.models.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def _create_signup_actions(team, user_and_timestamps):
@@ -4399,6 +4393,36 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # Verify that inCohortVia stayed as AUTO
         assert runner.modifiers.inCohortVia == InCohortVia.AUTO
+
+    def test_cohort_filter_optimization_with_dashboard_filters(self):
+        """Test that cohort filters applied via dashboard filters_override trigger LEFTJOIN optimization"""
+        from posthog.schema import DashboardFilter
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dashboard Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Create query without cohort filter
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Apply dashboard filters (simulating what happens when insight is on dashboard)
+        dashboard_filter = DashboardFilter(properties=[{"type": "cohort", "key": "id", "value": cohort.pk}])
+        runner.apply_dashboard_filters(dashboard_filter)
+
+        # After dashboard filters are applied, should switch to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+        # Verify the cohort filter was actually merged into query properties
+        assert runner.query.properties is not None
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):

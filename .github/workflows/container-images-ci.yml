@@ -48,8 +48,7 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
-                  aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
@@ -58,6 +57,11 @@ jobs:
     deploy_preview:
         name: Deploy preview environment
         uses: ./.github/workflows/pr-preview-deploy.yml
+        # these permissions are required by pr-preview-deploy.yml
+        permissions:
+            id-token: write
+            contents: read
+            deployments: write
         needs: [posthog_build, changes]
         secrets: inherit
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
