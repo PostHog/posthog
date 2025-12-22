@@ -174,7 +174,6 @@ export class HogTransformerService {
 
         for (const hogFunction of teamHogFunctions) {
             const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
-
             // Check if function is in a degraded state, but only if hogwatcher is enabled
             if (shouldRunHogWatcher) {
                 const functionState = this.cachedStates[hogFunction.id]
@@ -195,6 +194,7 @@ export class HogTransformerService {
                 }
             }
 
+            // Recreate globals for each transformation to include changes from previous transformations
             const globals = this.createInvocationGlobals(event)
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
