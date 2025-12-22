@@ -7,9 +7,9 @@ import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLo
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { liveWebAnalyticsMetricsLogic } from './LiveWebAnalyticsMetricsLogic'
 import { ChartDataPoint, DeviceBreakdownItem, PathItem } from './LiveWebAnalyticsMetricsTypes'
 import { DeviceBreakdownChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
+import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
 const STATS_POLL_INTERVAL_MS = 30000
 
@@ -130,7 +130,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
 
-    const isVisible = usePageVisibility()
+    const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
             resumeStream()

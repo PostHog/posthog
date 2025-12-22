@@ -2151,6 +2151,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             // These tabs don't support any filters, so we can just return the base path to keep the url clean
             if (productTab === ProductTab.HEALTH) {
                 return '/web/health'
+            } else if (productTab === ProductTab.LIVE) {
+                return '/web/live'
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -2220,8 +2222,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.LIVE) {
-                basePath = '/web/live'
             }
 
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`

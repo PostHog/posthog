@@ -208,8 +208,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     cache.hasShownLiveStreamErrorToast = false
                     cache.retryDelay = INITIAL_RETRY_DELAY_MS
 
-                    const eventData = JSON.parse(event.data) as LiveEvent
-                    cache.batch.push(eventData)
+                    try {
+                        const eventData = JSON.parse(event.data) as LiveEvent
+                        cache.batch.push(eventData)
+                    } catch (ex) {
+                        console.error(ex)
+                    }
 
                     // Flush events when we have enough or enough time has passed
                     const timeSinceLastBatch = performance.now() - cache.lastBatchTime
@@ -308,7 +312,7 @@ const addDeviceDataToBuckets = (
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
     for (const result of deviceResponse.results) {
-        const deviceType = result.breakdown_value
+        const deviceType = result.breakdown_value || 'Unknown'
 
         for (let i = 0; i < result.data.length; i++) {
             const timestamp = Date.parse(result.action.days[i])
