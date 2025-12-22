@@ -720,17 +720,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return series.table_name
 
         if isinstance(series, GroupNode):
+            # Batch fetch all actions to avoid N+1 queries
+            action_ids = [int(node.id) for node in series.nodes if isinstance(node, ActionsNode)]
+            actions_by_id = {}
+            if action_ids:
+                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.team.project_id)
+                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+
             events = []
-            for nodes in series.nodes:
-                if isinstance(nodes, EventsNode):
-                    event_name = nodes.event if nodes.event is not None else "All events"
-                    events.append(event_name)
-                elif isinstance(nodes, ActionsNode):
-                    action = Action.objects.get(pk=int(nodes.id), team__project_id=self.team.project_id)
-                    action_name = action.name if action.name is not None else "Unnamed action"
-                    events.append(action_name)
-                elif isinstance(nodes, DataWarehouseNode):
-                    events.append(nodes.table_name)
+            for node in series.nodes:
+                if isinstance(node, EventsNode):
+                    events.append(node.event if node.event is not None else "All events")
+                elif isinstance(node, ActionsNode):
+                    events.append(actions_by_id.get(int(node.id), "Unnamed action"))
+                elif isinstance(node, DataWarehouseNode):
+                    events.append(node.table_name)
             return ", ".join(events)
 
         return None  # type: ignore [unreachable]
