@@ -33,6 +33,10 @@ class Settings(BaseSettings):
 
     metrics_enabled: bool = True
 
+    # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
+    auth_cache_max_size: int = 10000
+    auth_cache_ttl: int = 300  # 5 minutes
+
     model_config = {"env_prefix": "LLM_GATEWAY_"}
 
 
