@@ -15,17 +15,19 @@ use cymbal::{
 use metrics::histogram;
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
+use tracing::level_filters::LevelFilter;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
 
 fn setup_tracing() {
-    let log_layer: tracing_subscriber::filter::Filtered<
-        tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
-        EnvFilter,
-        tracing_subscriber::Registry,
-    > = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy()
+            .add_directive("pyroscope=warn".parse().unwrap()),
+    );
     tracing_subscriber::registry().with(log_layer).init();
 }
 
@@ -53,10 +55,23 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 
 #[tokio::main]
 async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     setup_tracing();
     info!("Starting up...");
 
     let config = Config::init_with_defaults().unwrap();
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            error!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     match &config.posthog_api_key {
         Some(key) => {

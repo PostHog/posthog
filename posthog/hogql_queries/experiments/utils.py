@@ -139,6 +139,7 @@ def get_variant_result(
         - FunnelMetric: step_counts, [optional: step_sessions]
         - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         - MeanMetric: (no additional fields)
+        - RetentionMetric: (no additional fields)
     """
     # Determine number of breakdowns from metric definition
     num_breakdowns = 0
@@ -180,6 +181,12 @@ def get_variant_result(
                     for step_sessions in result[metric_fields_start_idx + 1]
                 ]
         case ExperimentRatioMetric():
+            base_stats["denominator_sum"] = result[metric_fields_start_idx]
+            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
+            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
+        case ExperimentRetentionMetric():
+            # Retention metrics are treated as ratio metrics for correct significance calculations
+            # Numerator: binary completion (0 or 1), Denominator: always 1 per user who started
             base_stats["denominator_sum"] = result[metric_fields_start_idx]
             base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
             base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
@@ -329,7 +336,7 @@ def validate_variant_result(
     if variant_result.number_of_samples < 50:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
-    if isinstance(metric, ExperimentFunnelMetric) and variant_result.sum < 5:
+    if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if is_baseline and variant_result.sum == 0:
@@ -376,6 +383,27 @@ def metric_variant_to_statistic(
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
+        denominator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.denominator_sum or 0.0,
+            sum_squares=variant.denominator_sum_squares or 0.0,
+        )
+        return RatioStatistic(
+            n=variant.number_of_samples,
+            m_statistic=numerator_stat,
+            d_statistic=denominator_stat,
+            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
+    elif isinstance(metric, ExperimentRetentionMetric):
+        # Retention metrics use ratio statistic to properly account for
+        # uncertainty in both numerator and denominator
+        # Numerator: count of users who completed (binary: 0 or 1 per user)
+        numerator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.sum,
+            sum_squares=variant.sum_squares,
+        )
+        # Denominator: each user who started contributes 1
         denominator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.denominator_sum or 0.0,

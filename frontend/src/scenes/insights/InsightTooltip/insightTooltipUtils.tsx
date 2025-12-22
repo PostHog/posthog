@@ -68,6 +68,8 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     timezone?: string | undefined
     interval?: IntervalType | null
     dateRange?: DateRange | null
+    /** Show hint about holding shift to highlight individual bars in stacked charts */
+    showShiftKeyHint?: boolean
 }
 
 export interface FormattedDateOptions {

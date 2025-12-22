@@ -13,7 +13,7 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
 
 
 class TestTask(TestCase):
@@ -497,6 +497,54 @@ class TestTaskRun(TestCase):
         run.refresh_from_db()
         self.assertIsNotNone(run.id)
 
+    def test_emit_console_event_acp_format(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_console_event("info", "Test message")
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entry = json.loads(log_content.strip())
+
+        self.assertEqual(entry["type"], "notification")
+        self.assertIn("timestamp", entry)
+        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
+        self.assertEqual(entry["notification"]["method"], "_posthog/console")
+        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
+        self.assertEqual(entry["notification"]["params"]["level"], "info")
+        self.assertEqual(entry["notification"]["params"]["message"], "Test message")
+
+    @parameterized.expand(
+        [
+            (0, "stdout output", "stderr output"),
+            (1, "failed stdout", "error message"),
+            (137, "", "killed by signal"),
+        ]
+    )
+    def test_emit_sandbox_output_acp_format(self, exit_code, stdout, stderr):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_sandbox_output(stdout, stderr, exit_code)
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entry = json.loads(log_content.strip())
+
+        self.assertEqual(entry["type"], "notification")
+        self.assertIn("timestamp", entry)
+        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
+        self.assertEqual(entry["notification"]["method"], "_posthog/sandbox_output")
+        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
+        self.assertEqual(entry["notification"]["params"]["stdout"], stdout)
+        self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
+        self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
+
 
 class TestSandboxSnapshot(TestCase):
     def setUp(self):
@@ -744,3 +792,114 @@ class TestSandboxSnapshot(TestCase):
         snapshot.delete()
 
         self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)
+
+
+class TestSandboxEnvironment(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="test@posthog.com")
+
+    def test_default_values(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+        )
+        self.assertEqual(env.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL)
+        self.assertEqual(env.allowed_domains, [])
+        self.assertFalse(env.include_default_domains)
+        self.assertEqual(env.repositories, [])
+        self.assertTrue(env.private)
+        self.assertEqual(env.environment_variables, {})
+
+    def test_environment_variables_encrypted_roundtrip(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+            environment_variables={
+                "API_KEY": "sk-live-123456",
+                "SECRET_TOKEN": "super-secret-token",
+            },
+        )
+
+        env.refresh_from_db()
+        self.assertEqual(env.environment_variables["API_KEY"], "sk-live-123456")
+        self.assertEqual(env.environment_variables["SECRET_TOKEN"], "super-secret-token")
+
+    def test_environment_variables_stored_encrypted(self):
+        secret_value = "my-super-secret-api-key-12345"
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+            environment_variables={"SECRET": secret_value},
+        )
+
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT environment_variables FROM posthog_sandbox_environment WHERE id = %s",
+                [str(env.id)],
+            )
+            raw_value = cursor.fetchone()[0]
+
+        self.assertNotIn(secret_value, raw_value)
+
+    def test_created_by_set_null_on_user_delete(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+        )
+
+        self.user.delete()
+        env.refresh_from_db()
+        self.assertIsNone(env.created_by)
+
+    def test_cascade_delete_on_team_delete(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+        )
+        env_id = env.id
+
+        self.team.delete()
+        self.assertEqual(SandboxEnvironment.objects.filter(id=env_id).count(), 0)
+
+    @parameterized.expand(
+        [
+            ("API_KEY", True),
+            ("_PRIVATE_VAR", True),
+            ("lowercase_var", True),
+            ("123_INVALID", False),
+            ("INVALID-VAR", False),
+            ("", False),
+        ]
+    )
+    def test_is_valid_env_var_key(self, key, expected_valid):
+        self.assertEqual(SandboxEnvironment.is_valid_env_var_key(key), expected_valid)
+
+    @parameterized.expand(
+        [
+            (SandboxEnvironment.NetworkAccessLevel.FULL, [], False, []),
+            (SandboxEnvironment.NetworkAccessLevel.TRUSTED, [], False, ["github.com", "api.github.com"]),
+            (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], False, ["custom.com"]),
+            (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], True, ["custom.com", "github.com"]),
+        ]
+    )
+    def test_get_effective_domains(self, access_level, allowed_domains, include_defaults, expected_contains):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Environment",
+            network_access_level=access_level,
+            allowed_domains=allowed_domains,
+            include_default_domains=include_defaults,
+        )
+        domains = env.get_effective_domains()
+        for expected in expected_contains:
+            self.assertIn(expected, domains)

@@ -24,6 +24,8 @@ export interface SessionEventsListProps {
 
 export function SessionEventsList(): JSX.Element {
     const {
+        sessionId,
+        sessionData,
         sessionEvents,
         totalEventCount,
         isInitialLoading,
@@ -31,6 +33,7 @@ export function SessionEventsList(): JSX.Element {
         hasMoreEvents,
         sortOrder,
         eventsListFolded,
+        hasRecording,
     } = useValues(sessionProfileLogic)
     const { loadEventDetails, loadMoreSessionEvents, setSortOrder, setEventsListFolded } =
         useActions(sessionProfileLogic)
@@ -129,6 +132,9 @@ export function SessionEventsList(): JSX.Element {
                             isExpanded={expandedIndices.has(index)}
                             onToggleExpand={handleToggleExpand}
                             onLoadEventDetails={loadEventDetails}
+                            sessionId={sessionId}
+                            sessionStartTimestamp={sessionData?.start_timestamp}
+                            hasRecording={hasRecording}
                         />
                     ))}
                     {hasMoreEvents && (

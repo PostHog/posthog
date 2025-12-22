@@ -10,22 +10,44 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { EventsNode, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import {
+    BasicSurveyQuestion,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
-import { NewSurvey, SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, defaultSurveyAppearance } from '../constants'
 import { surveysLogic } from '../surveysLogic'
+import { toSurveyEvent } from '../utils/opportunityDetection'
 import type { quickSurveyFormLogicType } from './quickSurveyFormLogicType'
 import { QuickSurveyType } from './types'
 
 export type QuickSurveyCreateMode = 'launch' | 'edit' | 'draft'
+export type QuickSurveyQuestionType = SurveyQuestionType.Open | SurveyQuestionType.Rating | SurveyQuestionType.Link
+
+export const DEFAULT_RATING_LOWER_LABEL = 'Ugh, gross'
+export const DEFAULT_RATING_UPPER_LABEL = 'Sparks joy'
 
 export interface QuickSurveyFormValues {
     name: string
     question: string
+    description?: string
+    questionType: QuickSurveyQuestionType
+    scaleType?: 'number' | 'emoji'
+    ratingLowerBound?: string
+    ratingUpperBound?: string
+    buttonText?: string
+    link?: string
     conditions: Survey['conditions']
     appearance: Survey['appearance']
     linkedFlagId?: number | null
+    followUpQuestion?: string
+    followUpEnabled?: boolean
 }
 
 export interface QuickSurveyFormLogicProps {
@@ -34,6 +56,51 @@ export interface QuickSurveyFormLogicProps {
     source: SURVEY_CREATED_SOURCE
     contextType: QuickSurveyType
     onSuccess?: () => void
+}
+
+function buildSurveyQuestions(formValues: QuickSurveyFormValues): SurveyQuestion[] {
+    const questions = [buildSurveyQuestion(formValues)]
+
+    if (formValues.followUpEnabled && formValues.followUpQuestion?.trim()) {
+        questions.push({
+            type: SurveyQuestionType.Open,
+            question: formValues.followUpQuestion,
+            optional: true,
+        })
+    }
+
+    return questions
+}
+
+function buildSurveyQuestion(
+    formValues: QuickSurveyFormValues
+): BasicSurveyQuestion | RatingSurveyQuestion | LinkSurveyQuestion {
+    if (formValues.questionType === SurveyQuestionType.Rating) {
+        return {
+            type: SurveyQuestionType.Rating,
+            question: formValues.question,
+            optional: false,
+            display: formValues.scaleType || 'emoji',
+            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+            lowerBoundLabel: formValues.ratingLowerBound || DEFAULT_RATING_LOWER_LABEL,
+            upperBoundLabel: formValues.ratingUpperBound || DEFAULT_RATING_UPPER_LABEL,
+            skipSubmitButton: true,
+        }
+    } else if (formValues.questionType === SurveyQuestionType.Link) {
+        return {
+            type: SurveyQuestionType.Link,
+            question: formValues.question,
+            description: formValues.description,
+            buttonText: formValues.buttonText,
+            link: formValues.link ?? null,
+            optional: true,
+        }
+    }
+    return {
+        type: SurveyQuestionType.Open,
+        question: formValues.question,
+        optional: false,
+    }
 }
 
 export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
@@ -45,6 +112,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
         setCreateMode: (mode: QuickSurveyCreateMode) => ({ mode }),
         updateConditions: (updates: Partial<Survey['conditions']>) => ({ updates }),
         updateAppearance: (updates: Partial<Survey['appearance']>) => ({ updates }),
+        setTriggerEvent: (step: EventsNode | null, field: 'events' | 'cancelEvents') => ({ step, field }),
     }),
 
     forms(({ props, values }) => ({
@@ -55,14 +123,27 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                 conditions: {
                     actions: null,
                     events: { values: [] },
+                    cancelEvents: { values: [] },
                 },
                 appearance: defaultSurveyAppearance,
                 linkedFlagId: undefined,
                 ...props.defaults,
             } as QuickSurveyFormValues,
 
-            errors: ({ question }) => ({
-                question: !question?.trim() ? 'Please enter a question' : undefined,
+            errors: ({ question, appearance, buttonText }) => ({
+                question: !question?.trim()
+                    ? props.contextType === QuickSurveyType.ANNOUNCEMENT
+                        ? 'Please enter a title'
+                        : 'Please enter a question'
+                    : undefined,
+                appearance:
+                    props.contextType === QuickSurveyType.FUNNEL && !appearance?.surveyPopupDelaySeconds
+                        ? { surveyPopupDelaySeconds: 'A delay is required for funnel sequence targeting' as any }
+                        : undefined,
+                buttonText:
+                    props.contextType === QuickSurveyType.ANNOUNCEMENT && !buttonText
+                        ? 'Please enter your button text'
+                        : undefined,
             }),
 
             submit: async (formValues) => {
@@ -72,13 +153,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                 const surveyData: Partial<Survey> = {
                     name: formValues.name,
                     type: SurveyType.Popover,
-                    questions: [
-                        {
-                            type: SurveyQuestionType.Open,
-                            question: formValues.question.trim(),
-                            optional: false,
-                        },
-                    ],
+                    questions: buildSurveyQuestions(formValues),
                     conditions: formValues.conditions,
                     appearance: formValues.appearance,
                     ...(formValues.linkedFlagId ? { linked_flag_id: formValues.linkedFlagId } : {}),
@@ -124,6 +199,11 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
             (surveyForm): string[] =>
                 (surveyForm.conditions?.events?.values || []).map((e: { name: string }) => e.name),
         ],
+        cancelEvents: [
+            (s) => [s.surveyForm],
+            (surveyForm): string[] =>
+                (surveyForm.conditions?.cancelEvents?.values || []).map((e: { name: string }) => e.name),
+        ],
         delaySeconds: [
             (s) => [s.surveyForm],
             (surveyForm): number => surveyForm.appearance?.surveyPopupDelaySeconds ?? 15,
@@ -135,15 +215,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                     id: 'new',
                     name: surveyForm.name,
                     type: SurveyType.Popover,
-
-                    questions: [
-                        {
-                            type: SurveyQuestionType.Open,
-                            question: surveyForm.question,
-                            optional: false,
-                        },
-                    ],
-
+                    questions: buildSurveyQuestions(surveyForm),
                     conditions: surveyForm.conditions,
                     appearance: surveyForm.appearance,
                 }) as NewSurvey,
@@ -170,6 +242,14 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
             actions.setSurveyFormValue('appearance', {
                 ...values.surveyForm.appearance,
                 ...updates,
+            })
+        },
+        setTriggerEvent: ({ step, field }) => {
+            const event = step ? toSurveyEvent(step) : null
+            actions.updateConditions({
+                [field]: {
+                    values: event ? [event] : [],
+                },
             })
         },
     })),

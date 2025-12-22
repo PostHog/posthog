@@ -13,6 +13,7 @@ from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
 
+from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -27,10 +28,12 @@ from posthog.utils import (
     get_available_timezones_with_offsets,
     get_compare_period_dates,
     get_default_event_name,
+    get_ip_address,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    str_to_int_set,
 )
 
 
@@ -588,3 +591,60 @@ def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping"
     GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
     instance.refresh_from_db()
     return instance
+
+
+class TestStrToIntSet(TestCase):
+    @parameterized.expand(
+        [
+            (None, set()),
+            ("", set()),
+            ("[]", set()),
+            ("[1, 2, 3]", {1, 2, 3}),
+            ("[1, 1, 2]", {1, 2}),
+            ('["1", "2"]', {1, 2}),
+            ("invalid", set()),
+            ("123", set()),
+        ]
+    )
+    def test_str_to_int_set(self, value, expected):
+        assert str_to_int_set(value) == expected
+
+
+class TestGetIpAddress(TestCase):
+    @parameterized.expand(
+        [
+            # Valid IPv4
+            ("192.168.1.1", None, "192.168.1.1"),
+            ("8.8.8.8", None, "8.8.8.8"),
+            # Valid IPv4 via X-Forwarded-For
+            (None, "192.168.1.1", "192.168.1.1"),
+            (None, "192.168.1.1, 10.0.0.1", "192.168.1.1"),
+            (None, " 192.168.1.1 , 10.0.0.1", "192.168.1.1"),
+            # Valid IPv4 with port (Azure gateway format)
+            (None, "192.168.1.1:8080", "192.168.1.1"),
+            # Valid IPv6
+            ("::1", None, "::1"),
+            ("2001:db8::1", None, "2001:db8::1"),
+            # Valid IPv6 with port (bracketed format)
+            (None, "[2001:db8::1]:8080", "2001:db8::1"),
+            (None, "[::1]:443", "::1"),
+            # IPv6 with brackets but no port
+            (None, "[2001:db8::1]", "2001:db8::1"),
+            # Invalid/malformed - should return empty string
+            (None, "not-an-ip", ""),
+            (None, "192.168.1", ""),
+            (None, "malicious.payload.here", ""),
+            # Empty cases
+            (None, None, ""),
+            (None, "", ""),
+            ("", None, ""),
+        ]
+    )
+    def test_get_ip_address(self, remote_addr, x_forwarded_for, expected):
+        request = HttpRequest()
+        request.META = {}
+        if remote_addr is not None:
+            request.META["REMOTE_ADDR"] = remote_addr
+        if x_forwarded_for is not None:
+            request.META["HTTP_X_FORWARDED_FOR"] = x_forwarded_for
+        assert get_ip_address(request) == expected

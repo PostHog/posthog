@@ -7,10 +7,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
-import { sanitizeSurvey } from 'scenes/surveys/utils'
+import { duplicateExistingSurvey, sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -22,6 +23,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
+import { surveysSdkLogic } from './surveysSdkLogic'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -113,6 +115,8 @@ export const surveysLogic = kea<surveysLogicType>([
             ['currentTeam', 'currentTeamLoading'],
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
+            surveysSdkLogic,
+            ['teamSdkVersions'],
         ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
@@ -123,6 +127,7 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: (tab: SurveysTabs) => ({ tab }),
         loadNextPage: true,
         loadNextSearchPage: true,
+        setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
     }),
     loaders(({ values, actions }) => ({
         data: {
@@ -237,9 +242,57 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
-            loadResponsesCount: async () => {
-                const surveysResponsesCount = await api.surveys.getResponsesCount()
+            loadResponsesCount: async (surveyIds: string) => {
+                const surveysResponsesCount = await api.surveys.getResponsesCount(surveyIds)
                 return surveysResponsesCount
+            },
+        },
+        duplicatedSurvey: {
+            __default: null as Survey | null,
+            duplicateSurvey: async (survey: Survey) => {
+                const payload = duplicateExistingSurvey(survey)
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
+
+                lemonToast.success('Survey duplicated', {
+                    toastId: `survey-duplicated-${createdSurvey.id}`,
+                    button: {
+                        label: 'View survey',
+                        action: () => {
+                            router.actions.push(urls.survey(createdSurvey.id))
+                        },
+                    },
+                })
+
+                actions.setSurveyToDuplicate(null)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                    metadata: {
+                        survey_id: createdSurvey.id,
+                    },
+                })
+
+                return createdSurvey
+            },
+            duplicateToProjects: async ({ survey, targetTeamIds }: { survey: Survey; targetTeamIds: number[] }) => {
+                const response = await api.surveys.duplicateToProjects(survey.id, targetTeamIds)
+
+                lemonToast.success(`Survey duplicated to ${pluralize(response.count, 'project')}`, {
+                    toastId: `survey-bulk-duplicated-${survey.id}`,
+                })
+
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_BULK_DUPLICATED,
+                    metadata: {
+                        survey_id: survey.id,
+                        target_team_ids: targetTeamIds,
+                        bulk_operation: true,
+                    },
+                })
+
+                actions.setSurveyToDuplicate(null)
+                return survey
             },
         },
     })),
@@ -285,6 +338,12 @@ export const surveysLogic = kea<surveysLogicType>([
                 loadNextSearchPageSuccess: (_, { data }) => hasMorePages(data.searchSurveys, data.searchSurveysCount),
             },
         ],
+        surveyToDuplicate: [
+            null as Survey | null,
+            {
+                setSurveyToDuplicate: (_, { survey }) => survey,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteSurveySuccess: (_, __, action) => {
@@ -302,20 +361,22 @@ export const surveysLogic = kea<surveysLogicType>([
             lemonToast.success('Survey updated')
             actions.loadCurrentTeam()
         },
+        duplicateSurveySuccess: () => {
+            actions.loadSurveys()
+        },
+        duplicateToProjectsSuccess: () => {
+            actions.loadSurveys()
+        },
         setSurveysFilters: () => {
             actions.loadSurveys()
-            actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            actions.addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEYS_VIEWED,
-                metadata: {
-                    surveys_count: values.data.surveysCount,
-                },
-            })
+            if (values.data.surveys.length > 0) {
+                const surveyIds = values.data.surveys.map((s) => s.id).join(',')
+                actions.loadResponsesCount(surveyIds)
+            }
 
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
@@ -426,6 +487,5 @@ export const surveysLogic = kea<surveysLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSurveys()
-        actions.loadResponsesCount()
     }),
 ])

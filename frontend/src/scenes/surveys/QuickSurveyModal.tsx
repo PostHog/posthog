@@ -1,17 +1,35 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { SurveyQuestionType } from 'posthog-js'
 import { useMemo, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonModal,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
+import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Survey } from '~/types'
+
 import { EventSelector } from './quick-create/components/EventSelector'
+import { ExceptionFilters } from './quick-create/components/ExceptionFilters'
+import { FunnelSequence } from './quick-create/components/FunnelSequence'
 import { URLInput } from './quick-create/components/URLInput'
 import { VariantSelector } from './quick-create/components/VariantSelector'
 import {
+    DEFAULT_RATING_LOWER_LABEL,
+    DEFAULT_RATING_UPPER_LABEL,
     QuickSurveyCreateMode,
     QuickSurveyFormLogicProps,
     quickSurveyFormLogic,
@@ -19,7 +37,7 @@ import {
 import { QuickSurveyFormProps, QuickSurveyType } from './quick-create/types'
 import { buildLogicProps } from './quick-create/utils'
 
-export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProps): JSX.Element {
+export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }: QuickSurveyFormProps): JSX.Element {
     const logicProps: QuickSurveyFormLogicProps = useMemo(() => {
         return {
             ...buildLogicProps(context),
@@ -33,39 +51,154 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
     const { setSurveyFormValue, setCreateMode } = useActions(quickSurveyFormLogic(logicProps))
 
     const { currentTeam } = useValues(teamLogic)
+    const { teamSdkVersions } = useValues(surveysSdkLogic)
     const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+
+    const warnings = useMemo(
+        () => getSurveyWarnings(previewSurvey as Survey, teamSdkVersions),
+        [previewSurvey, teamSdkVersions]
+    )
 
     const handleSubmit = (mode: QuickSurveyCreateMode): void => {
         setCreateMode(mode)
     }
 
     return (
-        <>
+        <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
             {info && <LemonBanner type="info">{info}</LemonBanner>}
 
             <div className="grid grid-cols-2 gap-6 mt-2">
                 <div className="space-y-4">
-                    <div>
-                        <LemonLabel className="mb-2">Question for users</LemonLabel>
-                        <LemonTextArea
-                            value={surveyForm.question}
-                            onChange={(value) => setSurveyFormValue('question', value)}
-                            placeholder="What do you think?"
-                            minRows={2}
-                            data-attr="quick-survey-question-input"
-                        />
-                    </div>
+                    {context.type !== QuickSurveyType.ANNOUNCEMENT && (
+                        <div>
+                            <LemonLabel className="mb-2">Ask your users</LemonLabel>
+                            <LemonTextArea
+                                value={surveyForm.question}
+                                onChange={(value) => setSurveyFormValue('question', value)}
+                                placeholder="What do you think?"
+                                minRows={2}
+                                data-attr="quick-survey-question-input"
+                                onFocus={(e) => e.currentTarget.select()}
+                            />
+                        </div>
+                    )}
 
-                    <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
-                        {context.type === QuickSurveyType.FEATURE_FLAG && (
-                            <>
-                                <VariantSelector flag={context.flag} />
-                                <EventSelector />
-                            </>
-                        )}
+                    {context.type === QuickSurveyType.ANNOUNCEMENT && (
+                        <>
+                            <div>
+                                <LemonLabel className="mb-2">Title</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.question}
+                                    onChange={(value) => setSurveyFormValue('question', value)}
+                                    placeholder="Hog mode is now available!"
+                                    data-attr="quick-survey-question-input"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
 
-                        <URLInput />
-                    </BindLogic>
+                            <div>
+                                <LemonLabel className="mb-2">Description</LemonLabel>
+                                <LemonTextArea
+                                    value={surveyForm.description}
+                                    onChange={(value) => setSurveyFormValue('description', value)}
+                                    placeholder="You can never have too many hedgehogs."
+                                    minRows={2}
+                                    data-attr="quick-survey-question-input"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <LemonLabel className="mb-2">Button text</LemonLabel>
+                                    <LemonInput
+                                        value={surveyForm.buttonText}
+                                        onChange={(value) => setSurveyFormValue('buttonText', value)}
+                                        placeholder="Check it out 👉"
+                                        data-attr="quick-survey-question-input"
+                                        onFocus={(e) => e.currentTarget.select()}
+                                    />
+                                </div>
+                                <div>
+                                    <LemonLabel className="mb-2">Button link</LemonLabel>
+                                    <LemonInput
+                                        value={surveyForm.link}
+                                        placeholder="Optional"
+                                        onChange={(value) => setSurveyFormValue('link', value)}
+                                        data-attr="quick-survey-question-input"
+                                    />
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {surveyForm.questionType === SurveyQuestionType.Rating && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <LemonLabel className="mb-2">Low rating label</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.ratingLowerBound || ''}
+                                    onChange={(value) => setSurveyFormValue('ratingLowerBound', value)}
+                                    placeholder={DEFAULT_RATING_LOWER_LABEL}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+                            <div>
+                                <LemonLabel className="mb-2">High rating label</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.ratingUpperBound || ''}
+                                    onChange={(value) => setSurveyFormValue('ratingUpperBound', value)}
+                                    placeholder={DEFAULT_RATING_UPPER_LABEL}
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {showFollowupToggle && (
+                        <>
+                            <div className="flex items-center gap-2">
+                                <LemonSwitch
+                                    checked={!!surveyForm.followUpEnabled}
+                                    onChange={(checked) => setSurveyFormValue('followUpEnabled', checked)}
+                                    label="Ask a follow-up question"
+                                />
+                            </div>
+                            {surveyForm.followUpEnabled && (
+                                <div className="mt-2">
+                                    <LemonTextArea
+                                        value={surveyForm.followUpQuestion || ''}
+                                        onChange={(value) => setSurveyFormValue('followUpQuestion', value)}
+                                        placeholder="Tell us more (optional)"
+                                        minRows={2}
+                                    />
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {context.type === QuickSurveyType.FEATURE_FLAG && (
+                        <>
+                            <VariantSelector variants={context.flag.filters?.multivariate?.variants || []} />
+                            <EventSelector />
+                            <URLInput />
+                        </>
+                    )}
+
+                    {context.type === QuickSurveyType.FUNNEL && <FunnelSequence steps={context.funnel.steps} />}
+
+                    {context.type === QuickSurveyType.EXPERIMENT && (
+                        <>
+                            <VariantSelector
+                                variants={context.experiment.parameters?.feature_flag_variants || []}
+                                defaultOptionText="All users exposed to this experiment"
+                            />
+                            <EventSelector />
+                            <URLInput />
+                        </>
+                    )}
+
+                    {context.type === QuickSurveyType.ERROR_TRACKING && <URLInput />}
                 </div>
 
                 <div>
@@ -75,11 +208,21 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                 </div>
             </div>
 
-            <div className="mt-6">
+            {context.type === QuickSurveyType.ERROR_TRACKING && <ExceptionFilters />}
+
+            <div className="flex flex-col gap-3 mt-4">
                 {shouldShowSurveyToggle && (
-                    <div className="mb-4 p-4 border rounded bg-warning-highlight">
+                    <div className="p-4 border rounded bg-warning-highlight">
                         <SurveyPopupToggle />
                     </div>
+                )}
+
+                <SdkVersionWarnings warnings={warnings} />
+
+                {submitDisabledReason && (
+                    <LemonBanner type="error" className="mb-4">
+                        {submitDisabledReason}
+                    </LemonBanner>
                 )}
 
                 <div className="flex justify-between items-end">
@@ -126,7 +269,7 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                     </div>
                 </div>
             </div>
-        </>
+        </BindLogic>
     )
 }
 
@@ -135,10 +278,26 @@ export function QuickSurveyModal({
     info,
     onCancel,
     isOpen,
-}: QuickSurveyFormProps & { isOpen: boolean }): JSX.Element {
+    modalTitle,
+    showFollowupToggle,
+}: {
+    context?: QuickSurveyFormProps['context']
+    info?: QuickSurveyFormProps['info']
+    onCancel: () => void
+    isOpen: boolean
+    modalTitle?: string
+    showFollowupToggle?: boolean
+}): JSX.Element {
     return (
-        <LemonModal title="Quick feedback survey" isOpen={isOpen} onClose={onCancel} width={900}>
-            <QuickSurveyForm context={context} info={info} onCancel={onCancel} />
+        <LemonModal title={modalTitle || 'Quick feedback survey'} isOpen={isOpen} onClose={onCancel} width={900}>
+            {context && (
+                <QuickSurveyForm
+                    context={context}
+                    info={info}
+                    onCancel={onCancel}
+                    showFollowupToggle={showFollowupToggle}
+                />
+            )}
         </LemonModal>
     )
 }

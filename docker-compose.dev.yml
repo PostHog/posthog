@@ -18,6 +18,7 @@ services:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
             - 'capture:host-gateway'
+            - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
         environment:
@@ -28,6 +29,11 @@ services:
                         path /s/*
                     }
 
+                    @capture-ai {
+                        path /i/v0/ai
+                        path /i/v0/ai/*
+                    }
+
                     @capture {
                         path /e
                         path /e/*
@@ -36,8 +42,6 @@ services:
                         path /batch*
                         path /capture
                         path /capture*
-                        path /ai
-                        path /ai/*
                     }
 
                     @flags {
@@ -50,6 +54,10 @@ services:
                         path /public/webhooks/*
                         path /public/m
                         path /public/m/*
+                    }
+
+                    handle @capture-ai {
+                        reverse_proxy capture-ai:3309
                     }
 
                     handle @capture {
@@ -113,7 +121,7 @@ services:
             service: clickhouse
         hostname: clickhouse
         # Development performance optimizations
-        mem_limit: 6g
+        mem_limit: 8g
         cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
@@ -195,8 +203,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: echo_server
-        expose:
-            - '18081:18081'
 
     feature-flags:
         extends:

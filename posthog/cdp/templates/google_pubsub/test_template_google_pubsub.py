@@ -3,8 +3,6 @@ from datetime import datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.google_pubsub.template_google_pubsub import TemplateGooglePubSubMigrator
 from posthog.models import Integration, Plugin, PluginAttachment, PluginConfig
 
@@ -38,25 +36,24 @@ class TestTemplateMigration(BaseTest):
 
         template = TemplateGooglePubSubMigrator.migrate(obj)
         template["inputs"]["auth"]["value"] = 1  # mock the ID
-        assert template["inputs"] == snapshot(
-            {
-                "auth": {"value": 1},
-                "topicId": {"value": "TOPIC_ID"},
-                "payload": {
-                    "value": {
-                        "event": "{event.event}",
-                        "elements_chain": "{event.elements_chain}",
-                        "distinct_id": "{event.distinct_id}",
-                        "timestamp": "{event.timestamp}",
-                        "uuid": "{event.uuid}",
-                        "properties": "{event.properties}",
-                        "person_properties": "{person.properties}",
-                        "person_id": "{person.id}",
-                    }
-                },
-                "attributes": {"value": {}},
-            }
-        )
+        assert template["inputs"] == {
+            "auth": {"value": 1},
+            "topicId": {"value": "TOPIC_ID"},
+            "payload": {
+                "value": {
+                    "event": "{event.event}",
+                    "elements_chain": "{event.elements_chain}",
+                    "distinct_id": "{event.distinct_id}",
+                    "timestamp": "{event.timestamp}",
+                    "uuid": "{event.uuid}",
+                    "properties": "{event.properties}",
+                    "person_properties": "{person.properties}",
+                    "person_id": "{person.id}",
+                }
+            },
+            "attributes": {"value": {}},
+        }
+
         assert template["filters"] == {}
 
         integration = Integration.objects.last()
@@ -89,35 +86,32 @@ class TestTemplateMigration(BaseTest):
 
         template = TemplateGooglePubSubMigrator.migrate(obj)
         template["inputs"]["auth"]["value"] = 1  # mock the ID
-        assert template["inputs"] == snapshot(
-            {
-                "auth": {"value": 1},
-                "topicId": {"value": "TOPIC_ID"},
-                "payload": {
-                    "value": {
-                        "event": "{event.event}",
-                        "elements_chain": "{event.elements_chain}",
-                        "distinct_id": "{event.distinct_id}",
-                        "timestamp": "{event.timestamp}",
-                        "uuid": "{event.uuid}",
-                        "properties": "{event.properties}",
-                        "person_id": "{person.id}",
-                        "person_properties": "{person.properties}",
-                    }
-                },
-                "attributes": {"value": {}},
-            }
-        )
-        assert template["filters"] == snapshot(
-            {
-                "events": [
-                    {
-                        "id": None,
-                        "name": "All events",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [{"key": "event not in ('event1', 'event2')", "type": "hogql"}],
-                    }
-                ]
-            }
-        )
+        assert template["inputs"] == {
+            "auth": {"value": 1},
+            "topicId": {"value": "TOPIC_ID"},
+            "payload": {
+                "value": {
+                    "event": "{event.event}",
+                    "elements_chain": "{event.elements_chain}",
+                    "distinct_id": "{event.distinct_id}",
+                    "timestamp": "{event.timestamp}",
+                    "uuid": "{event.uuid}",
+                    "properties": "{event.properties}",
+                    "person_id": "{person.id}",
+                    "person_properties": "{person.properties}",
+                }
+            },
+            "attributes": {"value": {}},
+        }
+
+        assert template["filters"] == {
+            "events": [
+                {
+                    "id": None,
+                    "name": "All events",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": "event not in ('event1', 'event2')", "type": "hogql"}],
+                }
+            ]
+        }

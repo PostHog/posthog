@@ -6,6 +6,7 @@ Note: This module uses a real Snowflake connection.
 
 import os
 import uuid
+import typing as t
 import datetime as dt
 import collections.abc
 
@@ -63,6 +64,7 @@ async def _run_activity(
     assert_clickhouse_records: bool = True,
     timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
+    extra_fields: dict[str, t.Any] | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
     insert_inputs = SnowflakeInsertInputs(
@@ -79,7 +81,7 @@ async def _run_activity(
 
     assert insert_inputs.batch_export_id is not None
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -95,6 +97,7 @@ async def _run_activity(
             destination_default_fields=snowflake_default_fields(),
         ),
     )
+    insert_inputs.stage_folder = stage_folder
     result = await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     if assert_clickhouse_records:
@@ -113,6 +116,7 @@ async def _run_activity(
             primary_key=primary_key,
             timestamp_columns=timestamp_columns,
             uppercase_columns=uppercase_columns,
+            extra_fields=extra_fields,
         )
     return result
 
@@ -465,7 +469,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
 
     with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
         assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -481,6 +485,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
                 destination_default_fields=snowflake_default_fields(),
             ),
         )
+        insert_inputs.stage_folder = stage_folder
         await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     # It's not guaranteed we will heartbeat right after every file.
@@ -704,4 +709,56 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         batch_export_model=model,
         sort_key=sort_key,
         uppercase_columns=uppercase_columns,
+    )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+async def test_insert_into_snowflake_activity_handles_extra_columns_in_destination(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    model,
+):
+    """Test that the `insert_into_snowflake_activity_from_stage` can handle target
+    table having extra columns. In addition, it should respect extra columns that have default values (i.e. we shouldn't
+    be inserting NULL values explicitly).
+
+    This test first runs the batch export normally to create a target table, then
+    adds an extra column to the target table, and finally re-runs the batch export.
+    """
+    table_name = f"test_insert_activity_{model.name}_handles_extra_columns_{ateam.pk}"
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+    )
+
+    snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "extra_column" TEXT DEFAULT \'test\'')
+
+    await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_config=snowflake_config,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=model,
+        sort_key="uuid",
+        extra_fields={"extra_column": "test"},
     )

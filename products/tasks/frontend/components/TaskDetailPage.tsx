@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlay, IconTrash } from '@posthog/icons'
+import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { urls } from 'scenes/urls'
 
 import {
     ScenePanel,
@@ -17,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { TaskRunItem } from './TaskRunItem'
+import { TaskSessionView } from './TaskSessionView'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -24,19 +26,20 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, runsLoading } = useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(sceneLogic)
+    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll } = useValues(sceneLogic)
+    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
 
     if (!task) {
         return <div className="text-center py-8 text-muted">Task not found</div>
     }
 
     const hasBeenRun = runs.length > 0
-    const canEdit = !hasBeenRun
-
     const latestRun = runs.length > 0 ? runs[0] : null
+    const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
     const isLatestRunCompleted = latestRun?.status === 'completed'
     const runButtonText = !hasBeenRun ? 'Run task' : isLatestRunCompleted ? 'Run again' : 'Retry task'
+
+    const prUrl = selectedRun?.output?.pr_url as string | undefined
 
     return (
         <SceneContent>
@@ -68,12 +71,12 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
 
                 <ScenePanelActionsSection>
                     <ButtonPrimitive menuItem variant="danger" onClick={deleteTask}>
-                        <IconTrash />
-                        Delete task
+                        <IconArchive />
+                        Archive task
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
 
-                {runs.length > 1 && (
+                {runs.length > 0 && (
                     <>
                         <ScenePanelDivider />
                         <ScenePanelInfoSection>
@@ -84,7 +87,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                                         key={run.id}
                                         run={run}
                                         isSelected={run.id === selectedRunId}
-                                        onClick={() => setSelectedRunId(run.id)}
+                                        onClick={() => setSelectedRunId(run.id, taskId)}
                                     />
                                 ))}
                             </div>
@@ -97,16 +100,39 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 name={task?.title}
                 description={task?.description}
                 resourceType={{ type: 'task' }}
-                isLoading={taskLoading}
-                onNameChange={(value) => updateTask({ data: { title: value } })}
-                onDescriptionChange={(value) => updateTask({ data: { description: value } })}
-                canEdit={canEdit}
-                renameDebounceMs={500}
-                saveOnBlur={true}
+                isLoading={false}
+                canEdit={false}
+                forceBackTo={{
+                    key: 'tasks',
+                    name: 'Tasks',
+                    path: urls.taskTracker(),
+                }}
                 actions={
-                    <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
-                        {runButtonText}
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconExternal />}
+                            onClick={() => window.open(`array://task/${task.id}`, '_blank')}
+                        >
+                            Open in Array
+                        </LemonButton>
+                        {prUrl && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconGithub />}
+                                onClick={() => window.open(prUrl, '_blank')}
+                            >
+                                View PR
+                            </LemonButton>
+                        )}
+                        {!isLatestRunInProgress && (
+                            <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
+                                {runButtonText}
+                            </LemonButton>
+                        )}
+                    </div>
                 }
             />
 
@@ -117,6 +143,10 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
             ) : runs.length === 0 ? (
                 <div className="text-center py-16">
                     <p className="text-muted">This task hasn't been run yet</p>
+                </div>
+            ) : selectedRun ? (
+                <div className="flex-1 overflow-hidden">
+                    <TaskSessionView logs={logs} isPolling={shouldPoll} run={selectedRun} />
                 </div>
             ) : null}
         </SceneContent>

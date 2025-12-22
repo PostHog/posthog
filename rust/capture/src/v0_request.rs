@@ -1,131 +1,15 @@
-use std::io::prelude::*;
-
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
-use flate2::read::GzDecoder;
-use metrics;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{debug, error, instrument, warn, Span};
+use tracing::{error, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
-    prometheus::report_dropped_events,
-    utils::{
-        decode_base64, decompress_lz64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE,
-    },
+    payload::{decompress_payload, Compression},
 };
-
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Compression {
-    #[default]
-    Unsupported,
-    Gzip,
-    LZString,
-    Base64,
-}
-
-// implement Deserialize directly on the enum so
-// Axum form and URL query parsing don't fail upstream
-// of handler code
-impl<'de> Deserialize<'de> for Compression {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value =
-            String::deserialize(deserializer).unwrap_or("deserialization_error".to_string());
-
-        let result = match value.to_lowercase().as_str() {
-            "gzip" | "gzip-js" => Compression::Gzip,
-            "lz64" | "lz-string" => Compression::LZString,
-            "base64" | "b64" => Compression::Base64,
-            "deserialization_error" => {
-                debug!("compression value did not deserialize");
-                Compression::Unsupported
-            }
-            _ => {
-                debug!("unsupported compression value: {}", value);
-                Compression::Unsupported
-            }
-        };
-
-        Ok(result)
-    }
-}
-
-impl std::fmt::Display for Compression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Compression::Gzip => write!(f, "gzip"),
-            Compression::LZString => write!(f, "lz64"),
-            Compression::Base64 => write!(f, "base64"),
-            Compression::Unsupported => write!(f, "unsupported"),
-        }
-    }
-}
-
-#[derive(Deserialize, Default)]
-pub struct EventQuery {
-    pub compression: Option<Compression>,
-
-    // legacy GET requests can include data as query param
-    pub data: Option<String>,
-
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
-
-    #[serde(alias = "_")]
-    sent_at: Option<i64>,
-
-    // If true, return 204 No Content on success
-    #[serde(default, deserialize_with = "deserialize_beacon")]
-    pub beacon: bool,
-}
-
-fn deserialize_beacon<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value: Option<i32> = Option::deserialize(deserializer)?;
-    let result = value.is_some_and(|v| v == 1);
-    Ok(result)
-}
-
-impl EventQuery {
-    /// Returns the parsed value of the sent_at timestamp if present in the query params.
-    /// We only support the format sent by recent posthog-js versions, in milliseconds integer.
-    /// Values in seconds integer (older SDKs) will be ignored.
-    pub fn sent_at(&self) -> Option<OffsetDateTime> {
-        if let Some(value) = self.sent_at {
-            let value_nanos: i128 = i128::from(value) * 1_000_000; // Assuming the value is in milliseconds, latest posthog-js releases
-            if let Ok(sent_at) = OffsetDateTime::from_unix_timestamp_nanos(value_nanos) {
-                if sent_at.year() > 2020 {
-                    // Could be lower if the input is in seconds
-                    return Some(sent_at);
-                }
-            }
-        }
-        None
-    }
-}
-
-// Some SDKs like posthog-js-lite can include metadata in the POST body
-#[derive(Deserialize)]
-pub struct EventFormData {
-    pub data: Option<String>,
-    pub compression: Option<Compression>,
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
-}
-
-pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 0x08];
-
-// Metrics constants
-const METRIC_PAYLOAD_SIZE_EXCEEDED: &str = "capture_payload_size_exceeded";
-const METRIC_GZIP_DECOMPRESSION_RATIO: &str = "capture_gzip_decompression_ratio";
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -167,176 +51,8 @@ impl RawRequest {
         Span::current().record("path", path.clone());
         Span::current().record("request_id", request_id);
 
-        debug!(payload_len = bytes.len(), "from_bytes: decoding new event");
-        metrics::histogram!("capture_raw_payload_size").record(bytes.len() as f64);
-
-        let mut payload = if cmp_hint == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
-        {
-            let len = bytes.len();
-            debug!(payload_len = len, "from_bytes: matched GZIP compression");
-
-            let mut zipstream = GzDecoder::new(bytes.reader());
-            let mut chunk = [0; 8192];
-            let mut buf = Vec::new();
-            let mut total_read = 0;
-
-            loop {
-                let got = match zipstream.read(&mut chunk) {
-                    Ok(got) => got,
-                    Err(e) => {
-                        error!("from_bytes: failed to read GZIP chunk from stream: {}", e);
-                        return Err(CaptureError::RequestDecodingError(String::from(
-                            "invalid GZIP data",
-                        )));
-                    }
-                };
-                if got == 0 {
-                    break;
-                }
-
-                // Check size BEFORE allocation to prevent memory spikes
-                if total_read + got > limit {
-                    error!(
-                        decompressed_size = total_read + got,
-                        compressed_size = len,
-                        limit = limit,
-                        "from_bytes: GZIP decompression would exceed size limit"
-                    );
-
-                    // Metric for exceeding payload sizes
-                    metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "gzip").increment(1);
-                    metrics::histogram!("capture_full_payload_size", "oversize" => "true")
-                        .record((total_read + got) as f64);
-                    report_dropped_events("event_too_big", 1);
-
-                    return Err(CaptureError::EventTooBig(format!(
-                        "Decompressed payload would exceed {} bytes (got {} bytes)",
-                        limit,
-                        total_read + got
-                    )));
-                }
-
-                buf.extend_from_slice(&chunk[..got]);
-                total_read += got;
-            }
-
-            // Record decompression ratio metric
-            if len > 0 {
-                let ratio = total_read as f64 / len as f64;
-                metrics::histogram!(METRIC_GZIP_DECOMPRESSION_RATIO).record(ratio);
-
-                // Warn on potential GZIP bombs
-                if ratio > 20.0 {
-                    warn!(
-                        compressed_size = len,
-                        decompressed_size = total_read,
-                        ratio = ratio,
-                        "High GZIP compression ratio detected - potential GZIP bomb"
-                    );
-                }
-            }
-
-            match String::from_utf8(buf) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("from_bytes: failed to decode gzip: {}", e);
-                    return Err(CaptureError::RequestDecodingError(String::from(
-                        "invalid gzip data",
-                    )));
-                }
-            }
-        } else if cmp_hint == Compression::LZString {
-            debug!(
-                payload_len = bytes.len(),
-                "from_bytes: matched LZ64 compression"
-            );
-            match decompress_lz64(&bytes, limit) {
-                Ok(payload) => payload,
-                Err(e) => {
-                    error!("from_bytes: failed LZ64 decompress: {:?}", e);
-                    return Err(e);
-                }
-            }
-        } else {
-            debug!(
-                path = &path,
-                payload_len = bytes.len(),
-                "from_bytes: best-effort, assuming no compression"
-            );
-
-            let s = String::from_utf8(bytes.into()).map_err(|e| {
-                error!(
-                    valid_up_to = &e.utf8_error().valid_up_to(),
-                    "from_bytes: failed to convert request payload to UTF8: {}", e
-                );
-                CaptureError::RequestDecodingError(String::from("invalid UTF8 in request payload"))
-            })?;
-            if s.len() > limit {
-                error!("from_bytes: request size limit reached");
-                metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "none").increment(1);
-                metrics::histogram!("capture_full_payload_size", "oversize" => "true")
-                    .record(s.len() as f64);
-                report_dropped_events("event_too_big", 1);
-                return Err(CaptureError::EventTooBig(format!(
-                    "Uncompressed payload size limit {} exceeded: {}",
-                    limit,
-                    s.len(),
-                )));
-            }
-            s
-        };
-        metrics::histogram!("capture_full_payload_size", "oversize" => "false")
-            .record(payload.len() as f64);
-
-        // TODO: test removing legacy special casing against /i/v0/e/ and /batch/ using mirror deploy
-        if path_is_legacy_endpoint(&path) {
-            if is_likely_base64(payload.as_bytes(), Base64Option::Strict) {
-                debug!("from_bytes: payload still base64 after decoding step");
-                payload = match decode_base64(payload.as_bytes(), "from_bytes_after_decoding") {
-                    Ok(out) => {
-                        match String::from_utf8(out) {
-                            Ok(unwrapped_payload) => {
-                                let unwrapped_size = unwrapped_payload.len();
-                                if unwrapped_size > limit {
-                                    error!(unwrapped_size,
-                                        "from_bytes: request size limit exceeded after post-decode base64 unwrap");
-                                    report_dropped_events("event_too_big", 1);
-                                    return Err(CaptureError::EventTooBig(format!(
-                                        "from_bytes: payload size limit {limit} exceeded after post-decode base64 unwrap: {unwrapped_size}",
-                                    )));
-                                }
-                                unwrapped_payload
-                            }
-                            Err(e) => {
-                                error!("from_bytes: failed UTF8 conversion after post-decode base64: {}", e);
-                                payload
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            path = &path,
-                            "from_bytes: failed post-decode base64 unwrap: {}", e
-                        );
-                        payload
-                    }
-                }
-            } else {
-                debug!("from_bytes: payload may be LZ64 or other after decoding step");
-            }
-        }
-
-        let truncate_at: usize = payload
-            .char_indices()
-            .nth(MAX_PAYLOAD_SNIPPET_SIZE)
-            .map(|(n, _)| n)
-            .unwrap_or(0);
-        let payload_snippet = &payload[0..truncate_at];
-        debug!(
-            path = &path,
-            json = payload_snippet,
-            "from_bytes: event payload extracted"
-        );
+        // Use shared decompression logic
+        let payload = decompress_payload(bytes, cmp_hint, limit, &path)?;
 
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
@@ -427,6 +143,7 @@ pub struct ProcessingContext {
     pub path: String,
     pub is_mirror_deploy: bool, // TODO(eli): can remove after migration
     pub historical_migration: bool,
+    pub chatty_debug_enabled: bool,
 }
 
 // these are the legacy endpoints capture maintains. Can eliminate this

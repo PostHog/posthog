@@ -102,7 +102,7 @@ export const personLogic = kea<personLogicType>([
                     AND timestamp >= now() - interval 30 day
                     `
                     try {
-                        const response = await api.queryHogQL(infoQuery)
+                        const response = await api.queryHogQL(infoQuery, { scene: 'Person', productKey: 'persons' })
                         const row = response.results?.[0]
                         if (!row) {
                             return {

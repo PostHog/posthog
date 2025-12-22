@@ -8,15 +8,15 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
 
 describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
-    const SWITCHOVER_DATE = new Date('2025-01-01T00:00:00Z')
 
     beforeEach(() => {
-        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
+        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id')
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
         distinct_id: 'distinct_id',
         session_id: 'session_id',
+        token: null,
         eventsByWindowId: {
             [windowId]: events,
         },
@@ -1011,7 +1011,7 @@ describe('SnappySessionRecorder', () => {
     describe('Batch ID', () => {
         it('should include batch ID in end result', async () => {
             const batchId = 'test-batch-123'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Meta,
@@ -1028,7 +1028,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should maintain batch ID across multiple messages', async () => {
             const batchId = 'test-batch-456'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
 
             const message1 = createMessage('window1', [
                 { type: RRWebEventType.Meta, timestamp: DateTime.fromISO('2025-01-01T01:00:00Z').toMillis(), data: {} },
@@ -1046,7 +1046,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should include batch ID even with no messages', async () => {
             const batchId = 'test-batch-789'
-            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId, SWITCHOVER_DATE)
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
             const result = await recorder.end()
 
             expect(result.batchId).toBe(batchId)
@@ -1116,408 +1116,6 @@ describe('SnappySessionRecorder', () => {
 
             // The active time should be calculated based on events from both windows
             expect(result.activeMilliseconds).toEqual(2000)
-        })
-    })
-
-    describe('switchover date', () => {
-        it('should not compute metadata when switchover date is null', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', null)
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
-                    data: { source: 1 }, // MouseMove
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:03Z').getTime(),
-                    data: { href: 'https://example.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            // Verify no metadata is recorded
-            expect(result.clickCount).toBe(0)
-            expect(result.keypressCount).toBe(0)
-            expect(result.mouseActivityCount).toBe(0)
-            expect(result.activeMilliseconds).toBe(0)
-            expect(result.urls).toEqual([])
-            expect(result.firstUrl).toBeNull()
-
-            // Verify events are still written to buffer
-            const lines = await parseSnappyBuffer(result.buffer)
-            expect(lines).toEqual([
-                ['window1', events[0]],
-                ['window1', events[1]],
-                ['window1', events[2]],
-                ['window1', events[3]],
-            ])
-        })
-
-        it('should not compute metadata for events before switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: beforeSwitchoverTs - 3000,
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: beforeSwitchoverTs - 2000,
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: beforeSwitchoverTs - 1000,
-                    data: { source: 1 }, // MouseMove
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.clickCount).toBe(0)
-            expect(result.keypressCount).toBe(0)
-            expect(result.mouseActivityCount).toBe(0)
-            expect(result.activeMilliseconds).toBe(0)
-        })
-
-        it('should only compute metadata for events after switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
-            const events = [
-                // Before switchover
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: beforeSwitchoverTs - 3000,
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: beforeSwitchoverTs - 2000,
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: beforeSwitchoverTs - 1000,
-                    data: { source: 1 }, // MouseMove
-                },
-                // After switchover
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: afterSwitchoverTs,
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: afterSwitchoverTs + 1000,
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: afterSwitchoverTs + 2000,
-                    data: { source: 1 }, // MouseMove
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.clickCount).toBe(1)
-            expect(result.keypressCount).toBe(1)
-            expect(result.mouseActivityCount).toBe(2)
-            expect(result.activeMilliseconds).toBeGreaterThan(0)
-        })
-
-        it('should compute metadata for events exactly at the switchover timestamp (inclusive)', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const switchoverTs = SWITCHOVER_DATE.getTime()
-            const events = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: switchoverTs,
-                    data: { source: 2, type: 2 }, // MouseInteraction, Click
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: switchoverTs,
-                    data: { source: 5 }, // Input
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: switchoverTs,
-                    data: { source: 1 }, // MouseMove
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.clickCount).toBe(1)
-            expect(result.keypressCount).toBe(1)
-            expect(result.mouseActivityCount).toBe(2)
-            expect(result.activeMilliseconds).toBeGreaterThan(0)
-        })
-
-        it('should not accumulate URLs from events before switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs,
-                    data: { href: 'https://before.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs - 1000,
-                    data: { href: 'https://before2.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.urls).toEqual([])
-            expect(result.firstUrl).toBeNull()
-        })
-
-        it('should only accumulate URLs from events after switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
-            const events = [
-                // Before switchover
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs,
-                    data: { href: 'https://before.com' },
-                },
-                // After switchover
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: afterSwitchoverTs,
-                    data: { href: 'https://after.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: afterSwitchoverTs + 1000,
-                    data: { href: 'https://after2.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.urls).toEqual(['https://after.com', 'https://after2.com'])
-            expect(result.firstUrl).toBe('https://after.com')
-        })
-
-        it('should compute startDateTime and endDateTime from all events, including before switchover', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs - 2000,
-                    data: { href: 'https://before.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs,
-                    data: { href: 'https://before2.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: afterSwitchoverTs,
-                    data: { href: 'https://after2.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: afterSwitchoverTs + 5000,
-                    data: { href: 'https://after.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.startDateTime.toMillis()).toBe(beforeSwitchoverTs - 2000)
-            expect(result.endDateTime.toMillis()).toBe(afterSwitchoverTs + 5000)
-        })
-
-        it('should compute startDateTime and endDateTime correctly when all events are before switchover', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs - 2000,
-                    data: { href: 'https://before.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs,
-                    data: { href: 'https://before2.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.startDateTime.toMillis()).toBe(beforeSwitchoverTs - 2000)
-            expect(result.endDateTime.toMillis()).toBe(beforeSwitchoverTs)
-        })
-
-        it('should set distinctId even if all events are before switchover', () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs - 2000,
-                    data: { href: 'https://before.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs,
-                    data: { href: 'https://before2.com' },
-                },
-            ]
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
-            expect(recorder.distinctId).toBe('distinct_id')
-        })
-
-        it('should write all events to the buffer regardless of switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
-            const events = {
-                window1: [
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: beforeSwitchoverTs - 1000,
-                        data: { href: 'https://before1.com' },
-                    },
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: afterSwitchoverTs,
-                        data: { href: 'https://after1.com' },
-                    },
-                ],
-                window2: [
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: beforeSwitchoverTs,
-                        data: { href: 'https://before2.com' },
-                    },
-                    {
-                        type: RRWebEventType.Meta,
-                        timestamp: afterSwitchoverTs + 1000,
-                        data: { href: 'https://after2.com' },
-                    },
-                ],
-            }
-            const message = {
-                ...createMessage('', []),
-                eventsByWindowId: events,
-            }
-            recorder.recordMessage(message)
-            const { buffer } = await recorder.end()
-            const lines = await parseSnappyBuffer(buffer)
-            expect(lines).toEqual([
-                ['window1', events.window1[0]],
-                ['window1', events.window1[1]],
-                ['window2', events.window2[0]],
-                ['window2', events.window2[1]],
-            ])
-        })
-
-        it('should record snapshotSource and snapshotLibrary from message before switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: beforeSwitchoverTs,
-                    data: {},
-                },
-            ]
-            const message = createMessage('window1', events)
-            message.snapshot_source = 'mobile-before'
-            message.snapshot_library = 'lib-before'
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.snapshotSource).toBe('mobile-before')
-            expect(result.snapshotLibrary).toBe('lib-before')
-        })
-
-        it('should record snapshotSource and snapshotLibrary from message after switchover date', async () => {
-            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
-            const afterSwitchoverTs = new Date('2025-01-01T01:00:00Z').getTime()
-            const events = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: afterSwitchoverTs,
-                    data: {},
-                },
-            ]
-            const message = createMessage('window1', events)
-            message.snapshot_source = 'mobile-after'
-            message.snapshot_library = 'lib-after'
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-            expect(result.snapshotSource).toBe('mobile-after')
-            expect(result.snapshotLibrary).toBe('lib-after')
-        })
-
-        it('should compute size correctly depending on switchover date', async () => {
-            // Scenario 1: switchover before all events (all events counted)
-            const allEvents = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
-                    data: { href: 'a' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:01:00Z').getTime(),
-                    data: { href: 'b' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: new Date('2025-01-01T01:02:00Z').getTime(),
-                    data: { href: 'c' },
-                },
-            ]
-            const switchoverEarly = new Date('2024-01-01T00:00:00Z')
-            const recorder1 = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', switchoverEarly)
-            let totalRaw = 0
-            totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[0]]))
-            totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[1]]))
-            totalRaw += recorder1.recordMessage(createMessage('window1', [allEvents[2]]))
-            const result1 = await recorder1.end()
-            expect(totalRaw).toBeGreaterThan(0)
-            expect(result1.size).toBe(totalRaw)
-
-            // Scenario 2: switchover in the middle (only events after switchover counted)
-            const switchoverMid = new Date('2025-01-01T01:01:30Z')
-            const recorder2 = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', switchoverMid)
-            recorder2.recordMessage(createMessage('window1', [allEvents[0]])) // before switchover
-            recorder2.recordMessage(createMessage('window1', [allEvents[1]])) // before switchover
-            const expectedRaw = recorder2.recordMessage(createMessage('window1', [allEvents[2]])) // after switchover
-            const result2 = await recorder2.end()
-            expect(result2.size).toBe(expectedRaw)
         })
     })
 })

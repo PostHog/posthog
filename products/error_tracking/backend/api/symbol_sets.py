@@ -1,6 +1,5 @@
 import hashlib
 from dataclasses import dataclass
-from typing import Optional
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
@@ -18,6 +17,7 @@ from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
+from posthog.rate_limit import SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.models import ErrorTrackingRelease, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
@@ -32,10 +32,19 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
+    release = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingSymbolSet
-        fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason"]
+        fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
         read_only_fields = ["team_id"]
+
+    def get_release(self, obj):
+        from products.error_tracking.backend.api.releases import ErrorTrackingReleaseSerializer
+
+        if obj.release:
+            return ErrorTrackingReleaseSerializer(obj.release).data
+        return None
 
 
 @dataclass
@@ -56,6 +65,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
+    throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
@@ -67,7 +77,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     ]
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).select_related("release")
         params = self.request.GET.dict()
         status = params.get("status")
         order_by = params.get("order_by")
@@ -320,7 +330,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
 
 def create_symbol_set(
-    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: str | None = None
 ):
     if release_id:
         objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)

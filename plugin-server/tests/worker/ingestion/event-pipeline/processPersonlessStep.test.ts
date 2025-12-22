@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -22,7 +22,8 @@ async function createPerson(
     isUserId: number | null,
     isIdentified: boolean,
     uuid: string,
-    distinctIds?: { distinctId: string; version?: number }[]
+    primaryDistinctId: { distinctId: string; version?: number },
+    extraDistinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
     const personRepository = new PostgresPersonRepository(hub.db.postgres)
     const result = await personRepository.createPerson(
@@ -34,7 +35,8 @@ async function createPerson(
         isUserId,
         isIdentified,
         uuid,
-        distinctIds
+        primaryDistinctId,
+        extraDistinctIds
     )
     if (!result.success) {
         throw new Error('Failed to create person')
@@ -49,7 +51,7 @@ describe('processPersonlessStep()', () => {
     let team: Team
     let pluginEvent: PluginEvent
     let timestamp: DateTime
-    let personsStore: BatchWritingPersonsStoreForBatch
+    let personsStore: BatchWritingPersonsStore
     let personRepository: PostgresPersonRepository
 
     beforeEach(async () => {
@@ -60,7 +62,7 @@ describe('processPersonlessStep()', () => {
         team = (await getTeam(hub, teamId))!
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
-        personsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+        personsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
         pluginEvent = {
             distinct_id: 'test-user-123',
@@ -98,9 +100,9 @@ describe('processPersonlessStep()', () => {
         it('returns existing person with empty properties when person exists', async () => {
             const personUuid = new UUIDT().toString()
 
-            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
@@ -113,25 +115,27 @@ describe('processPersonlessStep()', () => {
             }
         })
 
-        it('inserts into posthog_personlessdistinctid table on first encounter', async () => {
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+        it('checks batch result for personless distinct ID when no person exists', async () => {
+            const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(addPersonlessDistinctIdSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
+            // The batch step is responsible for the INSERT, processPersonlessStep just checks the result
+            expect(getPersonlessBatchResultSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
         })
 
-        it('uses LRU cache to skip DB insert on subsequent calls', async () => {
-            // First call - should insert
-            await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
+        it('returns fake person when batch result indicates no merge', async () => {
+            // Mock batch result returning false (not merged)
+            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(false)
 
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+            const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
-            // Second call - should use cache
-            await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
-
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                const person = result.value
+                expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z') // Fake person
+            }
         })
     })
 
@@ -140,9 +144,9 @@ describe('processPersonlessStep()', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             // Event is at 02:15:00, person created at 02:00:00 -> more than 1 minute
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
@@ -159,9 +163,9 @@ describe('processPersonlessStep()', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:14:30Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             // Event is at 02:15:00, person created at 02:14:30 -> within 1 minute
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
@@ -180,9 +184,9 @@ describe('processPersonlessStep()', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             // Event is at 02:15:00, person created at 02:00:00 -> more than 1 minute, but team opted out
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
@@ -211,16 +215,14 @@ describe('processPersonlessStep()', () => {
                 null,
                 false,
                 personUuid,
-                [{ distinctId: pluginEvent.distinct_id }]
+                { distinctId: pluginEvent.distinct_id }
             )
 
             // Mock fetchForChecking to return null initially (simulating no person found)
             jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValueOnce(null)
 
-            // Mock addPersonlessDistinctId to return true (indicating merge happened)
-            const addPersonlessDistinctIdSpy = jest
-                .spyOn(personsStore, 'addPersonlessDistinctId')
-                .mockResolvedValue(true)
+            // Mock getPersonlessBatchResult to return true (indicating merge happened via batch step)
+            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(true)
 
             // Mock fetchForUpdate to return the actual person
             const fetchForUpdateSpy = jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(person)
@@ -228,7 +230,6 @@ describe('processPersonlessStep()', () => {
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(addPersonlessDistinctIdSpy).toHaveBeenCalled()
             expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
         })
     })
@@ -236,7 +237,7 @@ describe('processPersonlessStep()', () => {
     describe('forceDisablePersonProcessing', () => {
         it('skips all DB operations and returns fake person immediately when true', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+            const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, true)
 
@@ -250,7 +251,7 @@ describe('processPersonlessStep()', () => {
 
             // Verify no database operations were performed
             expect(fetchForCheckingSpy).not.toHaveBeenCalled()
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+            expect(getPersonlessBatchResultSpy).not.toHaveBeenCalled()
         })
 
         it('performs normal processing when false', async () => {

@@ -21,6 +21,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+
 import { getCRMColumns } from './crm/utils'
 import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
@@ -46,7 +48,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
-    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
+    const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -79,7 +81,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         },
     } as QueryContext['columns']
     let hiddenColumns = [] as string[]
-    if (hasCrmIterationOneEnabled) {
+    if (hasCustomerAnalyticsEnabled) {
         columns = getCRMColumns(groupTypeName, groupTypeIndex)
         hiddenColumns.push('key')
     }
@@ -95,7 +97,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: 'cohort',
                 }}
                 actions={
-                    hasCrmIterationOneEnabled ? (
+                    hasCustomerAnalyticsEnabled ? (
                         <LemonButton
                             type="primary"
                             size="small"
@@ -107,6 +109,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     ) : undefined
                 }
             />
+            <FeedbackBanner feedbackButtonId="groups-list" />
 
             <Query
                 uniqueKey={`groups-query-${tabId}`}
@@ -135,7 +138,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 dataAttr="groups-table"
             />
 
-            {hasCrmIterationOneEnabled && (
+            {hasCustomerAnalyticsEnabled && (
                 <LemonModal
                     isOpen={saveGroupViewModalOpen}
                     onClose={() => setSaveGroupViewModalOpen(false)}

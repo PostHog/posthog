@@ -14,6 +14,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
+import { FeedbackBanner } from './components/FeedbackBanner'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
@@ -50,6 +51,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         />
                     }
                 />
+                <FeedbackBanner feedbackButtonId="dashboard" />
                 <CustomerAnalyticsFilters />
                 <div className="space-y-2">
                     <ActiveUsersInsights />

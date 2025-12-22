@@ -108,20 +108,92 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             [
                 ast.Alias(
                     alias=self.config.total_cost_field,
-                    expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]),
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias=self.config.total_clicks_field,
-                    expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]),
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias=self.config.total_impressions_field,
-                    expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])]),
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
                 ),
                 ast.Alias(
                     alias=self.config.total_reported_conversions_field,
                     expr=ast.Call(
-                        name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])]
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias=self.config.total_reported_conversion_value_field,
+                    expr=ast.Call(
+                        name="sum",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[
+                                    ast.Call(
+                                        name="toFloat",
+                                        args=[
+                                            ast.Field(chain=[MarketingSourceAdapter.reported_conversion_value_field])
+                                        ],
+                                    ),
+                                    ast.Constant(value=0),
+                                ],
+                            )
+                        ],
                     ),
                 ),
             ]
@@ -142,7 +214,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             self.team.marketing_analytics_config.conversion_goals, self.team.pk
         )
 
-        if self.query.draftConversionGoal:
+        # Only check draftConversionGoal if the query type supports it
+        if hasattr(self.query, "draftConversionGoal") and self.query.draftConversionGoal:
             conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
 
         return conversion_goals

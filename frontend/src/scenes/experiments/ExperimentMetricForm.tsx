@@ -4,7 +4,6 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -131,8 +130,6 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    const isRetentionMetricEnabled = useFeatureFlag('EXPERIMENTS_RETENTION_METRICS')
-
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
@@ -224,16 +221,12 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
         },
-        ...(isRetentionMetricEnabled
-            ? [
-                  {
-                      value: ExperimentMetricType.RETENTION,
-                      label: 'Retention',
-                      description:
-                          'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
-                  },
-              ]
-            : []),
+        {
+            value: ExperimentMetricType.RETENTION,
+            label: 'Retention',
+            description:
+                'Calculates the retention rate of users exposed to the experiment. Useful for measuring the percentage of users who return to the app after a certain period of time.',
+        },
     ]
 
     const metricFilter = getFilter(metric)
@@ -243,11 +236,22 @@ export function ExperimentMetricForm({
     const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
     const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
     const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
+    const retentionStartEvent = isExperimentRetentionMetric(metric) ? metric.start_event : null
+    const retentionCompletionEvent = isExperimentRetentionMetric(metric) ? metric.completion_event : null
 
     useEffect(() => {
         loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [metric.metric_type, meanSource, funnelSeries, ratioNumerator, ratioDenominator, filterTestAccounts])
+    }, [
+        metric.metric_type,
+        meanSource,
+        funnelSeries,
+        ratioNumerator,
+        ratioDenominator,
+        retentionStartEvent,
+        retentionCompletionEvent,
+        filterTestAccounts,
+    ])
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
@@ -432,7 +436,7 @@ export function ExperimentMetricForm({
                     </div>
                 )}
 
-                {isRetentionMetricEnabled && isExperimentRetentionMetric(metric) && (
+                {isExperimentRetentionMetric(metric) && (
                     <div className="space-y-4">
                         <div>
                             <LemonLabel className="mb-1">
@@ -503,7 +507,20 @@ export function ExperimentMetricForm({
                         <div>
                             <LemonLabel className="mb-1">
                                 Retention window
-                                <Tooltip title="The time period after the start event during which we check for the completion event. For example, [7, 7] checks if users returned exactly on day 7, while [7, 14] checks if they returned between day 7 and 14.">
+                                <Tooltip
+                                    title={
+                                        <div className="space-y-2">
+                                            <p>
+                                                The time period after the start event during which we check for the
+                                                completion event.
+                                            </p>
+                                            <p>
+                                                "From 7 to 14 days" captures completions from day 7 through day 14
+                                                (inclusive).
+                                            </p>
+                                        </div>
+                                    }
+                                >
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>

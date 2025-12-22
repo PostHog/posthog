@@ -322,6 +322,7 @@
     --color-product-heatmaps-light: rgb(220 152 16);
     --color-product-heatmaps-dark: rgb(247 165 1);
     --color-product-logs-light: rgb(214 37 123);
+    --color-product-marketing-analytics-light: rgb(214 37 123);
     --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
@@ -818,6 +819,7 @@
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary-3000-light);
+    --primary-highlight: var(--primary-highlight-light);
     --primary-3000-hover: var(--primary-3000-hover-light);
     --primary-3000-active: var(--primary-3000-active-light);
     --secondary-3000: var(--secondary-3000-light);
@@ -1091,6 +1093,23 @@
     a[data-focused='true'],
     button[data-focused='true'] {
         outline: 2px solid var(--color-accent);
+    }
+
+    .input-like {
+        border-radius: var(--radius);
+        outline: 0 solid transparent;
+        box-shadow: 0 0 0 0 transparent;
+        transition: box-shadow 0.1s ease-in-out;
+
+        & input,
+        & textarea {
+            box-shadow: none;
+        }
+
+        &:not([disabled]):focus-visible,
+        &:not([disabled]):focus-within {
+            box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
+        }
     }
 
     body {
@@ -1790,11 +1809,13 @@
                 animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
             }
 
+            // Delay one after the other to create a nice jump effect
+            // Delay in reverse order because we want the head to jump first (it's last on SVG)
             @for $i from 1 through 4 {
                 > *:nth-child(#{$i}) {
                     // Dividing by 15 just because it feels good
                     animation-delay: calc(
-                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * ($i - 1)
+                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1))
                     );
                 }
             }
@@ -1807,12 +1828,35 @@
             }
 
             2% {
-                transform: translateY(calc(-10px * var(--logomark-jump-magnitude)));
+                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
             }
 
             4% {
                 // Only 4% so that this repeats every now and then nicely
                 transform: translateY(0);
+            }
+        }
+
+        @keyframes Logomark__jump-continuous {
+            0%,
+            44%,
+            100% {
+                transform: translateY(0);
+            }
+
+            22% {
+                transform: translateY(calc(-200px * var(--logomark-jump-magnitude)));
+            }
+        }
+
+        /* stylelint-disable-next-line order/order */
+        &-continuous {
+            @extend .animate-logomark-jump;
+
+            /* stylelint-disable-next-line order/order */
+            svg > * {
+                animation-name: Logomark__jump-continuous;
+                animation-duration: 0.9s;
             }
         }
     }

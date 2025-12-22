@@ -2,20 +2,22 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
-import { llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
+import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { formatLLMCost, getTraceTimestamp } from './utils'
 
@@ -50,9 +52,17 @@ function SessionSceneWrapper(): JSX.Element {
         expandedGenerationIds,
         fullTraces,
         loadingFullTraces,
+        traceSummaries,
+        summariesLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded } = useActions(llmAnalyticsSessionDataLogic)
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
+        useActions(llmAnalyticsSessionDataLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    const showSessionSummarization =
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     // Calculate session aggregates
     const sessionStats = traces.reduce(
@@ -102,12 +112,44 @@ function SessionSceneWrapper(): JSX.Element {
                                 </Suspense>
                             )}
                         </header>
+                        {showSessionSummarization && (
+                            <div className="flex gap-2">
+                                {!dataProcessingAccepted ? (
+                                    <AIConsentPopoverWrapper
+                                        showArrow
+                                        onApprove={summarizeAllTraces}
+                                        hidden={summariesLoading}
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            loading={summariesLoading}
+                                            disabledReason="AI data processing must be approved to summarize traces"
+                                            data-attr="llm-session-summarize-all"
+                                        >
+                                            Summarize all traces
+                                        </LemonButton>
+                                    </AIConsentPopoverWrapper>
+                                ) : (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={summarizeAllTraces}
+                                        loading={summariesLoading}
+                                        data-attr="llm-session-summarize-all"
+                                    >
+                                        Summarize all traces
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div className="bg-surface-primary border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
                         <div className="space-y-2">
                             {traces.map((trace) => {
                                 const isTraceExpanded = expandedTraceIds.has(trace.id)
+                                const summary: TraceSummary | undefined = traceSummaries[trace.id]
 
                                 return (
                                     <div key={trace.id} className="border rounded">
@@ -157,6 +199,33 @@ function SessionSceneWrapper(): JSX.Element {
                                                         View full trace →
                                                     </Link>
                                                 </div>
+                                                {showSessionSummarization && summary && (
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        {summary.loading ? (
+                                                            <div className="flex items-center gap-2 text-muted text-sm">
+                                                                <Spinner className="text-lg" />
+                                                                <span>Generating summary...</span>
+                                                            </div>
+                                                        ) : summary.error ? (
+                                                            <Tooltip title={summary.error}>
+                                                                <span className="text-danger text-sm">
+                                                                    Failed to generate summary
+                                                                </span>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            <Link
+                                                                to={urls.llmAnalyticsTrace(trace.id, {
+                                                                    timestamp: getTraceTimestamp(trace.createdAt),
+                                                                    tab: 'summary',
+                                                                })}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="text-sm font-medium"
+                                                            >
+                                                                {summary.title}
+                                                            </Link>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <div className="text-xs text-muted">
                                                     <TZLabel time={trace.createdAt} />
                                                 </div>

@@ -2,14 +2,14 @@ import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
 
-import { ChartConfiguration, ChartDataset } from 'lib/Chart'
-import { Chart, ChartItem } from 'lib/Chart'
+import { Chart, ChartConfiguration, ChartDataset } from 'lib/Chart'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { useChart } from 'lib/hooks/useChart'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -139,13 +139,12 @@ const generateHourlyLabels = (days: number): string[] => {
 }
 
 const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
     const labels = generateHourlyLabels(14)
 
-    useEffect(() => {
-        if (canvasRef.current) {
-            Chart.register(ChartjsPluginStacked100, ChartDataLabels)
+    Chart.register(ChartjsPluginStacked100, ChartDataLabels)
 
+    const { canvasRef } = useChart({
+        getConfig: () => {
             const dataMap = new Map(data.map((d) => [d.hour, d]))
 
             const successfulQueries = labels.map((label) => dataMap.get(label)?.successful_queries || 0)
@@ -201,7 +200,7 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
                         grid: {
                             drawOnChartArea: false,
                         },
-                        max: maxResponseTime * 2, // Double to have more room for the other bars
+                        max: maxResponseTime * 2,
                     },
                 },
                 plugins: {
@@ -211,16 +210,15 @@ const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
                 },
             }
 
-            const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-                type: 'bar',
+            return {
+                type: 'bar' as const,
                 data: { labels, datasets },
                 options,
                 plugins: [ChartDataLabels],
-            })
-
-            return () => newChart.destroy()
-        }
-    }, [data, labels])
+            }
+        },
+        deps: [data, labels],
+    })
 
     return <canvas ref={canvasRef} className="h-[300px] w-full" />
 }

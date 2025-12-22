@@ -12,7 +12,15 @@ import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/inge
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { CookielessServerHashMode, Hub, IncomingEventWithTeam, PipelineEvent, Team } from '../../src/types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    Hub,
+    IncomingEvent,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    Team,
+} from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
@@ -71,6 +79,9 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 uuid: Buffer.from(event.uuid || ''),
             },
+            {
+                now: Buffer.from(event.now || ''),
+            },
         ],
     }
 }
@@ -79,22 +90,37 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
     return events.map(createKafkaMessage)
 }
 
-const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): IncomingEventWithTeam[] => {
-    return events.map<IncomingEventWithTeam>(
-        (e): IncomingEventWithTeam => ({
-            event: {
-                ...e,
-                team_id: team.id,
+type PreprocessedEvent = {
+    message: Message
+    headers: EventHeaders
+    event: IncomingEvent
+    eventWithTeam: IncomingEventWithTeam
+}
+
+const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): PreprocessedEvent[] => {
+    return events.map((e): PreprocessedEvent => {
+        const message = createKafkaMessage(e)
+        const headers = {
+            token: e.token || '',
+            distinct_id: e.distinct_id || '',
+            force_disable_person_processing: false,
+            historical_migration: false,
+        }
+        return {
+            message,
+            headers,
+            event: { event: e },
+            eventWithTeam: {
+                event: {
+                    ...e,
+                    team_id: team.id,
+                },
+                team: team,
+                message,
+                headers,
             },
-            team: team,
-            message: createKafkaMessage(e),
-            headers: {
-                token: e.token || '',
-                distinct_id: e.distinct_id || '',
-                force_disable_person_processing: false,
-            },
-        })
-    )
+        }
+    })
 }
 
 describe('IngestionConsumer', () => {
@@ -104,8 +130,11 @@ describe('IngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
+    const createIngestionConsumer = async (
+        hub: Hub,
+        overrides?: ConstructorParameters<typeof IngestionConsumer>[1]
+    ) => {
+        const ingester = new IngestionConsumer(hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -165,9 +194,9 @@ describe('IngestionConsumer', () => {
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
-        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((hub, hogTransformer) => {
+        jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
             const original = jest.requireActual('./event-processing/event-pipeline-runner-v1-step')
-            return original.createEventPipelineRunnerV1Step(hub, hogTransformer)
+            return original.createEventPipelineRunnerV1Step(...args)
         })
 
         ingester = await createIngestionConsumer(hub)
@@ -287,11 +316,14 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                // Create a new consumer that consumes from the overflow topic
+                const overflowIngester = await createIngestionConsumer(hub, {
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                })
+                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-                await ingester.handleKafkaBatch(overflowMessages)
+                await overflowIngester.handleKafkaBatch(overflowMessages)
 
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
@@ -299,6 +331,8 @@ describe('IngestionConsumer', () => {
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                 ).toHaveLength(1)
+
+                await overflowIngester.stop()
             })
 
             describe('force overflow', () => {
@@ -695,7 +729,7 @@ describe('IngestionConsumer', () => {
             ]
 
             // Create messages with custom headers
-            const messages: IncomingEventWithTeam[] = events.map((event, index) => {
+            const messages: PreprocessedEvent[] = events.map((event, index): PreprocessedEvent => {
                 const message = createKafkaMessage(event)
                 message.headers = [
                     { token: Buffer.from(team.api_token) },
@@ -703,15 +737,23 @@ describe('IngestionConsumer', () => {
                     { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
                 ]
 
+                const headers = {
+                    token: team.api_token,
+                    distinct_id: event.distinct_id || '',
+                    timestamp: (Date.now() + index * 1000).toString(),
+                    force_disable_person_processing: false,
+                    historical_migration: false,
+                }
+
                 return {
-                    event: { ...event, team_id: team.id },
-                    team: team,
-                    message: message,
-                    headers: {
-                        token: team.api_token,
-                        distinct_id: event.distinct_id || '',
-                        timestamp: (Date.now() + index * 1000).toString(),
-                        force_disable_person_processing: false,
+                    message,
+                    headers,
+                    event: { event },
+                    eventWithTeam: {
+                        event: { ...event, team_id: team.id },
+                        team: team,
+                        message: message,
+                        headers,
                     },
                 }
             })
@@ -726,6 +768,7 @@ describe('IngestionConsumer', () => {
                 distinct_id: 'distinct-id-1',
                 timestamp: expect.any(String),
                 force_disable_person_processing: false,
+                historical_migration: false,
             })
 
             expect(batches[`${team.api_token}:distinct-id-2`].events[0].headers).toEqual({
@@ -733,12 +776,76 @@ describe('IngestionConsumer', () => {
                 distinct_id: 'distinct-id-2',
                 timestamp: expect.any(String),
                 force_disable_person_processing: false,
+                historical_migration: false,
             })
 
             // Verify the timestamp values are different
             const timestamp1 = parseInt(batches[`${team.api_token}:distinct-id-1`].events[0].headers.timestamp!)
             const timestamp2 = parseInt(batches[`${team.api_token}:distinct-id-2`].events[0].headers.timestamp!)
             expect(timestamp2 - timestamp1).toBe(1000)
+        })
+
+        it('should validate historical_migration flag based on timestamp age', async () => {
+            const ingestionTime = fixedTime // Now = ingestion time
+            const oldEventTime = ingestionTime.minus({ hours: 50 }) // Event happened 50 hours ago (>48 hours)
+            const recentEventTime = ingestionTime.minus({ hours: 24 }) // Event happened 24 hours ago (<48 hours)
+
+            const events = [
+                createEvent({
+                    distinct_id: 'user-old-event',
+                    event: 'old-event',
+                    timestamp: oldEventTime.toISO()!, // Event time in the event payload
+                    now: ingestionTime.toISO()!, // Ingestion time in the event payload
+                }),
+                createEvent({
+                    distinct_id: 'user-recent-event',
+                    event: 'recent-event',
+                    timestamp: recentEventTime.toISO()!, // Event time in the event payload
+                    now: ingestionTime.toISO()!, // Ingestion time in the event payload
+                }),
+            ]
+
+            // Create messages with different event timestamps but same ingestion time (now)
+            // The validate-historical-migration step compares: now - timestamp >= 48 hours
+            const messages: Message[] = [
+                {
+                    ...createKafkaMessage(events[0]),
+                    headers: [
+                        { token: Buffer.from(team.api_token) },
+                        { distinct_id: Buffer.from('user-old-event') },
+                        { timestamp: Buffer.from(oldEventTime.toISO()!) }, // Event time (when it actually happened)
+                        { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
+                        { historical_migration: Buffer.from('true') },
+                    ],
+                },
+                {
+                    ...createKafkaMessage(events[1]),
+                    headers: [
+                        { token: Buffer.from(team.api_token) },
+                        { distinct_id: Buffer.from('user-recent-event') },
+                        { timestamp: Buffer.from(recentEventTime.toISO()!) }, // Event time (when it actually happened)
+                        { now: Buffer.from(ingestionTime.toISO()!) }, // Ingestion time (when we received it)
+                        { historical_migration: Buffer.from('true') },
+                    ],
+                },
+            ]
+
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
+
+            expect(eventsTopicMessages).toHaveLength(2)
+
+            // Old event should have historical_migration: true (>48 hours)
+            const oldEventMessage = eventsTopicMessages.find((m) => m.value.event === 'old-event')
+            expect(oldEventMessage).toBeDefined()
+            expect(oldEventMessage?.value.historical_migration).toBe(true)
+
+            // Recent event should not have historical_migration set (<48 hours, defaults to false)
+            const recentEventMessage = eventsTopicMessages.find((m) => m.value.event === 'recent-event')
+            expect(recentEventMessage).toBeDefined()
+            expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
     })
 
@@ -1069,13 +1176,14 @@ describe('IngestionConsumer', () => {
         it(
             'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
             async () => {
-                // Set hogwatcher enabled (100% sample rate)
+                // Create a new ingester with the sample rate we want to test
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+                const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
+                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is present
@@ -1085,7 +1193,7 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                await localIngester.handleKafkaBatch(messages)
 
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
                 expect(fetchAndCacheSpy).toHaveBeenCalled()
@@ -1103,6 +1211,8 @@ describe('IngestionConsumer', () => {
                 const functionResult = results.find((r) => r.invocation.functionId === transformationFunction.id)
                 expect(functionResult).toBeDefined()
                 expect(functionResult?.finished).toBe(true)
+
+                await localIngester.stop()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -1110,12 +1220,13 @@ describe('IngestionConsumer', () => {
         it(
             'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
             async () => {
-                // Set hogwatcher disabled (0% sample rate)
+                // Create a new ingester with the sample rate we want to test
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+                const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({
@@ -1124,11 +1235,13 @@ describe('IngestionConsumer', () => {
                 })
                 const messages = createKafkaMessages([event])
 
-                await ingester.handleKafkaBatch(messages)
+                await localIngester.handleKafkaBatch(messages)
 
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
                 expect(fetchAndCacheSpy).not.toHaveBeenCalled()
                 expect(clearStatesSpy).not.toHaveBeenCalled()
+
+                await localIngester.stop()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -1263,38 +1376,5 @@ describe('IngestionConsumer', () => {
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
-    })
-
-    describe('testing topic', () => {
-        it('should emit to the testing topic', async () => {
-            hub.INGESTION_CONSUMER_TESTING_TOPIC = 'testing_topic'
-            ingester = await createIngestionConsumer(hub)
-
-            const messages = createKafkaMessages([createEvent()])
-            await ingester.handleKafkaBatch(messages)
-
-            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
-                [
-                  {
-                    "headers": {
-                      "distinct_id": "user-1",
-                      "event": "$pageview",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
-                    "topic": "testing_topic",
-                    "value": {
-                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-                      "distinct_id": "user-1",
-                      "ip": "127.0.0.1",
-                      "now": "2025-01-01T00:00:00.000Z",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                  },
-                ]
-            `)
-        })
     })
 })

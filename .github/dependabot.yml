@@ -4,3 +4,133 @@ updates:
       directory: '/'
       schedule:
           interval: weekly
+
+    # Python dependencies for main PostHog application (uv updates both pyproject.toml and uv.lock)
+    - package-ecosystem: 'uv'
+      directory: '/'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 1
+      assignees:
+          - 'posthog/team-devex'
+      groups:
+          # Security and authentication packages
+          security-auth:
+              patterns:
+                  - 'cryptography'
+                  - 'certifi'
+                  - 'pyjwt'
+                  - 'python3-saml'
+                  - 'xmlsec'
+                  - 'django-two-factor-auth'
+                  - 'django-oauth-toolkit'
+                  - 'social-auth-*'
+                  - 'zxcvbn'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+          # Django ecosystem packages (extensions, middleware, auth, etc)
+          django-ecosystem:
+              patterns:
+                  - 'django-*'
+                  - 'djangorestframework*'
+                  - 'drf-*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+          # Data and database layer packages
+          data-database:
+              patterns:
+                  - 'clickhouse-*'
+                  - 'psycopg*'
+                  - 'redis'
+                  - 'boto3'
+                  - 'aioboto*'
+                  - 's3fs'
+                  - 'pyarrow'
+                  - 'deltalake'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+          # Data integration and ETL packages
+          data-integration-etl:
+              patterns:
+                  - 'dlt'
+                  - 'google-cloud-bigquery'
+                  - 'sqlalchemy-bigquery'
+                  - 'snowflake-connector-python'
+                  - 'snowflake-sqlalchemy'
+                  - 'databricks-sql-connector'
+                  - 'databricks-sdk'
+                  - 'simple-salesforce'
+                  - 'gspread'
+                  - 'google-ads'
+                  - 'pymssql'
+                  - 'pymysql'
+                  - 'pymongo'
+                  - 'pyodbc'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+          # AI/ML packages (fast-moving, frequent releases)
+          ai-ml-packages:
+              patterns:
+                  - 'anthropic'
+                  - 'openai'
+                  - 'mistralai'
+                  - 'google-genai'
+                  - 'langchain*'
+                  - 'langgraph'
+                  - 'elevenlabs'
+                  - 'litellm'
+                  - 'azure-ai-*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+          # Workflow orchestration packages
+          dagster-workflow:
+              patterns:
+                  - 'dagster*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+          # Testing packages (pytest, mocking, fixtures) - include major since dev-only
+          testing:
+              patterns:
+                  - 'pytest*'
+                  - 'aioresponses'
+                  - 'faker'
+                  - 'fakeredis'
+                  - 'freezegun'
+                  - 'requests-mock'
+                  - 'responses'
+                  - 'syrupy'
+                  - 'flaky'
+                  - 'parameterized'
+                  - 'deepdiff'
+              update-types:
+                  - 'major'
+                  - 'minor'
+                  - 'patch'
+
+          # All other minor and patch updates
+          other-dependencies:
+              patterns:
+                  - '*'
+              update-types:
+                  - 'minor'
+                  - 'patch'
+
+      # Cooldown period - avoid packages released in last 7 days
+      cooldown:
+          default-days: 7
+
+      ignore:
+          # Exclude Django core from updates
+          - dependency-name: 'django'

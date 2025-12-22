@@ -41,9 +41,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                     additionalSuggestions={[
                         <LemonButton
                             key="edit-max-memory"
-                            onClick={() =>
-                                openSettingsPanel({ sectionId: 'environment-max', settingId: 'core-memory' })
-                            }
+                            onClick={() => openSettingsPanel({ sectionId: 'environment-max' })}
                             size="xsmall"
                             type="secondary"
                             icon={<IconGear />}

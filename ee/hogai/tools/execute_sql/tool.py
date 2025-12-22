@@ -4,13 +4,12 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, VisualizationArtifactContent
 
 from posthog.models import Team, User
 
 from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
 from ee.hogai.chat_agent.sql.prompts import (
@@ -19,6 +18,7 @@ from ee.hogai.chat_agent.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -34,6 +34,10 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    name: str = Field(
+        description="Short, concise name of the query (2-5 words) that will be displayed as a header in the query tile."
+    )
+    description: str = Field(description="Short, concise description of the query (1 sentence)")
 
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
@@ -61,8 +65,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
-    async def _arun_impl(self, query: str) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query})
+    async def _arun_impl(self, query: str, name: str, description: str) -> tuple[str, ToolMessagesArtifact | None]:
+        parsed_query = self._parse_output({"query": query, "name": name, "description": description})
         try:
             await self._quality_check_output(
                 output=parsed_query,
@@ -71,22 +75,36 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         # Display an ephemeral visualization message to the user.
-        viz_message = VisualizationMessage(answer=parsed_query.query, plan=query)
-        self.dispatcher.message(viz_message)
+        artifact = await self._context_manager.artifacts.create(
+            VisualizationArtifactContent(
+                query=parsed_query.query, name=parsed_query.name, description=parsed_query.description
+            ),
+            "SQL Query",
+        )
+        artifact_message = self._context_manager.artifacts.create_message(
+            artifact_id=artifact.short_id,
+            source=ArtifactSource.ARTIFACT,
+            content_type=ArtifactContentType.VISUALIZATION,
+        )
+
+        insight_context = InsightContext(
+            team=self._team,
+            query=parsed_query.query,
+            name=parsed_query.name,
+            description=parsed_query.description,
+            insight_id=artifact_message.artifact_id,
+        )
 
         try:
-            result = await execute_and_format_query(self._team, parsed_query.query)
+            result = await insight_context.execute_and_format()
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
-        # Add a unique ID to the visualization message, so it gets persisted.
-        viz_message.id = str(uuid4())
-
         return "", ToolMessagesArtifact(
             messages=[
-                viz_message,
+                artifact_message,
                 AssistantToolCallMessage(
                     content=result,
                     id=str(uuid4()),

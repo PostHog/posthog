@@ -6,14 +6,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../../../config/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import {
-    HealthCheckResult,
-    Hub,
-    PluginServerService,
-    RedisPool,
-    SessionRecordingV2MetadataSwitchoverDate,
-    ValueMatcher,
-} from '../../../types'
+import { HealthCheckResult, Hub, PluginServerService, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
@@ -21,7 +14,6 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { parseSessionRecordingV2MetadataSwitchoverDate } from '../../utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
     KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
@@ -83,9 +75,6 @@ export class SessionRecordingIngester {
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(hub.SESSION_RECORDING_DEBUG_PARTITION, true)
 
-        const metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate =
-            parseSessionRecordingV2MetadataSwitchoverDate(hub.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
-
         this.promiseScheduler = new PromiseScheduler()
 
         this.kafkaConsumer = new KafkaConsumer({
@@ -126,7 +115,7 @@ export class SessionRecordingIngester {
 
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub.redisPool, {
             pipeline: 'session_recordings',
         })
 
@@ -168,7 +157,6 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
-            metadataSwitchoverDate,
         })
     }
 
@@ -280,7 +268,7 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
         // Track message size per session_id
-        const trackingKey = `session_id:${parsedMessage.session_id}`
+        const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${parsedMessage.session_id}`
         this.topTracker.increment('message_size_by_session_id', trackingKey, parsedMessage.metadata.rawSize)
 
         await batch.record(message)

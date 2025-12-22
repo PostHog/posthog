@@ -1,17 +1,174 @@
-import { Hub } from '../types'
+import { Pool as GenericPool } from 'generic-pool'
+import { Redis } from 'ioredis'
+import { z } from 'zod'
+
 import { BackgroundRefresher } from './background-refresher'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
-export enum RestrictionType {
+export enum RedisRestrictionType {
     DROP_EVENT_FROM_INGESTION = 'drop_event_from_ingestion',
     SKIP_PERSON_PROCESSING = 'skip_person_processing',
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
+    REDIRECT_TO_DLQ = 'redirect_to_dlq',
+}
+
+export enum Restriction {
+    DROP_EVENT = 1,
+    SKIP_PERSON_PROCESSING = 2,
+    FORCE_OVERFLOW = 3,
+    REDIRECT_TO_DLQ = 4,
 }
 
 export type IngestionPipeline = 'analytics' | 'session_recordings'
 
 export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
+
+const EMPTY_RESTRICTIONS: ReadonlySet<Restriction> = new Set()
+
+const IDENTIFIER_TYPES = ['distinct_id', 'session_id', 'event', 'uuid'] as const
+type IdentifierType = (typeof IDENTIFIER_TYPES)[number]
+
+export type RestrictionLookup = Partial<Record<IdentifierType, string>>
+
+type RestrictionIdentifier = { type: 'all' } | { type: IdentifierType; value: string }
+
+const RedisRestrictionItemSchema = z
+    .object({
+        token: z.string(),
+        pipelines: z.array(z.enum(['analytics', 'session_recordings'])).optional(),
+        distinct_id: z.string().optional(),
+        session_id: z.string().optional(),
+        event_name: z.string().optional(),
+        event_uuid: z.string().optional(),
+    })
+    .transform((item): { token: string; pipelines?: IngestionPipeline[]; identifier: RestrictionIdentifier } => {
+        if (item.distinct_id) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'distinct_id', value: item.distinct_id },
+            }
+        }
+        if (item.session_id) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'session_id', value: item.session_id },
+            }
+        }
+        if (item.event_name) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'event', value: item.event_name },
+            }
+        }
+        if (item.event_uuid) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'uuid', value: item.event_uuid },
+            }
+        }
+        return { token: item.token, pipelines: item.pipelines, identifier: { type: 'all' } }
+    })
+
+const RedisRestrictionArraySchema = z.array(RedisRestrictionItemSchema)
+
+type TokenRestrictions = {
+    all: Set<Restriction>
+    distinct_id: Map<string, Set<Restriction>>
+    session_id: Map<string, Set<Restriction>>
+    event: Map<string, Set<Restriction>>
+    uuid: Map<string, Set<Restriction>>
+}
+
+class RestrictionMap {
+    private tokens: Map<string, TokenRestrictions> = new Map()
+
+    addRestriction(restriction: Restriction, token: string, identifier: RestrictionIdentifier): void {
+        let tokenEntry = this.tokens.get(token)
+        if (!tokenEntry) {
+            tokenEntry = {
+                all: new Set(),
+                distinct_id: new Map(),
+                session_id: new Map(),
+                event: new Map(),
+                uuid: new Map(),
+            }
+            this.tokens.set(token, tokenEntry)
+        }
+
+        if (identifier.type === 'all') {
+            tokenEntry.all.add(restriction)
+            return
+        }
+
+        let restrictionSet = tokenEntry[identifier.type].get(identifier.value)
+        if (!restrictionSet) {
+            restrictionSet = new Set()
+            tokenEntry[identifier.type].set(identifier.value, restrictionSet)
+        }
+        restrictionSet.add(restriction)
+    }
+
+    getRestrictions(token: string, lookup: RestrictionLookup): ReadonlySet<Restriction> {
+        const tokenEntry = this.tokens.get(token)
+        if (!tokenEntry) {
+            return EMPTY_RESTRICTIONS
+        }
+
+        const restrictions = new Set(tokenEntry.all)
+
+        for (const type of IDENTIFIER_TYPES) {
+            const value = lookup[type]
+            if (value) {
+                const r = tokenEntry[type].get(value)
+                if (r) {
+                    for (const restriction of r) {
+                        restrictions.add(restriction)
+                    }
+                }
+            }
+        }
+
+        return restrictions
+    }
+
+    merge(other: RestrictionMap): void {
+        for (const [token, otherEntry] of other.tokens) {
+            let tokenEntry = this.tokens.get(token)
+            if (!tokenEntry) {
+                tokenEntry = {
+                    all: new Set(),
+                    distinct_id: new Map(),
+                    session_id: new Map(),
+                    event: new Map(),
+                    uuid: new Map(),
+                }
+                this.tokens.set(token, tokenEntry)
+            }
+
+            for (const restriction of otherEntry.all) {
+                tokenEntry.all.add(restriction)
+            }
+
+            for (const type of IDENTIFIER_TYPES) {
+                for (const [value, restrictions] of otherEntry[type]) {
+                    let restrictionSet = tokenEntry[type].get(value)
+                    if (!restrictionSet) {
+                        restrictionSet = new Set()
+                        tokenEntry[type].set(value, restrictionSet)
+                    }
+                    for (const restriction of restrictions) {
+                        restrictionSet.add(restriction)
+                    }
+                }
+            }
+        }
+    }
+}
 
 /*
  *
@@ -19,27 +176,32 @@ export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
  * This manager handles the loading/caching/refreshing of the dynamic configs
  * then coalesces the logic for restricting events between the two types of configs.
  * Restriction types are:
- * - DROP_EVENT_FROM_INGESTION: Drop events from ingestion
+ * - DROP_EVENT: Drop events from ingestion
  * - SKIP_PERSON_PROCESSING: Skip person processing
- * - FORCE_OVERFLOW_FROM_INGESTION: Force overflow from ingestion
+ * - FORCE_OVERFLOW: Force overflow from ingestion
+ * - REDIRECT_TO_DLQ: Redirect events to dead letter queue
  *
  */
+type ParsedRestriction = {
+    restriction: Restriction
+    token: string
+    identifier: RestrictionIdentifier
+}
+
 export class EventIngestionRestrictionManager {
-    private hub: Hub
+    private redisPool: GenericPool<Redis>
     private pipeline: IngestionPipeline
-    private staticDropEventList: Set<string>
-    private staticSkipPersonList: Set<string>
-    private staticForceOverflowList: Set<string>
-    private dynamicConfigRefresher: BackgroundRefresher<Partial<Record<string, Set<string>>>>
-    private latestDynamicConfig: Partial<Record<RestrictionType, Set<string>>> = {}
+    private staticRestrictionMap: RestrictionMap = new RestrictionMap()
+    private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
 
     constructor(
-        hub: Hub,
+        redisPool: GenericPool<Redis>,
         options: {
             pipeline?: IngestionPipeline
             staticDropEventTokens?: string[]
             staticSkipPersonTokens?: string[]
             staticForceOverflowTokens?: string[]
+            staticRedirectToDlqTokens?: string[]
         } = {}
     ) {
         const {
@@ -47,194 +209,130 @@ export class EventIngestionRestrictionManager {
             staticDropEventTokens = [],
             staticSkipPersonTokens = [],
             staticForceOverflowTokens = [],
+            staticRedirectToDlqTokens = [],
         } = options
 
-        this.hub = hub
+        this.redisPool = redisPool
         this.pipeline = pipeline
-        this.staticDropEventList = new Set(staticDropEventTokens)
-        this.staticSkipPersonList = new Set(staticSkipPersonTokens)
-        this.staticForceOverflowList = new Set(staticForceOverflowTokens)
+
+        this.addStaticRestrictions(Restriction.DROP_EVENT, staticDropEventTokens)
+        this.addStaticRestrictions(Restriction.SKIP_PERSON_PROCESSING, staticSkipPersonTokens)
+        this.addStaticRestrictions(Restriction.FORCE_OVERFLOW, staticForceOverflowTokens)
+        this.addStaticRestrictions(Restriction.REDIRECT_TO_DLQ, staticRedirectToDlqTokens)
 
         this.dynamicConfigRefresher = new BackgroundRefresher(async () => {
-            try {
-                logger.info('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
-                const config = await this.fetchDynamicEventIngestionRestrictionConfig()
-                this.latestDynamicConfig = config
-                return config
-            } catch (error) {
-                logger.error('ingestion event restriction manager - error refreshing dynamic config', { error })
-                return {}
-            }
+            logger.debug('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
+            return await this.buildRestrictionMap()
         })
 
-        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            void this.dynamicConfigRefresher.get().catch((error) => {
-                logger.error('Failed to initialize event ingestion restriction dynamic config', { error })
-            })
+        // Initialize the restriction map (includes static restrictions)
+        void this.dynamicConfigRefresher.get().catch((error) => {
+            logger.error('Failed to initialize event ingestion restriction config', { error })
+        })
+    }
+
+    async forceRefresh(): Promise<void> {
+        await this.dynamicConfigRefresher.refresh()
+    }
+
+    getAppliedRestrictions(token?: string, lookup: RestrictionLookup = {}): ReadonlySet<Restriction> {
+        if (!token) {
+            return EMPTY_RESTRICTIONS
+        }
+
+        const restrictionMap = this.dynamicConfigRefresher.tryGet() ?? this.staticRestrictionMap
+        return restrictionMap.getRestrictions(token, lookup)
+    }
+
+    private addStaticRestrictions(restriction: Restriction, entries: string[]): void {
+        for (const entry of entries) {
+            // Static config supports: token, token:distinct_id (legacy), token:distinct_id:value
+            if (entry.includes(':distinct_id:')) {
+                const [token, , distinctId] = entry.split(':')
+                this.staticRestrictionMap.addRestriction(restriction, token, {
+                    type: 'distinct_id',
+                    value: distinctId,
+                })
+            } else if (entry.includes(':')) {
+                // Legacy format: token:distinct_id
+                const [token, distinctId] = entry.split(':')
+                this.staticRestrictionMap.addRestriction(restriction, token, {
+                    type: 'distinct_id',
+                    value: distinctId,
+                })
+            } else {
+                this.staticRestrictionMap.addRestriction(restriction, entry, { type: 'all' })
+            }
         }
     }
 
-    async fetchDynamicEventIngestionRestrictionConfig(): Promise<Partial<Record<RestrictionType, Set<string>>>> {
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return {}
+    private async buildRestrictionMap(): Promise<RestrictionMap> {
+        const dynamicRestrictions = await this.fetchDynamicRestrictionsFromRedis()
+
+        const map = new RestrictionMap()
+        map.merge(this.staticRestrictionMap)
+
+        for (const { restriction, token, identifier } of dynamicRestrictions) {
+            map.addRestriction(restriction, token, identifier)
         }
 
+        return map
+    }
+
+    private async fetchDynamicRestrictionsFromRedis(): Promise<ParsedRestriction[]> {
+        const restrictions: ParsedRestriction[] = []
+
         try {
-            const redisClient = await this.hub.redisPool.acquire()
+            const redisClient = await this.redisPool.acquire()
             try {
                 const pipeline = redisClient.pipeline()
-                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.DROP_EVENT_FROM_INGESTION}`)
-                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.SKIP_PERSON_PROCESSING}`)
-                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
-                const [dropResult, skipResult, overflowResult] = await pipeline.exec()
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.SKIP_PERSON_PROCESSING}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.REDIRECT_TO_DLQ}`)
+                const [dropResult, skipResult, overflowResult, dlqResult] = await pipeline.exec()
 
-                const result: Partial<Record<RestrictionType, Set<string>>> = {}
-                const processRedisResult = (redisResult: any, restrictionType: RestrictionType) => {
+                const processRedisResult = (redisResult: any, restriction: Restriction) => {
                     if (!redisResult?.[1]) {
                         return
                     }
 
                     try {
-                        const parsedArray = parseJSON(redisResult[1] as string)
-                        if (Array.isArray(parsedArray)) {
-                            // Convert array items to strings
-                            // Old format: ["token1", "token2:distinct_id"]
-                            // New format: [{"token": "token1", "pipelines": ["analytics", "session_recordings"]}, ...]
-                            const items = parsedArray.flatMap((item) => {
-                                if (typeof item === 'string') {
-                                    // Old format - assume applies to analytics only for backwards compatibility
-                                    if (this.pipeline === 'analytics') {
-                                        return [item]
-                                    }
-                                    return []
-                                } else if (typeof item === 'object' && item !== null && 'token' in item) {
-                                    // New format - check if this pipeline is in the pipelines array
-                                    const pipelines: unknown = item.pipelines
-                                    const appliesToPipeline =
-                                        Array.isArray(pipelines) && pipelines.includes(this.pipeline)
+                        const json = parseJSON(redisResult[1] as string)
+                        const parseResult = RedisRestrictionArraySchema.safeParse(json)
 
-                                    if (appliesToPipeline) {
-                                        if ('distinct_id' in item && item.distinct_id) {
-                                            return [`${item.token}:${item.distinct_id}`]
-                                        } else {
-                                            return [item.token]
-                                        }
-                                    }
-                                    return []
-                                }
-                                return []
+                        if (!parseResult.success) {
+                            logger.warn(`Failed to parse Redis restriction config for ${restriction}`, {
+                                error: parseResult.error,
                             })
-                            result[restrictionType] = new Set(items)
-                        } else {
-                            logger.warn(`Expected array for ${restrictionType} but got different JSON type`)
-                            result[restrictionType] = new Set()
+                            return
+                        }
+
+                        for (const item of parseResult.data) {
+                            if (!item.pipelines?.includes(this.pipeline)) {
+                                continue
+                            }
+
+                            restrictions.push({ restriction, token: item.token, identifier: item.identifier })
                         }
                     } catch (error) {
-                        logger.warn(`Failed to parse JSON for ${restrictionType}`, { error })
-                        result[restrictionType] = new Set()
+                        logger.warn(`Failed to parse JSON for ${restriction}`, { error })
                     }
                 }
 
-                processRedisResult(dropResult, RestrictionType.DROP_EVENT_FROM_INGESTION)
-                processRedisResult(skipResult, RestrictionType.SKIP_PERSON_PROCESSING)
-                processRedisResult(overflowResult, RestrictionType.FORCE_OVERFLOW_FROM_INGESTION)
-                return result
+                processRedisResult(dropResult, Restriction.DROP_EVENT)
+                processRedisResult(skipResult, Restriction.SKIP_PERSON_PROCESSING)
+                processRedisResult(overflowResult, Restriction.FORCE_OVERFLOW)
+                processRedisResult(dlqResult, Restriction.REDIRECT_TO_DLQ)
             } catch (error) {
                 logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })
-                return {}
             } finally {
-                await this.hub.redisPool.release(redisClient)
+                await this.redisPool.release(redisClient)
             }
         } catch (error) {
             logger.warn('Error acquiring Redis client from pool for token restrictions', { error })
-            return {}
-        }
-    }
-
-    shouldDropEvent(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
         }
 
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
-        if (
-            this.staticDropEventList.has(token) ||
-            (tokenDistinctIdKey && this.staticDropEventList.has(tokenDistinctIdKey))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.DROP_EVENT_FROM_INGESTION]
-
-        if (!dropSet) {
-            return false
-        }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
-    }
-
-    shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
-        if (
-            this.staticSkipPersonList.has(token) ||
-            (tokenDistinctIdKey && this.staticSkipPersonList.has(tokenDistinctIdKey))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.SKIP_PERSON_PROCESSING]
-
-        if (!dropSet) {
-            return false
-        }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
-    }
-
-    shouldForceOverflow(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
-        if (
-            this.staticForceOverflowList.has(token) ||
-            (tokenDistinctIdKey && this.staticForceOverflowList.has(tokenDistinctIdKey))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]
-
-        if (!dropSet) {
-            return false
-        }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+        return restrictions
     }
 }

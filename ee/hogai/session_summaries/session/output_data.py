@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -7,7 +6,12 @@ from rest_framework import serializers
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
-from ee.hogai.session_summaries.utils import get_column_index, prepare_datetime, unpack_full_event_id
+from ee.hogai.session_summaries.utils import (
+    calculate_time_since_start,
+    get_column_index,
+    prepare_datetime,
+    unpack_full_event_id,
+)
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
@@ -274,7 +278,8 @@ def _remove_hallucinated_events(
             f"Too many hallucinated events ({len(hallucinated_events)}/{total_summary_events}) for session id ({session_id})"
             f"in the raw session summary: {[x[-1] for x in hallucinated_events]} "
         )
-        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        if final_validation:
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     # Reverse to not break indexes
     for group_index, event_index, event in reversed(hallucinated_events):
@@ -362,14 +367,6 @@ def load_raw_session_summary_from_llm_content(
     return raw_session_summary
 
 
-# TODO Rework the logic, so events before the recording are marked as "LOAD", not 00:00
-def calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> int | None:
-    if not session_start_time or not session_timestamp:
-        return None
-    timestamp_datetime = datetime.fromisoformat(session_timestamp)
-    return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
-
-
 def _validate_enriched_summary(
     data: dict[str, Any], session_id: str, final_validation: bool
 ) -> SessionSummarySerializer:
@@ -454,6 +451,7 @@ def _calculate_segment_meta(
     raw_key_actions: list[dict[str, Any]] | None,
     session_duration: int,
     session_id: str,
+    final_validation: bool,
 ) -> SegmentMetaSerializer:
     # Find first and the last event in the segment
     segment_index = raw_segment.get("index")
@@ -599,11 +597,12 @@ def _calculate_segment_meta(
     # TODO: Factor of two is arbitrary, find a better solution
     if duration <= 0 or fallback_duration // duration > 2:
         # Checking only duration as events are sorted chronologically
-        logger.warning(
-            f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}",
-            session_id=session_id,
-            signals_type="session-summaries",
-        )
+        if final_validation:
+            logger.warning(
+                f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}",
+                session_id=session_id,
+                signals_type="session-summaries",
+            )
         segment_meta_data["duration"] = fallback_duration
         segment_meta_data["duration_percentage"] = fallback_duration_percentage
         segment_meta_data["events_count"] = fallback_events_count
@@ -657,12 +656,14 @@ def enrich_raw_session_summary_with_meta(
             simplified_events_mapping=simplified_events_mapping,
             raw_key_actions=raw_key_actions,
             session_id=session_id,
+            final_validation=final_validation,
         )
         # Validate the serializer to be able to use `.data`
         if not segment_meta.is_valid():
             # Most of the fields are optional, so failed validation should be reported
             msg = f"Error validating segment meta against the schema when summarizing session_id {session_id}: {segment_meta.errors}"
-            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            if final_validation:
+                logger.error(msg, session_id=session_id, signals_type="session-summaries")
             raise SummaryValidationError(msg)
         enriched_segment["meta"] = segment_meta.data
         enriched_segments.append(enriched_segment)
