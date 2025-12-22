@@ -206,11 +206,12 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         }
 
         if summarize_type == "trace":
-            return format_trace_text_repr(
+            text, _ = format_trace_text_repr(
                 trace=entity_data["trace"],
                 hierarchy=entity_data["hierarchy"],
                 options=options,
             )
+            return text
         else:  # event
             return format_event_text_repr(event=entity_data["event"], options=options)
 

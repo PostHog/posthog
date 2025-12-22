@@ -57,6 +57,21 @@ import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
 import type {
+    LogAttribute,
+    LogAttributeValue,
+    LogsListAttributeValuesInput,
+    LogsListAttributesInput,
+    LogsQueryInput,
+    LogsQueryResponse,
+} from '../schema/logs.js'
+import {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    LogAttributeSchema,
+    LogAttributeValueSchema,
+    LogsListAttributesResponseSchema,
+    LogsQueryResponseSchema,
+} from '../schema/logs.js'
+import type {
     CreateSurveyInput,
     GetSurveySpecificStatsInput,
     GetSurveyStatsInput,
@@ -1271,6 +1286,70 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/surveys/${validatedParams.survey_id}/stats/${searchParams.toString() ? `?${searchParams}` : ''}`
 
                 return this.fetchWithSchema(url, SurveyResponseStatsOutputSchema)
+            },
+        }
+    }
+
+    logs({ projectId }: { projectId: string }): Endpoint {
+        return {
+            query: async ({ params }: { params: LogsQueryInput }): Promise<Result<LogsQueryResponse>> => {
+                const queryBody = {
+                    query: {
+                        dateRange: {
+                            date_from: params.dateFrom,
+                            date_to: params.dateTo,
+                        },
+                        severityLevels: params.severityLevels ?? [],
+                        serviceNames: params.serviceNames ?? [],
+                        searchTerm: params.searchTerm ?? null,
+                        orderBy: params.orderBy ?? 'latest',
+                        limit: params.limit ?? 100,
+                        after: params.after ?? null,
+                        filterGroup: { type: 'AND', values: [] },
+                    },
+                }
+
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/logs/query/`,
+                    LogsQueryResponseSchema,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(queryBody),
+                    }
+                )
+            },
+
+            attributes: async ({
+                params,
+            }: {
+                params?: LogsListAttributesInput
+            } = {}): Promise<Result<{ results: LogAttribute[]; count: number }>> => {
+                const searchParams = getSearchParamsFromRecord({
+                    search: params?.search,
+                    attribute_type: params?.attributeType ?? 'log',
+                    limit: params?.limit ?? 100,
+                    offset: params?.offset ?? 0,
+                })
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/logs/attributes/?${searchParams}`
+
+                return this.fetchWithSchema(url, LogsListAttributesResponseSchema)
+            },
+
+            values: async ({
+                params,
+            }: {
+                params: LogsListAttributeValuesInput
+            }): Promise<Result<LogAttributeValue[]>> => {
+                const searchParams = getSearchParamsFromRecord({
+                    key: params.key,
+                    attribute_type: params.attributeType ?? 'log',
+                    value: params.search,
+                })
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/logs/values/?${searchParams}`
+
+                return this.fetchWithSchema(url, z.array(LogAttributeValueSchema))
             },
         }
     }

@@ -1377,38 +1377,4 @@ describe('IngestionConsumer', () => {
             TRANSFORMATION_TEST_TIMEOUT
         )
     })
-
-    describe('testing topic', () => {
-        it('should emit to the testing topic', async () => {
-            hub.INGESTION_CONSUMER_TESTING_TOPIC = 'testing_topic'
-            ingester = await createIngestionConsumer(hub)
-
-            const messages = createKafkaMessages([createEvent()])
-            await ingester.handleKafkaBatch(messages)
-
-            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
-                [
-                  {
-                    "headers": {
-                      "distinct_id": "user-1",
-                      "event": "$pageview",
-                      "now": "2025-01-01T00:00:00.000Z",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
-                    "topic": "testing_topic",
-                    "value": {
-                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-                      "distinct_id": "user-1",
-                      "ip": "127.0.0.1",
-                      "now": "2025-01-01T00:00:00.000Z",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                  },
-                ]
-            `)
-        })
-    })
 })

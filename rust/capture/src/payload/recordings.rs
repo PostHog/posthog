@@ -64,11 +64,29 @@ pub async fn handle_recording_payload(
     debug!("payload processed: deserializing to RawRecording");
 
     // Decompress the payload
-    let payload = decompress_payload(data, compression, state.event_size_limit, path.as_str())?;
+    let decomp_start_time = std::time::Instant::now();
+    let result = decompress_payload(data, compression, state.event_size_limit, path.as_str());
+    metrics::histogram!("capture_debug_recordings_decompress_seconds")
+        .record(decomp_start_time.elapsed().as_secs_f64());
+    let payload = match result {
+        Ok(payload) => payload,
+        Err(e) => {
+            return Err(e);
+        }
+    };
 
     // Deserialize to RecordingPayload (handles both single event and array)
-    let recording_payload: RecordingPayload = serde_json::from_str(&payload)?;
+    let deser_start_time = std::time::Instant::now();
+    let result = serde_json::from_str(&payload);
+    let recording_payload: RecordingPayload = match result {
+        Ok(payload) => payload,
+        Err(e) => {
+            return Err(e.into());
+        }
+    };
     let mut events = recording_payload.into_vec();
+    metrics::histogram!("capture_debug_recordings_deserialize_seconds")
+        .record(deser_start_time.elapsed().as_secs_f64());
 
     if events.is_empty() {
         warn!("rejected empty recording batch");

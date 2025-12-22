@@ -11,6 +11,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     HumanMessage,
+    InsightActorsQuery,
     LifecycleQuery,
     TrendsQuery,
     VisualizationArtifactContent,
@@ -369,6 +370,26 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         content = contents[insight.short_id]
         self.assertEqual(content.name, "Trends Insight")
 
+    async def test_fetches_paths_query_insight(self):
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Paths Insight",
+            description="Test paths insight",
+            saved=True,
+            query={
+                "source": {
+                    "kind": "PathsQuery",
+                    "pathsFilter": {"includeEventTypes": ["$pageview"]},
+                }
+            },
+        )
+
+        contents = await self.manager._afetch_insight_contents([insight.short_id])
+
+        self.assertEqual(len(contents), 1)
+        content = contents[insight.short_id]
+        self.assertEqual(content.name, "Paths Insight")
+
     async def test_skips_insight_with_invalid_query(self):
         insight = await Insight.objects.acreate(
             team=self.team,
@@ -410,8 +431,8 @@ class TestArtifactManagerGetInsightWithSource(BaseTest):
 
         self.assertIsNotNone(result)
         assert result is not None
-        content, source = result
-        self.assertEqual(source, ArtifactSource.INSIGHT)
-        self.assertEqual(content.name, "Lifecycle Insight")
-        self.assertEqual(content.description, "Test lifecycle insight")
-        self.assertIsInstance(content.query, LifecycleQuery)
+        self.assertEqual(result.source, ArtifactSource.INSIGHT)
+        self.assertEqual(result.content.name, "Lifecycle Insight")
+        self.assertEqual(result.content.description, "Test lifecycle insight")
+        assert isinstance(result.content.query, InsightActorsQuery)
+        assert isinstance(result.content.query.source, LifecycleQuery)

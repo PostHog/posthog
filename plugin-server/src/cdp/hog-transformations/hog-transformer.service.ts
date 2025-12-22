@@ -165,6 +165,15 @@ export class HogTransformerService {
         teamHogFunctions: HogFunctionType[]
     ): Promise<TransformationResult> {
         hogTransformationInvocations.inc()
+
+        // Early return if no transformations to run
+        if (teamHogFunctions.length === 0) {
+            return {
+                event,
+                invocationResults: [],
+            }
+        }
+
         const results: CyclotronJobInvocationResult[] = []
         const transformationsSucceeded: string[] = []
         const transformationsFailed: string[] = []
@@ -172,9 +181,11 @@ export class HogTransformerService {
 
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
-        for (const hogFunction of teamHogFunctions) {
-            const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
+        // Create globals once outside the loop - they don't change per hogFunction
+        const globals = this.createInvocationGlobals(event)
+        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
+        for (const hogFunction of teamHogFunctions) {
             // Check if function is in a degraded state, but only if hogwatcher is enabled
             if (shouldRunHogWatcher) {
                 const functionState = this.cachedStates[hogFunction.id]
@@ -195,8 +206,8 @@ export class HogTransformerService {
                 }
             }
 
-            const globals = this.createInvocationGlobals(event)
-            const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+            // Create identifier only after the disabled check passes
+            const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
             // Check if function has filters - if not, always apply
             if (hogFunction.filters?.bytecode) {
@@ -260,10 +271,8 @@ export class HogTransformerService {
                 continue
             }
 
-            event.properties = {
-                ...transformedEvent.properties,
-            }
-
+            // Assign properties directly - the transformation owns this object now
+            event.properties = transformedEvent.properties as Record<string, any>
             event.ip = event.properties.$ip ?? null
 
             if ('event' in transformedEvent) {
@@ -293,25 +302,17 @@ export class HogTransformerService {
             transformationsSucceeded.push(transformationIdentifier)
         }
 
+        // Use direct property assignment instead of spreading to avoid copying the entire object
         if (transformationsFailed.length > 0) {
-            event.properties = {
-                ...event.properties,
-                $transformations_failed: transformationsFailed,
-            }
+            event.properties!.$transformations_failed = transformationsFailed
         }
 
         if (transformationsSkipped.length > 0) {
-            event.properties = {
-                ...event.properties,
-                $transformations_skipped: transformationsSkipped,
-            }
+            event.properties!.$transformations_skipped = transformationsSkipped
         }
 
         if (transformationsSucceeded.length > 0) {
-            event.properties = {
-                ...event.properties,
-                $transformations_succeeded: transformationsSucceeded,
-            }
+            event.properties!.$transformations_succeeded = transformationsSucceeded
         }
 
         return {

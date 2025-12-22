@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
+from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
