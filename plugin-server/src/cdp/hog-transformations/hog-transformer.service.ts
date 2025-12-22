@@ -181,11 +181,11 @@ export class HogTransformerService {
 
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
-        for (const hogFunction of teamHogFunctions) {
-            // Recreate globals for each transformation to include changes from previous transformations
-            const globals = this.createInvocationGlobals(event)
-            const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+        // Create globals once outside the loop - they don't change per hogFunction
+        const globals = this.createInvocationGlobals(event)
+        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
+        for (const hogFunction of teamHogFunctions) {
             // Check if function is in a degraded state, but only if hogwatcher is enabled
             if (shouldRunHogWatcher) {
                 const functionState = this.cachedStates[hogFunction.id]
