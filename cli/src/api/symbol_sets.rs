@@ -207,5 +207,5 @@ where
             }
         }
     }
-    Err(last_error.unwrap())
+    Err(last_error.expect("retry called with empty iterator - max_attempts must be > 0"))
 }
