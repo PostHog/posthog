@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::api::symbol_sets::SymbolSetUpload;
 use anyhow::{anyhow, Result};
@@ -72,15 +72,15 @@ fn extract_dsym_uuid(dsym_path: &PathBuf) -> Result<String> {
         .arg("--uuid")
         .arg(dsym_path)
         .output()
-        .map_err(|e| anyhow!("Failed to run dwarfdump: {}. Is Xcode installed?", e))?;
+        .map_err(|e| anyhow!("Failed to run dwarfdump: {e}. Is Xcode installed?"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("dwarfdump failed: {}", stderr);
+        anyhow::bail!("dwarfdump failed: {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Parse output like: "UUID: 12345678-1234-1234-1234-123456789ABC (arm64) /path/to/file"
     // There may be multiple UUIDs for universal binaries, we take the first one
     for line in stdout.lines() {
@@ -103,13 +103,13 @@ fn extract_dsym_uuid(dsym_path: &PathBuf) -> Result<String> {
 
 /// Zip a dSYM bundle into memory
 fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
-    use std::io::{Cursor, Write};
     use std::fs::File;
     use std::io::Read;
+    use std::io::{Cursor, Write};
     use walkdir::WalkDir;
 
     let mut buffer = Cursor::new(Vec::new());
-    
+
     {
         let mut zip = zip::ZipWriter::new(&mut buffer);
         let options = zip::write::SimpleFileOptions::default()
@@ -123,7 +123,7 @@ fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
         for entry in WalkDir::new(dsym_path) {
             let entry = entry?;
             let path = entry.path();
-            
+
             // Create relative path within the zip
             let relative_path = path.strip_prefix(dsym_path.parent().unwrap_or(dsym_path))?;
             let zip_path = relative_path.to_string_lossy();
@@ -136,7 +136,7 @@ fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
                 zip.write_all(&contents)?;
             } else if path.is_dir() && path != dsym_path.as_path() {
                 // Add directory entry (but not the root)
-                zip.add_directory(format!("{}/", zip_path), options)?;
+                zip.add_directory(format!("{zip_path}/"), options)?;
             }
         }
 
@@ -187,13 +187,13 @@ pub struct PlistInfo {
 
 impl PlistInfo {
     /// Extract version info from an Info.plist file path
-    pub fn from_plist(plist_path: &PathBuf) -> Result<Self> {
+    pub fn from_plist(plist_path: &Path) -> Result<Self> {
         if !plist_path.exists() {
             anyhow::bail!("Info.plist not found at {}", plist_path.display());
         }
 
         let plist = plist::Value::from_file(plist_path)
-            .map_err(|e| anyhow!("Failed to parse Info.plist: {}", e))?;
+            .map_err(|e| anyhow!("Failed to parse Info.plist: {e}"))?;
 
         let dict = plist
             .as_dictionary()
@@ -219,4 +219,3 @@ impl PlistInfo {
         })
     }
 }
-

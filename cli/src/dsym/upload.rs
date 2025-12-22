@@ -47,9 +47,13 @@ pub fn upload(args: &Args) -> Result<()> {
         main_dsym,
     } = args;
 
-    let directory = directory
-        .canonicalize()
-        .map_err(|e| anyhow!("Path {} canonicalization failed: {}", directory.display(), e))?;
+    let directory = directory.canonicalize().map_err(|e| {
+        anyhow!(
+            "Path {} canonicalization failed: {}",
+            directory.display(),
+            e
+        )
+    })?;
 
     if !directory.is_dir() {
         anyhow::bail!("Path {} is not a directory", directory.display());
@@ -110,9 +114,11 @@ pub fn upload(args: &Args) -> Result<()> {
     });
 
     // Determine project, version, build - CLI args take precedence over plist
-    let resolved_project = project
-        .clone()
-        .or_else(|| plist_info.as_ref().and_then(|p| p.bundle_identifier.clone()));
+    let resolved_project = project.clone().or_else(|| {
+        plist_info
+            .as_ref()
+            .and_then(|p| p.bundle_identifier.clone())
+    });
     let resolved_version = version
         .clone()
         .or_else(|| plist_info.as_ref().and_then(|p| p.short_version.clone()));
@@ -122,7 +128,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
     // Build full version string: "version+build" or just "version" or just "build"
     let full_version = match (&resolved_version, &resolved_build) {
-        (Some(v), Some(b)) => Some(format!("{}+{}", v, b)),
+        (Some(v), Some(b)) => Some(format!("{v}+{b}")),
         (Some(v), None) => Some(v.clone()),
         (None, Some(b)) => Some(b.clone()),
         (None, None) => None,
