@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -8,6 +7,7 @@ import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkli
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { MailHog } from 'lib/components/hedgehogs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -17,8 +17,10 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { NewWorkflowModal } from './NewWorkflowModal'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowsLogic } from './workflowsLogic'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
@@ -86,6 +88,8 @@ export function WorkflowsTable(): JSX.Element {
     const { filteredWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
     const { toggleWorkflowStatus, duplicateWorkflow, deleteWorkflow, setSearchTerm, setCreatedBy, setStatus } =
         useActions(workflowsLogic)
+    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
+    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const columns: LemonTableColumns<HogFlow> = [
         {
@@ -258,7 +262,11 @@ export function WorkflowsTable(): JSX.Element {
                     description="Create workflows that automate actions or send messages to your users."
                     docsURL="https://posthog.com/docs/workflows/start-here"
                     action={() => {
-                        router.actions.push(urls.workflowNew())
+                        if (canCreateTemplates) {
+                            showNewWorkflowModal()
+                        } else {
+                            createEmptyWorkflow()
+                        }
                     }}
                     customHog={MailHog}
                     isEmpty
@@ -303,6 +311,7 @@ export function WorkflowsTable(): JSX.Element {
                 columns={columns}
                 defaultSorting={{ columnKey: 'status', order: 1 }}
             />
+            <NewWorkflowModal />
         </div>
     )
 }

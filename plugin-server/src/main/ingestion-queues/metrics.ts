@@ -1,5 +1,5 @@
 // Metrics that make sense across all Kafka consumers
-import { Counter, Gauge, Summary } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 export const kafkaRebalancePartitionCount = new Gauge({
     name: 'kafka_rebalance_partition_count',
@@ -59,4 +59,11 @@ export const ingestionLagGauge = new Gauge({
     name: 'ingestion_lag_ms',
     help: 'Time difference in ms between event capture time (now header) and ingestion time',
     labelNames: ['topic', 'partition', 'groupId'],
+})
+
+export const ingestionLagHistogram = new Histogram({
+    name: 'ingestion_lag_ms_histogram',
+    help: 'Distribution of ingestion lag per event in ms',
+    labelNames: ['groupId', 'partition'],
+    buckets: [1000, 2000, 5000, 10000, 30000, 60000, 120000, 300000, 600000, 900000],
 })

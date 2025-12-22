@@ -39,6 +39,7 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    SELECT_FROM_EVENTS_WORKFLOWS,
     SELECT_FROM_PERSONS,
     SELECT_FROM_PERSONS_BACKFILL,
 )
@@ -661,6 +662,7 @@ class Producer:
         min_records_per_batch: int = 100,
         filters: list[dict[str, str | list[str] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
+        is_workflows: bool = False,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -699,16 +701,22 @@ class Producer:
 
             # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
             # may not be able to handle the load from all batch exports
-            if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+            if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
                 self.logger.debug("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(
-                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            elif (
+                use_distributed_events_recent_table(
+                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+                )
+                and not is_workflows
             ):
                 self.logger.debug("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+            elif is_workflows:
+                self.logger.debug("Using workflows events query for batch export")
+                query_template = SELECT_FROM_EVENTS_WORKFLOWS
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
                 self.logger.debug("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED

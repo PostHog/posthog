@@ -271,6 +271,7 @@ export function TaxonomicPropertyFilter({
                                     onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                                     size={size}
                                     tooltipDocLink={addFilterDocLink}
+                                    truncate={true}
                                 >
                                     {filterContent ?? (addText || 'Add filter')}
                                 </LemonButton>

@@ -30,6 +30,7 @@ class BatchExportDestination(UUIDTModel):
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
         DATABRICKS = "Databricks"
+        WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
 
@@ -43,6 +44,7 @@ class BatchExportDestination(UUIDTModel):
         "Databricks": set(),
         "HTTP": {"token"},
         "NoOp": set(),
+        "Workflows": set(),
     }
 
     type = models.CharField(

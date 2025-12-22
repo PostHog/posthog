@@ -10045,6 +10045,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -11390,6 +11394,11 @@
                 "client_query_id": {
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
+                },
+                "debug": {
+                    "default": false,
+                    "description": "Whether to include debug information (such as the executed HogQL) in the response.",
+                    "type": "boolean"
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
@@ -12770,6 +12779,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -16575,6 +16598,9 @@
                     "type": "string"
                 },
                 "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "trace_id": {
                     "type": "string"
                 },
                 "type": {
@@ -27794,6 +27820,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -28031,6 +28061,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -31046,6 +31090,9 @@
                     "type": ["string", "null"]
                 },
                 "name": {
+                    "type": ["string", "null"]
+                },
+                "plan": {
                     "type": ["string", "null"]
                 },
                 "query": {

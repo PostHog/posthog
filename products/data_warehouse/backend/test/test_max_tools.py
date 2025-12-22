@@ -25,7 +25,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         mock_result = {
-            "output": FinalAnswerArgs(query="SELECT AVG(properties.$session_length) FROM events"),
+            "output": FinalAnswerArgs(
+                query="SELECT AVG(properties.$session_length) FROM events", name="", description=""
+            ),
             "intermediate_steps": None,
         }
 
@@ -35,7 +37,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 HogQLGeneratorTool,
                 "_parse_output",
                 return_value=SQLSchemaGeneratorOutput(
-                    query=AssistantHogQLQuery(query="SELECT AVG(properties.$session_length) FROM events")
+                    query=AssistantHogQLQuery(query="SELECT AVG(properties.$session_length) FROM events"),
+                    name="",
+                    description="",
                 ),
             ),
         ):
@@ -63,7 +67,9 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         mock_result = {
-            "output": FinalAnswerArgs(query="SELECT properties FROM events WHERE {filters} AND {custom_filter}"),
+            "output": FinalAnswerArgs(
+                query="SELECT properties FROM events WHERE {filters} AND {custom_filter}", name="", description=""
+            ),
             "intermediate_steps": None,
         }
 
@@ -73,7 +79,11 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 HogQLGeneratorTool,
                 "_parse_output",
                 return_value=SQLSchemaGeneratorOutput(
-                    query=AssistantHogQLQuery(query="SELECT properties FROM events WHERE {filters} AND {custom_filter}")
+                    query=AssistantHogQLQuery(
+                        query="SELECT properties FROM events WHERE {filters} AND {custom_filter}"
+                    ),
+                    name="",
+                    description="",
                 ),
             ),
         ):
@@ -109,7 +119,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = {
-                "output": FinalAnswerArgs(query="SELECT count() FROM events"),
+                "output": FinalAnswerArgs(query="SELECT count() FROM events", name="", description=""),
                 "intermediate_steps": None,
             }
 
@@ -147,7 +157,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         # Mock the graph to return same result that fails quality check every time
         mock_result = {
-            "output": FinalAnswerArgs(query="SELECT suspicious_query FROM events"),
+            "output": FinalAnswerArgs(query="SELECT suspicious_query FROM events", name="", description=""),
             "intermediate_steps": None,
         }
 
@@ -238,7 +248,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         graph_result = {
-            "output": FinalAnswerArgs(query="SELECT count() FROM events;"),
+            "output": FinalAnswerArgs(query="SELECT count() FROM events;", name="", description=""),
             "intermediate_steps": None,
         }
 
@@ -248,6 +258,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;"
+            mock_parse_result.name = ""
+            mock_parse_result.description = ""
             mock_parse.return_value = lambda x: mock_parse_result
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = graph_result
@@ -274,7 +286,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         graph_result = {
-            "output": FinalAnswerArgs(query="SELECT count() FROM events;;;"),
+            "output": FinalAnswerArgs(query="SELECT count() FROM events;;;", name="", description=""),
             "intermediate_steps": None,
         }
 
@@ -284,6 +296,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;;;"
+            mock_parse_result.name = ""
+            mock_parse_result.description = ""
             mock_parse.return_value = lambda x: mock_parse_result
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = graph_result
@@ -310,7 +324,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         }
 
         graph_result = {
-            "output": FinalAnswerArgs(query="SELECT 'hello;world' FROM events;"),
+            "output": FinalAnswerArgs(query="SELECT 'hello;world' FROM events;", name="", description=""),
             "intermediate_steps": None,
         }
 
@@ -320,6 +334,8 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT 'hello;world' FROM events;"
+            mock_parse_result.name = ""
+            mock_parse_result.description = ""
             mock_parse.return_value = lambda x: mock_parse_result
             mock_graph = AsyncMock()
             mock_graph.ainvoke.return_value = graph_result

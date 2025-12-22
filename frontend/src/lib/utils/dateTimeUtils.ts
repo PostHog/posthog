@@ -68,3 +68,10 @@ export function formatResolvedDateRange(
 
     return `${from.dateTime} - ${to.dateTime} (${from.tz})`
 }
+
+export function formatLocalizedDate(): string {
+    const localLang = navigator.language || document.documentElement.lang || 'en-US'
+    const usDateLocales = ['en-US', 'en-CA']
+
+    return usDateLocales.some((usLocale) => localLang.startsWith(usLocale)) ? 'MMM DD' : 'DD MMM'
+}
