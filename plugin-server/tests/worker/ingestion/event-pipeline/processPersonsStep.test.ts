@@ -3,20 +3,18 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
-import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { createDefaultSyncMergeMode } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
-import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
-    let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
     let hub: Hub
 
     let uuid: string
@@ -28,13 +26,9 @@ describe('processPersonsStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        runner = {
-            hub: hub,
-            eventsProcessor: new EventsProcessor(hub),
-        }
-        const organizationId = await createOrganization(runner.hub.db.postgres)
-        teamId = await createTeam(runner.hub.db.postgres, organizationId)
-        team = (await getTeam(runner.hub, teamId))!
+        const organizationId = await createOrganization(hub.db.postgres)
+        teamId = await createTeam(hub.db.postgres, organizationId)
+        team = (await getTeam(hub, teamId))!
         uuid = new UUIDT().toString()
 
         pluginEvent = {
@@ -60,16 +54,20 @@ describe('processPersonsStep()', () => {
 
     it('creates person', async () => {
         const processPerson = true
+        const personsStore = new BatchWritingPersonsStore(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
         const result = await processPersonsStep(
-            runner as EventPipelineRunner,
+            hub.kafkaProducer,
+            createDefaultSyncMergeMode(),
+            hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+            hub.PERSON_PROPERTIES_UPDATE_ALL,
             pluginEvent,
             team,
             timestamp,
             processPerson,
-            new BatchWritingPersonsStoreForBatch(
-                new PostgresPersonRepository(runner.hub.db.postgres),
-                runner.hub.kafkaProducer
-            )
+            personsStore
         )
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -91,7 +89,7 @@ describe('processPersonsStep()', () => {
             await kafkaAck
 
             // Check PG state
-            const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+            const persons = await fetchPostgresPersons(hub.db, teamId)
             expect(persons).toEqual([resPerson])
         }
     })
@@ -108,17 +106,21 @@ describe('processPersonsStep()', () => {
         }
 
         const processPerson = true
-        const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
+        const [normalizedEvent, normalizedTimestamp] = await normalizeEventStep(event, processPerson)
+        const personsStore = new BatchWritingPersonsStore(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
         const result = await processPersonsStep(
-            runner as EventPipelineRunner,
+            hub.kafkaProducer,
+            createDefaultSyncMergeMode(),
+            hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+            hub.PERSON_PROPERTIES_UPDATE_ALL,
             normalizedEvent,
             team,
-            timestamp,
+            normalizedTimestamp,
             processPerson,
-            new BatchWritingPersonsStoreForBatch(
-                new PostgresPersonRepository(runner.hub.db.postgres),
-                runner.hub.kafkaProducer
-            )
+            personsStore
         )
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -156,7 +158,7 @@ describe('processPersonsStep()', () => {
             await kafkaAck
 
             // Check PG state
-            const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+            const persons = await fetchPostgresPersons(hub.db, teamId)
             expect(persons).toEqual([resPerson])
         }
     })

@@ -31,8 +31,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, surveys_hypercache
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
+
+from products.product_tours.backend.models import ProductTour
 
 
 class TestSurvey(APIBaseTest):
@@ -195,6 +197,95 @@ class TestSurvey(APIBaseTest):
         )
         survey = Survey.objects.get(id=response_data["id"])
         assert survey.internal_targeting_flag.active is True
+
+    def test_adding_iterations_to_existing_survey_updates_internal_targeting_flag(self):
+        # Step 1: Create a survey WITHOUT iterations
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey without iterations initially",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        survey = Survey.objects.get(id=response_data["id"])
+        survey_id = str(survey.id)
+
+        # Verify the internal_targeting_flag has properties WITHOUT iteration suffix
+        expected_filters_without_iteration = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+        assert survey.internal_targeting_flag is not None
+        assert survey.internal_targeting_flag.filters == expected_filters_without_iteration
+
+        # Step 2: Update the survey to ADD iterations
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 3,
+                "iteration_frequency_days": 30,
+            },
+            format="json",
+        )
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+
+        survey.refresh_from_db()
+
+        # Verify current_iteration is set
+        assert survey.current_iteration == 1
+
+        # Step 3: Verify the internal_targeting_flag NOW has properties WITH iteration suffix
+        expected_filters_with_iteration = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}/1",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        survey.internal_targeting_flag.refresh_from_db()
+        assert (
+            survey.internal_targeting_flag.filters == expected_filters_with_iteration
+        ), f"Expected iteration-aware filters but got: {survey.internal_targeting_flag.filters}"
 
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
@@ -408,7 +499,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1141,6 +1232,7 @@ class TestSurvey(APIBaseTest):
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_tags": [],
+                        "bucketing_identifier": "distinct_id",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -1173,6 +1265,33 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
+
+    def test_list_surveys_excludes_product_tour_linked_surveys(self):
+        regular_survey = Survey.objects.create(
+            team=self.team,
+            name="Regular survey",
+            type="popover",
+            questions=[{"type": "open", "question": "How are you?"}],
+        )
+
+        product_tour_survey = Survey.objects.create(
+            team=self.team,
+            name="Product tour survey",
+            type="api",
+            questions=[{"type": "rating", "question": "Rate this step"}],
+        )
+        product_tour = ProductTour.objects.create(
+            team=self.team,
+            name="Test Tour",
+            content={"steps": []},
+        )
+        product_tour.linked_surveys.add(product_tour_survey)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == str(regular_survey.id)
 
     def test_updating_survey_name_validates(self):
         survey_with_targeting = self.client.post(
@@ -3100,6 +3219,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "event": "$pageview",
                                                 "properties": None,
                                                 "selector": None,
+                                                "selector_regex": None,
                                                 "tag_name": None,
                                                 "text": None,
                                                 "text_matching": None,
@@ -3249,6 +3369,11 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
 
+        # Clear the surveys hypercache to ensure we're testing against fresh data.
+        # The hypercache stores data in both Redis/LocMemCache AND S3 object storage,
+        # and cache.clear() only clears the former.
+        surveys_hypercache.clear_cache(self.team.api_token)
+
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             # First time builds the remote config which uses a bunch of queries
             with self.assertNumQueries(3):
@@ -3277,6 +3402,11 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
         )
         self.client.logout()
+
+        # Clear the surveys hypercache to ensure we're testing against fresh data.
+        # The hypercache stores data in both Redis/LocMemCache AND S3 object storage,
+        # and cache.clear() only clears the former.
+        surveys_hypercache.clear_cache(self.team.api_token)
 
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             cache_response = self._get_surveys(token=self.team.api_token).json()
@@ -3528,6 +3658,58 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data.get(survey_id, 0), 0)
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_filters_by_survey_ids(self):
+        survey_id_1 = str(uuid.uuid4())
+        survey_id_2 = str(uuid.uuid4())
+        survey_id_3 = str(uuid.uuid4())
+
+        Survey.objects.create(team_id=self.team.id, id=survey_id_1, start_date=datetime.now() - timedelta(days=10))
+
+        for survey_id, count in [(survey_id_1, 5), (survey_id_2, 3), (survey_id_3, 7)]:
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=1),
+                )
+
+        # Without filter - should return all surveys
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[survey_id_1], 5)
+        self.assertEqual(data[survey_id_2], 3)
+        self.assertEqual(data[survey_id_3], 7)
+
+        # Filter to single survey
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_1: 5})
+
+        # Filter to multiple surveys
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1},{survey_id_2}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_1: 5, survey_id_2: 3})
+
+        # Filter with spaces around IDs (should be trimmed)
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids= {survey_id_3} ")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_3: 7})
+
+        # Empty survey_ids should return all
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids=")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 3)
 
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):

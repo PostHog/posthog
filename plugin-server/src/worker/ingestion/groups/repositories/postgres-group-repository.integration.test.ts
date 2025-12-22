@@ -1796,9 +1796,21 @@ describe('PostgresGroupRepository Integration', () => {
 
         it('should return empty array for empty inputs', async () => {
             expect(await repository.fetchGroupsByKeys([], [], [])).toEqual([])
-            expect(await repository.fetchGroupsByKeys([teamId], [], [])).toEqual([])
-            expect(await repository.fetchGroupsByKeys([], [0 as GroupTypeIndex], [])).toEqual([])
-            expect(await repository.fetchGroupsByKeys([], [], ['key1'])).toEqual([])
+        })
+
+        it('should throw error for mismatched array lengths', async () => {
+            await expect(repository.fetchGroupsByKeys([teamId], [], [])).rejects.toThrow(
+                'fetchGroupsByKeys: array lengths must match'
+            )
+            await expect(repository.fetchGroupsByKeys([], [0 as GroupTypeIndex], [])).rejects.toThrow(
+                'fetchGroupsByKeys: array lengths must match'
+            )
+            await expect(repository.fetchGroupsByKeys([], [], ['key1'])).rejects.toThrow(
+                'fetchGroupsByKeys: array lengths must match'
+            )
+            await expect(
+                repository.fetchGroupsByKeys([teamId, teamId], [0 as GroupTypeIndex], ['key1'])
+            ).rejects.toThrow('fetchGroupsByKeys: array lengths must match')
         })
 
         it('should fetch single group by keys', async () => {

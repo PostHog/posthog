@@ -38,10 +38,40 @@ class TestSCIMAPI(APILicensedTest):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 403
+        assert "detail" in data
 
     def test_no_token(self):
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 401
+        assert "detail" in data
+
+    def test_malformed_auth_header(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Basic invalid_token")
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 401
+        assert "detail" in data
+
+    def test_invalid_domain(self):
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get("/scim/v2/00000000-0000-0000-0000-000000000000/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 403
+        assert "detail" in data
 
     def test_service_provider_config(self):
         self.client.credentials(**self.scim_headers)
@@ -61,7 +91,11 @@ class TestSCIMAPI(APILicensedTest):
         self.client.credentials(**self.scim_headers)
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "license" in response.json()["detail"].lower()
+        data = response.json()
+        assert "schemas" in data
+        assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
+        assert data["status"] == 403
+        assert "detail" in data
 
     def test_scim_users_endpoint(self):
         """Test that SCIM Users endpoint works with valid license"""

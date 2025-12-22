@@ -60,8 +60,8 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     )
     renderings = ("text", "html")
     models = {
-        "text-embedding-3-small-1536": 3,
-        "text-embedding-3-large-3072": 5,
+        "text-embedding-3-small-1536": 1536,
+        "text-embedding-3-large-3072": 3072,
     }
 
     def setUp(self):
@@ -77,10 +77,13 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         inserted_at: datetime
 
     def _seed_document_embeddings(self) -> list[DocumentEmbeddingRow]:
-        sync_execute("TRUNCATE TABLE posthog_document_embeddings", flush=False, team_id=self.team.pk)
+        # Truncate model-specific tables
+        for model_name in self.models.keys():
+            table_name = f"distributed_posthog_document_embeddings_{model_name.replace('-', '_')}"
+            sync_execute(f"TRUNCATE TABLE {table_name}", flush=False, team_id=self.team.pk)
 
         fixtures: list[TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow] = []
-        rows: list[tuple] = []
+        rows_by_model: dict[str, list[tuple]] = {}
         row_index = 0
 
         for product, document_type, document_id in self.product_documents:
@@ -96,12 +99,15 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         timestamp=timestamp,
                     )
 
-                    rows.append(
+                    if model_name not in rows_by_model:
+                        rows_by_model[model_name] = []
+
+                    # Model-specific tables don't have model_name column
+                    rows_by_model[model_name].append(
                         (
                             self.team.pk,
                             product,
                             document_type,
-                            model_name,
                             rendering,
                             document_id,
                             timestamp,
@@ -125,28 +131,30 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
                     row_index += 1
 
-        if rows:
-            sync_execute(
-                """
-                INSERT INTO posthog_document_embeddings (
-                    team_id,
-                    product,
-                    document_type,
-                    model_name,
-                    rendering,
-                    document_id,
-                    timestamp,
-                    inserted_at,
-                    embedding,
-                    _timestamp,
-                    _offset,
-                    _partition
-                ) VALUES
-                """,
-                rows,
-                flush=False,
-                team_id=self.team.pk,
-            )
+        # Insert into model-specific tables
+        for model_name, rows in rows_by_model.items():
+            if rows:
+                table_name = f"distributed_posthog_document_embeddings_{model_name.replace('-', '_')}"
+                sync_execute(
+                    f"""
+                    INSERT INTO {table_name} (
+                        team_id,
+                        product,
+                        document_type,
+                        rendering,
+                        document_id,
+                        timestamp,
+                        inserted_at,
+                        embedding,
+                        _timestamp,
+                        _offset,
+                        _partition
+                    ) VALUES
+                    """,
+                    rows,
+                    flush=False,
+                    team_id=self.team.pk,
+                )
 
         return fixtures
 

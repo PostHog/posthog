@@ -32,7 +32,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts
@@ -78,7 +79,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts.1
@@ -114,7 +116,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_multiple_variant_handling_first_seen
@@ -150,7 +153,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_returns_correct_timeseries
@@ -186,7 +190,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_using_group_aggregation
@@ -215,7 +220,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_action_as_exposure_criteria
@@ -251,7 +257,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_0__pageview
@@ -287,7 +294,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_1__feature_flag_called
@@ -323,7 +331,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_multiple_variant_exposures
@@ -359,7 +368,8 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_without_feature_flag_property
@@ -395,6 +405,7 @@
                       allow_experimental_analyzer=1,
                       transform_null_in=1,
                       optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---

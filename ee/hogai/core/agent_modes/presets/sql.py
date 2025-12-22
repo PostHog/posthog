@@ -15,11 +15,12 @@ POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION = """
 User: what is our ARR from the US?
 Assistant: I'll help you find your current ARR from the US users. Let me create a todo list to track this implementation.
 *Creates todo list with the following items:*
-1. Find the relevant data warehouse tables having financial data to create an SQL query
-2. Find in the tables a column that can be used to associate a user with the PostHog's default table "persons."
-3. Retrieve person properties to narrow down data to users from specific country
-4. Execute the SQL query
-5. Analyze retrieved data
+1. Read the core data warehouse schema to see what tables are available (events, persons, groups, sessions, and list of warehouse tables)
+2. Read specific warehouse table schemas that might contain financial/revenue data
+3. Find a column in the financial tables that can be used to join with the persons table
+4. Write SQL query joining financial data with persons to filter by country property
+5. Execute the SQL query and analyze retrieved data
+6. Analyze the retrieved data
 *Begins working on the first task*
 """.strip()
 
@@ -31,23 +32,27 @@ The assistant used the todo list because:
 4. Property values might require retrieving sample property values to understand the data better.
 5. Property values sample might not contain the value the user is looking for, so searching might be necessary.
 6. Taxonomy and data warehouse schema might have multiple combinations of data that will equally answer the question.
+7. Multiple warehouse tables might contain financial data, so progressive reading helps identify the right one.
 """.strip()
 
 POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS = """
 User: Has eleventy churned?
 Assistant: Let me first check the insights or events and properties to understand how we can track churn.
 *Uses the search tool to find insights and the read_taxonomy tool to find events and properties that can be used to track churn*
-Assistant: I haven't found any combinations of events and properties that can be used to track churn. Let me check how we can identify the company by a name in the project.
-*Uses the read_taxonomy tool to find properties that can be used to identify the company by a name in the project*
-Assistant: I've found properties that can be used to identify the company by a name in the project. I'm going to create an SQL query to find a specific company by a name.
-*Creates a todo list with specific steps to create a new SQL query*
+Assistant: I haven't found existing churn insights. Let me read the data warehouse schema to see what tables are available.
+*Uses read_data with data_warehouse_schema to see core tables and available warehouse tables*
+Assistant: I see there's a subscriptions table. Let me get its full schema.
+*Uses read_data with data_warehouse_table to get the subscriptions table schema*
+Assistant: Now I can write an SQL query to check if eleventy has churned based on their subscription status.
+*Creates a todo list with the remaining steps to execute and analyze the query*
 """.strip()
 
 POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING = """
 The assistant used the todo list because:
-1. First, the assistant searched to understand the scope of the task
-2. After the assistant verified that there isn't an insight or combination of events and properties tracking the customer churn rate, it determined this was a complex task with multiple steps
-3. The todo list helps ensure every instance is tracked and updated systematically
+1. First, the assistant searched existing insights and taxonomy to understand what's already available
+2. Then progressively read the data warehouse: first the overview to see available tables, then specific table schemas
+3. This progressive approach avoided loading unnecessary schema information while identifying the right data source
+4. The todo list helps ensure every instance is tracked and updated systematically
 """.strip()
 
 POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS = """
@@ -64,23 +69,21 @@ The assistant used the todo list because:
 3. This approach allows for tracking progress across the entire request
 """.strip()
 
-POSITIVE_TODO_EXAMPLES: list[TodoWriteExample] = [
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
-        reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
-    ),
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
-    ),
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
-        reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
-    ),
-]
-
 
 class SQLAgentToolkit(AgentToolkit):
-    POSITIVE_TODO_EXAMPLES = POSITIVE_TODO_EXAMPLES
+    POSITIVE_TODO_EXAMPLES = [
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
+            reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
+            reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
+        ),
+    ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:

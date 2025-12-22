@@ -18,7 +18,7 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run plugin server ci
@@ -28,7 +28,7 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run Node.js checks
         outputs:
-            nodejs: ${{ steps.filter.outputs.nodejs }}
+            nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -38,6 +38,7 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       nodejs:
@@ -65,7 +66,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -95,7 +96,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm
@@ -166,10 +167,12 @@ jobs:
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.88.0
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
@@ -192,7 +195,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 22.17.1
                   cache: pnpm

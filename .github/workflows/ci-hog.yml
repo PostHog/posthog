@@ -7,13 +7,14 @@ on:
     push:
         branches:
             - master
-        paths-ignore:
-            - rust/**
-            - livestream/**
     pull_request:
         paths-ignore:
             - rust/**
             - livestream/**
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run backend ci
@@ -24,7 +25,7 @@ jobs:
         name: Determine need to run Hog checks
         # Set job outputs to values from filter step
         outputs:
-            hog: ${{ steps.filter.outputs.hog }}
+            hog: ${{ steps.filter.outputs.hog || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -32,6 +33,7 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       hog:
@@ -53,13 +55,6 @@ jobs:
         if: needs.changes.outputs.hog == 'true'
 
         steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
-            # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
@@ -74,7 +69,7 @@ jobs:
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -90,7 +85,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 18
                   cache: 'pnpm'
@@ -98,7 +93,7 @@ jobs:
             - name: Check if ANTLR definitions are up to date
               run: |
                   cd ..
-                  sudo apt-get install default-jre
+                  sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
                   curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
@@ -162,6 +157,9 @@ jobs:
         runs-on: ubuntu-24.04
         needs: check-package-version
         if: needs.changes.outputs.hog == 'true' && needs.check-package-version.outputs.is-new-version == 'true'
+        permissions:
+            contents: read
+            id-token: write
         env:
             COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
@@ -179,7 +177,7 @@ jobs:
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
               run: |
@@ -190,17 +188,13 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-            - name: Set up Node 18
-              uses: actions/setup-node@v4
+            - name: Set up Node 24
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 18
+                  node-version: 24
                   cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
             - name: Publish the package in the npm registry
               run: cd common/hogvm/typescript && npm publish --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-            - name: Sleep 60 seconds to allow npm to update the package
-              run: sleep 60

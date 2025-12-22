@@ -76,6 +76,15 @@ import {
 import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
 
+// Property math types that can be meaningfully aggregated when rolling up histogram buckets
+// e.g. taking p99 of p99 values doesn't make sense
+const SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = new Set([
+    PropertyMathType.Sum,
+    PropertyMathType.Average,
+    PropertyMathType.Minimum,
+    PropertyMathType.Maximum,
+])
+
 const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
     <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
         <SortableDragIcon />
@@ -152,6 +161,8 @@ export interface ActionFilterRowProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Allow adding non-captured events */
+    allowNonCapturedEvents?: boolean
 }
 
 export function ActionFilterRow({
@@ -186,7 +197,8 @@ export function ActionFilterRow({
     filtersLeftPadding = false,
     addFilterDocLink,
     excludedProperties,
-}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties'>): JSX.Element {
+    allowNonCapturedEvents,
+}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -345,8 +357,11 @@ export function ActionFilterRow({
             placeholderClass=""
             disabled={disabled || readOnly}
             showNumericalPropsOnly={showNumericalPropsOnly}
-            dataWarehousePopoverFields={dataWarehousePopoverFields}
+            dataWarehousePopoverFields={
+                typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
+            }
             excludedProperties={excludedProperties}
+            allowNonCapturedEvents={allowNonCapturedEvents}
         />
     )
 
@@ -665,7 +680,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math !== undefined || isStepOptional(index + 1)}
+                                                visible={math != null || isStepOptional(index + 1)}
                                             />
                                         </div>
                                     </>
@@ -776,6 +791,12 @@ function useMathSelectorOptions({
         isInsightVizNode(query) &&
         isTrendsQuery(query.source) &&
         query.source.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
+    const isHistogramBreakdown =
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source) &&
+        (query.source.breakdownFilter?.breakdown_histogram_bin_count != null ||
+            query.source.breakdownFilter?.breakdowns?.some((b) => b.histogram_bin_count != null))
 
     const {
         needsUpgradeForGroups,
@@ -945,6 +966,13 @@ function useMathSelectorOptions({
                                     label: definition.shortName,
                                     tooltip: definition.description,
                                     'data-attr': `math-${key}-${index}`,
+                                    disabledReason:
+                                        isHistogramBreakdown &&
+                                        // the backend raises an exception for queries that try to use unsupported math types
+                                        // for histogram breakdowns, but it's a nicer UX if we just disallow it in the first place.
+                                        !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(key as PropertyMathType)
+                                            ? 'Not supported when breaking down by a numeric property'
+                                            : undefined,
                                 }))}
                             onClick={(e) => e.stopPropagation()}
                             size="small"

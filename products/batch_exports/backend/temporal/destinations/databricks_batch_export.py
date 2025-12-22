@@ -445,11 +445,19 @@ class DatabricksClient:
 
         await self.acreate_table(table_name=table_name, fields=fields)
 
-        yield table_name
-
-        if delete is True:
-            self.logger.info("Deleting Databricks table %s", table_name)
-            await self.adelete_table(table_name)
+        try:
+            yield table_name
+        finally:
+            if delete is True:
+                self.logger.info("Deleting Databricks table %s", table_name)
+                try:
+                    await self.adelete_table(table_name)
+                except DatabricksInsufficientPermissionsError as err:
+                    self.external_logger.warning(
+                        "Table '%s' may not be properly cleaned up due to missing necessary permissions: %s",
+                        table_name,
+                        err,
+                    )
 
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
@@ -551,9 +559,18 @@ class DatabricksClient:
         """Manage a volume in Databricks by ensuring it exists while in context."""
         self.logger.info("Creating Databricks volume %s", volume)
         await self.acreate_volume(volume)
-        yield volume
-        self.logger.info("Deleting Databricks volume %s", volume)
-        await self.adelete_volume(volume)
+        try:
+            yield volume
+        finally:
+            self.logger.info("Deleting Databricks volume %s", volume)
+            try:
+                await self.adelete_volume(volume)
+            except DatabricksInsufficientPermissionsError as err:
+                self.external_logger.warning(
+                    "Volume '%s' may not be properly cleaned up due to missing necessary permissions: %s",
+                    volume,
+                    err,
+                )
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
@@ -656,7 +673,19 @@ class DatabricksClient:
         try:
             await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
         except TimeoutError:
+            self.logger.exception(
+                "Merge timed-out",
+                with_schema_evolution=with_schema_evolution,
+                query="MERGE",
+                query_details=merge_query,
+                timeout=timeout,
+            )
             raise DatabricksOperationTimeoutError(operation="Merge into target table", timeout=timeout)
+        except Exception:
+            self.logger.exception(
+                "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
+            )
+            raise
 
     def _get_merge_query_with_schema_evolution(
         self,
@@ -1025,6 +1054,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

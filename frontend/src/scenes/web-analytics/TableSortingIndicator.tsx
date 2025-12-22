@@ -14,6 +14,7 @@ const SORT_BY_TO_LABEL: Record<WebAnalyticsOrderByFields, string> = {
     [WebAnalyticsOrderByFields.Visitors]: 'Visitors',
     [WebAnalyticsOrderByFields.Views]: 'Views',
     [WebAnalyticsOrderByFields.Clicks]: 'Clicks',
+    [WebAnalyticsOrderByFields.AvgTimeOnPage]: 'Avg time on page',
     [WebAnalyticsOrderByFields.BounceRate]: 'Bounce rate',
     [WebAnalyticsOrderByFields.AverageScrollPercentage]: 'Average scroll percentage',
     [WebAnalyticsOrderByFields.ScrollGt80Percentage]: 'Scroll > 80%',

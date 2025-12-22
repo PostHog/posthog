@@ -2,8 +2,6 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, MappingsSerializer
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -79,136 +77,132 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     def test_validate_inputs_schema(self):
         inputs_schema = create_example_inputs_schema()
-        assert validate_inputs_schema(inputs_schema) == snapshot(
-            [
-                {
-                    "type": "string",
-                    "key": "url",
-                    "label": "Webhook URL",
-                    "required": True,
-                    "secret": False,
-                    "hidden": False,
-                },
-                {
-                    "type": "json",
-                    "key": "payload",
-                    "label": "JSON Payload",
-                    "required": True,
-                    "secret": False,
-                    "hidden": False,
-                },
-                {
-                    "type": "choice",
-                    "key": "method",
-                    "label": "HTTP Method",
-                    "choices": [
-                        {"label": "POST", "value": "POST"},
-                        {"label": "PUT", "value": "PUT"},
-                        {"label": "PATCH", "value": "PATCH"},
-                        {"label": "GET", "value": "GET"},
-                    ],
-                    "required": True,
-                    "secret": False,
-                    "hidden": False,
-                },
-                {
-                    "type": "dictionary",
-                    "key": "headers",
-                    "label": "Headers",
-                    "required": False,
-                    "secret": False,
-                    "hidden": False,
-                },
-                {
-                    "type": "number",
-                    "key": "number",
-                    "label": "Number",
-                    "required": False,
-                    "secret": False,
-                    "hidden": False,
-                },
-            ]
-        )
+        assert validate_inputs_schema(inputs_schema) == [
+            {
+                "type": "string",
+                "key": "url",
+                "label": "Webhook URL",
+                "required": True,
+                "secret": False,
+                "hidden": False,
+            },
+            {
+                "type": "json",
+                "key": "payload",
+                "label": "JSON Payload",
+                "required": True,
+                "secret": False,
+                "hidden": False,
+            },
+            {
+                "type": "choice",
+                "key": "method",
+                "label": "HTTP Method",
+                "choices": [
+                    {"label": "POST", "value": "POST"},
+                    {"label": "PUT", "value": "PUT"},
+                    {"label": "PATCH", "value": "PATCH"},
+                    {"label": "GET", "value": "GET"},
+                ],
+                "required": True,
+                "secret": False,
+                "hidden": False,
+            },
+            {
+                "type": "dictionary",
+                "key": "headers",
+                "label": "Headers",
+                "required": False,
+                "secret": False,
+                "hidden": False,
+            },
+            {
+                "type": "number",
+                "key": "number",
+                "label": "Number",
+                "required": False,
+                "secret": False,
+                "hidden": False,
+            },
+        ]
 
     def test_validate_inputs(self):
         inputs_schema = create_example_inputs_schema()
         inputs = create_example_inputs()
-        assert json.loads(json.dumps(validate_inputs(inputs_schema, inputs))) == snapshot(
-            {
-                "url": {
-                    "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
-                    "bytecode": [
+        assert json.loads(json.dumps(validate_inputs(inputs_schema, inputs))) == {
+            "url": {
+                "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                "bytecode": [
+                    "_H",
+                    HOGQL_BYTECODE_VERSION,
+                    32,
+                    "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                ],
+                "order": 0,  # Now that we have ordering, url should have some order assigned
+            },
+            "payload": {
+                "value": {
+                    "event": "{event}",
+                    "groups": "{groups}",
+                    "nested": {"foo": "{event.url}"},
+                    "person": "{person}",
+                    "event_url": "{f'{event.url}-test'}",
+                },
+                "bytecode": {
+                    "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
+                    "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
+                    "nested": {"foo": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "event", 1, 2]},
+                    "person": ["_H", HOGQL_BYTECODE_VERSION, 32, "person", 1, 1],
+                    "event_url": [
                         "_H",
                         HOGQL_BYTECODE_VERSION,
                         32,
-                        "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                        "url",
+                        32,
+                        "event",
+                        1,
+                        2,
+                        32,
+                        "-test",
+                        2,
+                        "concat",
+                        2,
                     ],
-                    "order": 0,  # Now that we have ordering, url should have some order assigned
                 },
-                "payload": {
-                    "value": {
-                        "event": "{event}",
-                        "groups": "{groups}",
-                        "nested": {"foo": "{event.url}"},
-                        "person": "{person}",
-                        "event_url": "{f'{event.url}-test'}",
-                    },
-                    "bytecode": {
-                        "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
-                        "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
-                        "nested": {"foo": ["_H", HOGQL_BYTECODE_VERSION, 32, "url", 32, "event", 1, 2]},
-                        "person": ["_H", HOGQL_BYTECODE_VERSION, 32, "person", 1, 1],
-                        "event_url": [
-                            "_H",
-                            HOGQL_BYTECODE_VERSION,
-                            32,
-                            "url",
-                            32,
-                            "event",
-                            1,
-                            2,
-                            32,
-                            "-test",
-                            2,
-                            "concat",
-                            2,
-                        ],
-                    },
-                    "order": 1,
+                "order": 1,
+            },
+            "method": {
+                "value": "POST",
+                "order": 2,
+            },
+            "headers": {
+                "value": {"version": "v={event.properties.$lib_version}"},
+                "bytecode": {
+                    "version": [
+                        "_H",
+                        HOGQL_BYTECODE_VERSION,
+                        32,
+                        "v=",
+                        32,
+                        "$lib_version",
+                        32,
+                        "properties",
+                        32,
+                        "event",
+                        1,
+                        3,
+                        2,
+                        "concat",
+                        2,
+                    ]
                 },
-                "method": {
-                    "value": "POST",
-                    "order": 2,
-                },
-                "headers": {
-                    "value": {"version": "v={event.properties.$lib_version}"},
-                    "bytecode": {
-                        "version": [
-                            "_H",
-                            HOGQL_BYTECODE_VERSION,
-                            32,
-                            "v=",
-                            32,
-                            "$lib_version",
-                            32,
-                            "properties",
-                            32,
-                            "event",
-                            1,
-                            3,
-                            2,
-                            "concat",
-                            2,
-                        ]
-                    },
-                    "order": 3,
-                },
-                "number": {
-                    "value": 42,
-                    "order": 4,
-                },
-            }
-        )
+                "order": 3,
+            },
+            "number": {
+                "value": 42,
+                "order": 4,
+            },
+        }
 
     def test_validate_inputs_creates_bytecode_for_html(self):
         # NOTE: CSS block curly brackets must be escaped beforehand
@@ -225,33 +219,31 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     },
                 )
             )
-        ) == snapshot(
-            {
-                "html": {
-                    "bytecode": [
-                        "_H",
-                        HOGQL_BYTECODE_VERSION,
-                        32,
-                        '<html>\n<head>\n<style type="text/css">\n  .css {\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi ',
-                        32,
-                        "email",
-                        32,
-                        "properties",
-                        32,
-                        "person",
-                        1,
-                        3,
-                        32,
-                        "</p>\n</body>\n</html>",
-                        2,
-                        "concat",
-                        3,
-                    ],
-                    "value": '<html>\n<head>\n<style type="text/css">\n  .css \\{\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>',
-                    "order": 0,
-                },
-            }
-        )
+        ) == {
+            "html": {
+                "bytecode": [
+                    "_H",
+                    HOGQL_BYTECODE_VERSION,
+                    32,
+                    '<html>\n<head>\n<style type="text/css">\n  .css {\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi ',
+                    32,
+                    "email",
+                    32,
+                    "properties",
+                    32,
+                    "person",
+                    1,
+                    3,
+                    32,
+                    "</p>\n</body>\n</html>",
+                    2,
+                    "concat",
+                    3,
+                ],
+                "value": '<html>\n<head>\n<style type="text/css">\n  .css \\{\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>',
+                "order": 0,
+            },
+        }
 
     # New tests for ordering
     def test_validate_inputs_with_dependencies_simple_chain(self):

@@ -13,16 +13,16 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
     raw_cohort_to_distinct_id = """
     SELECT
         distinct_id
-    FROM
-        raw_person_distinct_ids
-    WHERE distinct_id in (
-        SELECT distinct_id
+    FROM (
+        SELECT
+            distinct_id,
+            argMax(person_id, version) as person_id,
+            argMax(is_deleted, version) as is_deleted
         FROM raw_person_distinct_ids
-        WHERE 1=1 AND {cohort_predicate}
-        )
-    GROUP BY
-        distinct_id
-    HAVING argMax(is_deleted, version) = 0
+        WHERE team_id = {team_id}
+        GROUP BY distinct_id
+        HAVING is_deleted = 0 AND {cohort_predicate}
+    )
         """
 
     def __init__(self, team: Team, query: RecordingsQuery):
@@ -32,7 +32,10 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         if self.cohort_properties:
             return parse_select(
                 self.raw_cohort_to_distinct_id,
-                {"cohort_predicate": property_to_expr(self.cohort_properties, team=self._team, scope="replay")},
+                {
+                    "team_id": ast.Constant(value=self._team.pk),
+                    "cohort_predicate": property_to_expr(self.cohort_properties, team=self._team, scope="replay"),
+                },
             )
 
         return None

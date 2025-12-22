@@ -110,6 +110,8 @@ class TestUserAPI(APIBaseTest):
                     "logo_media_id": None,
                     "membership_level": 1,
                     "members_can_use_personal_api_keys": True,
+                    "is_active": True,
+                    "is_not_active_reason": None,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -118,6 +120,8 @@ class TestUserAPI(APIBaseTest):
                     "logo_media_id": None,
                     "membership_level": 1,
                     "members_can_use_personal_api_keys": True,
+                    "is_active": True,
+                    "is_not_active_reason": None,
                 },
             ],
         )
@@ -1132,7 +1136,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         assert (
             unquote(locationHeader)
-            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1148,7 +1152,7 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert (
             unquote(response.json()["toolbarParams"])
-            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "productTourId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -1179,7 +1183,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "productTourId": null, "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")

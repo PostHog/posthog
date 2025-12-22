@@ -80,7 +80,7 @@ class ConnectionInfo(NamedTuple):
     port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.host, port=self.port, settings=client_settings)
+        return _make_ch_pool(host=self.host, port=self.port, client_settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -206,6 +206,10 @@ class ClickhouseCluster:
     @property
     def shards(self) -> list[int]:
         return list(self.__shards.keys())
+
+    @property
+    def num_shards(self) -> int:
+        return len(self.__shards)
 
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
@@ -569,6 +573,7 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
+
         if self.force:
             logger.info(
                 "Forcing mutation for %r, even if it already exists. This may cause issues if the mutation is already running.",

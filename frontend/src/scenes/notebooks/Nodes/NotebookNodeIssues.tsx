@@ -81,6 +81,7 @@ const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey }: IssuesQue
         personId,
         groupKey,
         groupTypeIndex,
+        limit: 10,
     })
     const insightProps: InsightLogicProps = {
         dashboardItemId: `new-NotebookNodeIssues-${personId || groupKey}`,

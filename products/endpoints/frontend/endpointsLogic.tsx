@@ -3,6 +3,8 @@ import { actions, afterMount, kea, key, path, props, reducers, selectors } from 
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { urls } from 'scenes/urls'
 
 import { EndpointLastExecutionTimesRequest } from '~/queries/schema/schema-general'
 import { EndpointType } from '~/types'
@@ -80,4 +82,10 @@ export const endpointsLogic = kea<endpointsLogicType>([
     afterMount(({ actions }) => {
         actions.loadEndpoints()
     }),
+
+    tabAwareUrlToAction(({ actions }) => ({
+        [urls.endpoints()]: () => {
+            actions.loadEndpoints()
+        },
+    })),
 ])

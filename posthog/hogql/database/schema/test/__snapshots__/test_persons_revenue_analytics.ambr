@@ -67,7 +67,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_events_with_managed_viewsets_ff
@@ -138,7 +139,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids
@@ -256,7 +258,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids.1
@@ -373,7 +376,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_email_join
@@ -492,7 +496,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join
@@ -610,7 +615,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join.1
@@ -728,7 +734,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff
@@ -846,7 +853,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff.1
@@ -964,7 +972,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_get_revenue_for_schema_source_for_metadata_join
@@ -1083,7 +1092,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_query_revenue_analytics_table
@@ -1195,7 +1205,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled
@@ -1213,7 +1224,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled.1
@@ -1235,7 +1247,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                      tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1315,7 +1327,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events
@@ -1333,7 +1346,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events.1
@@ -1355,7 +1369,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -1413,7 +1427,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events
@@ -1431,7 +1446,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.1
@@ -1453,7 +1469,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1525,7 +1541,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined
@@ -1543,7 +1560,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
@@ -1565,7 +1583,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1644,7 +1662,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_0_disabled
@@ -1662,7 +1681,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_0_disabled.1
@@ -1705,7 +1725,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1793,7 +1813,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 INNER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                           tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1886,7 +1906,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1974,7 +1994,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 INNER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                           tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -2056,7 +2076,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_1_person_id_no_override_properties_on_events
@@ -2074,7 +2095,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_1_person_id_no_override_properties_on_events.1
@@ -2117,7 +2139,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT JOIN
                             (SELECT 99999 AS team_id,
                                     accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2183,7 +2205,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT JOIN
                                   (SELECT 99999 AS team_id,
                                           accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2254,7 +2276,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT JOIN
                             (SELECT 99999 AS team_id,
                                     accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2320,7 +2342,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT JOIN
                                   (SELECT 99999 AS team_id,
                                           accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2380,7 +2402,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_2_person_id_override_properties_on_events
@@ -2398,7 +2421,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_2_person_id_override_properties_on_events.1
@@ -2441,7 +2465,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2521,7 +2545,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2606,7 +2630,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2686,7 +2710,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2760,7 +2784,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_3_person_id_override_properties_joined
@@ -2778,7 +2803,8 @@
                    max_bytes_before_external_group_by=0,
                    transform_null_in=1,
                    optimize_min_equality_disjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_with_managed_viewsets_ff_3_person_id_override_properties_joined.1
@@ -2821,7 +2847,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2908,7 +2934,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3000,7 +3026,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3087,7 +3113,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3168,6 +3194,7 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---

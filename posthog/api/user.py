@@ -65,7 +65,7 @@ from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
+from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
@@ -121,6 +121,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
+            "allow_impersonation",
             "toolbar_mode",
             "has_password",
             "id",
@@ -144,6 +145,7 @@ class UserSerializer(serializers.ModelSerializer):
             "theme_mode",
             "hedgehog_config",
             "allow_sidebar_suggestions",
+            "shortcut_position",
             "role_at_organization",
         ]
 
@@ -362,7 +364,13 @@ class UserSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)
-        return super().to_representation(instance)
+        data = super().to_representation(instance)
+
+        # Backfill shortcut_position default for frontend if null
+        if data.get("shortcut_position") is None:
+            data["shortcut_position"] = ShortcutPosition.ABOVE.value
+
+        return data
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
@@ -421,7 +429,13 @@ class UserViewSet(
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,
     ]
-    time_sensitive_allow_if_only_fields = ["theme_mode", "set_current_organization", "allow_sidebar_suggestions"]
+    time_sensitive_allow_if_only_fields = [
+        "theme_mode",
+        "set_current_organization",
+        "allow_sidebar_suggestions",
+        "shortcut_position",
+        "has_seen_product_intro_for",
+    ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
@@ -775,6 +789,7 @@ def redirect_to_site(request):
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
+        "productTourId": request.GET.get("productTourId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],

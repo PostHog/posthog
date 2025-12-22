@@ -14,6 +14,7 @@ from parameterized import parameterized
 from posthog.schema import (
     HogQLQueryModifiers,
     MaterializationMode,
+    MaterializedColumnsOptimizationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
@@ -48,10 +49,13 @@ class TestPrinter(BaseTest):
         query: str,
         context: Optional[HogQLContext] = None,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        settings: Optional[HogQLQuerySettings] = None,
     ) -> str:
         node = parse_expr(query)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
+        )
         prepared_select_query: ast.SelectQuery = cast(
             ast.SelectQuery,
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
@@ -564,6 +568,7 @@ class TestPrinter(BaseTest):
         expected_optimized_query: str | None,
         expected_context_values: Mapping[str, Any] | None = None,
         expected_skip_indexes_used: set[str] | None = None,
+        expected_skip_indexes_not_used: set[str] | None = None,
     ) -> None:
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
             return HogQLContext(
@@ -590,7 +595,7 @@ class TestPrinter(BaseTest):
         if expected_context_values is not None:
             self.assertLessEqual(expected_context_values.items(), context.values.items())
 
-        if expected_skip_indexes_used is not None:
+        if expected_skip_indexes_used is not None or expected_skip_indexes_not_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
             # the query is optimized to read from `NullSource` which doesn't do us much good here...
             for _ in range(10):
@@ -606,19 +611,32 @@ class TestPrinter(BaseTest):
                         if result is not None:
                             return result
 
+            # Include HogQLGlobalSettings() so that when we check indexes, we see what skip indexes would be used with realistic settings.
+            # E.g. settings like `transform_null_in=1` can make a dramatic difference to the indexes for queries with `in(X, Y)`
             [[raw_explain_result]] = sync_execute(
                 f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
                 context.values,
+                settings={
+                    k: "1" if v is True else "0" if v is False else str(v)
+                    for k, v in HogQLGlobalSettings().model_dump().items()
+                    if v is not None
+                },
             )
             read_from_merge_tree_step = _find_node(
                 json.loads(raw_explain_result)[0]["Plan"],
                 condition=lambda node: node["Node Type"] == "ReadFromMergeTree",
             )
-            self.assertTrue(
-                expected_skip_indexes_used.issubset(
-                    {index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"}
-                ),
-            )
+            indexes = {
+                index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"
+            }
+            if expected_skip_indexes_used:
+                self.assertTrue(
+                    expected_skip_indexes_used.issubset(indexes),
+                )
+            if expected_skip_indexes_not_used:
+                self.assertTrue(
+                    expected_skip_indexes_not_used.isdisjoint(indexes),
+                )
 
     def test_property_groups_optimized_basic_equality_comparisons(self) -> None:
         # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us use
@@ -761,53 +779,71 @@ class TestPrinter(BaseTest):
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
         # equality, it also needs to handle the empty string special case.
+        # We check which skip indexes are used on the test DB, but please test this on a prod-sized DB too when changing this.
         self._test_property_group_comparison(
             "properties.key IN ('a', 'b')",
-            "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
             {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
+            "properties.key IN ['a', 'b']",
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
+            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
+        )
+
+        # Single string value converts to equality comparison
+        self._test_property_group_comparison(
             "properties.key IN 'a'",  # strange, but syntactically valid
-            "in(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
             {"hogql_val_0": "key", "hogql_val_1": "a"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
-            "properties.key IN ('a', 'b', '')",
-            (
-                "or("
-                "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)), "
-                "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_3)s))"
-                ")"
-            ),
-            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b", "hogql_val_3": ""},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-        )
-        self._test_property_group_comparison(
-            "properties.key IN ''",  # strange, but syntactically valid
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
-        )
-
-        # NULL values are never equal. While this differs from the behavior of the equality operator above, it is
-        # consistent with how ClickHouse treats these values:
-        # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
-        self._test_property_group_comparison("properties.key in NULL", "0")
-        self._test_property_group_comparison("properties.key in (NULL)", "0")
-        self._test_property_group_comparison("properties.key in (NULL, NULL, NULL)", "0")
-        self._test_property_group_comparison(
-            "properties.key IN ('a', 'b', NULL)",
-            "in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s))",
-            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            "properties.key IN ['a']",
+            "equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)",
+            {"hogql_val_0": "key", "hogql_val_1": "a"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
         )
+
+        # Single empty string does need to check if the key exists as well as equality
         self._test_property_group_comparison(
-            "properties.key IN ('', NULL)",
+            "properties.key IN ''",
             "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
             {"hogql_val_0": "key", "hogql_val_1": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
+        )
+
+        # Tuples with empty string or NULL - bail out of tuple optimization (use default behavior)
+        self._test_property_group_comparison("properties.key IN ('a', 'b', '')", None)
+        self._test_property_group_comparison("properties.key IN ('', NULL)", None)
+        self._test_property_group_comparison("properties.key IN ('a', 'b', NULL)", None)
+
+        # NULL values are can be equal if using transform_null_in = 1, which we do by default
+        # https://clickhouse.com/docs/operations/settings/settings#transform_null_in
+        # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
+        self.assertTrue(
+            HogQLGlobalSettings().transform_null_in
+        )  # if changing this assumption, you'll need to change the printer too
+        self._test_property_group_comparison(
+            "properties.key in NULL",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+        )
+        self._test_property_group_comparison(
+            "properties.key in (NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+        )
+        self._test_property_group_comparison(
+            "properties.key in (NULL, NULL, NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, tuple(NULL, NULL, NULL))",
+        )
+        self._test_property_group_comparison(
+            "properties.key in [NULL, NULL, NULL]",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, [NULL, NULL, NULL])",
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
@@ -819,6 +855,113 @@ class TestPrinter(BaseTest):
         # Only direct constant comparison is supported for now -- see above.
         self._test_property_group_comparison("properties.key in lower('value')", None)
         self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
+
+    def test_event_property_groups_optimized_in_query_results(self):
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "string", "value": "s"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "empty_string", "value": ""},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "null", "value": None},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "not_set"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "int", "value": 1},
+        )
+
+        # update this test if we add more modes
+        assert {e.value for e in PropertyGroupsMode} == {
+            PropertyGroupsMode.DISABLED,
+            PropertyGroupsMode.ENABLED,
+            PropertyGroupsMode.OPTIMIZED,
+        }
+
+        def assert_result_is_equal(expr: str, labels):
+            hogql_expr = parse_expr(expr)
+
+            query = parse_select(
+                "select properties.label as label from events where properties.value in {expr} order by label asc",
+                placeholders={"expr": hogql_expr},
+            )
+
+            disabled_context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.DISABLED,
+                ),
+            )
+            enabled_context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.ENABLED,
+                ),
+            )
+            optimized_context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+                ),
+            )
+
+            disabled_response = execute_hogql_query(
+                query=query, team=self.team, context=disabled_context, modifiers=disabled_context.modifiers
+            )
+            enabled_response = execute_hogql_query(
+                query=query, team=self.team, context=enabled_context, modifiers=enabled_context.modifiers
+            )
+            optimized_response = execute_hogql_query(
+                query=query, team=self.team, context=optimized_context, modifiers=optimized_context.modifiers
+            )
+
+            assert disabled_response.clickhouse and enabled_response.clickhouse and optimized_response.clickhouse
+            assert "properties_group_custom" not in disabled_response.clickhouse
+            assert "properties_group_custom" in enabled_response.clickhouse
+            assert "properties_group_custom" in optimized_response.clickhouse
+            assert {row[0] for row in disabled_response.results} == labels
+            assert {row[0] for row in enabled_response.results} == labels
+            assert {row[0] for row in optimized_response.results} == labels
+
+        assert_result_is_equal("1", {"int"})
+        assert_result_is_equal("'1'", {"int"})  # this feels wrong, but at least it's consistent
+        assert_result_is_equal("'s'", {"string"})
+        assert_result_is_equal("''", {"empty_string"})
+        assert_result_is_equal("NULL", {"null", "not_set"})
+        assert_result_is_equal("('s')", {"string"})
+        assert_result_is_equal("('s', 's')", {"string"})
+        assert_result_is_equal("['s', 's']", {"string"})
+        assert_result_is_equal("(NULL)", {"null", "not_set"})
+        assert_result_is_equal("(NULL, NULL, NULL)", {"null", "not_set"})
+        assert_result_is_equal("[NULL, NULL, NULL]", {"null", "not_set"})
+        assert_result_is_equal("('s', 1)", {"string", "int"})
+        assert_result_is_equal("('s', '')", {"string", "empty_string"})
+        assert_result_is_equal("'null'", set())
+        assert_result_is_equal("'NULL'", set())
+        assert_result_is_equal("[]", set())
 
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
@@ -1296,6 +1439,11 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0",
         )
 
+        self.assertEqual(
+            self._select("select event from (select event from events offset 10)"),
+            f"SELECT event AS event FROM (SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) OFFSET 10) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_select_limit_by(self):
         self.assertEqual(
             self._select("select event from events limit 10 offset 0 by 1,event"),
@@ -1351,7 +1499,7 @@ class TestPrinter(BaseTest):
     def test_select_sample(self):
         self.assertEqual(
             self._select("SELECT events.event FROM events SAMPLE 1"),
-            f"SELECT events.event AS event FROM events SAMPLE 1 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         self.assertEqual(
@@ -2006,7 +2154,7 @@ class TestPrinter(BaseTest):
         printed = self._print("SELECT 1 FROM events", settings=HogQLGlobalSettings(max_execution_time=10))
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_query_level_settings(self):
@@ -2035,7 +2183,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_pretty_print(self):
@@ -2135,7 +2283,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -2147,7 +2295,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -2167,7 +2315,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -2188,7 +2336,7 @@ class TestPrinter(BaseTest):
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_lookup_domain_type(self):
@@ -2204,7 +2352,7 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_paid_source_type(self):
@@ -2220,7 +2368,7 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_paid_medium_type(self):
@@ -2232,7 +2380,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_organic_source_type(self):
@@ -2248,7 +2396,7 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "format_csv_allow_double_quotes=0, max_ast_elements=4000000, "
-            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_organic_medium_type(self):
@@ -2260,7 +2408,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_currency_conversion(self):
@@ -2271,7 +2419,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2284,7 +2432,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2307,7 +2455,7 @@ class TestPrinter(BaseTest):
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
                 f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -2366,7 +2514,7 @@ class TestPrinter(BaseTest):
                 "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
-            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123")
+            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123", self.team.pk)
             self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
 
     def test_override_timezone(self):
@@ -2410,7 +2558,7 @@ class TestPrinter(BaseTest):
         )
         assert printed == (
             f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s) AS a, trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s) AS b, trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) AS c LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
         printed2 = self._print(
             "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c",
@@ -2898,6 +3046,197 @@ class TestPrinter(BaseTest):
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+
+class TestMaterializedColumnOptimization(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+    ) -> str:
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="clickhouse",
+            stack=[prepared_select_query],
+        )
+
+    def _test_materialized_column_comparison(
+        self,
+        input_expression: str,
+        expected_optimized_query: str | None,
+        expected_context_values: Mapping[str, Any] | None = None,
+    ) -> None:
+        def build_context(optimization_mode: MaterializedColumnsOptimizationMode | None) -> HogQLContext:
+            return HogQLContext(
+                team_id=self.team.pk,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    materializedColumnsOptimizationMode=optimization_mode,
+                ),
+            )
+
+        context = build_context(MaterializedColumnsOptimizationMode.OPTIMIZED)
+        printed_expr = self._expr(input_expression, context)
+        if expected_optimized_query is not None:
+            self.assertEqual(printed_expr, expected_optimized_query)
+        else:
+            disabled_context = build_context(MaterializedColumnsOptimizationMode.DISABLED)
+            disabled_expr = self._expr(input_expression, disabled_context)
+            self.assertEqual(printed_expr % context.values, disabled_expr % disabled_context.values)
+
+        if expected_context_values is not None:
+            self.assertLessEqual(expected_context_values.items(), context.values.items())
+
+    def test_materialized_column_optimized_equality_comparison(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop = 'some_value'",
+                f"equals(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "some_value"},
+            )
+            self._test_materialized_column_comparison(
+                "'some_value' = properties.test_prop",
+                f"equals(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "some_value"},
+            )
+
+    def test_materialized_column_optimized_not_equality_comparison(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop != 'some_value'",
+                f"notEquals(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "some_value"},
+            )
+            self._test_materialized_column_comparison(
+                "'some_value' != properties.test_prop",
+                f"notEquals(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "some_value"},
+            )
+
+    def test_materialized_column_not_optimized_for_empty_string(self) -> None:
+        with materialized("events", "test_prop"):
+            self._test_materialized_column_comparison(
+                "properties.test_prop = ''",
+                None,
+            )
+
+    def test_materialized_column_not_optimized_for_null_string(self) -> None:
+        with materialized("events", "test_prop"):
+            self._test_materialized_column_comparison(
+                "properties.test_prop = 'null'",
+                None,
+            )
+
+    def test_materialized_column_not_optimized_for_non_string_constant(self) -> None:
+        with materialized("events", "test_prop"):
+            self._test_materialized_column_comparison(
+                "properties.test_prop = 123",
+                None,
+            )
+
+    def test_materialized_column_not_optimized_for_null_comparison(self) -> None:
+        with materialized("events", "test_prop"):
+            self._test_materialized_column_comparison(
+                "properties.test_prop = null",
+                None,
+            )
+
+    def test_materialized_column_not_optimized_when_disabled(self) -> None:
+        with materialized("events", "test_prop") as mat_col:
+            context = HogQLContext(
+                team_id=self.team.pk,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED,
+                ),
+            )
+            printed_expr = self._expr("properties.test_prop = 'some_value'", context)
+            self.assertEqual(
+                printed_expr, f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)"
+            )
+
+    def test_materialized_column_results_match_with_and_without_optimization(self) -> None:
+        with materialized("events", "test_prop"):
+            _create_event(
+                team=self.team,
+                distinct_id="d1",
+                event="test_event",
+                properties={"test_prop": "target_value"},
+            )
+            _create_event(
+                team=self.team,
+                distinct_id="d2",
+                event="test_event",
+                properties={"test_prop": "other_value"},
+            )
+            _create_event(
+                team=self.team,
+                distinct_id="d3",
+                event="test_event",
+                properties={"test_prop": ""},
+            )
+            _create_event(
+                team=self.team,
+                distinct_id="d4",
+                event="test_event",
+                properties={"test_prop": "null"},
+            )
+            _create_event(
+                team=self.team,
+                distinct_id="d5",
+                event="test_event",
+                properties={},
+            )
+            _create_event(
+                team=self.team,
+                distinct_id="d6",
+                event="test_event",
+                properties={"test_prop": None},
+            )
+
+            optimized_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.OPTIMIZED
+                ),
+            )
+            unoptimized_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED
+                ),
+            )
+            self.assertEqual(optimized_result.results, [("d1",)])
+            self.assertEqual(unoptimized_result.results, [("d1",)])
+
+            optimized_neq_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.OPTIMIZED
+                ),
+            )
+            unoptimized_neq_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
+                modifiers=HogQLQueryModifiers(
+                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED
+                ),
+            )
+            self.assertEqual(optimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            self.assertEqual(unoptimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
 
 
 class TestPrinted(APIBaseTest):

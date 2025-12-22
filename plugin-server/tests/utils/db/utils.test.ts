@@ -22,15 +22,11 @@ describe('personInitialAndUTMProperties()', () => {
             $app_name: 'my app',
             $app_namespace: 'com.posthog.myapp',
             $app_version: '1.2.3',
-            $set: {
-                $browser_version: 'manually $set value wins',
-            },
-            $set_once: {
-                $initial_os_version: 'manually $set_once value wins',
-            },
+            $set: { $browser_version: 'manually $set value wins' },
+            $set_once: { $initial_os_version: 'manually $set_once value wins' },
         }
-
-        expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
+        expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(
+            `
             {
               "$app_build": 2,
               "$app_name": "my app",
@@ -94,37 +90,27 @@ describe('personInitialAndUTMProperties()', () => {
               "msclkid": "BING ADS ID",
               "utm_medium": "twitter",
             }
-        `)
+        `
+        )
     })
-
     it('initial current domain regression test', () => {
-        const properties = {
-            $current_url: 'https://test.com',
-        }
-
+        const properties = { $current_url: 'https://test.com' }
         expect(personInitialAndUTMProperties(properties)).toEqual({
             $current_url: 'https://test.com',
             $set_once: { $initial_current_url: 'https://test.com' },
             $set: { $current_url: 'https://test.com' },
         })
     })
-
     it('treats $os_name as fallback for $os', () => {
-        const propertiesOsNameOnly = {
-            $os_name: 'Android',
-        }
+        const propertiesOsNameOnly = { $os_name: 'Android' }
         expect(personInitialAndUTMProperties(propertiesOsNameOnly)).toEqual({
             $os: 'Android',
             $os_name: 'Android',
             $set_once: { $initial_os: 'Android' },
             $set: { $os: 'Android' },
         })
-
-        // Also test that $os takes precedence, with $os_name preserved (although this should not happen in the wild)
-        const propertiesBothOsKeys = {
-            $os: 'Windows',
-            $os_name: 'Android',
-        }
+        // Test that $os takes precedence, with $os_name preserved (although this should not happen in the wild)
+        const propertiesBothOsKeys = { $os: 'Windows', $os_name: 'Android' }
         expect(personInitialAndUTMProperties(propertiesBothOsKeys)).toEqual({
             $os: 'Windows',
             $os_name: 'Android',

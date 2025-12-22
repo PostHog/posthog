@@ -10,13 +10,14 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UnexpectedNeverError, percentage, tryDecodeURIComponent } from 'lib/utils'
+import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
@@ -49,6 +50,7 @@ import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
+import { CreateSurveyButton } from '../CrossSellButtons/CreateSurveyButton'
 import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
@@ -75,15 +77,25 @@ export const toUtcOffsetFormat = (value: number): string => {
     return `UTC${sign}${integerPart}${formattedMinutes}`
 }
 
-type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
+type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
 const VariationCell = (
-    { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
+    { isPercentage, reverseColors, isDuration }: VariationCellProps = {
+        isPercentage: false,
+        reverseColors: false,
+        isDuration: false,
+    }
 ): QueryContextColumnComponent => {
-    const formatNumber = (value: number): string =>
-        isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
+    const formatNumber = (value: number): string => {
+        if (isPercentage) {
+            return `${(value * 100).toFixed(1)}%`
+        } else if (isDuration) {
+            return humanFriendlyDuration(value)
+        }
+        return value?.toLocaleString() ?? '(empty)'
+    }
 
-    return function Cell({ value }) {
-        const { compareFilter } = useValues(webAnalyticsLogic)
+    return function Cell({ value, context }) {
+        const compareFilter = context?.compareFilter
 
         if (!value) {
             return null
@@ -373,6 +385,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
+        avg_time_on_page: {
+            renderTitle: SortableCell('Avg Time on Page', WebAnalyticsOrderByFields.AvgTimeOnPage),
+            render: VariationCell({ isDuration: true }),
+            align: 'right',
+        },
         views: {
             renderTitle: SortableCell('Views', WebAnalyticsOrderByFields.Views),
             render: VariationCell(),
@@ -453,6 +470,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
                         <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <CreateSurveyButton value={value} />
                     </div>
                 )
             },
@@ -503,6 +521,7 @@ export const WebStatsTrendTile = ({
                 ...insightProps,
                 query,
             },
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -552,7 +571,12 @@ export const MarketingAnalyticsTrendTile = ({
         { value: MarketingAnalyticsColumnsSchemaNames.Cost, label: 'Cost' },
         { value: MarketingAnalyticsColumnsSchemaNames.Impressions, label: 'Impressions' },
         { value: MarketingAnalyticsColumnsSchemaNames.Clicks, label: 'Clicks' },
-        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported Conversion' },
+        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported conversion' },
+        {
+            value: MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+            label: 'Reported conversion value',
+        },
+        { value: 'roas', label: 'Reported ROAS' },
     ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -645,8 +669,9 @@ export const WebStatsTableTile = ({
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps,
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type])
+    }, [onClick, insightProps, breakdownBy, key, type, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -861,7 +886,13 @@ export const WebQuery = ({
                         query={query}
                         key={uniqueKey}
                         readOnly={true}
-                        context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                        context={{
+                            ...webAnalyticsDataTableQueryContext,
+                            insightProps,
+                            emptyStateHeading: '',
+                            emptyStateDetail: FrustrationMetricsEmptyState,
+                            emptyStateIcon: <></>,
+                        }}
                     />
                 </div>
             )
@@ -947,3 +978,18 @@ export const WebQuery = ({
         />
     )
 }
+
+const FrustrationMetricsEmptyState = (
+    <>
+        <div className="w-full p-8 justify-center rounded mt-2 mb-4">
+            <div className="flex items-center gap-8 w-full justify-center">
+                <div>
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
+                        <StarHog />
+                    </div>
+                    <p>No frustrating pages found! Keep up the great work!</p>
+                </div>
+            </div>
+        </div>
+    </>
+)

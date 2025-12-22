@@ -1,0 +1,95 @@
+[project]
+name = "llm-gateway"
+version = "0.1.0"
+description = "LLM Gateway"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "PostHog", email = "hey@posthog.com" },
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "gunicorn>=23.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "asyncpg>=0.30.0",
+    "redis==5.3.1",
+    "litellm>=1.50.0",
+    "orjson>=3.10.0",
+    "prometheus-client>=0.21.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "structlog>=24.4.0",
+    "httpx>=0.28.0",
+    "posthog>=3.0.0",
+    "cachetools>=5.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "mypy>=1.13.0",
+    "respx>=0.22.0",
+    "openai>=1.50.0",
+    "anthropic>=0.40.0",
+    "fakeredis==2.23.3",
+    "asyncpg-stubs>=0.30.0",
+    "types-cachetools>=5.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_gateway"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".venv/",
+    "dist/",
+    "*.egg-info/",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+]
+ignore = [
+    "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.uv]
+managed = true

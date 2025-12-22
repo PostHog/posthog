@@ -3,19 +3,8 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import Mock, patch
 
-from test_funnel import PseudoFunnelActors, funnel_test_factory
-
-from posthog.schema import (
-    DateRange,
-    EventPropertyFilter,
-    EventsNode,
-    FunnelsFilter,
-    FunnelsQuery,
-    FunnelsQueryResponse,
-    PropertyOperator,
-)
+from posthog.schema import DateRange, EventPropertyFilter, EventsNode, FunnelsFilter, FunnelsQuery, PropertyOperator
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -24,68 +13,27 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.hogql_queries.insights.funnels.test.test_funnel import funnel_test_factory
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action
 from posthog.test.test_journeys import journeys_for
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
-
-
-use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(  # type: ignore
-        FunnelOrderType.ORDERED,
-        PseudoFunnelActors,
-        _create_action,
-        _create_person,
-    ),
+    funnel_breakdown_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelGroupBreakdownUDF(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(  # type: ignore
-        FunnelOrderType.ORDERED,
-        PseudoFunnelActors,
-    ),
+    funnel_breakdown_group_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     pass
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # type: ignore
-    def test_assert_flag_is_on(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "steps",
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        self.assertTrue(results.isUdf)
-
     # Old style funnels fails on this (not sure why)
     def test_events_same_timestamp_no_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -324,10 +272,9 @@ class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # 
     maxDiff = None
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelConversionTimeUDF(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
     maxDiff = None
     pass

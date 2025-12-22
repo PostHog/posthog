@@ -1,5 +1,4 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
@@ -22,30 +21,8 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
-
-export const counterParseError = new Counter({
-    name: 'cdp_function_parse_error',
-    help: 'A function invocation was parsed with an error',
-    labelNames: ['error'],
-})
-
-const counterQuotaLimited = new Counter({
-    name: 'cdp_function_quota_limited',
-    help: 'A function invocation was quota limited',
-    labelNames: ['team_id'],
-})
-
-const counterRateLimited = new Counter({
-    name: 'cdp_function_rate_limited',
-    help: 'A function invocation was rate limited',
-    labelNames: ['kind'],
-})
-
-const counterHogFunctionStateOnEvent = new Counter({
-    name: 'cdp_hog_function_state_on_event',
-    help: 'Metric the state of a hog function that matched an event',
-    labelNames: ['state', 'kind'],
-})
+import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
+import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
@@ -104,10 +81,11 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         await this.groupsManager.enrichGroups(invocationGlobals)
 
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-        const [hogFunctionsByTeam, teamsById] = await Promise.all([
-            this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
-            this.hub.teamManager.getTeams(teamsToLoad),
-        ])
+        const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
+            teamsToLoad,
+            this.hogTypes,
+            this.filterHogFunction
+        )
 
         const possibleInvocations = (
             await Promise.all(
@@ -140,8 +118,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         // Iterate over adding them to the list and updating their priority
         await Promise.all(
             possibleInvocations.map(async (item, index) => {
-                // Disable invocations for teams that don't have the addon (for now just metric them out..)
-
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
@@ -164,30 +140,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     logger.error('🔴', 'Error checking rate limit for hog function', { err: e })
                 }
 
-                const isQuotaLimited = await this.hub.quotaLimiting.isTeamQuotaLimited(
-                    item.teamId,
-                    'cdp_trigger_events'
-                )
+                const isQuotaLimited = await shouldBlockInvocationDueToQuota(item, {
+                    hub: this.hub,
+                    hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                })
 
-                // The legacy addon was not usage based so we skip dropping if they are on it
-                const isTeamOnLegacyAddon = !!teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines')
-
-                if (isQuotaLimited && !isTeamOnLegacyAddon) {
-                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
-
-                    // TODO: Once happy - we add the below code to track a quota limited metric and skip the invocation
-
-                    // this.hogFunctionMonitoringService.queueAppMetric(
-                    //     {
-                    //         team_id: item.teamId,
-                    //         app_source_id: item.functionId,
-                    //         metric_kind: 'failure',
-                    //         metric_name: 'quota_limited',
-                    //         count: 1,
-                    //     },
-                    //     'hog_function'
-                    // )
-                    // return
+                if (isQuotaLimited) {
+                    return
                 }
 
                 const state = states[item.hogFunction.id].state
@@ -373,14 +332,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 app_source_id: item.functionId,
                 metric_kind: 'other',
                 metric_name: 'triggered',
-                count: 1,
-            })
-
-            triggeredInvocationsMetrics.push({
-                team_id: item.teamId,
-                app_source_id: item.functionId,
-                metric_kind: 'billing',
-                metric_name: 'billable_invocation',
                 count: 1,
             })
         })

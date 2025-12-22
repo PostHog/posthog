@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
+from posthog.management.commands.refresh_hog_flows import remove_event_filters_from_conditionals
 from posthog.models import Team
 from posthog.models.hog_flow.hog_flow import HogFlow
 
@@ -310,3 +311,88 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Found 1 HogFlows to process", output)
         self.assertIn("Updated: 1", output)
         self.assertIn("Errors: 0", output)
+
+    def test_remove_event_filters_from_single_condition(self):
+        actions = [
+            {
+                "id": "action_conditional_branch_test",
+                "name": "Conditional branch",
+                "type": "conditional_branch",
+                "config": {
+                    "conditions": [
+                        {
+                            "filters": {
+                                "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+                                "source": "events",
+                                "properties": [
+                                    {"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}
+                                ],
+                            }
+                        }
+                    ]
+                },
+            }
+        ]
+        updated = remove_event_filters_from_conditionals(actions)
+        filters = updated[0]["config"]["conditions"][0]["filters"]
+        self.assertNotIn("events", filters)
+        self.assertEqual(filters["source"], "events")
+        self.assertEqual(
+            filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
+        )
+
+    def test_remove_event_filters_does_not_fail_if_no_events(self):
+        actions = [
+            {
+                "id": "action_conditional_branch_test",
+                "name": "Conditional branch",
+                "type": "conditional_branch",
+                "config": {
+                    "conditions": [
+                        {
+                            "filters": {
+                                "source": "events",
+                                "properties": [
+                                    {"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}
+                                ],
+                            }
+                        }
+                    ]
+                },
+            }
+        ]
+        updated = remove_event_filters_from_conditionals(actions)
+        filters = updated[0]["config"]["conditions"][0]["filters"]
+        self.assertNotIn("events", filters)
+        self.assertEqual(filters["source"], "events")
+        self.assertEqual(
+            filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
+        )
+
+    def test_remove_event_filters_multiple_conditions_and_actions(self):
+        actions = [
+            {
+                "id": "action_conditional_branch_test",
+                "name": "Conditional branch",
+                "type": "conditional_branch",
+                "config": {
+                    "conditions": [
+                        {"filters": {"events": [{"id": "a"}], "source": "events"}},
+                        {"filters": {"source": "events"}},
+                    ]
+                },
+            },
+            {
+                "id": "other_action",
+                "name": "Other",
+                "type": "exit",
+                "config": {},
+            },
+        ]
+        updated = remove_event_filters_from_conditionals(actions)
+        cond1 = updated[0]["config"]["conditions"][0]["filters"]
+        cond2 = updated[0]["config"]["conditions"][1]["filters"]
+        self.assertNotIn("events", cond1)
+        self.assertNotIn("events", cond2)
+        self.assertEqual(cond1, {"source": "events"})
+        self.assertEqual(cond2, {"source": "events"})

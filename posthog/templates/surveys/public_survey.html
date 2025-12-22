@@ -27,6 +27,7 @@
             --ph-survey-text-primary-color: #111827;
             --ph-survey-text-subtle-color: #6b7280;
             --ph-survey-input-background: #ffffff;
+            --ph-survey-input-text-color: #111827;
             --ph-survey-submit-button-color: #2563eb;
             --ph-survey-submit-button-text-color: white;
             --ph-survey-rating-button-color: #f8fafc;
@@ -189,7 +190,7 @@
             font-size: 1rem;
             line-height: 1.5;
             background: var(--ph-survey-input-background);
-            color: var(--ph-survey-text-primary-color);
+            color: var(--ph-survey-input-text-color);
             width: 100%;
             font-family: var(--ph-survey-font-family);
         }
@@ -625,10 +626,12 @@
     </div>
 
     <!-- PostHog JavaScript -->
+    {{ survey_data|json_script:"survey-data" }}
+    {{ project_config|json_script:"project-config" }}
     <script nonce="{{ request.csp_nonce }}">
         // Project config from Django and helper functions
-        const survey = {{ survey_data | safe }};
-        const projectConfig = {{ project_config_json | safe }};
+        const survey = JSON.parse(document.getElementById("survey-data").textContent);
+        const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
 
         const BLACK_TEXT_COLOR = '#020617'
 
@@ -893,6 +896,10 @@
 
             if (appearance.inputBackground) {
                 root.style.setProperty('--ph-survey-input-background', appearance.inputBackground);
+            }
+
+            if (appearance.inputTextColor) {
+                root.style.setProperty('--ph-survey-input-text-color', appearance.inputTextColor);
             }
 
             if (appearance.textSubtleColor) {

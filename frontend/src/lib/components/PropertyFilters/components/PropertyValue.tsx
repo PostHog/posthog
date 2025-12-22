@@ -42,6 +42,7 @@ export interface PropertyValueProps {
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
+    forceSingleSelect?: boolean
 }
 
 export function PropertyValue({
@@ -60,13 +61,14 @@ export function PropertyValue({
     groupTypeIndex = undefined,
     editable = true,
     preloadValues = false,
+    forceSingleSelect = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
     const propertyOptions = options[propertyKey]
     const isFlagDependencyProperty = type === PropertyFilterType.Flag
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const isBetweenProperty = operator && isOperatorBetween(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)

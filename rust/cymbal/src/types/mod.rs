@@ -408,6 +408,7 @@ impl OutputErrProps {
                 EmbeddingModel::OpenAITextEmbeddingLarge,
                 EmbeddingModel::OpenAITextEmbeddingSmall,
             ],
+            metadata: Default::default(),
         }
     }
 }
@@ -443,29 +444,6 @@ impl Stacktrace {
             Stacktrace::Resolved { frames } => frames,
             _ => &[],
         }
-    }
-
-    // These two fn's are used for java, which mangles top level exception types. When
-    // we receive an exception, we push its type into the top frame, so when that frame's
-    // resolved, we can pop it
-    pub fn push_exception_type(&mut self, exception_type: String) {
-        let Self::Raw { frames } = self else {
-            return;
-        };
-        let Some(RawFrame::Java(f)) = frames.first_mut() else {
-            return;
-        };
-        f.exception_type = Some(exception_type);
-    }
-
-    pub fn pop_exception_type(&mut self) -> Option<String> {
-        let Self::Resolved { frames } = self else {
-            return None;
-        };
-        frames
-            .iter_mut()
-            .find(|f| f.exception_type.is_some())
-            .and_then(|f| f.exception_type.take())
     }
 }
 

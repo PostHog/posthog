@@ -1,11 +1,8 @@
-import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, RecordingUniversalFilters } from '~/types'
 
 /**
  * Map breakdown types to their corresponding property filter type
@@ -59,102 +56,102 @@ interface ReplayButtonProps {
 }
 
 export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayButtonProps): JSX.Element => {
-    const sharedButtonProps = {
-        icon: <IconRewindPlay />,
-        type: 'tertiary' as const,
-        size: 'xsmall' as const,
-        tooltip: 'View recordings',
-        className: 'no-underline',
-        targetBlank: true,
-        onClick: (e: React.MouseEvent) => {
-            e.stopPropagation()
-            void addProductIntentForCrossSell({
-                from: ProductKey.WEB_ANALYTICS,
-                to: ProductKey.SESSION_REPLAY,
-                intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-            })
-        },
+    const handleClick = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        void addProductIntentForCrossSell({
+            from: ProductKey.WEB_ANALYTICS,
+            to: ProductKey.SESSION_REPLAY,
+            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+        })
     }
 
     /** If value is empty - just open session replay home page */
     if (value === '') {
-        return <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })} />
+        const filters: Partial<RecordingUniversalFilters> = {
+            date_from,
+            date_to,
+        }
+        return (
+            <div onClick={handleClick}>
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            </div>
+        )
     }
 
     /** View port is a unique case, so we need to handle it differently */
     if (breakdownBy === WebStatsBreakdown.Viewport) {
-        return (
-            <LemonButton
-                {...sharedButtonProps}
-                to={urls.replay(ReplayTabs.Home, {
-                    date_from: date_from,
-                    date_to: date_to,
-                    filter_group: {
+        const filters: Partial<RecordingUniversalFilters> = {
+            date_from,
+            date_to,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
                         type: FilterLogicalOperator.And,
                         values: [
                             {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        key: '$viewport_width',
-                                        type: PropertyFilterType.Event,
-                                        value: [value[0]],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: '$viewport_height',
-                                        type: PropertyFilterType.Event,
-                                        value: [value[1]],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
+                                key: '$viewport_width',
+                                type: PropertyFilterType.Event,
+                                value: [value[0]],
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: '$viewport_height',
+                                type: PropertyFilterType.Event,
+                                value: [value[1]],
+                                operator: PropertyOperator.Exact,
                             },
                         ],
                     },
-                })}
-            />
+                ],
+            },
+        }
+        return (
+            <div onClick={handleClick}>
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            </div>
         )
     }
 
     /** UTM source, medium, campaign is a unique case, so we need to handle it differently, as combining them with AND */
     if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign) {
         const values = value.split(' / ')
-        return (
-            <LemonButton
-                {...sharedButtonProps}
-                to={urls.replay(ReplayTabs.Home, {
-                    date_from: date_from,
-                    date_to: date_to,
-                    filter_group: {
+        const filters: Partial<RecordingUniversalFilters> = {
+            date_from,
+            date_to,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
                         type: FilterLogicalOperator.And,
                         values: [
                             {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        key: '$entry_utm_source',
-                                        type: PropertyFilterType.Session,
-                                        value: [values[0] || ''],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: '$entry_utm_medium',
-                                        type: PropertyFilterType.Session,
-                                        value: [values[1] || ''],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: '$entry_utm_campaign',
-                                        type: PropertyFilterType.Session,
-                                        value: [values[2] || ''],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
+                                key: '$entry_utm_source',
+                                type: PropertyFilterType.Session,
+                                value: [values[0] || ''],
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: '$entry_utm_medium',
+                                type: PropertyFilterType.Session,
+                                value: [values[1] || ''],
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: '$entry_utm_campaign',
+                                type: PropertyFilterType.Session,
+                                value: [values[2] || ''],
+                                operator: PropertyOperator.Exact,
                             },
                         ],
                     },
-                })}
-            />
+                ],
+            },
+        }
+        return (
+            <div onClick={handleClick}>
+                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            </div>
         )
     }
 
@@ -166,29 +163,29 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
     }
 
     /** Render the button */
-    return (
-        <LemonButton
-            {...sharedButtonProps}
-            to={urls.replay(ReplayTabs.Home, {
-                date_from: date_from,
-                date_to: date_to,
-                filter_group: {
+    const filters: Partial<RecordingUniversalFilters> = {
+        date_from,
+        date_to,
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
                     type: FilterLogicalOperator.And,
                     values: [
                         {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    key: key,
-                                    type: type,
-                                    value: [value],
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
+                            key: key,
+                            type: type,
+                            value: [value],
+                            operator: PropertyOperator.Exact,
                         },
                     ],
                 },
-            })}
-        />
+            ],
+        },
+    }
+    return (
+        <div onClick={handleClick}>
+            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+        </div>
     )
 }

@@ -28,7 +28,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -72,7 +73,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -104,7 +106,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -136,7 +139,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -180,7 +184,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -212,7 +217,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -227,7 +233,7 @@
             arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date) -> if(has(start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 11), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
-     FROM events SAMPLE 1.0
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -251,7 +257,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -299,7 +306,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -338,7 +346,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -387,7 +396,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -426,7 +436,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -465,7 +476,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -504,7 +516,8 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -543,6 +556,7 @@
                         max_bytes_before_external_group_by=23622320128,
                         transform_null_in=1,
                         optimize_min_equality_disjunction_chain_length=4294967295,
-                        allow_experimental_join_condition=1
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
   '''
 # ---

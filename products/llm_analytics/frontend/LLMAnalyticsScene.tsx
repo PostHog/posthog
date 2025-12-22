@@ -5,6 +5,7 @@ import React from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
@@ -63,11 +64,15 @@ import { EvaluationStats, evaluationMetricsLogic } from './evaluations/evaluatio
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
+import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
     llmAnalyticsLogic,
 } from './llmAnalyticsLogic'
+import { LLMPromptsScene } from './prompts/LLMPromptsScene'
+import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
+import { TrialUsageMeter } from './settings/TrialUsageMeter'
 import { truncateValue } from './utils'
 
 export const scene: SceneExport = {
@@ -91,7 +96,9 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
 
-    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const useCustomizableDashboard =
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -152,7 +159,9 @@ function LLMAnalyticsDashboard(): JSX.Element {
     const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
         useValues(llmAnalyticsLogic)
 
-    const useCustomizableDashboard = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]
+    const useCustomizableDashboard =
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const dashboardLogicInstance = React.useMemo(
         () =>
             selectedDashboardId
@@ -303,6 +312,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             )
                         },
                     },
+                    person: llmAnalyticsColumnRenderers.person,
                     "f'{properties.$ai_model}' -- Model": {
                         renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
                     },
@@ -351,6 +361,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         // Convert LLMTraceEvent to EventType format for EventDetails
                         const eventForDetails: EventType = {
                             id: event.id,
+                            uuid: event.id,
                             distinct_id: '',
                             properties: event.properties,
                             event: event.event,
@@ -559,6 +570,13 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <Filters hidePropertyFilters />
+
+            <TrialUsageMeter showSettingsLink />
+
+            <LemonBanner type="info" dismissKey="evals-billing-notice">
+                Each evaluation run counts as an LLM analytics event.
+            </LemonBanner>
+
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Evaluations</h2>
@@ -655,7 +673,10 @@ export function LLMAnalyticsScene(): JSX.Element {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB]) {
+    if (
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    ) {
         tabs.push({
             key: 'errors',
             label: (
@@ -676,7 +697,10 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+    if (
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    ) {
         tabs.push({
             key: 'sessions',
             label: (
@@ -697,22 +721,20 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
-        tabs.push({
-            key: 'playground',
-            label: (
-                <>
-                    Playground{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: <LLMAnalyticsPlaygroundScene />,
-            link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
-            'data-attr': 'playground-tab',
-        })
-    }
+    tabs.push({
+        key: 'playground',
+        label: (
+            <>
+                Playground{' '}
+                <LemonTag className="ml-1" type="warning">
+                    Beta
+                </LemonTag>
+            </>
+        ),
+        content: <LLMAnalyticsPlaygroundScene />,
+        link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+        'data-attr': 'playground-tab',
+    })
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
         tabs.push({
@@ -745,6 +767,33 @@ export function LLMAnalyticsScene(): JSX.Element {
             content: <LLMAnalyticsDatasetsScene />,
             link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
             'data-attr': 'datasets-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS]) {
+        tabs.push({
+            key: 'prompts',
+            label: (
+                <>
+                    Prompts{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMPromptsScene />,
+            link: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
+            'data-attr': 'prompts-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
+        tabs.push({
+            key: 'settings',
+            label: 'Settings',
+            content: <LLMProviderKeysSettings />,
+            link: combineUrl(urls.llmAnalyticsSettings(), searchParams).url,
+            'data-attr': 'settings-tab',
         })
     }
 

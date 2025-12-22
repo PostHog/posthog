@@ -77,7 +77,6 @@ const meta: Meta = {
                                         created_at: '2025-05-08T22:53:38.784000Z',
                                         uuid: 'carrot-1234-parsnip-5678',
                                     },
-                                    storage: 'object_storage',
                                     snapshot_source: 'web',
                                     ongoing: false,
                                     activity_score: 11.62,
@@ -142,14 +141,6 @@ export const PersonNotFound: StoryFn = () => {
 
 export const Person: StoryFn = () => {
     useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
-
-    return <App />
-}
-
-export const PersonRecordingTab: StoryFn = () => {
-    useDelayedOnMountEffect(() =>
-        router.actions.push(`${urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')}#activeTab=sessionRecordings`)
-    )
 
     return <App />
 }

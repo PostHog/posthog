@@ -2,17 +2,30 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { HogQLQuery, Node } from '~/queries/schema/schema-general'
+import { HogQLQuery, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
+
+function formatVariableValue(variable: HogQLVariable): { text: string; isPlaceholder: boolean } {
+    if (variable.value === undefined || variable.value === null || variable.value === '') {
+        return { text: 'null', isPlaceholder: true }
+    }
+    if (typeof variable.value === 'object') {
+        return { text: JSON.stringify(variable.value), isPlaceholder: false }
+    }
+    return { text: String(variable.value), isPlaceholder: false }
+}
 
 interface EndpointQueryProps {
     tabId: string
@@ -20,9 +33,17 @@ interface EndpointQueryProps {
 
 export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { queryToRender } = useValues(endpointSceneLogic({ tabId }))
+    const { queryToRender, endpointLoading } = useValues(endpointSceneLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
     const { newTab } = useActions(sceneLogic)
+
+    if (endpointLoading) {
+        return (
+            <div className="flex items-center justify-center h-60">
+                <Spinner />
+            </div>
+        )
+    }
 
     if (!endpoint || !queryToRender) {
         return <div>No query available</div>
@@ -38,7 +59,7 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
         const variables = hogqlQuery.variables || {}
 
         const handleEditQuery = (): void => {
-            newTab(urls.sqlEditor(hogqlQuery.query))
+            newTab(urls.sqlEditor(hogqlQuery.query, undefined, undefined, undefined, OutputTab.Endpoint, endpoint.name))
         }
 
         return (
@@ -51,12 +72,29 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
-                <div className="w-80 flex-shrink-0">
-                    <div className="border rounded p-4">
-                        <h3 className="text-sm font-semibold mb-2">Variables (JSON)</h3>
-                        <pre className="text-xs overflow-auto">{JSON.stringify(variables, null, 2)}</pre>
+                {Object.keys(variables).length > 0 && (
+                    <div className="w-80 flex-shrink-0">
+                        <div className="border rounded p-4">
+                            <h3 className="text-sm font-semibold mb-3">Variable default values</h3>
+                            <div className="flex flex-col gap-3">
+                                {Object.values(variables).map((variable) => {
+                                    const { text, isPlaceholder } = formatVariableValue(variable)
+                                    return (
+                                        <LemonField.Pure key={variable.variableId} label={variable.code_name}>
+                                            <div
+                                                className={`text-sm border rounded px-2 py-1 ${
+                                                    isPlaceholder ? 'text-muted italic' : 'font-mono bg-bg-light'
+                                                }`}
+                                            >
+                                                {text}
+                                            </div>
+                                        </LemonField.Pure>
+                                    )
+                                })}
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         )
     }

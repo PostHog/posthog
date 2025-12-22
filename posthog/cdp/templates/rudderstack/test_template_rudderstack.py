@@ -1,7 +1,5 @@
 from posthog.test.base import BaseTest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.rudderstack.template_rudderstack import (
     TemplateRudderstackMigrator,
@@ -39,42 +37,41 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
 
         res = self.get_mock_fetch_calls()[0]
         res[1]["body"]["sentAt"]["dt"] = 1724946899.775266
-        assert res == snapshot(
-            (
-                "https://hosted.rudderlabs.com/v1/batch",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Authorization": "Basic YXNqZGtmYXNka2pmYXNrZmtqZmhkc2Y6",
-                    },
-                    "body": {
-                        "batch": [
-                            {
-                                "context": {
-                                    "app": {"name": "PostHogPlugin"},
-                                    "os": {},
-                                    "page": {
-                                        "url": "https://example.com",
-                                    },
-                                    "screen": {},
-                                    "library": {},
-                                    "browser": "Chrome",
-                                },
-                                "channel": "s2s",
-                                "messageId": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
-                                "originalTimestamp": "2024-08-29T13:40:22.713Z",
-                                "userId": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
-                                "type": "page",
-                                "properties": {
+        assert res == (
+            "https://hosted.rudderlabs.com/v1/batch",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Basic YXNqZGtmYXNka2pmYXNrZmtqZmhkc2Y6",
+                },
+                "body": {
+                    "batch": [
+                        {
+                            "context": {
+                                "app": {"name": "PostHogPlugin"},
+                                "os": {},
+                                "page": {
                                     "url": "https://example.com",
                                 },
-                            }
-                        ],
-                        "sentAt": {"__hogDateTime__": True, "dt": 1724946899.775266, "zone": "UTC"},
-                    },
+                                "screen": {},
+                                "library": {},
+                                "browser": "Chrome",
+                            },
+                            "channel": "s2s",
+                            "type": "page",
+                            "properties": {
+                                "url": "https://example.com",
+                            },
+                            "messageId": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
+                            "originalTimestamp": "2024-08-29T13:40:22.713Z",
+                            "userId": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
+                            "anonymousId": "85bcd2e4-d10d-4a99-9dc8-43789b7226a1",
+                        }
+                    ],
+                    "sentAt": {"__hogDateTime__": True, "dt": 1724946899.775266, "zone": "UTC"},
                 },
-            )
+            },
         )
 
     def test_accepts_wrong_url(self):
@@ -126,11 +123,10 @@ class TestTemplateMigration(BaseTest):
     def test_default_config(self):
         obj = self.get_plugin_config({})
         template = TemplateRudderstackMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "host": {"value": "us.i.example.com"},
-                "token": {"value": "ignored"},
-                "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
-            }
-        )
+        assert template["inputs"] == {
+            "host": {"value": "us.i.example.com"},
+            "token": {"value": "ignored"},
+            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
+        }
+
         assert template["filters"] == {}

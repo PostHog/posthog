@@ -1,0 +1,130 @@
+name: Terragrunt PostHog
+
+permissions:
+    id-token: write
+    contents: read
+    pull-requests: write
+
+on:
+    pull_request:
+        paths:
+            - terraform/**/*
+            - .github/workflows/terragrunt-posthog.yaml
+    push:
+        branches:
+            - master
+        paths:
+            - terraform/**/*
+            - .github/workflows/terragrunt-posthog.yaml
+
+concurrency:
+    group: terragrunt-posthog-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    setup:
+        runs-on: ubuntu-22.04
+        outputs:
+            matrix_data: ${{ steps.changes.outputs.matrix_data }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+              with:
+                  fetch-depth: 0
+
+            - name: Find all terraform modules
+              id: changes
+              run: |
+                  # Find all directories containing .tf files within team-* folders.
+                  # This discovers both team-level modules and subdirectory modules.
+                  # Terraform plan is idempotent - no changes = no comment
+                  MATRIX_DATA=$(find terraform -mindepth 2 -maxdepth 5 -type f -name '*.tf' | \
+                    xargs -I {} dirname {} | \
+                    sort -u | \
+                    grep '/team-' | \
+                    jq -R -s -c '
+                      split("\n") |
+                      map(select(length > 0)) |
+                      map({
+                        working_dir: .,
+                        team_name: (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown"),
+                        folder_name: (. | split("/") | .[-1]),
+                        service_name: (
+                          (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown") + " [" +
+                          (. | split("/") | .[-1]) + "]"
+                        )
+                      })
+                    ')
+                  echo "matrix_data=$MATRIX_DATA" >> $GITHUB_OUTPUT
+
+            - name: Delete old PR comments
+              if: github.event_name == 'pull_request'
+              uses: maheshrayas/action-pr-comment-delete@06d7254b4aeba4491a66a7e0f755b107f7373ccd # v3.0
+              with:
+                  github_token: '${{ secrets.GITHUB_TOKEN }}'
+                  org: PostHog
+                  repo: posthog
+                  user: 'github-actions[bot]'
+                  issue: '${{ github.event.number }}'
+
+    terragrunt:
+        if: needs.setup.outputs.matrix_data != '[]'
+        needs: [setup]
+        name: ${{ matrix.service_name }}
+        runs-on: ubuntu-22.04
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ fromJson(needs.setup.outputs.matrix_data) }}
+        env:
+            TERRAFORM_VERSION: '1.13.0'
+            TERRAGRUNT_VERSION: '0.93.12'
+            # PostHog provider auth
+            POSTHOG_PROVIDER_POSTHOG_API_KEY: ${{ secrets.POSTHOG_PROVIDER_POSTHOG_API_KEY }}
+            # Terragrunt S3 backend config (to manage .tfstate)
+            POSTHOG_PROVIDER_TF_STATE_BUCKET: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_BUCKET }}
+            POSTHOG_PROVIDER_TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+
+            - name: Configure AWS Credentials
+              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
+              with:
+                  aws-region: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
+                  role-to-assume: ${{ secrets.POSTHOG_PROVIDER_TF_AWS_ROLE_ARN }}
+                  role-duration-seconds: 3600
+
+            - name: Plan Terraform ${{ matrix.working_dir }}
+              if: github.ref != 'refs/heads/master'
+              uses: datadrivers/terragrunt-action@3297746d3dc1b0846cdf4c7816e8839eb4531e41 # v2.1.0
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  terraform-version: ${{ env.TERRAFORM_VERSION }}
+                  terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
+                  use-aws-auth: false
+                  enable-terraform-change-pr-commenter: true
+                  terragrunt-working-directory: ${{ matrix.working_dir }}
+                  commands: |
+                      exit_code=0
+                      terragrunt --non-interactive run -- plan -detailed-exitcode -out="terraform.tfplan" -lock-timeout=10m || exit_code=$?
+                      if [ $exit_code == 0 ]; then
+                        # Succeeded, diff is empty (no changes)
+                        rm terraform.tfplan || true # delete the plan so we don't comment
+                      elif [ $exit_code == 1 ]; then
+                        exit 1  # actual error, fail
+                      fi
+                      # exit_code == 2: Succeeded, there is a diff
+
+            - name: Apply Terraform ${{ matrix.working_dir }}
+              if: github.ref == 'refs/heads/master'
+              uses: datadrivers/terragrunt-action@3297746d3dc1b0846cdf4c7816e8839eb4531e41 # v2.1.0
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  terraform-version: ${{ env.TERRAFORM_VERSION }}
+                  terragrunt-version: ${{ env.TERRAGRUNT_VERSION }}
+                  use-aws-auth: false
+                  enable-terraform-change-pr-commenter: false
+                  terragrunt-working-directory: ${{ matrix.working_dir }}
+                  commands: |
+                      terragrunt --non-interactive run -- apply -lock-timeout=10m -auto-approve

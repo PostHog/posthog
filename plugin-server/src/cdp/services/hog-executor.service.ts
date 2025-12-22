@@ -28,6 +28,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
+import { destinationE2eLagMsSummary } from '../utils'
 import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -313,6 +314,14 @@ export class HogExecutorService {
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
             if (result.finished || result.invocation.queueScheduledAt) {
                 break
+            }
+        }
+
+        if (result.finished) {
+            const capturedAt = invocation.state.globals.event?.captured_at
+            if (capturedAt) {
+                const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                destinationE2eLagMsSummary.observe(e2eLagMs)
             }
         }
 
@@ -666,7 +675,7 @@ export class HogExecutorService {
                 message += ` Retrying in ${backoffMs}ms.`
             }
 
-            addLog('warn', message)
+            addLog('error', message)
 
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 await fetchResponse?.dump()
@@ -676,6 +685,8 @@ export class HogExecutorService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
                 return result
+            } else {
+                result.error = new Error(message)
             }
         }
 

@@ -1,13 +1,10 @@
 import posthog, { PostHog } from 'posthog-js'
 
-import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
 import { isEmptyObject, isObject } from 'lib/utils'
-import {
-    type DecompressionMode,
-    getDecompressionWorkerManager,
-} from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
+import { transformEventToWeb } from 'scenes/session-recordings/mobile-replay'
+import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
     stripChromeExtensionDataFromNode,
@@ -20,7 +17,6 @@ import {
 } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
-import { yieldToMain } from 'scenes/session-recordings/player/snapshot-processing/yield-scheduler'
 
 import {
     EncodedRecordingSnapshot,
@@ -29,9 +25,23 @@ import {
     SessionRecordingSnapshotSourceResponse,
 } from '~/types'
 
-import { PostHogEE } from '../../../../../@posthog/ee/types'
+export type RegisterWindowIdCallback = (uuid: string) => number
 
-export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
+export const createWindowIdRegistry = (): RegisterWindowIdCallback => {
+    const uuidToIndex: Record<string, number> = {}
+    return (uuid: string): number => {
+        if (uuid in uuidToIndex) {
+            return uuidToIndex[uuid]
+        }
+        const index = Object.keys(uuidToIndex).length + 1
+        uuidToIndex[uuid] = index
+        return index
+    }
+}
+
+export type ProcessingCache = {
+    snapshots: Record<SourceKey, RecordingSnapshot[]>
+}
 
 function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any | undefined {
     if (snapshot.type !== EventType.IncrementalSnapshot) {
@@ -65,7 +75,7 @@ function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
     return extractImgNodeFromMobileIncremental(snapshot) !== undefined
 }
 
-function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
+function createMinimalFullSnapshot(windowId: number | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
     // Create a minimal rrweb full document snapshot structure sufficient for playback
     // For mobile screenshots, include the img node in body so dimension extraction works
     const bodyChildNodes = imgNode ? [imgNode] : []
@@ -110,52 +120,76 @@ function createMinimalFullSnapshot(windowId: string | undefined, timestamp: numb
     } as unknown as RecordingSnapshot
 }
 
-/**
- * NB this mutates processingCache and returns the processed snapshots
- *
- * there are several steps to processing snapshots as received from the API
- * before they are playable, vanilla rrweb data
- */
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding?: false
-): RecordingSnapshot[]
-export function processAllSnapshots(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding: true
-): Promise<RecordingSnapshot[]>
-export function processAllSnapshots(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding: boolean = false
-): RecordingSnapshot[] | Promise<RecordingSnapshot[]> {
-    if (enableYielding) {
-        return processAllSnapshotsAsync(
-            sources,
-            snapshotsBySource,
-            processingCache,
-            viewportForTimestamp,
-            sessionRecordingId
-        )
+    sessionRecordingId: string
+): RecordingSnapshot[] {
+    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
+        return []
     }
-    return processAllSnapshotsSync(
-        sources,
-        snapshotsBySource,
-        processingCache,
-        viewportForTimestamp,
-        sessionRecordingId
-    )
+
+    const context: ProcessSnapshotContext = {
+        result: [],
+        sourceResult: [],
+        matchedExtensions: new Set<string>(),
+        hasSeenMeta: false,
+        seenFullByWindow: {},
+        previousTimestamp: null,
+        seenHashes: new Set<number>(),
+    }
+
+    for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
+        const source = sources[sourceIdx]
+        const sourceKey = keyForSource(source)
+
+        if (sourceKey in processingCache.snapshots) {
+            const cachedSnapshots = processingCache.snapshots[sourceKey]
+            for (const snapshot of cachedSnapshots) {
+                context.result.push(snapshot)
+            }
+            continue
+        }
+
+        if (!(sourceKey in snapshotsBySource)) {
+            continue
+        }
+
+        const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
+        if (!sourceSnapshots.length) {
+            continue
+        }
+
+        context.sourceResult = []
+        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+        context.seenHashes = new Set<number>()
+        const pushPatchedMeta = createPushPatchedMeta(context, sourceKey, viewportForTimestamp, sessionRecordingId)
+
+        for (let snapshotIndex = 0; snapshotIndex < sortedSnapshots.length; snapshotIndex++) {
+            const snapshot = sortedSnapshots[snapshotIndex]
+            processSnapshot(
+                snapshot,
+                sortedSnapshots,
+                snapshotIndex,
+                context,
+                pushPatchedMeta,
+                sessionRecordingId,
+                sourceKey
+            )
+        }
+
+        processingCache.snapshots[sourceKey] = context.sourceResult
+
+        if (snapshotsBySource[sourceKey]) {
+            snapshotsBySource[sourceKey].snapshots = []
+        }
+    }
+
+    context.result.sort((a, b) => a.timestamp - b.timestamp)
+
+    return context.result
 }
 
 type ProcessSnapshotContext = {
@@ -163,7 +197,7 @@ type ProcessSnapshotContext = {
     sourceResult: RecordingSnapshot[]
     matchedExtensions: Set<string>
     hasSeenMeta: boolean
-    seenFullByWindow: Record<string, boolean>
+    seenFullByWindow: Record<number, boolean>
     previousTimestamp: number | null
     seenHashes: Set<number>
 }
@@ -173,8 +207,8 @@ function createPushPatchedMeta(
     sourceKey: SourceKey,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
-): (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot) => boolean {
-    return (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot): boolean => {
+): (ts: number, winId?: number, fullSnapshot?: RecordingSnapshot) => boolean {
+    return (ts: number, winId?: number, fullSnapshot?: RecordingSnapshot): boolean => {
         if (context.hasSeenMeta) {
             return false
         }
@@ -192,7 +226,7 @@ function createPushPatchedMeta(
             const metaEvent: RecordingSnapshot = {
                 type: EventType.Meta,
                 timestamp: ts,
-                windowId: winId as unknown as string,
+                windowId: winId as number,
                 data: {
                     width: parseInt(viewport.width, 10),
                     height: parseInt(viewport.height, 10),
@@ -228,10 +262,10 @@ function processSnapshot(
     sortedSnapshots: RecordingSnapshot[],
     snapshotIndex: number,
     context: ProcessSnapshotContext,
-    pushPatchedMeta: (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot) => boolean,
+    pushPatchedMeta: (ts: number, winId?: number, fullSnapshot?: RecordingSnapshot) => boolean,
     sessionRecordingId: string,
     sourceKey: SourceKey
-): 'continue' | 'process' {
+): void {
     const currentTimestamp = snapshot.timestamp
 
     if (currentTimestamp === context.previousTimestamp) {
@@ -248,7 +282,7 @@ function processSnapshot(
                     sourceKey: sourceKey,
                 })
             })
-            return 'continue'
+            return
         }
     } else {
         context.seenHashes = new Set<number>()
@@ -261,20 +295,20 @@ function processSnapshot(
     const windowId = snapshot.windowId
     const hasSeenFullForWindow = !!context.seenFullByWindow[windowId]
 
-    if (
-        snapshot.type === EventType.IncrementalSnapshot &&
-        !hasSeenFullForWindow &&
-        isLikelyMobileScreenshot(snapshot)
-    ) {
+    if (snapshot.type === EventType.IncrementalSnapshot && isLikelyMobileScreenshot(snapshot)) {
         const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
         const imgNode = extractImgNodeFromMobileIncremental(snapshot)
         const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
-        const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+
+        // Only patch meta if we haven't seen a full snapshot for this window yet
+        if (!hasSeenFullForWindow) {
+            const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+            context.hasSeenMeta = context.hasSeenMeta || metaInserted
+            context.seenFullByWindow[windowId] = true
+        }
 
         context.result.push(syntheticFull)
         context.sourceResult.push(syntheticFull)
-        context.seenFullByWindow[windowId] = true
-        context.hasSeenMeta = context.hasSeenMeta || metaInserted
     }
 
     if (snapshot.type === EventType.FullSnapshot) {
@@ -308,167 +342,17 @@ function processSnapshot(
     context.result.push(snapshot)
     context.sourceResult.push(snapshot)
     context.previousTimestamp = currentTimestamp
-    return 'process'
 }
-
-async function processAllSnapshotsAsync(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
-): Promise<RecordingSnapshot[]> {
-    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
-        return []
-    }
-
-    const context: ProcessSnapshotContext = {
-        result: [],
-        sourceResult: [],
-        matchedExtensions: new Set<string>(),
-        hasSeenMeta: false,
-        seenFullByWindow: {},
-        previousTimestamp: null,
-        seenHashes: new Set<number>(),
-    }
-
-    const YIELD_BATCH_SIZE = 50
-
-    for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
-        const source = sources[sourceIdx]
-        const sourceKey = keyForSource(source)
-
-        if (sourceKey in processingCache) {
-            const cachedSnapshots = processingCache[sourceKey]
-            for (const snapshot of cachedSnapshots) {
-                context.result.push(snapshot)
-            }
-            continue
-        }
-
-        if (!(sourceKey in snapshotsBySource)) {
-            continue
-        }
-
-        const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
-        if (!sourceSnapshots.length) {
-            continue
-        }
-
-        context.sourceResult = []
-        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
-        context.seenHashes = new Set<number>()
-        const pushPatchedMeta = createPushPatchedMeta(context, sourceKey, viewportForTimestamp, sessionRecordingId)
-
-        for (let snapshotIndex = 0; snapshotIndex < sortedSnapshots.length; snapshotIndex++) {
-            const snapshot = sortedSnapshots[snapshotIndex]
-            const action = processSnapshot(
-                snapshot,
-                sortedSnapshots,
-                snapshotIndex,
-                context,
-                pushPatchedMeta,
-                sessionRecordingId,
-                sourceKey
-            )
-
-            if (action === 'continue') {
-                continue
-            }
-
-            if (snapshotIndex % YIELD_BATCH_SIZE === 0 && snapshotIndex < sortedSnapshots.length - 1) {
-                await yieldToMain()
-            }
-        }
-
-        processingCache[sourceKey] = context.sourceResult
-
-        if (sourceIdx < sources.length - 1) {
-            await yieldToMain()
-        }
-    }
-
-    context.result.sort((a, b) => a.timestamp - b.timestamp)
-
-    return context.result
-}
-
-function processAllSnapshotsSync(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
-): RecordingSnapshot[] {
-    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
-        return []
-    }
-
-    const context: ProcessSnapshotContext = {
-        result: [],
-        sourceResult: [],
-        matchedExtensions: new Set<string>(),
-        hasSeenMeta: false,
-        seenFullByWindow: {},
-        previousTimestamp: null,
-        seenHashes: new Set<number>(),
-    }
-
-    for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
-        const source = sources[sourceIdx]
-        const sourceKey = keyForSource(source)
-
-        if (sourceKey in processingCache) {
-            const cachedSnapshots = processingCache[sourceKey]
-            for (const snapshot of cachedSnapshots) {
-                context.result.push(snapshot)
-            }
-            continue
-        }
-
-        if (!(sourceKey in snapshotsBySource)) {
-            continue
-        }
-
-        const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
-        if (!sourceSnapshots.length) {
-            continue
-        }
-
-        context.sourceResult = []
-        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
-        context.seenHashes = new Set<number>()
-        const pushPatchedMeta = createPushPatchedMeta(context, sourceKey, viewportForTimestamp, sessionRecordingId)
-
-        for (let snapshotIndex = 0; snapshotIndex < sortedSnapshots.length; snapshotIndex++) {
-            const snapshot = sortedSnapshots[snapshotIndex]
-            const action = processSnapshot(
-                snapshot,
-                sortedSnapshots,
-                snapshotIndex,
-                context,
-                pushPatchedMeta,
-                sessionRecordingId,
-                sourceKey
-            )
-
-            if (action === 'continue') {
-                continue
-            }
-        }
-
-        processingCache[sourceKey] = context.sourceResult
-    }
-
-    context.result.sort((a, b) => a.timestamp - b.timestamp)
-
-    return context.result
-}
-
-let postHogEEModule: PostHogEE
 
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
-    return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
+    return (
+        typeof x === 'object' &&
+        x !== null &&
+        'type' in x &&
+        'timestamp' in x &&
+        'windowId' in x &&
+        typeof (x as RecordingSnapshot).windowId === 'number'
+    )
 }
 
 const mobileFullSnapshot = (x: Record<string, any>): boolean => isObject(x.data) && 'wireframes' in x.data
@@ -505,7 +389,7 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
 function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
+    return transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
 function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
@@ -526,12 +410,8 @@ function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
     return true
 }
 
-const lengthPrefixedSnappyDecompress = async (
-    uint8Data: Uint8Array,
-    mode?: DecompressionMode,
-    posthogInstance?: PostHog
-): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
+const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array, posthogInstance?: PostHog): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager(posthogInstance)
 
     // Phase 1: Parse and collect all compressed blocks
     const compressedBlocks: Uint8Array[] = []
@@ -580,12 +460,8 @@ const lengthPrefixedSnappyDecompress = async (
     return decompressedParts.join('\n')
 }
 
-const rawSnappyDecompress = async (
-    uint8Data: Uint8Array,
-    mode?: DecompressionMode,
-    posthogInstance?: PostHog
-): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
+const rawSnappyDecompress = async (uint8Data: Uint8Array, posthogInstance?: PostHog): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager(posthogInstance)
 
     const decompressedData = await workerManager.decompress(uint8Data, { isParallel: false })
 
@@ -615,15 +491,12 @@ function reportParseStats(
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string,
-    decompressionMode?: DecompressionMode,
-    posthogInstance?: PostHog
+    posthogInstance?: PostHog,
+    registerWindowId?: RegisterWindowIdCallback
 ): Promise<RecordingSnapshot[]> => {
     const startTime = performance.now()
-    const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
 
-    if (!postHogEEModule) {
-        postHogEEModule = await posthogEE()
-    }
+    const registerFn: RegisterWindowIdCallback = registerWindowId || createWindowIdRegistry()
 
     // Check if we received binary data (ArrayBuffer or Uint8Array)
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
@@ -631,9 +504,9 @@ export const parseEncodedSnapshots = async (
 
         if (isLengthPrefixedSnappy(uint8Data)) {
             try {
-                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, decompressionMode, posthogInstance)
+                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, posthogInstance)
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                const snapshots = await parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance)
+                const snapshots = await parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
                 const parseDuration = performance.now() - startTime
                 reportParseStats(
                     posthogInstance,
@@ -655,9 +528,9 @@ export const parseEncodedSnapshots = async (
         }
 
         try {
-            const combinedText = await rawSnappyDecompress(uint8Data, decompressionMode, posthogInstance)
+            const combinedText = await rawSnappyDecompress(uint8Data, posthogInstance)
             const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-            const snapshots = await parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance)
+            const snapshots = await parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
             const parseDuration = performance.now() - startTime
             reportParseStats(posthogInstance, snapshots.length, parseDuration, lines.length, 'raw_snappy')
             return snapshots
@@ -667,7 +540,7 @@ export const parseEncodedSnapshots = async (
                 const combinedText = textDecoder.decode(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance)
+                return parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
             } catch (decodeError) {
                 console.error('Failed to decompress or decode binary data:', error, decodeError)
                 posthog.captureException(new Error('Failed to process snapshot data'), {
@@ -683,20 +556,18 @@ export const parseEncodedSnapshots = async (
 
     const lineCount = items.length
     const unparseableLines: string[] = []
-
     const parsedLines: RecordingSnapshot[] = []
-    const PARSE_BATCH_SIZE = 100
 
-    for (let i = 0; i < items.length; i++) {
-        const l = items[i]
+    const parseItem = (l: RecordingSnapshot | EncodedRecordingSnapshot | string): void => {
         if (!l) {
-            // blob files have an empty line at the end
-            continue
+            return
         }
         try {
-            let snapshotLine: { windowId: string } | EncodedRecordingSnapshot
+            let snapshotLine:
+                | { windowId?: string; window_id?: string; data?: unknown[] }
+                | EncodedRecordingSnapshot
+                | RecordingSnapshot
             if (typeof l === 'string') {
-                // is loaded from blob v1 storage
                 snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
 
                 if (Array.isArray(snapshotLine)) {
@@ -706,58 +577,74 @@ export const parseEncodedSnapshots = async (
                     }
                 }
             } else {
-                // is loaded from file export
                 snapshotLine = l
             }
 
-            let snapshotData: ({ windowId: string } | EncodedRecordingSnapshot)[]
             if (isRecordingSnapshot(snapshotLine)) {
-                // is loaded from file export
-                snapshotData = [snapshotLine]
-            } else {
-                // is loaded from blob storage
-                snapshotData = snapshotLine['data']
-            }
-
-            for (const d of snapshotData) {
-                const snap = coerceToEventWithTime(d, sessionId)
-
+                const snap = coerceToEventWithTime(snapshotLine, sessionId)
                 const baseSnapshot: RecordingSnapshot = {
-                    windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
+                    windowId: snapshotLine.windowId,
                     ...snap,
                 }
-
-                // Apply chunking to the snapshot if needed
                 const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-
                 parsedLines.push(...chunkedSnapshots)
+            } else if (
+                'type' in snapshotLine &&
+                'timestamp' in snapshotLine &&
+                typeof snapshotLine['windowId'] === 'string'
+            ) {
+                const rawWindowId: string = snapshotLine['windowId']
+                const windowId = registerFn(rawWindowId)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId)
+                const baseSnapshot: RecordingSnapshot = {
+                    windowId,
+                    ...snap,
+                }
+                const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
+                parsedLines.push(...chunkedSnapshots)
+            } else {
+                const snapshotData = snapshotLine['data'] || []
+                const rawWindowId: string = snapshotLine['window_id'] || snapshotLine['windowId'] || ''
+                const windowId = registerFn(rawWindowId)
+
+                for (const d of snapshotData) {
+                    const snap = coerceToEventWithTime(d, sessionId)
+                    const baseSnapshot: RecordingSnapshot = {
+                        windowId,
+                        ...snap,
+                    }
+                    const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
+                    parsedLines.push(...chunkedSnapshots)
+                }
             }
         } catch {
             if (typeof l === 'string') {
                 unparseableLines.push(l)
             }
         }
-
-        if (enableYielding && (i + 1) % PARSE_BATCH_SIZE === 0 && i < items.length - 1) {
-            await yieldToMain()
-        }
     }
 
-    if (unparseableLines.length) {
-        const extra = {
-            playbackSessionId: sessionId,
-            totalLineCount: lineCount,
-            unparseableLinesCount: unparseableLines.length,
-            exampleLines: unparseableLines.slice(0, 3),
-        }
-        throttleCapture(`${sessionId}-unparseable-lines`, () => {
-            posthog.capture('session recording had unparseable lines', {
-                ...extra,
-                feature: 'session-recording-snapshot-processing',
+    const reportUnparseableLines = (): void => {
+        if (unparseableLines.length) {
+            const extra = {
+                playbackSessionId: sessionId,
+                totalLineCount: lineCount,
+                unparseableLinesCount: unparseableLines.length,
+                exampleLines: unparseableLines.slice(0, 3),
+            }
+            throttleCapture(`${sessionId}-unparseable-lines`, () => {
+                posthog.capture('session recording had unparseable lines', {
+                    ...extra,
+                    feature: 'session-recording-snapshot-processing',
+                })
             })
-        })
+        }
     }
 
+    for (const item of items) {
+        parseItem(item)
+    }
+    reportUnparseableLines()
     return parsedLines
 }
 

@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EndpointType } from '~/types'
@@ -258,22 +260,25 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
     return (
         <SceneSection
             title="Playground"
-            actions={
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlayCircle />}
-                    onClick={handleExecute}
-                    loading={endpointResultLoading}
-                    tooltip="Cmd/Ctrl + Enter"
-                >
-                    Execute endpoint
-                </LemonButton>
+            description={
+                <>
+                    Send API requests to your endpoints, play with setting different parameters in the request body and
+                    see what the resulting JSON response would look like. <br />
+                    Once you're done experimenting, find the code snippet for your use case below.
+                </>
             }
         >
             <div className="flex gap-4">
                 <div className="flex-1 flex flex-col gap-2">
-                    <LemonField.Pure label="Request payload" info="Edit the JSON payload to send to the endpoint" />
+                    <LemonField.Pure
+                        label="Request payload"
+                        info={
+                            <>
+                                JSON payload sent with the request. Use <code className="text-xs">"variables"</code> to
+                                pass query parameters.
+                            </>
+                        }
+                    />
 
                     <CodeEditorInline
                         embedded
@@ -282,24 +287,71 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         onChange={(value) => setPayloadJson(value ?? '')}
                         maxHeight={400}
                     />
+
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlayCircle />}
+                        onClick={handleExecute}
+                        loading={endpointResultLoading}
+                        tooltip="Cmd/Ctrl + Enter"
+                        disabledReason={
+                            !endpoint?.is_active
+                                ? 'This endpoint is inactive. Activate it in the actions panel on the top right to execute.'
+                                : undefined
+                        }
+                    >
+                        Execute endpoint
+                    </LemonButton>
+                    {endpointResult &&
+                        !endpointResultLoading &&
+                        (() => {
+                            try {
+                                const parsed = JSON.parse(endpointResult)
+                                if (
+                                    'results' in parsed &&
+                                    Array.isArray(parsed.results) &&
+                                    parsed.results.length === 0
+                                ) {
+                                    return <LemonField.Pure error="No results" />
+                                }
+                            } catch {
+                                // Invalid JSON, don't show anything
+                            }
+                            return null
+                        })()}
                 </div>
 
                 <div className="flex-3 flex flex-col gap-2">
-                    <LemonField.Pure label="API response" />
+                    <LemonField.Pure
+                        label="API response"
+                        info={
+                            <>
+                                API response from the endpoint. Pay attention to the{' '}
+                                <code className="text-xs">"results"</code> key in the JSON below.
+                            </>
+                        }
+                    />
                     <CodeEditorInline
                         embedded
                         language="json"
                         value={endpointResult || 'Execute endpoint to see API response.'}
                         maxHeight={400}
-                        options={{ readOnly: true, lineNumbers: 'on', folding: true }}
+                        options={{
+                            readOnly: true,
+                            lineNumbers: 'on',
+                            folding: true,
+                            foldingStrategy: 'indentation',
+                            showFoldingControls: 'always',
+                        }}
                     />
                 </div>
             </div>
-
             <LemonDivider className="my-4" />
-
             <div className="flex flex-col gap-4">
-                <LemonLabel>Example usage</LemonLabel>
+                <LemonLabel info="Create a personal API key and copy a code example to call this endpoint from your application.">
+                    Example usage
+                </LemonLabel>
                 <div className="flex gap-2">
                     <LemonSelect
                         options={versionOptions}
@@ -320,6 +372,15 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         }}
                         value={activeCodeExampleTab}
                     />
+                    <LemonButton
+                        to={urls.settings('user', 'personal-api-keys')}
+                        type="secondary"
+                        size="small"
+                        icon={<IconExternal />}
+                        targetBlank
+                    >
+                        API keys
+                    </LemonButton>
                 </div>
                 <div>
                     <CodeSnippet language={getLanguage(activeCodeExampleTab)} wrap={true}>

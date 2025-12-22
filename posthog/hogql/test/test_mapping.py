@@ -1,12 +1,14 @@
 from datetime import UTC, date, datetime
-from typing import Optional
+from typing import Any, Optional
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
 from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
@@ -19,7 +21,10 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestMappings(BaseTest):
+    snapshot: Any
+
     def _return_present_function(self, function: Optional[HogQLFunctionMeta]) -> HogQLFunctionMeta:
         assert function is not None
         return function
@@ -389,3 +394,11 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
         self.assertEqual(result_dict["string_type"], "String")  # type of "value"
         self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer
+
+    def test_generated_aggregate_combinator_functions_snapshot(self):
+        generated_sigs = [
+            f"{name}: ({sig.min_args}, {sig.max_args})"
+            for (name, sig) in generate_combinator_suffix_combinations().items()
+        ]
+
+        self.assertEqual(generated_sigs, self.snapshot)

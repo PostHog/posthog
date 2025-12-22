@@ -4,23 +4,13 @@ from kombu import Exchange, Queue
 
 from posthog.settings.base_variables import TEST
 from posthog.settings.data_stores import REDIS_URL
-from posthog.settings.ee import EE_AVAILABLE
 
 # Only listen to the default queue "celery", unless overridden via the CLI
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
-CELERY_IMPORTS = (
-    [
-        "ee.tasks",
-        "posthog.session_recordings.persist_to_lts",
-        "posthog.session_recordings.playlist_counters",
-    ]
-    if EE_AVAILABLE
-    else [
-        "posthog.session_recordings.persist_to_lts",
-        "posthog.session_recordings.playlist_counters",
-    ]
-)
+CELERY_IMPORTS = [
+    "posthog.session_recordings.playlist_counters",
+]
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing

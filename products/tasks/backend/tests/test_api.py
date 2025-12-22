@@ -20,6 +20,7 @@ class BaseTaskAPITest(TestCase):
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
+    user: User
 
     def setUp(self):
         self.client = APIClient()
@@ -60,7 +61,6 @@ class BaseTaskAPITest(TestCase):
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
-            position=0,
         )
 
 
@@ -83,7 +83,7 @@ class TestTaskAPI(BaseTaskAPITest):
         task2 = self.create_task("Task 2")
 
         # Create runs for task1
-        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
         run1_latest = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         # Task2 has no runs
@@ -129,7 +129,7 @@ class TestTaskAPI(BaseTaskAPITest):
         _run1 = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskRun.Status.STARTED,
+            status=TaskRun.Status.QUEUED,
         )
 
         run2 = TaskRun.objects.create(
@@ -164,6 +164,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "title": "New Task",
                 "description": "New Description",
                 "origin_product": "user_created",
+                "repository": "posthog/posthog",
             },
             format="json",
         )
@@ -172,6 +173,7 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
+        self.assertEqual(data["repository"], "posthog/posthog")
 
     def test_update_task(self):
         task = self.create_task("Original Task")
@@ -190,20 +192,9 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertFalse(Task.objects.filter(id=task.id).exists())
-
-    def test_update_position(self):
-        task = self.create_task()
-
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/update_position/",
-            {"position": 5},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         task.refresh_from_db()
-        self.assertEqual(task.position, 5)
+        self.assertTrue(task.deleted)
+        self.assertIsNotNone(task.deleted_at)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
@@ -212,15 +203,145 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        data = response.json()
+
+        self.assertEqual(data["id"], str(task.id))
+        self.assertIn("latest_run", data)
+        self.assertIsNotNone(data["latest_run"])
+
+        latest_run = data["latest_run"]
+        run_id = latest_run["id"]
+
         mock_workflow.assert_called_once_with(
             task_id=str(task.id),
+            run_id=run_id,
             team_id=task.team.id,
             user_id=self.user.id,
         )
 
+        self.assertEqual(latest_run["task"], str(task.id))
+        self.assertEqual(latest_run["status"], "queued")
+        self.assertEqual(latest_run["environment"], "cloud")
+
+    @parameterized.expand(
+        [
+            # (filter_param, filter_value, task_repos, expected_task_indices)
+            ("repository", "posthog/posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0]),
+            ("repository", "posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0, 2]),
+            ("repository", "posthog-js", ["posthog/posthog", "posthog/posthog-js", "other/posthog-js"], [1, 2]),
+            ("organization", "posthog", ["posthog/posthog", "posthog/posthog-js", "other/posthog"], [0, 1]),
+            ("organization", "other", ["posthog/posthog", "other/repo1", "other/repo2"], [1, 2]),
+            # Case insensitive tests
+            ("repository", "PostHog/PostHog", ["posthog/posthog", "posthog/posthog-js"], [0]),
+            ("repository", "PostHog", ["posthog/posthog", "other/posthog"], [0, 1]),
+            ("organization", "PostHog", ["posthog/posthog", "posthog/posthog-js", "other/repo"], [0, 1]),
+        ]
+    )
+    def test_filter_by_repository_and_organization(self, filter_param, filter_value, task_repos, expected_indices):
+        tasks = []
+        for i, repo in enumerate(task_repos):
+            task = Task.objects.create(
+                team=self.team,
+                title=f"Task {i}",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=repo,
+            )
+            tasks.append(task)
+
+        response = self.client.get(f"/api/projects/@current/tasks/?{filter_param}={filter_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         data = response.json()
-        self.assertEqual(data["id"], str(task.id))
-        self.assertEqual(data["title"], task.title)
+        task_ids = [t["id"] for t in data["results"]]
+        expected_task_ids = [str(tasks[i].id) for i in expected_indices]
+
+        self.assertEqual(len(task_ids), len(expected_task_ids))
+        for expected_id in expected_task_ids:
+            self.assertIn(expected_id, task_ids)
+
+    def test_delete_task_soft_deletes(self):
+        task = self.create_task("Task to delete")
+
+        response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)
+        self.assertIsNotNone(task.deleted_at)
+
+    def test_deleted_tasks_not_in_list(self):
+        task1 = self.create_task("Active Task")
+        task2 = self.create_task("Deleted Task")
+        task2.soft_delete()
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(task1.id))
+
+    def test_deleted_task_not_retrievable(self):
+        task = self.create_task("Deleted Task")
+        task.soft_delete()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("self_user", "self", [0]),
+            ("other_user", "other", [1]),
+            ("no_filter", None, [0, 1, 2]),
+        ]
+    )
+    def test_filter_by_created_by(self, _name, filter_user, expected_indices):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        users = {"self": self.user, "other": other_user, None: None}
+
+        tasks = [
+            Task.objects.create(
+                team=self.team,
+                title="My Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=self.user,
+            ),
+            Task.objects.create(
+                team=self.team,
+                title="Other Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=other_user,
+            ),
+            Task.objects.create(
+                team=self.team,
+                title="No Creator Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=None,
+            ),
+        ]
+
+        url = "/api/projects/@current/tasks/"
+        if filter_user is not None:
+            user = users[filter_user]
+            assert user is not None
+            url += f"?created_by={user.id}"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        expected_task_ids = [str(tasks[i].id) for i in expected_indices]
+
+        self.assertEqual(len(task_ids), len(expected_task_ids))
+        for expected_id in expected_task_ids:
+            self.assertIn(expected_id, task_ids)
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -230,7 +351,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run1 = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskRun.Status.STARTED,
+            status=TaskRun.Status.QUEUED,
         )
 
         run2 = TaskRun.objects.create(
@@ -275,8 +396,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
 
-        run1 = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
-        _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+        run1 = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
+        _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -289,7 +410,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
 
-        run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+        run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -313,10 +434,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
 
         # Verify logs are stored in S3
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         # Parse newline-delimited JSON
@@ -354,10 +473,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
 
         # All logs should be stored in S3
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         # Parse newline-delimited JSON
@@ -478,18 +595,23 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         endpoints = [
+            # TaskViewSet endpoints
             ("/api/projects/@current/tasks/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/", "GET"),
             ("/api/projects/@current/tasks/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/update_position/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
+            # TaskRunViewSet endpoints
             (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
         ]
 
         for url, method in endpoints:
@@ -580,7 +702,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
         api_key_value = generate_random_token_personal()
 

@@ -762,6 +762,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
+            NonIntegratedConversionsTableQueryRunner,
+        )
+
+        return NonIntegratedConversionsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "UsageMetricsQuery":
         from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
@@ -1036,8 +1049,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if tags := getattr(self.query, "tags", None):
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
+                    tag_queries(product=tags.productKey)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
+                    tag_queries(scene=tags.scene)
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
@@ -1230,6 +1245,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
         """
+
+        # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
+        if self.team.pk and self.team.pk == 117239:
+            return 20  # Matches org-level limit
 
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None

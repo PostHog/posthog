@@ -1,4 +1,4 @@
-import { FlushResult } from '../persons/persons-store-for-batch'
+import { FlushResult } from '../persons/persons-store'
 
 export interface BatchWritingStore {
     /*

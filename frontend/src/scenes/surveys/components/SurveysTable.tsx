@@ -12,9 +12,12 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -34,10 +37,22 @@ export function SurveysTable(): JSX.Element {
         tab,
         hasNextPage,
         hasNextSearchPage,
+        teamSdkVersions,
     } = useValues(surveysLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, loadNextPage, loadNextSearchPage } =
-        useActions(surveysLogic)
+    const {
+        deleteSurvey,
+        updateSurvey,
+        setSearchTerm,
+        setSurveysFilters,
+        loadNextPage,
+        loadNextSearchPage,
+        duplicateSurvey,
+        setSurveyToDuplicate,
+    } = useActions(surveysLogic)
+
+    const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
@@ -180,6 +195,24 @@ export function SurveysTable(): JSX.Element {
                                             >
                                                 View
                                             </LemonButton>
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.Survey}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={survey.user_access_level}
+                                            >
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={() => {
+                                                        if (hasMultipleProjects) {
+                                                            setSurveyToDuplicate(survey)
+                                                        } else {
+                                                            duplicateSurvey(survey)
+                                                        }
+                                                    }}
+                                                >
+                                                    Duplicate
+                                                </LemonButton>
+                                            </AccessControlAction>
                                             {!survey.start_date && (
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.Survey}
@@ -188,13 +221,17 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         fullWidth
-                                                        onClick={() =>
+                                                        onClick={() => {
+                                                            const warnings = getSurveyWarnings(survey, teamSdkVersions)
                                                             LemonDialog.open({
                                                                 title: 'Launch this survey?',
                                                                 content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        The survey will immediately start displaying to
-                                                                        users matching the display conditions.
+                                                                    <div>
+                                                                        <div className="text-sm text-secondary">
+                                                                            The survey will immediately start displaying
+                                                                            to users matching the display conditions.
+                                                                        </div>
+                                                                        <SdkVersionWarnings warnings={warnings} />
                                                                     </div>
                                                                 ),
                                                                 primaryButton: {
@@ -218,7 +255,7 @@ export function SurveysTable(): JSX.Element {
                                                                     size: 'small',
                                                                 },
                                                             })
-                                                        }
+                                                        }}
                                                     >
                                                         Launch survey
                                                     </LemonButton>

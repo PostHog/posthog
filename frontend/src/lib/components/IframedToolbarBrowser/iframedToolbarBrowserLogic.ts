@@ -40,6 +40,8 @@ export const UserIntentVerb: {
     'edit-action': 'edit the action',
     'add-experiment': 'add web experiment',
     'edit-experiment': 'edit the experiment',
+    'add-product-tour': 'add product tour',
+    'edit-product-tour': 'edit the product tour',
 }
 
 export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([

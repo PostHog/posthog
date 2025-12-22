@@ -11,6 +11,7 @@ from typing import Optional
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
@@ -223,7 +224,7 @@ class Command(BaseCommand):
             )
 
             if options["say_on_complete"]:
-                os.system('say "demo data ready" || true')
+                os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
             if options["say_on_complete"]:
@@ -303,13 +304,7 @@ class Command(BaseCommand):
 
         person_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
-            "email",
-            "Email",
-            "name",
-            "Name",
-            "username",
-            "Username",
-            "UserName",
+            *PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES,
         }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):

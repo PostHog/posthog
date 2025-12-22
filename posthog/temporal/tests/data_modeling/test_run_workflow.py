@@ -3,7 +3,6 @@ import re
 import uuid
 import asyncio
 import datetime as dt
-import functools
 
 import pytest
 import unittest.mock
@@ -13,12 +12,16 @@ from django.conf import settings
 from django.test import override_settings
 
 import pyarrow as pa
-import aioboto3
 import deltalake
 import pytest_asyncio
 import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
+from temporalio import (
+    activity as temporal_activity,
+    workflow as temporal_workflow,
+)
+from temporalio.testing import WorkflowEnvironment
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
@@ -26,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_modeling import run_workflow as run_workflow_module
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     CleanupRunningJobsActivityInputs,
@@ -44,6 +48,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
+from posthog.temporal.ducklake.types import DuckLakeCopyModelInput
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
@@ -216,40 +221,6 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     assert results.ancestor_failed == expected_ancestor_failed
 
 
-TEST_ROOT_BUCKET = "test-data-modeling"
-SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
-
-
-@pytest.fixture
-def bucket_name(request) -> str:
-    """Name for a test S3 bucket."""
-    try:
-        return request.param
-    except AttributeError:
-        return f"{TEST_ROOT_BUCKET}-{str(uuid.uuid4())}"
-
-
-@pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
-
-    Yields the client after creating a bucket. Upon resuming, we delete
-    the contents and the bucket itself.
-    """
-    async with create_test_client(
-        "s3",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    ) as minio_client:
-        try:
-            await minio_client.head_bucket(Bucket=bucket_name)
-        except:
-            await minio_client.create_bucket(Bucket=bucket_name)
-
-        yield minio_client
-
-
 def mock_to_session_credentials(class_self):
     return {
         "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -328,7 +299,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     s3_objects = await minio_client.list_objects_v2(
@@ -391,7 +361,6 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     table = delta_table.to_pyarrow_table(columns=["now_converted", "now"])
@@ -436,7 +405,6 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     table = delta_table.to_pyarrow_table(columns=["nullable_nothing_column", "nullable_nothing_column_type"])
@@ -479,7 +447,6 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1010,6 +977,155 @@ async def test_run_workflow_revert_materialization(
         assert query.is_materialized is False
 
 
+async def test_run_workflow_timeout_exceeded(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        freeze_time(TEST_TIME),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
+        ) as mock_pause_saved_query_schedule,
+    ):
+        mock_hogql_table.side_effect = Exception(
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))"
+        )
+
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+                create_job_model_activity,
+                fail_jobs_activity,
+                cleanup_running_jobs_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    # Temporal shouldn't reattempt the activity
+    assert mock_hogql_table.call_count == 1
+    mock_pause_saved_query_schedule.assert_called()
+
+    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+    assert job is not None
+    assert job.status == DataModelingJob.Status.FAILED
+
+    for query in saved_queries:
+        await database_sync_to_async(query.refresh_from_db)()
+        assert query.is_materialized is False
+        assert query.sync_frequency_interval is None
+
+
+async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
+    model_label = "model-under-test"
+    ducklake_model = DuckLakeCopyModelInput(
+        model_label=model_label,
+        saved_query_id=str(uuid.uuid4()),
+        table_uri="s3://source/table",
+    )
+
+    @temporal_activity.defn
+    async def cleanup_stub(inputs):
+        return None
+
+    @temporal_activity.defn
+    async def create_job_stub(inputs):
+        return "job-child"
+
+    @temporal_activity.defn
+    async def build_dag_stub(inputs) -> run_workflow_module.DAG:
+        return {model_label: ModelNode(label=model_label, selected=True)}
+
+    @temporal_activity.defn
+    async def start_run_stub(inputs):
+        return None
+
+    @temporal_activity.defn
+    async def run_dag_stub(inputs):
+        return run_workflow_module.Results(
+            completed={model_label},
+            failed=set(),
+            ancestor_failed=set(),
+            ducklake_models=[ducklake_model],
+        )
+
+    @temporal_activity.defn
+    async def finish_run_stub(inputs):
+        return None
+
+    @temporal_activity.defn
+    async def fail_jobs_stub(inputs):
+        return None
+
+    monkeypatch.setattr(run_workflow_module, "cleanup_running_jobs_activity", cleanup_stub)
+    monkeypatch.setattr(run_workflow_module, "create_job_model_activity", create_job_stub)
+    monkeypatch.setattr(run_workflow_module, "build_dag_activity", build_dag_stub)
+    monkeypatch.setattr(run_workflow_module, "start_run_activity", start_run_stub)
+    monkeypatch.setattr(run_workflow_module, "run_dag_activity", run_dag_stub)
+    monkeypatch.setattr(run_workflow_module, "finish_run_activity", finish_run_stub)
+    monkeypatch.setattr(run_workflow_module, "fail_jobs_activity", fail_jobs_stub)
+
+    with override_settings(DUCKLAKE_TASK_QUEUE="ducklake-test"):
+        child_ducklake_workflow_runs.clear()
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="ducklake-test",
+                workflows=[RunWorkflow, DummyDuckLakeCopyDataModelingWorkflow],
+                activities=[
+                    cleanup_stub,
+                    create_job_stub,
+                    build_dag_stub,
+                    start_run_stub,
+                    run_dag_stub,
+                    finish_run_stub,
+                    fail_jobs_stub,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunWorkflow.run,
+                    RunWorkflowInputs(team_id=1),
+                    id=str(uuid.uuid4()),
+                    task_queue="ducklake-test",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
+    assert len(child_ducklake_workflow_runs) == 1
+    assert child_ducklake_workflow_runs[0]["team_id"] == 1
+    assert child_ducklake_workflow_runs[0]["models"][0]["model_label"] == model_label
+
+
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
     """Test that setting SCHEMA__NAMING=direct preserves original column casing when materializing models."""
     # Query with CamelCase and PascalCase column names, not snake_case
@@ -1055,7 +1171,6 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1119,7 +1234,6 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1192,7 +1306,6 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1330,7 +1443,6 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         # Verify final state
@@ -1370,7 +1482,6 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1420,7 +1531,6 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
@@ -1468,7 +1578,6 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1518,7 +1627,6 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
@@ -1534,3 +1642,13 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
+
+
+child_ducklake_workflow_runs: list[dict] = []
+
+
+@temporal_workflow.defn(name="ducklake-copy.data-modeling")
+class DummyDuckLakeCopyDataModelingWorkflow:
+    @temporal_workflow.run
+    async def run(self, inputs: dict) -> None:
+        child_ducklake_workflow_runs.append(inputs)

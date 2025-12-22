@@ -6,6 +6,7 @@ import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/
 
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
@@ -14,15 +15,20 @@ import { MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
+export enum RecordingPlayerType {
+    NewTab = 'new_tab',
+    Modal = 'modal',
+}
+
 type ViewRecordingProps = {
     sessionId: string | undefined
     recordingStatus?: string
     recordingDuration?: number
     minimumDuration?: number
     timestamp?: string | Dayjs
-    // whether to open in a modal or navigate to the replay page
-    inModal?: boolean
+    openPlayerIn?: RecordingPlayerType
     matchingEvents?: MatchedRecording[]
+    hasRecording?: boolean
 }
 
 export default function ViewRecordingButton({
@@ -32,23 +38,25 @@ export default function ViewRecordingButton({
     minimumDuration,
     timestamp,
     label,
-    inModal = false,
+    openPlayerIn = RecordingPlayerType.NewTab,
     checkIfViewed = false,
     matchingEvents,
+    hasRecording,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
     ViewRecordingProps & {
         checkIfViewed?: boolean
         label?: ReactNode
     }): JSX.Element {
-    const { onClick, disabledReason, warningReason, to } = useRecordingButton({
+    const { onClick, disabledReason, warningReason } = useRecordingButton({
         sessionId,
         recordingStatus,
         recordingDuration,
         minimumDuration,
         timestamp,
         matchingEvents,
-        inModal,
+        openPlayerIn,
+        hasRecording,
     })
 
     const { recordingViewed, recordingViewedLoading } = useValues(
@@ -80,14 +88,7 @@ export default function ViewRecordingButton({
     )
 
     return (
-        <LemonButton
-            disabledReason={disabledReason}
-            to={to}
-            onClick={onClick}
-            sideIcon={sideIcon}
-            {...props}
-            targetBlank
-        >
+        <LemonButton disabledReason={disabledReason} onClick={onClick} sideIcon={sideIcon} {...props}>
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
                 {maybeUnwatchedIndicator}
@@ -96,9 +97,10 @@ export default function ViewRecordingButton({
     )
 }
 
-const recordingDisabledReason = (
+export const recordingDisabledReason = (
     sessionId: string | undefined,
-    recordingStatus: string | undefined
+    recordingStatus: string | undefined,
+    hasRecording?: boolean
 ): JSX.Element | string | null => {
     if (!sessionId) {
         return (
@@ -118,6 +120,8 @@ const recordingDisabledReason = (
                 not all recordings are captured.
             </>
         )
+    } else if (hasRecording === false) {
+        return 'No recording for this event'
     }
     return null
 }
@@ -144,30 +148,34 @@ export function useRecordingButton({
     minimumDuration,
     timestamp,
     matchingEvents,
-    inModal,
+    openPlayerIn,
+    hasRecording,
 }: ViewRecordingProps): {
     onClick: () => void
     disabledReason: JSX.Element | string | null
     warningReason: string | undefined
-    to: string | undefined
 } {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { userClickedThrough } = useActions(sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' }))
 
     const onClick = (): void => {
         userClickedThrough()
-        if (inModal) {
+        if (openPlayerIn === RecordingPlayerType.Modal) {
             const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
+
             openSessionPlayer(
                 { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
                 Math.max(fiveSecondsBeforeEvent, 0)
             )
+        } else {
+            const timestampMs = timestamp ? dayjs(timestamp).valueOf() - 5000 : undefined
+            const urlParams = timestampMs ? { unixTimestampMillis: Math.max(timestampMs, 0) } : undefined
+            newInternalTab(urls.replaySingle(sessionId ?? '', urlParams))
         }
     }
 
-    const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
     const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus)
-    const to = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
-    return { onClick, disabledReason, warningReason, to }
+    return { onClick, disabledReason, warningReason }
 }
