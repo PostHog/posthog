@@ -50,26 +50,48 @@ function fileMatchesPattern(filePath, pattern) {
     return regex.test(filePath)
 }
 
+function getNextPageUrl(linkHeader) {
+    if (!linkHeader) {
+        return null
+    }
+
+    for (const link of linkHeader.split(',')) {
+        const match = link.match(/<([^>]+)>;\s*rel="next"/)
+        if (match) {
+            return match[1]
+        }
+    }
+
+    return null
+}
+
 async function getChangedFiles() {
     const { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY } = process.env
+    const allFiles = []
+    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${BASE_SHA}...${HEAD_SHA}?per_page=100`
 
-    const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${BASE_SHA}...${HEAD_SHA}`,
-        {
+    while (url) {
+        const response = await fetch(url, {
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
             },
-        }
-    )
+        })
 
-    if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${errorText}`)
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`GitHub API error: ${response.status} ${response.statusText}\n${errorText}`)
+        }
+
+        const data = await response.json()
+        for (const file of data.files || []) {
+            allFiles.push(file.filename)
+        }
+
+        url = getNextPageUrl(response.headers.get('Link'))
     }
 
-    const data = await response.json()
-    return (data.files || []).map((file) => file.filename)
+    return allFiles
 }
 
 function parseOwners(owners) {
