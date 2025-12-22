@@ -73,20 +73,17 @@ impl ReleaseBuilder {
             project: info.repo_name,
         }
     }
-
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
         if !self.has_project() {
-            info.remote_url.clone().map(|url| self.with_project(&url));
+            if let Some(url) = &info.remote_url {
+                self.with_project(url);
+            }
         }
-
         if !self.has_version() {
             self.with_version(&info.commit_id);
         }
-
         self.with_metadata("git", info)
-            .expect("We can serialise git info");
-
-        self
+            .expect("We can serialise git info")
     }
 
     pub fn with_metadata<T>(&mut self, key: &str, val: T) -> Result<&mut Self>
