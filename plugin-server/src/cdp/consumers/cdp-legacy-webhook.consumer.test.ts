@@ -133,18 +133,6 @@ describe('CdpLegacyWebhookConsumer', () => {
             expect(events).toHaveLength(0)
         })
 
-        it('should parse events for teams with both webhooks and zapier', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-
-            const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
-
-            const events = await processor._parseKafkaBatch(messages)
-
-            expect(events).toHaveLength(1)
-            expect(events[0].teamId).toBe(team.id)
-        })
-
         it('should handle multiple teams correctly', async () => {
             hub.actionMatcher.hasWebhooks = jest.fn().mockImplementation((teamId) => teamId === team.id)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)

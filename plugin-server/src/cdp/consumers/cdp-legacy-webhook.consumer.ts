@@ -96,7 +96,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
         }
 
         if (response.fetchResponse?.status === 410) {
-            await this.deleteRestHook(hook?.id ?? '')
+            await this.deleteRestHook(hook.id)
         }
     }
 
