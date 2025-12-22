@@ -21297,6 +21297,7 @@
                 "customer_analytics_dashboard_filters_changed",
                 "customer_analytics_dashboard_events_saved",
                 "customer_analytics_viewed",
+                "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "vercel_integration"

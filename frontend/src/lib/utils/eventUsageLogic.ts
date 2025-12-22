@@ -710,7 +710,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardEventsSaved: () => true,
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
         reportGroupProfileViewed: (delay?: number) => ({ delay }),
-        reportPersonProfileViewed: (delay?: number) => ({ delay }),
+        reportUsageMetricsSettingsViewed: () => true,
+        reportUsageMetricsCreateButtonClicked: () => true,
+        reportUsageMetricsUpdateButtonClicked: () => true,
+        reportUsageMetricCreated: () => true,
+        reportUsageMetricUpdated: () => true,
+        reportUsageMetricDeleted: () => true,
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1739,6 +1744,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCustomerAnalyticsDashboardEventsSaved: async () => {
             posthog.capture('customer analytics dashboard events saved')
+        },
+        reportUsageMetricsSettingsViewed: async (_, breakpoint) => {
+            await breakpoint(500)
+            posthog.capture('usage metrics settings viewed')
+        },
+        reportUsageMetricsCreateButtonClicked: async () => {
+            posthog.capture('usage metrics create button clicked')
+        },
+        reportUsageMetricsUpdateButtonClicked: async () => {
+            posthog.capture('usage metrics update button clicked')
+        },
+        reportUsageMetricCreated: async () => {
+            posthog.capture('usage metric created')
+        },
+        reportUsageMetricUpdated: async () => {
+            posthog.capture('usage metric updated')
+        },
+        reportUsageMetricDeleted: async () => {
+            posthog.capture('usage metric deleted')
         },
         reportCustomerAnalyticsViewed: async ({ delay }, breakpoint) => {
             if (!delay) {

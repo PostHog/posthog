@@ -2665,6 +2665,7 @@ class ProductIntentContext(StrEnum):
     CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = "customer_analytics_dashboard_filters_changed"
     CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED = "customer_analytics_dashboard_events_saved"
     CUSTOMER_ANALYTICS_VIEWED = "customer_analytics_viewed"
+    CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = "customer_analytics_usage_metric_created"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     VERCEL_INTEGRATION = "vercel_integration"
