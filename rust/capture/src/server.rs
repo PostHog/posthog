@@ -342,6 +342,7 @@ where
         config.ai_max_sum_of_parts_bytes,
         ai_blob_storage,
         config.request_timeout_seconds,
+        config.body_chunk_read_timeout_ms,
     );
 
     info!("listening on {:?}", listener.local_addr().unwrap());

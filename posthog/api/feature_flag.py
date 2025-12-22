@@ -1533,19 +1533,12 @@ class FeatureFlagViewSet(
                 )
             )
 
-            survey_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, targeting_flag__isnull=False
-            ).values_list("targeting_flag_id", flat=True)
-            survey_internal_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, internal_targeting_flag__isnull=False
-            ).values_list("internal_targeting_flag_id", flat=True)
+            survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = (
-                queryset.exclude(Q(id__in=survey_targeting_flags))
-                .exclude(Q(id__in=survey_internal_targeting_flags))
-                .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(
+                Q(id__in=product_tour_internal_targeting_flags)
             )
 
             # add additional filters provided by the client

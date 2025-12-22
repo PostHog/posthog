@@ -51,7 +51,7 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
     request_context = RequestContext(
         method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
         user=change_request.created_by,  # Already in ChangeRequest
-        data=change_request.intent.get("desired_state", change_request.intent),  # Already in ChangeRequest
+        data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
     )
 
     # Build base context with common metadata
@@ -323,6 +323,14 @@ class ChangeRequestService:
 
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            # Create a rejection record with the cancellation reason
+            Approval.objects.create(
+                change_request=change_request,
+                created_by=self.user,
+                decision=ApprovalDecision.REJECTED,
+                reason=reason,
+            )
 
             change_request.state = ChangeRequestState.REJECTED
             change_request.save()

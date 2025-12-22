@@ -708,6 +708,25 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Adding an insight to the dashboard...'
         },
     },
+    upsert_dashboard: {
+        name: 'Create and edit dashboards',
+        description: 'Create and edit dashboards with insights based on your requirements',
+        product: Scene.Dashboard,
+        icon: iconForType('dashboard'),
+        displayFormatter: (toolCall) => {
+            if (isObject(toolCall.args?.action) && toolCall.args?.action && 'dashboard_id' in toolCall.args?.action) {
+                if (toolCall.status === 'completed') {
+                    return 'Edited the dashboard'
+                }
+                return 'Editing the dashboard...'
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Created the dashboard'
+            }
+            return 'Creating the dashboard...'
+        },
+    },
     create_feature_flag: {
         name: 'Create a feature flag',
         description: 'Create a feature flag in seconds',
