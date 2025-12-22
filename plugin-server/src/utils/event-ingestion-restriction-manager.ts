@@ -135,6 +135,39 @@ class RestrictionMap {
 
         return restrictions
     }
+
+    merge(other: RestrictionMap): void {
+        for (const [token, otherEntry] of other.tokens) {
+            let tokenEntry = this.tokens.get(token)
+            if (!tokenEntry) {
+                tokenEntry = {
+                    all: new Set(),
+                    distinct_id: new Map(),
+                    session_id: new Map(),
+                    event: new Map(),
+                    uuid: new Map(),
+                }
+                this.tokens.set(token, tokenEntry)
+            }
+
+            for (const restriction of otherEntry.all) {
+                tokenEntry.all.add(restriction)
+            }
+
+            for (const type of IDENTIFIER_TYPES) {
+                for (const [value, restrictions] of otherEntry[type]) {
+                    let restrictionSet = tokenEntry[type].get(value)
+                    if (!restrictionSet) {
+                        restrictionSet = new Set()
+                        tokenEntry[type].set(value, restrictionSet)
+                    }
+                    for (const restriction of restrictions) {
+                        restrictionSet.add(restriction)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /*
@@ -155,12 +188,10 @@ type ParsedRestriction = {
     identifier: RestrictionIdentifier
 }
 
-const EMPTY_RESTRICTION_MAP = new RestrictionMap()
-
 export class EventIngestionRestrictionManager {
     private redisPool: GenericPool<Redis>
     private pipeline: IngestionPipeline
-    private staticRestrictions: ParsedRestriction[] = []
+    private staticRestrictionMap: RestrictionMap = new RestrictionMap()
     private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
 
     constructor(
@@ -209,7 +240,7 @@ export class EventIngestionRestrictionManager {
             return EMPTY_RESTRICTIONS
         }
 
-        const restrictionMap = this.dynamicConfigRefresher.tryGet() ?? EMPTY_RESTRICTION_MAP
+        const restrictionMap = this.dynamicConfigRefresher.tryGet() ?? this.staticRestrictionMap
         return restrictionMap.getRestrictions(token, lookup)
     }
 
@@ -218,21 +249,19 @@ export class EventIngestionRestrictionManager {
             // Static config supports: token, token:distinct_id (legacy), token:distinct_id:value
             if (entry.includes(':distinct_id:')) {
                 const [token, , distinctId] = entry.split(':')
-                this.staticRestrictions.push({
-                    restriction,
-                    token,
-                    identifier: { type: 'distinct_id', value: distinctId },
+                this.staticRestrictionMap.addRestriction(restriction, token, {
+                    type: 'distinct_id',
+                    value: distinctId,
                 })
             } else if (entry.includes(':')) {
                 // Legacy format: token:distinct_id
                 const [token, distinctId] = entry.split(':')
-                this.staticRestrictions.push({
-                    restriction,
-                    token,
-                    identifier: { type: 'distinct_id', value: distinctId },
+                this.staticRestrictionMap.addRestriction(restriction, token, {
+                    type: 'distinct_id',
+                    value: distinctId,
                 })
             } else {
-                this.staticRestrictions.push({ restriction, token: entry, identifier: { type: 'all' } })
+                this.staticRestrictionMap.addRestriction(restriction, entry, { type: 'all' })
             }
         }
     }
@@ -241,10 +270,7 @@ export class EventIngestionRestrictionManager {
         const dynamicRestrictions = await this.fetchDynamicRestrictionsFromRedis()
 
         const map = new RestrictionMap()
-
-        for (const { restriction, token, identifier } of this.staticRestrictions) {
-            map.addRestriction(restriction, token, identifier)
-        }
+        map.merge(this.staticRestrictionMap)
 
         for (const { restriction, token, identifier } of dynamicRestrictions) {
             map.addRestriction(restriction, token, identifier)
