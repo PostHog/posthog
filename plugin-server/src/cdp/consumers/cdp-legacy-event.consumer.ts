@@ -308,15 +308,16 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                         { error, event }
                     )
                 )
+            } else {
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId,
+                        category: 'onEvent',
+                        successes: 1,
+                    })
+                )
             }
-            void this.promiseScheduler.schedule(
-                this.hub.appMetrics.queueMetric({
-                    teamId: event.teamId,
-                    pluginConfigId,
-                    category: 'onEvent',
-                    successes: 1,
-                })
-            )
         }
     }
 
@@ -357,15 +358,16 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                         { error, event }
                     )
                 )
+            } else {
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId,
+                        category: 'onEvent',
+                        successes: 1,
+                    })
+                )
             }
-            void this.promiseScheduler.schedule(
-                this.hub.appMetrics.queueMetric({
-                    teamId: event.teamId,
-                    pluginConfigId,
-                    category: 'onEvent',
-                    successes: 1,
-                })
-            )
         }
     }
 
