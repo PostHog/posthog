@@ -134,25 +134,6 @@ class FunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
-    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
-    # arrayRotateRight turns [1,2,3] into [3,1,2]
-    # arrayRotateLeft turns [1,2,3] into [2,3,1]
-    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-    def event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
-        return f"""arrayFilter(
-                    (x, x_before, x_after) -> not (
-                        length(x.{steps_index}) <= 1
-                        and x.{steps_index} == x_before.{steps_index}
-                        and x.{steps_index} == x_after.{steps_index}
-                        and x.{prop_val_index} == x_before.{prop_val_index}
-                        and x.{prop_val_index} == x_after.{prop_val_index}
-                        and x.{timestamp_index} > x_before.{timestamp_index}
-                        and x.{timestamp_index} < x_after.{timestamp_index}),
-                    events_array,
-                    arrayRotateRight(events_array, 1),
-                    arrayRotateLeft(events_array, 1))"""
-
     @cached_property
     def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
