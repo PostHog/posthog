@@ -12,7 +12,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { KAFKA_GROUPS } from '~/config/kafka-topics'
-import { createRedis } from '~/utils/db/redis'
+import { createIngestionRedis } from '~/utils/db/redis'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
@@ -199,7 +199,7 @@ describe('processEvent', () => {
         team = await getFirstTeam(hub)
         now = DateTime.utc()
 
-        const redis = await createRedis(hub, 'ingestion')
+        const redis = await createIngestionRedis(hub)
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
         await redis.quit()

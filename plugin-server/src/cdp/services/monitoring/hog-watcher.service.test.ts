@@ -1,4 +1,4 @@
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createCdpRedisV2Pool } from '~/common/redis/redis-v2'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
@@ -34,7 +34,7 @@ describe('HogWatcher', () => {
         } as Team
         hub = await createHub()
         jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
-        redis = createRedisV2Pool(hub, 'cdp')
+        redis = createCdpRedisV2Pool(hub)
         process.env.CDP_HOG_WATCHER_2_ENABLED = 'true'
         process.env.CDP_HOG_WATCHER_2_CAPTURE_ENABLED = 'true'
     })

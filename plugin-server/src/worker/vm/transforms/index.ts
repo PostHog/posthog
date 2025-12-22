@@ -1,6 +1,6 @@
 import { transform } from '@babel/standalone'
 
-import { Hub } from '../../../types'
+import { LegacyPluginHub } from '../../types'
 import { loopTimeout } from './loop-timeout'
 import { promiseTimeout } from './promise-timeout'
 import { replaceImports } from './replace-imports'
@@ -9,7 +9,7 @@ const memoize: Record<string, string> = {}
 
 export function transformCode(
     rawCode: string,
-    server: Hub,
+    server: LegacyPluginHub,
     imports: Record<string, any>,
     usedImports: Set<string>
 ): string {

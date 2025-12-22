@@ -1,8 +1,8 @@
-import { Hub } from '../../../types'
+import { LegacyPluginHub } from '../../types'
 import { PluginGen } from './common'
 
 export const replaceImports: PluginGen =
-    (_: Hub, imports: Record<string, any> = {}, usedImports: Set<string>) =>
+    (_: LegacyPluginHub, imports: Record<string, any> = {}, usedImports: Set<string>) =>
     ({ types: t }) => ({
         visitor: {
             ImportDeclaration: {

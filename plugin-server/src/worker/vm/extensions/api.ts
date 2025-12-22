@@ -1,5 +1,6 @@
-import { Hub, PluginConfig } from '../../../types'
+import { PluginConfig } from '../../../types'
 import { Response, legacyFetch } from '../../../utils/request'
+import { LegacyPluginHub } from '../../types'
 
 const DEFAULT_API_HOST = 'https://app.posthog.com'
 
@@ -27,7 +28,7 @@ enum ApiMethod {
     Delete = 'DELETE',
 }
 
-export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension {
+export function createApi(server: LegacyPluginHub, pluginConfig: PluginConfig): ApiExtension {
     const sendRequest = async (path: string, method: ApiMethod, options?: ApiMethodOptions): Promise<Response> => {
         options = options ?? ({} as ApiMethodOptions)
 

@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
-import { createRedis } from './db/redis'
+import { createIngestionRedis } from './db/redis'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 import { PromiseScheduler } from './promise-scheduler'
@@ -24,7 +24,7 @@ export class PubSub {
         if (this.redisSubscriber) {
             throw new Error('Started PubSub cannot be started again!')
         }
-        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion').catch((error) => {
+        this.redisSubscriber = await createIngestionRedis(this.serverConfig).catch((error) => {
             logger.error('🛑', 'Failed to create Redis subscriber', { error })
             throw error
         })
@@ -64,7 +64,7 @@ export class PubSub {
 
     public async publish(channel: string, message: string): Promise<void> {
         if (!this.redisPublisher) {
-            this.redisPublisher = createRedis(this.serverConfig, 'ingestion')
+            this.redisPublisher = createIngestionRedis(this.serverConfig)
         }
 
         const redisPublisher = await this.redisPublisher

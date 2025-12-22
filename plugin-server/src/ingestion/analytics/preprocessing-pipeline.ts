@@ -17,8 +17,17 @@ import { MemoryRateLimiter } from '../utils/overflow-detector'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
+export type PreprocessingHub = Pick<
+    Hub,
+    | 'teamManager'
+    | 'cookielessManager'
+    | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
+    | 'PERSONS_PREFETCH_ENABLED'
+    | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+>
+
 export interface PreprocessingPipelineConfig {
-    hub: Hub
+    hub: PreprocessingHub
     kafkaProducer: KafkaProducerWrapper
     personsStore: PersonsStore
     hogTransformer: HogTransformerService

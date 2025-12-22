@@ -4,7 +4,7 @@ import { withSpan } from '~/common/tracing/tracing-utils'
 
 import { PluginsServerConfig, RedisPool } from '../../types'
 import { UUIDT } from '../utils'
-import { createRedisPool } from './redis'
+import { createPosthogRedisPool } from './redis'
 import { timeoutGuard } from './utils'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
@@ -18,7 +18,7 @@ export class Celery {
     private redisPool: RedisPool
 
     constructor(config: PluginsServerConfig) {
-        this.redisPool = createRedisPool(config, 'posthog')
+        this.redisPool = createPosthogRedisPool(config)
     }
 
     private redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {

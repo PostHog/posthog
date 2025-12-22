@@ -4,19 +4,19 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { UUIDT } from '~/utils/utils'
 
 import { KAFKA_PERSON } from '../../config/kafka-topics'
-import { ClickHousePerson, Hub, Team } from '../../types'
+import { ClickHousePerson, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
-import { CdpEventsConsumer } from './cdp-events.consumer'
+import { CdpEventsConsumer, CdpEventsConsumerHub } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
 export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     protected name = 'CdpPersonUpdatesConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpEventsConsumerHub) {
         super(hub, KAFKA_PERSON, 'cdp-person-updates-consumer')
     }
 

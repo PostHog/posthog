@@ -1,8 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import { PluginsServerConfig } from '../../types'
-import { REDIS_SERVER_KIND, createRedis } from '../../utils/db/redis'
+import { CdpRedisPoolConfig, LogsRedisPoolConfig, createCdpRedis, createLogsRedis } from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -35,14 +34,18 @@ export type RedisV2 = {
 }
 
 // NOTE: This is intended to replace the general redis client with a nicer wrapper for using the client safely with the acquire locking
-export const createRedisV2Pool = (config: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisV2 => {
+
+// Shared pool creation logic
+function createRedisV2PoolInternal<TConfig extends { REDIS_POOL_MIN_SIZE: number; REDIS_POOL_MAX_SIZE: number }>(
+    config: TConfig,
+    createClient: () => Promise<Redis>
+): RedisV2 {
     const pool = createPool<RedisClient>(
         {
             create: async () => {
-                const client = await createRedis(config, kind)
-
+                const client = await createClient()
                 defineLuaTokenBucket(client)
-
+                // defineLuaTokenBucket mutates client to add custom methods
                 return client as RedisClient
             },
             destroy: async (client) => {
@@ -92,6 +95,15 @@ export const createRedisV2Pool = (config: PluginsServerConfig, kind: REDIS_SERVE
         useClient,
         usePipeline,
     }
+}
+
+// Type-safe pool creators (no config casts)
+export function createCdpRedisV2Pool(config: CdpRedisPoolConfig): RedisV2 {
+    return createRedisV2PoolInternal(config, () => createCdpRedis(config))
+}
+
+export function createLogsRedisV2Pool(config: LogsRedisPoolConfig): RedisV2 {
+    return createRedisV2PoolInternal(config, () => createLogsRedis(config))
 }
 
 export type RedisPipelineResults = [Error | null, any][]

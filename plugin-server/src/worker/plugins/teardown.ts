@@ -1,7 +1,8 @@
-import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../types'
+import { PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../types'
 import { processError } from '../../utils/db/error'
+import { LegacyPluginHub } from '../types'
 
-export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig): Promise<void> {
+export async function teardownPlugins(server: LegacyPluginHub, pluginConfig?: PluginConfig): Promise<void> {
     const pluginConfigs = pluginConfig ? [pluginConfig] : server.pluginConfigs.values()
 
     const teardownPromises: Promise<void>[] = []
@@ -22,7 +23,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
                                 instanceId: server.instanceId,
                             })
                         } catch (error) {
-                            await processError(server, pluginConfig, error)
+                            await processError(server.db, server.instanceId, pluginConfig, error)
                             await server.db.queuePluginLogEntry({
                                 pluginConfig,
                                 source: PluginLogEntrySource.System,

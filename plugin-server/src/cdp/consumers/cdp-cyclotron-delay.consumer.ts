@@ -1,20 +1,28 @@
 import { isCloud } from '~/utils/env-utils'
 import { logger } from '~/utils/logger'
 
-import { HealthCheckResult, Hub } from '../../types'
+import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../types'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+
+/**
+ * Hub type for CdpCyclotronDelayConsumer.
+ * Extends CdpConsumerBaseHub with cyclotron delay-specific fields.
+ */
+export type CdpCyclotronDelayConsumerHub = CdpConsumerBaseHub &
+    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
+    Pick<PluginsServerConfig, 'CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND'>
 
 /**
  * Consumer for delayed invocations
  */
-export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
+export class CdpCyclotronDelayConsumer extends CdpConsumerBase<CdpCyclotronDelayConsumerHub> {
     protected name = 'CdpCyclotronDelayConsumer'
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpCyclotronDelayConsumerHub) {
         super(hub)
         this.queue = !isCloud() ? 'delay10m' : hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 

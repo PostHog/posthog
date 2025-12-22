@@ -3,8 +3,14 @@ import { processError } from '../../utils/db/error'
 import { convertToOnEventPayload, mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { pluginActionMsSummary } from '../metrics'
 
+/** Narrowed Hub type for runOnEvent and related functions */
+export type RunOnEventHub = Pick<
+    Hub,
+    'db' | 'instanceId' | 'pluginConfigsPerTeam' | 'pluginConfigsToSkipElementsParsing' | 'appMetrics'
+>
+
 async function runSingleTeamPluginOnEvent(
-    hub: Hub,
+    hub: RunOnEventHub,
     event: PostIngestionEvent,
     pluginConfig: PluginConfig,
     onEvent: PluginMethodsConcrete['onEvent']
@@ -42,7 +48,7 @@ async function runSingleTeamPluginOnEvent(
     } else {
         return {
             backgroundTask: Promise.all([
-                processError(hub, pluginConfig, error, onEventPayload),
+                processError(hub.db, hub.instanceId, pluginConfig, error, onEventPayload),
                 hub.appMetrics.queueError(
                     {
                         teamId: event.teamId,
@@ -60,7 +66,10 @@ async function runSingleTeamPluginOnEvent(
     }
 }
 
-export async function runOnEvent(hub: Hub, event: PostIngestionEvent): Promise<{ backgroundTask: Promise<any> }[]> {
+export async function runOnEvent(
+    hub: RunOnEventHub,
+    event: PostIngestionEvent
+): Promise<{ backgroundTask: Promise<any> }[]> {
     // Runs onEvent for all plugins for this team in parallel
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'onEvent')
 
@@ -71,7 +80,7 @@ export async function runOnEvent(hub: Hub, event: PostIngestionEvent): Promise<{
     )
 }
 async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
-    hub: Hub,
+    hub: RunOnEventHub,
     teamId: number,
     method: M
 ): Promise<[PluginConfig, PluginMethodsConcrete[M]][]> {

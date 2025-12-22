@@ -1,4 +1,4 @@
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createCdpRedisV2Pool } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
@@ -27,7 +27,7 @@ describe('HogRateLimiter', () => {
             hub.CDP_RATE_LIMITER_REFILL_RATE = 10
             hub.CDP_RATE_LIMITER_TTL = 60 * 60 * 24
 
-            redis = createRedisV2Pool(hub, 'cdp')
+            redis = createCdpRedisV2Pool(hub)
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             rateLimiter = new HogRateLimiterService(hub, redis)

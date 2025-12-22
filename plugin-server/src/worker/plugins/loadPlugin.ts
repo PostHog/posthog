@@ -1,10 +1,11 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
+import { Plugin, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { parseJSON } from '../../utils/json-parse'
 import { pluginDigest } from '../../utils/utils'
+import { LegacyPluginHub } from '../types'
 
 function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string | null {
     const fullPath = path.resolve(baseDir, plugin.url!.substring(5), file)
@@ -14,7 +15,7 @@ function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string
     return null
 }
 
-export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<boolean> {
+export async function loadPlugin(hub: LegacyPluginHub, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
     const isLocalPlugin = plugin?.plugin_type === 'local'
 
@@ -40,7 +41,12 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                 config = parseJSON(configJson)
             } catch (e) {
                 pluginConfig.instance?.failInitialization!()
-                await processError(hub, pluginConfig, `Could not load "plugin.json" for ${pluginDigest(plugin)}`)
+                await processError(
+                    hub.db,
+                    hub.instanceId,
+                    pluginConfig,
+                    `Could not load "plugin.json" for ${pluginDigest(plugin)}`
+                )
                 return false
             }
         }
@@ -69,7 +75,8 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
 
             if (!hasFrontend && !hasSite) {
                 await processError(
-                    hub,
+                    hub.db,
+                    hub.instanceId,
                     pluginConfig,
                     `Could not load source code for ${pluginDigest(plugin)}. Tried: ${
                         config['main'] || 'index.ts, index.js'
@@ -80,7 +87,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         }
     } catch (error) {
         pluginConfig.instance?.failInitialization!()
-        await processError(hub, pluginConfig, error)
+        await processError(hub.db, hub.instanceId, pluginConfig, error)
     }
     return false
 }

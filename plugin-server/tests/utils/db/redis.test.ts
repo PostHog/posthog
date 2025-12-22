@@ -1,8 +1,45 @@
 import { defaultConfig } from '../../../src/config/config'
-import { getRedisConnectionOptions } from '../../../src/utils/db/redis'
+import {
+    getIngestionRedisConnectionOptions,
+    getPosthogRedisConnectionOptions,
+    getSessionRecordingRedisConnectionOptions,
+} from '../../../src/utils/db/redis'
 
 describe('Redis', () => {
-    describe('getRedisConnectionOptions', () => {
+    describe('getPosthogRedisConnectionOptions', () => {
+        const config = { ...defaultConfig }
+
+        beforeEach(() => {
+            config.REDIS_URL = 'redis://localhost:6379'
+            config.POSTHOG_REDIS_HOST = 'posthog-redis'
+            config.POSTHOG_REDIS_PORT = 6379
+            config.POSTHOG_REDIS_PASSWORD = 'posthog-password'
+        })
+
+        it('should respond with posthog options if set', () => {
+            expect(getPosthogRedisConnectionOptions(config)).toMatchInlineSnapshot(`
+                {
+                  "options": {
+                    "password": "posthog-password",
+                    "port": 6379,
+                  },
+                  "url": "posthog-redis",
+                }
+            `)
+        })
+
+        it('should respond with REDIS_URL if no options set', () => {
+            config.POSTHOG_REDIS_HOST = ''
+
+            expect(getPosthogRedisConnectionOptions(config)).toMatchInlineSnapshot(`
+                {
+                  "url": "redis://localhost:6379",
+                }
+            `)
+        })
+    })
+
+    describe('getIngestionRedisConnectionOptions', () => {
         const config = { ...defaultConfig }
 
         beforeEach(() => {
@@ -12,12 +49,23 @@ describe('Redis', () => {
             config.POSTHOG_REDIS_PASSWORD = 'posthog-password'
             config.INGESTION_REDIS_HOST = 'ingestion-redis'
             config.INGESTION_REDIS_PORT = 6479
-            config.POSTHOG_SESSION_RECORDING_REDIS_HOST = 'session-recording-redis'
-            config.POSTHOG_SESSION_RECORDING_REDIS_PORT = 6579
         })
 
-        it('should respond with unique options if all values set', () => {
-            expect(getRedisConnectionOptions(config, 'posthog')).toMatchInlineSnapshot(`
+        it('should respond with ingestion options if set', () => {
+            expect(getIngestionRedisConnectionOptions(config)).toMatchInlineSnapshot(`
+                {
+                  "options": {
+                    "port": 6479,
+                  },
+                  "url": "ingestion-redis",
+                }
+            `)
+        })
+
+        it('should use the POSTHOG_REDIS_HOST for ingestion if INGESTION_REDIS_HOST is not set', () => {
+            config.INGESTION_REDIS_HOST = ''
+
+            expect(getIngestionRedisConnectionOptions(config)).toMatchInlineSnapshot(`
                 {
                   "options": {
                     "password": "posthog-password",
@@ -26,15 +74,20 @@ describe('Redis', () => {
                   "url": "posthog-redis",
                 }
             `)
-            expect(getRedisConnectionOptions(config, 'ingestion')).toMatchInlineSnapshot(`
-                {
-                  "options": {
-                    "port": 6479,
-                  },
-                  "url": "ingestion-redis",
-                }
-            `)
-            expect(getRedisConnectionOptions(config, 'session-recording')).toMatchInlineSnapshot(`
+        })
+    })
+
+    describe('getSessionRecordingRedisConnectionOptions', () => {
+        const config = { ...defaultConfig }
+
+        beforeEach(() => {
+            config.REDIS_URL = 'redis://localhost:6379'
+            config.POSTHOG_SESSION_RECORDING_REDIS_HOST = 'session-recording-redis'
+            config.POSTHOG_SESSION_RECORDING_REDIS_PORT = 6579
+        })
+
+        it('should respond with session recording options if set', () => {
+            expect(getSessionRecordingRedisConnectionOptions(config)).toMatchInlineSnapshot(`
                 {
                   "options": {
                     "port": 6579,
@@ -44,38 +97,12 @@ describe('Redis', () => {
             `)
         })
 
-        it('should respond with REDIS_HOST if no options set', () => {
-            config.POSTHOG_REDIS_HOST = ''
-            config.INGESTION_REDIS_HOST = ''
+        it('should respond with REDIS_URL if no options set', () => {
             config.POSTHOG_SESSION_RECORDING_REDIS_HOST = ''
 
-            expect(getRedisConnectionOptions(config, 'posthog')).toMatchInlineSnapshot(`
+            expect(getSessionRecordingRedisConnectionOptions(config)).toMatchInlineSnapshot(`
                 {
                   "url": "redis://localhost:6379",
-                }
-            `)
-            expect(getRedisConnectionOptions(config, 'ingestion')).toMatchInlineSnapshot(`
-                {
-                  "url": "redis://localhost:6379",
-                }
-            `)
-            expect(getRedisConnectionOptions(config, 'session-recording')).toMatchInlineSnapshot(`
-                {
-                  "url": "redis://localhost:6379",
-                }
-            `)
-        })
-
-        it('should use the POSTHOG_REDIS_HOST for ingestion if INGESTION_REDIS_HOST is not set', () => {
-            config.INGESTION_REDIS_HOST = ''
-
-            expect(getRedisConnectionOptions(config, 'ingestion')).toMatchInlineSnapshot(`
-                {
-                  "options": {
-                    "password": "posthog-password",
-                    "port": 6379,
-                  },
-                  "url": "posthog-redis",
                 }
             `)
         })

@@ -1,13 +1,13 @@
 import { CacheExtension } from '@posthog/plugin-scaffold'
 
-import { Hub } from '../../../types'
 import { IllegalOperationError } from '../../../utils/utils'
+import { LegacyPluginHub } from '../../types'
 
 export function getCacheKey(pluginId: number, teamId: number, key: string): string {
     return `@plugin/${pluginId}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
 }
 
-export function createCache(server: Hub, pluginId: number, teamId: number): CacheExtension {
+export function createCache(server: LegacyPluginHub, pluginId: number, teamId: number): CacheExtension {
     const getKey = (key: string) => getCacheKey(pluginId, teamId, key)
     return {
         set: async function (key, value, ttlSeconds, options) {

@@ -5,7 +5,6 @@ import { VM } from 'vm2'
 import { RetryError } from '@posthog/plugin-scaffold'
 
 import {
-    Hub,
     PluginConfig,
     PluginConfigVMResponse,
     PluginLogEntrySource,
@@ -17,6 +16,7 @@ import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { logger } from '../../utils/logger'
 import { getNextRetryMs } from '../../utils/retries'
 import { pluginDigest } from '../../utils/utils'
+import { LegacyPluginHub } from '../types'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { constructInlinePluginInstance } from './inline/inline'
 import { createPluginConfigVM } from './vm'
@@ -43,7 +43,7 @@ const pluginDisabledBySystemCounter = new Counter({
     labelNames: ['plugin_id'],
 })
 
-export function constructPluginInstance(hub: Hub, pluginConfig: PluginConfig): PluginInstance {
+export function constructPluginInstance(hub: LegacyPluginHub, pluginConfig: PluginConfig): PluginInstance {
     if (pluginConfig.plugin?.plugin_type == 'inline') {
         return constructInlinePluginInstance(hub, pluginConfig)
     }
@@ -77,10 +77,10 @@ export class LazyPluginVM implements PluginInstance {
     ready: boolean
     vmResponseVariable: string | null
     pluginConfig: PluginConfig
-    hub: Hub
+    hub: LegacyPluginHub
     inErroredState: boolean
 
-    constructor(hub: Hub, pluginConfig: PluginConfig) {
+    constructor(hub: LegacyPluginHub, pluginConfig: PluginConfig) {
         this.totalInitAttemptsCounter = 0
         this.initRetryTimeout = null
         this.ready = false
@@ -277,9 +277,9 @@ export class LazyPluginVM implements PluginInstance {
 
     private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
         pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
-        await processError(this.hub, this.pluginConfig, error)
+        await processError(this.hub.db, this.hub.instanceId, this.pluginConfig, error)
         // Temp disabled on 26/09/24, due to customer issue. TODO - we should actually disable in the case of bad plugin configs, assuming we revisit this before throwing the whole plugin concept out
-        // await disablePlugin(this.hub, this.pluginConfig.id)
+        // await disablePlugin(this.hub.db, this.pluginConfig.id)
         await this.hub.celery.applyAsync('posthog.tasks.plugin_server.fatal_plugin_error', [
             this.pluginConfig.id,
             // Using the `updated_at` field for email campaign idempotency. It's safer to provide it to the task
@@ -295,15 +295,15 @@ export class LazyPluginVM implements PluginInstance {
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
-            await setPluginCapabilities(this.hub, this.pluginConfig.plugin_id, capabilities)
+            await setPluginCapabilities(this.hub.db, this.pluginConfig.plugin_id, capabilities)
             this.pluginConfig.plugin!.capabilities = capabilities
         }
     }
 }
 
-export async function populatePluginCapabilities(hub: Hub, pluginId: number): Promise<void> {
+export async function populatePluginCapabilities(hub: LegacyPluginHub, pluginId: number): Promise<void> {
     logger.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
-    const plugin = await getPlugin(hub, pluginId)
+    const plugin = await getPlugin(hub.db, pluginId)
     if (!plugin) {
         logger.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
         return
@@ -331,6 +331,6 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
 
     const prevCapabilities = plugin.capabilities
     if (!equal(prevCapabilities, capabilities)) {
-        await setPluginCapabilities(hub, pluginId, capabilities)
+        await setPluginCapabilities(hub.db, pluginId, capabilities)
     }
 }

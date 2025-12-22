@@ -1,5 +1,4 @@
-import { Hub } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { DBHogFunctionTemplate } from '../../types'
@@ -10,7 +9,7 @@ export class HogFunctionTemplateManagerService {
     private lazyLoader: LazyLoader<DBHogFunctionTemplate>
     // private started: boolean
 
-    constructor(private hub: Hub) {
+    constructor(private postgres: PostgresRouter) {
         // this.started = false
 
         this.lazyLoader = new LazyLoader({
@@ -43,7 +42,7 @@ export class HogFunctionTemplateManagerService {
     private async fetchHogFunctionTemplates(ids: string[]): Promise<Record<string, DBHogFunctionTemplate | undefined>> {
         logger.info('[HogFunctionTemplateManager]', 'Fetching hog function templates', { ids })
 
-        const response = await this.hub.postgres.query<DBHogFunctionTemplate>(
+        const response = await this.postgres.query<DBHogFunctionTemplate>(
             PostgresUse.COMMON_READ,
             `SELECT ${HOG_FUNCTION_TEMPLATE_FIELDS.join(
                 ', '

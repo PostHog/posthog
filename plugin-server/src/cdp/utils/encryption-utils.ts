@@ -1,12 +1,10 @@
 import { Fernet } from 'fernet-nodejs'
 
-import { PluginsServerConfig } from '../../types'
-
 export class EncryptedFields {
     private fernets: Fernet[] = []
 
-    constructor(config: PluginsServerConfig) {
-        const saltKeys = config.ENCRYPTION_SALT_KEYS.split(',').filter((key) => key)
+    constructor(encryptionSaltKeys: string) {
+        const saltKeys = encryptionSaltKeys.split(',').filter((key) => key)
 
         if (!saltKeys.length) {
             throw new Error('Encryption keys are not set')

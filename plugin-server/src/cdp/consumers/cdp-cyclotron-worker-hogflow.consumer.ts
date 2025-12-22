@@ -10,12 +10,18 @@ import {
 } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worker.consumer'
 
-export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
+/**
+ * Hub type for CdpCyclotronWorkerHogFlow.
+ * Extends CdpCyclotronWorkerHub with hogflow-specific fields.
+ */
+export type CdpCyclotronWorkerHogFlowHub = CdpCyclotronWorkerHub & Pick<Hub, 'teamManager'>
+
+export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWorkerHogFlowHub> {
     protected name = 'CdpCyclotronWorkerHogFlow'
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpCyclotronWorkerHogFlowHub) {
         super(hub, 'hogflow')
     }
 

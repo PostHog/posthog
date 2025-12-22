@@ -2,8 +2,12 @@ import express from 'ultimate-express'
 
 import { HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { reloadPlugins } from '../worker/tasks'
+import { LegacyPluginHub } from '../worker/types'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
 import { logger } from './logger'
+
+/** Narrowed Hub type for ServerCommands */
+export type ServerCommandsHub = LegacyPluginHub & Pick<Hub, 'pubSub' | 'capabilities'>
 
 /**
  * We have various use cases where an external service like django needs to communicate with the node services
@@ -13,7 +17,7 @@ import { logger } from './logger'
  * don't need access to the pubsub redis
  */
 export class ServerCommands {
-    constructor(private hub: Hub) {
+    constructor(private hub: ServerCommandsHub) {
         this.hub.pubSub.on('reload-plugins', async (message) => await this.reloadPlugins(message))
         this.hub.pubSub.on<{ pluginId: string }>(
             'populate-plugin-capabilities',

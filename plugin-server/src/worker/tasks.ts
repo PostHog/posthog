@@ -1,10 +1,11 @@
-import { Hub, PluginConfig } from '../types'
+import { PluginConfig } from '../types'
 import { processError } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { pluginConfigIdFromStack, sleep } from '../utils/utils'
 import { setupPlugins } from './plugins/setup'
+import { LegacyPluginHub } from './types'
 import { TimeoutError } from './vm/vm'
 
 // If a reload is already scheduled, this will be a promise that resolves when the reload is done.
@@ -15,7 +16,7 @@ let RELOAD_PLUGINS_PROMISE: Promise<void> | undefined
 // that a reload will start in the future.
 let RELOAD_PLUGINS_PROMISE_STARTED = false
 
-export const reloadPlugins = async (hub: Hub): Promise<void> => {
+export const reloadPlugins = async (hub: LegacyPluginHub): Promise<void> => {
     if (RELOAD_PLUGINS_PROMISE && !RELOAD_PLUGINS_PROMISE_STARTED) {
         // A reload is already scheduled and hasn't started yet. When it starts it will load the
         // state of plugins after this reload request was issued, so we're done here.
@@ -55,7 +56,7 @@ export const reloadPlugins = async (hub: Hub): Promise<void> => {
 }
 
 // Does the initial plugins loading.
-export async function initPlugins(hub: Hub): Promise<void> {
+export async function initPlugins(hub: LegacyPluginHub): Promise<void> {
     ;['unhandledRejection', 'uncaughtException'].forEach((event) => {
         process.on(event, (error: Error) => {
             processUnhandledException(error, hub, event)
@@ -64,7 +65,7 @@ export async function initPlugins(hub: Hub): Promise<void> {
     await setupPlugins(hub)
 }
 
-export function processUnhandledException(error: Error, server: Hub, kind: string): void {
+export function processUnhandledException(error: Error, server: LegacyPluginHub, kind: string): void {
     let pluginConfig: PluginConfig | undefined = undefined
 
     if (error instanceof TimeoutError) {
@@ -75,7 +76,7 @@ export function processUnhandledException(error: Error, server: Hub, kind: strin
     }
 
     if (pluginConfig) {
-        void processError(server, pluginConfig, error)
+        void processError(server.db, server.instanceId, pluginConfig, error)
         return
     }
 

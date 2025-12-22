@@ -1,16 +1,13 @@
-import { Hub } from '../../types'
 import { EncryptedFields } from './encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
     let encryptedFields: EncryptedFields
 
-    const mockHub: Partial<Hub> = {
-        ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
-    }
+    const encryptionSaltKeys = '00beef0000beef0000beef0000beef00'
 
     beforeEach(() => {
-        encryptedFields = new EncryptedFields(mockHub as unknown as Hub)
+        encryptedFields = new EncryptedFields(encryptionSaltKeys)
     })
 
     describe('encryption and decryption', () => {

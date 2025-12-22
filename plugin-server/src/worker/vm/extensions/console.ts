@@ -1,8 +1,9 @@
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../../types'
+import { PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { pluginDigest } from '../../../utils/utils'
+import { LegacyPluginHub } from '../../types'
 
 function consoleFormat(...args: unknown[]): string {
     return args
@@ -16,7 +17,7 @@ function consoleFormat(...args: unknown[]): string {
         .join(' ')
 }
 
-export function createConsole(hub: Hub, pluginConfig: PluginConfig): ConsoleExtension {
+export function createConsole(hub: LegacyPluginHub, pluginConfig: PluginConfig): ConsoleExtension {
     async function consolePersist(type: PluginLogEntryType, ...args: unknown[]): Promise<void> {
         logger.debug(
             '👉',

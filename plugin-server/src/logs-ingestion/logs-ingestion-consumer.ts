@@ -1,18 +1,43 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createLogsRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService, TimestampFormat } from '../types'
+import { LogsRedisPoolConfig } from '../utils/db/redis'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { castTimestampOrNow } from '../utils/utils'
-import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
+import { LogsRateLimiterService, LogsRateLimiterServiceHub } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
+
+/**
+ * Narrowed Hub type for LogsIngestionConsumer.
+ * This includes all fields needed by LogsIngestionConsumer and its dependencies:
+ * - LogsRateLimiterService
+ * - Redis (logs kind)
+ * - KafkaProducerWrapper
+ * - TeamManager
+ */
+export type LogsIngestionConsumerHub = LogsRateLimiterServiceHub &
+    LogsRedisPoolConfig &
+    Pick<
+        Hub,
+        // KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
+        // Direct usage
+        | 'LOGS_INGESTION_CONSUMER_GROUP_ID'
+        | 'LOGS_INGESTION_CONSUMER_CONSUME_TOPIC'
+        | 'LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC'
+        | 'LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC'
+        | 'LOGS_INGESTION_CONSUMER_DLQ_TOPIC'
+        // TeamManager
+        | 'teamManager'
+    >
 
 export type UsageStats = {
     bytesReceived: number
@@ -85,7 +110,7 @@ export class LogsIngestionConsumer {
     protected dlqTopic?: string
 
     constructor(
-        private hub: Hub,
+        private hub: LogsIngestionConsumerHub,
         overrides: Partial<LogsIngestionConsumerConfig> = {}
     ) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
@@ -98,7 +123,7 @@ export class LogsIngestionConsumer {
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
-        this.redis = createRedisV2Pool(hub, 'logs')
+        this.redis = createLogsRedisV2Pool(hub)
         this.rateLimiter = new LogsRateLimiterService(hub, this.redis)
     }
 
@@ -313,11 +338,11 @@ export class LogsIngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             // Warpstream producer for logs data (uses KAFKA_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             // Metrics producer for app_metrics (uses KAFKA_METRICS_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub, 'METRICS_PRODUCER').then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
                 this.mskProducer = producer
             }),
         ])

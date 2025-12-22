@@ -34,7 +34,7 @@ describe('sql', () => {
             },
         ]
 
-        const rows1 = await getPluginAttachmentRows(hub)
+        const rows1 = await getPluginAttachmentRows(hub.db)
         expect(rows1).toEqual(rowsExpected)
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -42,7 +42,7 @@ describe('sql', () => {
             undefined,
             'testTag'
         )
-        const rows2 = await getPluginAttachmentRows(hub)
+        const rows2 = await getPluginAttachmentRows(hub.db)
         expect(rows2).toEqual(rowsExpected)
     })
 
@@ -61,7 +61,7 @@ describe('sql', () => {
             filters: null,
         }
 
-        const rows1 = await getPluginConfigRows(hub)
+        const rows1 = await getPluginConfigRows(hub.db)
         expect(rows1).toEqual([expectedRow])
     })
 
@@ -90,7 +90,7 @@ describe('sql', () => {
             },
         ]
 
-        const rows1 = await getActivePluginRows(hub)
+        const rows1 = await getActivePluginRows(hub.db)
         expect(rows1).toEqual(rowsExpected)
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -98,7 +98,7 @@ describe('sql', () => {
             undefined,
             'testTag'
         )
-        const rows2 = await getActivePluginRows(hub)
+        const rows2 = await getActivePluginRows(hub.db)
         expect(rows2).toEqual(rowsExpected)
     })
 
@@ -106,7 +106,7 @@ describe('sql', () => {
         test('disablePlugin query builds correctly', async () => {
             hub.db.postgres.query = jest.fn() as any
 
-            await disablePlugin(hub, 39)
+            await disablePlugin(hub.db, 39)
             expect(hub.db.postgres.query).toHaveBeenCalledWith(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
@@ -117,14 +117,14 @@ describe('sql', () => {
 
         test('disablePlugin disables a plugin', async () => {
             const redis = await hub.db.redisPool.acquire()
-            const rowsBefore = await getPluginConfigRows(hub)
+            const rowsBefore = await getPluginConfigRows(hub.db)
             expect(rowsBefore[0].plugin_id).toEqual(60)
             expect(rowsBefore[0].enabled).toEqual(true)
 
             const receivedMessage = redis.subscribe('reload-plugins')
-            await disablePlugin(hub, 39)
+            await disablePlugin(hub.db, 39)
 
-            const rowsAfter = await getPluginConfigRows(hub)
+            const rowsAfter = await getPluginConfigRows(hub.db)
 
             expect(rowsAfter).toEqual([])
             await expect(receivedMessage).resolves.toEqual(1)

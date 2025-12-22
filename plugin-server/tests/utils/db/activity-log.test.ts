@@ -43,13 +43,20 @@ describe('createPluginActivityLog()', () => {
     }
 
     it('can read own writes', async () => {
-        await createPluginActivityLog(hub, pluginConfig39.team_id, pluginConfig39.id, 'job_finished', {
-            trigger: {
-                job_id: 'foobar',
-                job_type: 'some_type',
-                payload: { value: 5 },
-            },
-        })
+        await createPluginActivityLog(
+            hub.teamManager,
+            hub.db,
+            pluginConfig39.team_id,
+            pluginConfig39.id,
+            'job_finished',
+            {
+                trigger: {
+                    job_id: 'foobar',
+                    job_type: 'some_type',
+                    payload: { value: 5 },
+                },
+            }
+        )
 
         const activityLogs = await fetchPluginActivityLogs(hub)
         expect(activityLogs).toEqual([
@@ -75,7 +82,7 @@ describe('createPluginActivityLog()', () => {
     })
 
     it('does not blow up for an invalid team', async () => {
-        await createPluginActivityLog(hub, -1, pluginConfig39.id, 'job_finished', {} as any)
+        await createPluginActivityLog(hub.teamManager, hub.db, -1, pluginConfig39.id, 'job_finished', {} as any)
 
         expect(await fetchPluginActivityLogs(hub)).toEqual([])
     })

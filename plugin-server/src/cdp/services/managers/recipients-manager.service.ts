@@ -1,5 +1,4 @@
-import { Hub } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 
@@ -40,7 +39,7 @@ export type RecipientManagerRecipient = {
 export class RecipientsManagerService {
     private lazyLoader: LazyLoader<RecipientManagerRecipient>
 
-    constructor(private hub: Hub) {
+    constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'recipients_manager',
             loader: async (ids) => await this.fetchRecipients(ids),
@@ -101,7 +100,7 @@ export class RecipientsManagerService {
         // Flatten the parameters: [teamId1, identifier1, teamId2, identifier2, ...]
         const params = recipientArgs.flatMap((recipient) => [recipient.teamId, recipient.identifier])
 
-        const response = await this.hub.postgres.query<MessageRecipientPreferenceRow>(
+        const response = await this.postgres.query<MessageRecipientPreferenceRow>(
             PostgresUse.COMMON_READ,
             queryString,
             params,

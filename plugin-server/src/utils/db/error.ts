@@ -1,7 +1,9 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
+import { PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
 import { captureException } from '../posthog'
+import { UUIDT } from '../utils'
+import { DB } from './db'
 
 export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {
@@ -39,7 +41,8 @@ export class RedisOperationError extends Error {
 }
 
 export async function processError(
-    server: Hub,
+    db: DB,
+    instanceId: UUIDT,
     pluginConfig: PluginConfig | null,
     error: Error | string,
     event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
@@ -73,12 +76,12 @@ export async function processError(
                   event: event,
               }
 
-    await server.db.queuePluginLogEntry({
+    await db.queuePluginLogEntry({
         pluginConfig,
         source: PluginLogEntrySource.Plugin,
         type: PluginLogEntryType.Error,
         message: pluginError.stack ?? pluginError.message,
-        instanceId: server.instanceId,
+        instanceId,
         timestamp: pluginError.time,
     })
 }

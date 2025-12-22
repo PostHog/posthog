@@ -37,7 +37,7 @@ import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-ace
 import { Celery } from './celery'
 import { DB } from './db'
 import { PostgresRouter } from './postgres'
-import { createRedisPool } from './redis'
+import { createCookielessRedisPool, createIngestionRedisPool } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -83,7 +83,7 @@ export async function createHub(
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
-    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
+    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
@@ -99,11 +99,11 @@ export async function createHub(
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)
-    const redisPool = createRedisPool(serverConfig, 'ingestion')
+    const redisPool = createIngestionRedisPool(serverConfig)
     logger.info('👍', `Ingestion Redis ready`)
 
     logger.info('🤔', `Connecting to cookieless Redis...`)
-    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    const cookielessRedisPool = createCookielessRedisPool(serverConfig)
     logger.info('👍', `Cookieless Redis ready`)
 
     const db = new DB(
@@ -144,7 +144,7 @@ export async function createHub(
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
-    const encryptedFields = new EncryptedFields(serverConfig)
+    const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)

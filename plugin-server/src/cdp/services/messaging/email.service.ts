@@ -11,10 +11,15 @@ import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { addPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 
+export type EmailServiceHub = Pick<
+    Hub,
+    'SES_ACCESS_KEY_ID' | 'SES_SECRET_ACCESS_KEY' | 'SES_REGION' | 'SES_ENDPOINT' | 'integrationManager'
+>
+
 export class EmailService {
     ses: AWS.SES
 
-    constructor(private hub: Hub) {
+    constructor(private hub: EmailServiceHub) {
         this.ses = new AWS.SES({
             accessKeyId: this.hub.SES_ACCESS_KEY_ID,
             secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
