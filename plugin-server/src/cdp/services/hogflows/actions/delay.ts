@@ -14,6 +14,9 @@ export class DelayHandler implements ActionHandler {
         // Check if we're resuming from a delay (queueScheduledAt was cleared when queue consumed the job)
         const isResuming = !invocation.queueScheduledAt && this.isResumingFromDelay(invocation, action)
 
+        // TODOdin: This delay action is run and logged with every batch consumed and thus creates VERY noisy logs for extended delays
+        // How do we avoid this on master? (is it the delay queue? Is it consuming but just not logging the delayed-function-invocation?)
+        // How does this look for wait_until_time_window?
         if (isResuming) {
             const nextAction = findContinueAction(invocation)
             result.logs.push({
