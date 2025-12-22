@@ -135,6 +135,9 @@ def get_previous_migration(app_label: str, migration_name: str, connection) -> s
 def rollback_orphaned_migration(app_label: str, migration_name: str, previous: str, stdout) -> bool:
     """Roll back a single orphaned migration using its cached file.
 
+    Handles the case where there are conflicting migrations (same number prefix)
+    by temporarily hiding them during the rollback.
+
     Returns True on success, False on failure.
     """
     cache_path = get_cached_migration(app_label, migration_name)
@@ -151,7 +154,19 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
     max_migration_path = migrations_dir / "max_migration.txt"
     original_max_migration = None
 
+    # Find conflicting migrations (same number prefix, different name)
+    # e.g., 0952_add_migration_test_field conflicts with 0952_add_sync_test_branch_two
+    migration_prefix = migration_name.split("_")[0]  # e.g., "0952"
+    hidden_migrations: list[tuple[Path, Path]] = []  # (original, hidden) pairs
+
     try:
+        # Find and temporarily hide conflicting migrations
+        for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
+            if migration_file.name != f"{migration_name}.py":
+                hidden_path = migration_file.with_suffix(".py.hidden")
+                migration_file.rename(hidden_path)
+                hidden_migrations.append((migration_file, hidden_path))
+
         # Copy cached file to migrations directory temporarily
         shutil.copy2(cache_path, target_path)
 
@@ -162,7 +177,16 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
 
         # Run Django migrate to roll back
         result = subprocess.run(
-            [sys.executable, "manage.py", "migrate", app_label, previous, "--no-input", "--skip-orphan-check"],
+            [
+                sys.executable,
+                "manage.py",
+                "migrate",
+                app_label,
+                previous,
+                "--no-input",
+                "--skip-orphan-check",
+                "--skip-checks",
+            ],
             cwd=settings.BASE_DIR,
             env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
             capture_output=True,
@@ -176,6 +200,10 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         if original_max_migration is not None:
             max_migration_path.write_text(f"{original_max_migration}\n")
 
+        # Restore hidden migrations
+        for original, hidden in hidden_migrations:
+            hidden.rename(original)
+
         if result.returncode != 0:
             stdout.write(f"    Error: {result.stderr.strip()}")
             return False
@@ -187,6 +215,10 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         target_path.unlink(missing_ok=True)
         if original_max_migration is not None:
             max_migration_path.write_text(f"{original_max_migration}\n")
+        # Restore hidden migrations
+        for original, hidden in hidden_migrations:
+            if hidden.exists():
+                hidden.rename(original)
         stdout.write(f"    Error: {e}")
         return False
 

@@ -186,7 +186,11 @@ def _get_previous_migration(app: str, migration_name: str) -> str:
 
 
 def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -> bool:
-    """Roll back a single migration using its cached file."""
+    """Roll back a single migration using its cached file.
+
+    Handles the case where there are conflicting migrations (same number prefix)
+    by temporarily hiding them during the rollback.
+    """
     cache_path = _get_cached_migration(app, name)
     if not cache_path:
         return False
@@ -203,6 +207,11 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
     max_migration_path = migrations_dir / "max_migration.txt"
     original_max_migration = None
 
+    # Find conflicting migrations (same number prefix, different name)
+    # e.g., 0952_add_migration_test_field conflicts with 0952_add_sync_test_branch_two
+    migration_prefix = name.split("_")[0]  # e.g., "0952"
+    hidden_migrations: list[tuple[Path, Path]] = []  # (original, hidden) pairs
+
     if dry_run:
         click.echo(f"  [DRY RUN] Copy {cache_path} → {target_path}")
         click.echo(f"  [DRY RUN] python manage.py migrate {app} {previous}")
@@ -210,6 +219,13 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         return True
 
     try:
+        # Find and temporarily hide conflicting migrations
+        for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
+            if migration_file.name != f"{name}.py":
+                hidden_path = migration_file.with_suffix(".py.hidden")
+                migration_file.rename(hidden_path)
+                hidden_migrations.append((migration_file, hidden_path))
+
         # Copy cached file to migrations directory
         shutil.copy2(cache_path, target_path)
 
@@ -220,7 +236,7 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
 
         # Run Django migrate to roll back
         result = subprocess.run(
-            [sys.executable, "manage.py", "migrate", app, previous, "--no-input"],
+            [sys.executable, "manage.py", "migrate", app, previous, "--no-input", "--skip-checks"],
             cwd=REPO_ROOT,
             env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
             check=True,
@@ -233,17 +249,29 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         if original_max_migration is not None:
             max_migration_path.write_text(f"{original_max_migration}\n")
 
+        # Restore hidden migrations
+        for original, hidden in hidden_migrations:
+            hidden.rename(original)
+
         return result.returncode == 0
     except subprocess.CalledProcessError:
         # Clean up on failure
         target_path.unlink(missing_ok=True)
         if original_max_migration is not None:
             max_migration_path.write_text(f"{original_max_migration}\n")
+        # Restore hidden migrations
+        for original, hidden in hidden_migrations:
+            if hidden.exists():
+                hidden.rename(original)
         return False
     except Exception:
         target_path.unlink(missing_ok=True)
         if original_max_migration is not None:
             max_migration_path.write_text(f"{original_max_migration}\n")
+        # Restore hidden migrations
+        for original, hidden in hidden_migrations:
+            if hidden.exists():
+                hidden.rename(original)
         return False
 
 
