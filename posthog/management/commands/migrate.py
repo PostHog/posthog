@@ -306,7 +306,7 @@ class Command(DjangoMigrateCommand):
                                 self.stdout.write(
                                     self.style.WARNING(
                                         "Some migrations are not cached and cannot be auto-rolled back.\n"
-                                        "Run 'hogli db:migrations sync' for manual instructions.\n"
+                                        "Run 'hogli migrations:sync' for manual instructions.\n"
                                     )
                                 )
                             confirm = input("Continue anyway? [y/N] ")
@@ -317,8 +317,7 @@ class Command(DjangoMigrateCommand):
                         # Non-interactive mode: warn but continue
                         self.stdout.write(
                             self.style.WARNING(
-                                "Continuing in non-interactive mode. "
-                                "Run 'hogli db:migrations sync' after to clean up."
+                                "Continuing in non-interactive mode. " "Run 'hogli migrations:sync' after to clean up."
                             )
                         )
             except Exception as e:

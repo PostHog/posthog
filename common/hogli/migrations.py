@@ -6,11 +6,11 @@ that are applied in the database but don't exist in the current code (orphaned),
 and migrations that exist in code but aren't applied yet (pending).
 
 Commands:
-    hogli db:migrations status      - Show migration diff between DB and code
-    hogli db:migrations down        - Roll back orphaned migrations
-    hogli db:migrations up          - Apply pending migrations
-    hogli db:migrations sync        - Smart sync: down + up in one step
-    hogli db:migrations cache-sync  - Populate cache from currently applied migrations
+    hogli migrations:status      - Show migration diff between DB and code
+    hogli migrations:down        - Roll back orphaned migrations
+    hogli migrations:up          - Apply pending migrations
+    hogli migrations:sync        - Smart sync: down + up in one step
+    hogli migrations:cache-sync  - Populate cache from currently applied migrations
 
 Migration File Caching:
     When migrations are applied, their files are cached to ~/.cache/posthog-migrations/.
@@ -19,7 +19,7 @@ Migration File Caching:
     and provide manual instructions.
 
 For worktrees, simply run after switching to a worktree:
-    hogli db:migrations sync
+    hogli migrations:sync
 """
 
 from __future__ import annotations
@@ -156,19 +156,13 @@ def _get_previous_migration(app: str, migration_name: str) -> str:
     """Get the migration that should be active after rolling back the given one.
 
     Returns 'zero' if this is the first migration or we can't determine the previous one.
+
+    Only considers migrations that are applied in the DB, since we're rolling back
+    an applied migration and need to target another applied migration.
     """
-    all_apps = _get_all_migration_apps()
-    migrations_dir = all_apps.get(app)
-
-    if not migrations_dir or not migrations_dir.exists():
-        return "zero"
-
-    # Get all migrations in code
-    code_migrations = _get_migrations_in_code(app, migrations_dir)
-
-    # Also check DB for migrations that might not be in code
+    # Only use DB migrations - we're rolling back to another applied migration
     db_migrations = _get_migrations_in_db().get(app, set())
-    all_migrations = sorted(code_migrations | db_migrations)
+    all_migrations = sorted(db_migrations)
 
     if not all_migrations:
         return "zero"
@@ -180,9 +174,8 @@ def _get_previous_migration(app: str, migration_name: str) -> str:
             return "zero"
         return all_migrations[idx - 1]
     except ValueError:
-        # Migration not found, use the latest in code
-        code_sorted = sorted(code_migrations)
-        return code_sorted[-1] if code_sorted else "zero"
+        # Migration not found in DB, return zero
+        return "zero"
 
 
 def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -> bool:
@@ -454,13 +447,7 @@ def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool 
         return False
 
 
-@cli.group(name="db:migrations", help="Manage Django migrations for branch switching")
-def migrations_group() -> None:
-    """Migration management commands for worktree workflows."""
-    pass
-
-
-@migrations_group.command(name="status", help="Show migration diff between database and code")
+@cli.command(name="migrations:status", help="Show migration diff between database and code")
 def migrations_status() -> None:
     """Show which migrations are orphaned, pending, or synced."""
     click.echo("\nAnalyzing migrations…\n")
@@ -485,10 +472,10 @@ def migrations_status() -> None:
         click.secho("✓ Migrations are in sync", fg="green", bold=True)
         click.echo(f"  {len(diff.synced)} migration(s) applied and present in code.")
     else:
-        click.echo("Run 'hogli db:migrations sync' to fix, or use 'down'/'up' individually.")
+        click.echo("Run 'hogli migrations:sync' to fix, or use 'down'/'up' individually.")
 
 
-@migrations_group.command(name="down", help="Roll back orphaned migrations")
+@cli.command(name="migrations:down", help="Roll back orphaned migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--force", "-f", is_flag=True, help="Force removal without schema rollback (just deletes DB records)")
@@ -544,9 +531,9 @@ def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
                 click.echo(f"    Target migration for rollback: {m.app} {previous}")
             click.echo()
 
-        click.echo("After manual rollback, run 'hogli db:migrations sync' again.\n")
+        click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
         click.echo("Or use --force to skip schema rollback (just removes DB records):")
-        click.secho("  hogli db:migrations down --force\n", fg="yellow")
+        click.secho("  hogli migrations:down --force\n", fg="yellow")
         raise SystemExit(1)
 
     # Proceed with rollback
@@ -583,7 +570,7 @@ def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
     click.secho("✓ Orphaned migrations handled", fg="green", bold=True)
 
 
-@migrations_group.command(name="up", help="Apply pending migrations")
+@cli.command(name="migrations:up", help="Apply pending migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 def migrations_up(dry_run: bool) -> None:
     """Apply migrations that exist in code but aren't applied."""
@@ -611,7 +598,7 @@ def migrations_up(dry_run: bool) -> None:
         click.secho("✓ Migrations applied and cached", fg="green", bold=True)
 
 
-@migrations_group.command(name="sync", help="Sync migrations: roll back orphaned, apply pending")
+@cli.command(name="migrations:sync", help="Sync migrations: roll back orphaned, apply pending")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--force", "-f", is_flag=True, help="Force sync even if some migrations can't be properly rolled back")
@@ -625,7 +612,7 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
     If a migration isn't cached, instructions for manual rollback are shown.
 
     For worktrees, just run after cd-ing to the worktree:
-        hogli db:migrations sync
+        hogli migrations:sync
     """
     click.echo("\nAnalyzing migrations…\n")
 
@@ -685,9 +672,9 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
                 click.echo(f"    Target migration for rollback: {m.app} {previous}")
             click.echo()
 
-        click.echo("After manual rollback, run 'hogli db:migrations sync' again.\n")
+        click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
         click.echo("Or use --force to skip schema rollback (just removes DB records):")
-        click.secho("  hogli db:migrations sync --force\n", fg="yellow")
+        click.secho("  hogli migrations:sync --force\n", fg="yellow")
         raise SystemExit(1)
 
     if not yes and not dry_run:
@@ -740,7 +727,7 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
     click.secho("✓ Sync complete", fg="green", bold=True)
 
 
-@migrations_group.command(name="cache-sync", help="Populate cache from currently applied migrations")
+@cli.command(name="migrations:cache-sync", help="Populate cache from currently applied migrations")
 def migrations_cache_sync() -> None:
     """Cache all currently applied migrations that exist in code.
 
