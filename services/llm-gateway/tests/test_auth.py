@@ -101,7 +101,7 @@ class TestAuthService:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
@@ -127,7 +127,7 @@ class TestAuthService:
             return_value={
                 "id": "k1",
                 "user_id": 789,
-                "scopes": ["task:write"],
+                "scopes": ["llm_gateway:read"],
                 "current_team_id": 101,
             }
         )
@@ -198,7 +198,7 @@ class TestPersonalApiKeyAuthenticator:
     ) -> None:
         conn = mock_pool.acquire.return_value.__aenter__.return_value
         conn.fetchrow = AsyncMock(
-            return_value={"id": "k1", "user_id": 123, "scopes": ["task:write"], "current_team_id": 456}
+            return_value={"id": "k1", "user_id": 123, "scopes": ["llm_gateway:read"], "current_team_id": 456}
         )
 
         token_hash = authenticator.hash_token("phx_test_key")
@@ -269,7 +269,7 @@ class TestOAuthAccessTokenAuthenticator:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) - timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
@@ -289,7 +289,7 @@ class TestOAuthAccessTokenAuthenticator:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": None,
                 "current_team_id": 456,
                 "application_id": 789,
@@ -311,7 +311,7 @@ class TestOAuthAccessTokenAuthenticator:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": None,
@@ -355,9 +355,11 @@ class TestOAuthAccessTokenAuthenticator:
     @pytest.mark.parametrize(
         "scope,expected_scopes",
         [
-            pytest.param("task:write", ["task:write"], id="single_scope"),
-            pytest.param("task:write task:read", ["task:write", "task:read"], id="multiple_scopes"),
-            pytest.param("read:all task:write admin", ["read:all", "task:write", "admin"], id="three_scopes"),
+            pytest.param("llm_gateway:read", ["llm_gateway:read"], id="single_scope"),
+            pytest.param("llm_gateway:read task:read", ["llm_gateway:read", "task:read"], id="multiple_scopes"),
+            pytest.param(
+                "read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"
+            ),
         ],
     )
     async def test_scope_parsing(
@@ -390,7 +392,7 @@ class TestOAuthAccessTokenAuthenticator:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
@@ -404,7 +406,7 @@ class TestOAuthAccessTokenAuthenticator:
         assert result.user_id == 123
         assert result.team_id == 456
         assert result.auth_method == "oauth_access_token"
-        assert result.scopes == ["task:write"]
+        assert result.scopes == ["llm_gateway:read"]
 
     @pytest.mark.asyncio
     async def test_valid_token_with_null_team_id(
@@ -415,7 +417,7 @@ class TestOAuthAccessTokenAuthenticator:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": None,
                 "application_id": 789,

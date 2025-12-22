@@ -109,7 +109,7 @@ class TestAuthCache:
             user_id=1,
             team_id=2,
             auth_method="oauth_access_token",
-            scopes=["task:write"],
+            scopes=["llm_gateway:read"],
             token_expires_at=datetime.now(UTC) - timedelta(minutes=1),
         )
 
@@ -126,7 +126,7 @@ class TestAuthCache:
             user_id=1,
             team_id=2,
             auth_method="personal_api_key",
-            scopes=["task:write"],
+            scopes=["llm_gateway:read"],
             token_expires_at=None,
         )
 
@@ -142,7 +142,7 @@ class TestAuthCache:
             user_id=1,
             team_id=2,
             auth_method="oauth_access_token",
-            scopes=["task:write"],
+            scopes=["llm_gateway:read"],
             token_expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
 
@@ -170,7 +170,7 @@ class TestAuthServiceCaching:
     ) -> None:
         conn = mock_pool.acquire.return_value.__aenter__.return_value
         conn.fetchrow = AsyncMock(
-            return_value={"id": "k1", "user_id": 123, "scopes": ["task:write"], "current_team_id": 456}
+            return_value={"id": "k1", "user_id": 123, "scopes": ["llm_gateway:read"], "current_team_id": 456}
         )
 
         result1 = await auth_service.authenticate("phx_test_key", mock_pool)
@@ -204,7 +204,7 @@ class TestAuthServiceCaching:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
@@ -242,7 +242,7 @@ class TestAuthServiceCaching:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scope": "task:write",
+                "scope": "llm_gateway:read",
                 "expires": None,
                 "current_team_id": 456,
                 "application_id": 789,
@@ -297,8 +297,8 @@ class TestAuthServiceMetrics:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scopes": ["task:write"],
-                "scope": "task:write",
+                "scopes": ["llm_gateway:read"],
+                "scope": "llm_gateway:read",
                 "current_team_id": 456,
                 "application_id": 789,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
@@ -326,8 +326,8 @@ class TestAuthServiceMetrics:
             return_value={
                 "id": 1,
                 "user_id": 123,
-                "scopes": ["task:write"],
-                "scope": "task:write",
+                "scopes": ["llm_gateway:read"],
+                "scope": "llm_gateway:read",
                 "current_team_id": 456,
                 "application_id": 789,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
