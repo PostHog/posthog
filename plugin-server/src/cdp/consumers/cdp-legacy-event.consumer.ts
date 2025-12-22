@@ -275,10 +275,9 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 return
             }
 
-            // TODO: This will be how it is done in the future
-            // for (const invocation of invocations) {
-            //     await this.legacyPluginExecutor.execute(invocation)
-            // }
+            for (const invocation of invocations) {
+                await this.legacyPluginExecutor.execute(invocation, true)
+            }
         } catch (error: any) {
             logger.error('Error comparing plugin configs to hog functions', {
                 error: error?.message,

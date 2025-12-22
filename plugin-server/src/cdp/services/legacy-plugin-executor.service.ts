@@ -111,7 +111,8 @@ export class LegacyPluginExecutorService {
     }
 
     public async execute(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        shouldMockFetch = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
@@ -126,12 +127,6 @@ export class LegacyPluginExecutorService {
         const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
 
         const fetch = async (url: string, fetchParams: FetchOptions): Promise<FetchResponse> => {
-            fetchTracker.trackRequest(invocation.hogFunction.id.toString(), {
-                url,
-                method: fetchParams.method ?? 'GET',
-                body: fetchParams.body,
-            })
-
             const { fetchError, fetchResponse } = await cdpTrackedFetch({
                 url,
                 fetchParams,
@@ -225,7 +220,13 @@ export class LegacyPluginExecutorService {
                 // Additionally we don't do real fetches for test functions
                 const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
 
-                if (isTestFunction && method.toUpperCase() !== 'GET') {
+                legacyFetchTracker.trackRequest(invocation.hogFunction.id.toString(), {
+                    url: args[0],
+                    method: method,
+                    body: args[1]?.body,
+                })
+
+                if ((shouldMockFetch || isTestFunction) && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests
                     addLog('info', 'Fetch called but mocked due to test function', {
                         url: args[0],
