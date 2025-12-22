@@ -111,7 +111,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                             sceneConfig?.layout !== 'context',
                         'min-h-scene-height h-scene-height': sceneConfig?.layout === 'app-full-scene-height',
                     },
-                    sceneConfig?.layout === 'context' ? sceneContextClassName : undefined
+                    sceneConfig?.layout === 'context' ? `scene-provider ${sceneContextClassName}` : undefined
                 )}
             >
                 {children}

@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { SceneProvider } from '~/layout/scenes/SceneProvider'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -205,10 +206,10 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     }, [])
 
     return (
-        <>
+        <SceneProvider className="flex flex-row grow" tabId={tabId}>
             <ListBox
                 ref={listboxRef}
-                className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+                className="w-full grid grid-rows-[auto_1fr] flex-col"
                 virtualFocus
                 autoSelectFirst
                 onFinishedKeyDown={handleListBoxFinishedKeyDown}
@@ -287,6 +288,6 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </div>
                 </div>
             </ListBox>
-        </>
+        </SceneProvider>
     )
 }
