@@ -23,7 +23,7 @@ pub struct Cli {
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
 
-    /// Set the number of requests per minutes for the Posthog API Client.
+    /// Set the number of requests per minute for the Posthog API Client.
     #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
     rate_limit: Option<usize>,
 
