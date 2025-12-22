@@ -406,14 +406,14 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
-                  git fetch origin ${{ github.base_ref }}
+                  git fetch origin ${{ github.base_ref || 'master' }}
                   # Check migration safety using old SQL-based checker (still uses stdin from git diff)
                   echo "${{ needs.changes.outputs.migrations_files }}" | grep -v migrations/0001_ | grep -v 'rust/persons_migrations' | python manage.py test_migrations_are_safe
 
             - name: Check CH migrations
               run: |
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/${{ github.base_ref }}..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  git diff --name-status origin/${{ github.base_ref || 'master' }}..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
     django:
         needs: [changes, detect-snapshot-mode]
