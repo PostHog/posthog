@@ -17,7 +17,6 @@ import { PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload, convertToPostIngestionEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
@@ -32,7 +31,6 @@ import { counterParseError } from './metrics'
 
 export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     protected name = 'CdpLegacyWebhookConsumer'
-    protected promiseScheduler = new PromiseScheduler()
     protected kafkaConsumer: KafkaConsumer
     protected actionManager: ActionManager
     protected actionMatcher: ActionMatcher
@@ -79,10 +77,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     }
 
     private async postWebhook(event: PostIngestionEvent, team: Team, hook: Hook): Promise<void> {
-        const defaultWebhookUrl = team.slack_incoming_webhook
-        const url = hook ? hook.target : defaultWebhookUrl
-
-        if (!url) {
+        if (!hook.target) {
             return
         }
 
@@ -91,10 +86,10 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
             data: convertToHookPayload(event),
         }
 
-        logger.debug('⚠️', `Firing webhook ${url} for team ${team.id}`)
+        logger.debug('⚠️', `Firing webhook ${hook.target} for team ${team.id}`)
 
         const response = await cdpTrackedFetch({
-            url,
+            url: hook.target,
             fetchParams: {
                 method: 'POST',
                 body: JSON.stringify(body, null, 4),
@@ -108,7 +103,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
         }
 
         if (response.fetchResponse?.status === 410) {
-            await this.deleteRestHook(hook?.id ?? '')
+            await this.deleteRestHook(hook.id)
         }
     }
 
@@ -123,9 +118,8 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
 
     @instrumented('cdpLegacyWebhookConsumer.processBatch')
     public async processBatch(events: PostIngestionEvent[]): Promise<{ backgroundTask: Promise<any> }> {
-        await Promise.all(events.map((event) => this.processEvent(event)))
-
-        return { backgroundTask: Promise.resolve() }
+        await Promise.resolve()
+        return { backgroundTask: Promise.all(events.map((event) => this.processEvent(event))) }
     }
 
     @instrumented('cdpLegacyWebhookConsumer.parseKafkaMessages')
