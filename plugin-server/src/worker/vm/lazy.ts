@@ -279,7 +279,7 @@ export class LazyPluginVM implements PluginInstance {
         pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
         await processError(this.hub, this.pluginConfig, error)
         // Temp disabled on 26/09/24, due to customer issue. TODO - we should actually disable in the case of bad plugin configs, assuming we revisit this before throwing the whole plugin concept out
-        // await disablePlugin(this.hub, this.pluginConfig.id)
+        // await disablePlugin(this.hub.db, this.pluginConfig.id)
         await this.hub.celery.applyAsync('posthog.tasks.plugin_server.fatal_plugin_error', [
             this.pluginConfig.id,
             // Using the `updated_at` field for email campaign idempotency. It's safer to provide it to the task
@@ -295,7 +295,7 @@ export class LazyPluginVM implements PluginInstance {
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
-            await setPluginCapabilities(this.hub, this.pluginConfig.plugin_id, capabilities)
+            await setPluginCapabilities(this.hub.db, this.pluginConfig.plugin_id, capabilities)
             this.pluginConfig.plugin!.capabilities = capabilities
         }
     }
@@ -303,7 +303,7 @@ export class LazyPluginVM implements PluginInstance {
 
 export async function populatePluginCapabilities(hub: LegacyPluginHub, pluginId: number): Promise<void> {
     logger.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
-    const plugin = await getPlugin(hub, pluginId)
+    const plugin = await getPlugin(hub.db, pluginId)
     if (!plugin) {
         logger.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
         return
@@ -331,6 +331,6 @@ export async function populatePluginCapabilities(hub: LegacyPluginHub, pluginId:
 
     const prevCapabilities = plugin.capabilities
     if (!equal(prevCapabilities, capabilities)) {
-        await setPluginCapabilities(hub, pluginId, capabilities)
+        await setPluginCapabilities(hub.db, pluginId, capabilities)
     }
 }

@@ -31,7 +31,7 @@ export async function loadPluginsFromDB(
     hub: LegacyPluginHub
 ): Promise<Pick<LegacyPluginHub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
     const startTimer = new Date()
-    const pluginRows = await getActivePluginRows(hub)
+    const pluginRows = await getActivePluginRows(hub.db)
     const plugins = new Map<PluginId, Plugin>()
 
     for (const row of pluginRows) {
@@ -40,7 +40,7 @@ export async function loadPluginsFromDB(
     loadPluginsMsSummary.observe(new Date().getTime() - startTimer.getTime())
 
     const pluginAttachmentTimer = new Date()
-    const pluginAttachmentRows = await getPluginAttachmentRows(hub)
+    const pluginAttachmentRows = await getPluginAttachmentRows(hub.db)
     const attachmentsPerConfig = new Map<TeamId, Record<string, PluginAttachment>>()
     for (const row of pluginAttachmentRows) {
         let attachments = attachmentsPerConfig.get(row.plugin_config_id!)
@@ -57,7 +57,7 @@ export async function loadPluginsFromDB(
     loadPluginAttachmentsMsSummary.observe(new Date().getTime() - pluginAttachmentTimer.getTime())
 
     const pluginConfigTimer = new Date()
-    const pluginConfigRows = await getPluginConfigRows(hub)
+    const pluginConfigRows = await getPluginConfigRows(hub.db)
 
     const pluginConfigs = new Map<PluginConfigId, PluginConfig>()
     const pluginConfigsPerTeam = new Map<TeamId, PluginConfig[]>()

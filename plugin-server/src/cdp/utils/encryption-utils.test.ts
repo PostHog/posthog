@@ -1,15 +1,13 @@
-import { EncryptedFields, EncryptedFieldsConfig } from './encryption-utils'
+import { EncryptedFields } from './encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
     let encryptedFields: EncryptedFields
 
-    const mockConfig: EncryptedFieldsConfig = {
-        ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
-    }
+    const encryptionSaltKeys = '00beef0000beef0000beef0000beef00'
 
     beforeEach(() => {
-        encryptedFields = new EncryptedFields(mockConfig)
+        encryptedFields = new EncryptedFields(encryptionSaltKeys)
     })
 
     describe('encryption and decryption', () => {

@@ -67,12 +67,12 @@ export class CdpApi {
 
     constructor(private hub: CdpApiHub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
+        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         this.hogFlowManager = new HogFlowManagerService(hub)
-        this.recipientsManager = new RecipientsManagerService(hub)
+        this.recipientsManager = new RecipientsManagerService(hub.postgres)
         this.hogExecutor = new HogExecutorService(hub)
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            hub,
+            hub.SITE_URL,
             this.hogFunctionTemplateManager,
             this.hogExecutor
         )

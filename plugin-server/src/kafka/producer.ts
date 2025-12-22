@@ -11,13 +11,9 @@ import {
 import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
 
-import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
-
-/** Minimal config needed for KafkaProducerWrapper creation */
-export type KafkaProducerConfig = Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK'>
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -46,14 +42,14 @@ export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
 
-    static async create(config: KafkaProducerConfig, mode: KafkaConfigTarget = 'PRODUCER') {
+    static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
 
         const producerConfig: ProducerGlobalConfig = {
             // Defaults that could be overridden by env vars
             'client.id': hostname(),
-            'client.rack': config.KAFKA_CLIENT_RACK,
+            'client.rack': kafkaClientRack,
             'metadata.broker.list': 'kafka:9092',
             'linger.ms': 20,
             log_level: 4, // WARN as the default

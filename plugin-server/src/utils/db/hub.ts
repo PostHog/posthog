@@ -83,7 +83,7 @@ export async function createHub(
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
-    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
+    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
@@ -144,7 +144,7 @@ export async function createHub(
     const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
-    const encryptedFields = new EncryptedFields(serverConfig)
+    const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
     const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)

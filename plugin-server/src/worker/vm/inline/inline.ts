@@ -105,6 +105,6 @@ export async function syncInlinePlugins(hub: LegacyPluginHub): Promise<void> {
     logger.info('⚡', 'Syncing inline plugins')
     for (const url of INLINE_PLUGIN_URLS) {
         const plugin = INLINE_PLUGIN_MAP[url]
-        await upsertInlinePlugin(hub, plugin.description)
+        await upsertInlinePlugin(hub.db, plugin.description)
     }
 }

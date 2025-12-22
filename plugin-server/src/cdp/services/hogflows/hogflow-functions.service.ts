@@ -6,13 +6,9 @@ import {
     HogFunctionType,
 } from '~/cdp/types'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
-import { Hub } from '~/types'
 
 import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-
-/** Narrowed Hub type for HogFlowFunctionsService */
-export type HogFlowFunctionsServiceHub = Pick<Hub, 'SITE_URL'>
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
@@ -20,7 +16,7 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 // Helper class that can turn a hog flow action into a hog function
 export class HogFlowFunctionsService {
     constructor(
-        private hub: HogFlowFunctionsServiceHub,
+        private siteUrl: string,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
         private hogFunctionExecutor: HogExecutorService
     ) {}
@@ -58,7 +54,7 @@ export class HogFlowFunctionsService {
         globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
-        const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
+        const projectUrl = `${this.siteUrl}/project/${teamId}`
 
         const globalsWithSource: HogFunctionInvocationGlobals = {
             ...globals,

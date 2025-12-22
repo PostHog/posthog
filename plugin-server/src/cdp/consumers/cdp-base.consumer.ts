@@ -1,22 +1,19 @@
 import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { CdpRedisPoolConfig } from '~/utils/db/redis'
 
-import { KafkaProducerConfig, KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { HogExecutorService, HogExecutorServiceHub } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
-import { HogFlowFunctionsService, HogFlowFunctionsServiceHub } from '../services/hogflows/hogflow-functions.service'
+import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService, HogFlowManagerServiceHub } from '../services/hogflows/hogflow-manager.service'
 import { LegacyPluginExecutorService, LegacyPluginExecutorServiceHub } from '../services/legacy-plugin-executor.service'
 import { GroupsManagerService, GroupsManagerServiceHub } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerHub, HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
-import {
-    HogFunctionTemplateManagerService,
-    HogFunctionTemplateManagerServiceHub,
-} from '../services/managers/hog-function-template-manager.service'
+import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
-import { RecipientsManagerService, RecipientsManagerServiceHub } from '../services/managers/recipients-manager.service'
+import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import {
     HogFunctionMonitoringService,
@@ -38,21 +35,19 @@ import {
  * This includes all fields needed by the base consumer and its services.
  */
 export type CdpConsumerBaseHub = CdpRedisPoolConfig &
-    KafkaProducerConfig &
     NativeDestinationExecutorConfig &
     SegmentDestinationExecutorConfig &
     HogFunctionManagerHub &
     HogExecutorServiceHub &
     HogFlowManagerServiceHub &
-    HogFlowFunctionsServiceHub &
-    HogFunctionTemplateManagerServiceHub &
     HogFunctionMonitoringServiceHub &
     HogWatcherServiceHub &
     LegacyPluginExecutorServiceHub &
     GroupsManagerServiceHub &
-    RecipientsManagerServiceHub &
     Pick<
         Hub,
+        // KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
         // PersonsManagerService needs personRepository
         | 'personRepository'
         // QuotaLimiting
@@ -101,14 +96,14 @@ export abstract class CdpConsumerBase {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
-        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
+        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub.postgres)
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
-            this.hub,
+            this.hub.SITE_URL,
             this.hogFunctionTemplateManager,
             this.hogExecutor
         )
 
-        this.recipientsManager = new RecipientsManagerService(this.hub)
+        this.recipientsManager = new RecipientsManagerService(this.hub.postgres)
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
         this.hogFlowExecutor = new HogFlowExecutorService(
             this.hogFlowFunctionsService,
@@ -143,7 +138,7 @@ export abstract class CdpConsumerBase {
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
-            KafkaProducerWrapper.create(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
         ])

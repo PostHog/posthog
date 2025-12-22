@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaProducerConfig, KafkaProducerWrapper } from '~/kafka/producer'
+import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -25,9 +25,10 @@ import { LogsIngestionMessage } from './types'
  */
 export type LogsIngestionConsumerHub = LogsRateLimiterServiceHub &
     LogsRedisPoolConfig &
-    KafkaProducerConfig &
     Pick<
         Hub,
+        // KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
         // Direct usage
         | 'LOGS_INGESTION_CONSUMER_GROUP_ID'
         | 'LOGS_INGESTION_CONSUMER_CONSUME_TOPIC'
@@ -337,11 +338,11 @@ export class LogsIngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             // Warpstream producer for logs data (uses KAFKA_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             // Metrics producer for app_metrics (uses KAFKA_METRICS_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub, 'METRICS_PRODUCER').then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
                 this.mskProducer = producer
             }),
         ])

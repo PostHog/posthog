@@ -5,7 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
-import { KafkaProducerConfig, KafkaProducerWrapper } from '../../../kafka/producer'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { SessionRecordingRedisConfig, createRedisPool } from '../../../utils/db/redis'
@@ -60,11 +60,11 @@ export type SessionRecordingIngesterHub = Pick<
     | 'SESSION_RECORDING_MAX_BATCH_SIZE_KB'
     | 'SESSION_RECORDING_MAX_BATCH_AGE_MS'
     | 'SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH'
+    // For KafkaProducerWrapper.create
+    | 'KAFKA_CLIENT_RACK'
 > &
     // For EventIngestionRestrictionManager
     EventIngestionRestrictionManagerHub &
-    // For KafkaProducerWrapper.create
-    KafkaProducerConfig &
     // For createRedisPool
     SessionRecordingRedisConfig
 
@@ -316,7 +316,10 @@ export class SessionRecordingIngester {
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {
-            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'WARPSTREAM_PRODUCER')
+            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(
+                this.hub.KAFKA_CLIENT_RACK,
+                'WARPSTREAM_PRODUCER'
+            )
         }
 
         // Initialize restriction handler with the overflow producer
