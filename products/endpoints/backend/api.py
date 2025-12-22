@@ -62,6 +62,7 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.endpoints.backend.materialization import convert_insight_query_to_hogql
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
 
@@ -359,7 +360,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         sync_frequency: DataWarehouseSyncInterval,
         request: Request,
     ) -> None:
-        """Enable materialization for an endpoint."""
         can_mat, reason = endpoint.can_materialize()
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint: {reason}")
@@ -370,7 +370,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 name=endpoint.name, team=self.team, origin=DataWarehouseSavedQuery.Origin.ENDPOINT
             )
 
-        saved_query.query = endpoint.query
+        hogql_query = convert_insight_query_to_hogql(endpoint.query, self.team)
+        saved_query.query = hogql_query
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
         saved_query.sync_frequency_interval = (
