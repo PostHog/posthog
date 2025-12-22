@@ -47,7 +47,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
-from products.slack_app.backend.api import slack_event
+from products.slack_app.backend.api import slack_event_handler
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -243,7 +243,7 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
-    opt_slash_path("slack_app/event", slack_event),
+    opt_slash_path("slack/event-callback", slack_event_handler),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

@@ -139,13 +139,13 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
     )
 }
 
-function getModeOptions(deepResearchEnabled: boolean): LemonSelectSection<ModeValue>[] {
+function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
             value: null as ModeValue,
             label: SPECIAL_MODES.auto.name,
             icon: SPECIAL_MODES.auto.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
+            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
         },
     ]
 
@@ -175,10 +175,14 @@ export function ModeSelector(): JSX.Element {
     const { agentMode, deepResearchMode } = useValues(maxThreadLogic)
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
     const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
+    const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
 
     const currentValue: ModeValue = deepResearchMode ? 'deep_research' : agentMode
 
-    const modeOptions = useMemo(() => getModeOptions(deepResearchEnabled), [deepResearchEnabled])
+    const modeOptions = useMemo(
+        () => getModeOptions(deepResearchEnabled, webSearchEnabled),
+        [deepResearchEnabled, webSearchEnabled]
+    )
 
     const handleChange = (value: ModeValue): void => {
         posthog.capture('phai mode switched', {
@@ -204,7 +208,7 @@ export function ModeSelector(): JSX.Element {
             type="tertiary"
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools()
+                getDefaultTools({ webSearchEnabled })
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}

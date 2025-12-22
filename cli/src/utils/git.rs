@@ -15,6 +15,10 @@ pub struct GitInfo {
 }
 
 pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
+    if let Some(info) = get_git_info_from_vercel() {
+        return Ok(Some(info));
+    }
+
     let git_dir = match find_git_dir(dir) {
         Some(dir) => dir,
         None => return Ok(None),
@@ -31,6 +35,40 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
         branch,
         commit_id: commit,
     }))
+}
+
+fn get_git_info_from_vercel() -> Option<GitInfo> {
+    if std::env::var("VERCEL").ok()? != "1" {
+        return None;
+    }
+
+    let branch = std::env::var("VERCEL_GIT_COMMIT_REF").ok()?;
+    let commit_id = std::env::var("VERCEL_GIT_COMMIT_SHA").ok()?;
+
+    let remote_url = build_vercel_remote_url();
+    let repo_name = std::env::var("VERCEL_GIT_REPO_SLUG").ok();
+
+    Some(GitInfo {
+        remote_url,
+        repo_name,
+        branch,
+        commit_id,
+    })
+}
+
+fn build_vercel_remote_url() -> Option<String> {
+    let provider = std::env::var("VERCEL_GIT_PROVIDER").ok()?;
+    let owner = std::env::var("VERCEL_GIT_REPO_OWNER").ok()?;
+    let slug = std::env::var("VERCEL_GIT_REPO_SLUG").ok()?;
+
+    let base_url = match provider.as_str() {
+        "github" => "https://github.com",
+        "gitlab" => "https://gitlab.com",
+        "bitbucket" => "https://bitbucket.org",
+        _ => return None,
+    };
+
+    Some(format!("{base_url}/{owner}/{slug}.git"))
 }
 
 fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {

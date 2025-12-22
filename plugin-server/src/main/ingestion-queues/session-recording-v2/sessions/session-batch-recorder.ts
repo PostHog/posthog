@@ -1,7 +1,5 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { SessionRecordingV2MetadataSwitchoverDate } from '~/types'
-
 import { logger } from '../../../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -72,7 +70,6 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
@@ -153,14 +150,8 @@ export class SessionBatchRecorder {
             }
         } else {
             sessions.set(teamSessionKey, [
-                new SnappySessionRecorder(sessionId, teamId, this.batchId, this.metadataSwitchoverDate),
-                new SessionConsoleLogRecorder(
-                    sessionId,
-                    teamId,
-                    this.batchId,
-                    this.consoleLogStore,
-                    this.metadataSwitchoverDate
-                ),
+                new SnappySessionRecorder(sessionId, teamId, this.batchId),
+                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
             ])
         }
 

@@ -5,15 +5,19 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Person, Team } from '~/types'
 
 import { PipelineResult, isOkResult, ok } from '../../../ingestion/pipelines/results'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
+import { MergeMode } from '../persons/person-merge-types'
 import { PersonPropertyService } from '../persons/person-property-service'
 import { PersonsStore } from '../persons/persons-store'
-import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
-    runner: EventPipelineRunner,
+    kafkaProducer: KafkaProducerWrapper,
+    mergeMode: MergeMode,
+    measurePersonJsonbSize: number,
+    personPropertiesUpdateAll: boolean,
     event: PluginEvent,
     team: Team,
     timestamp: DateTime,
@@ -26,11 +30,11 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         processPerson,
-        runner.hub.db.kafkaProducer,
+        kafkaProducer,
         personsStore,
-        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-        runner.mergeMode,
-        runner.hub.PERSON_PROPERTIES_UPDATE_ALL
+        measurePersonJsonbSize,
+        mergeMode,
+        personPropertiesUpdateAll
     )
 
     const processor = new PersonEventProcessor(

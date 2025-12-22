@@ -10,7 +10,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { dayjs } from 'lib/dayjs'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -188,9 +187,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     onFiltersChange={setFilters}
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}
-                    canMixFiltersAndPinned={
-                        playlist.created_at ? dayjs(playlist.created_at).isBefore('2025-03-11') : false
-                    }
                     updateSearchParams={true}
                     type="collection"
                     isSynthetic={playlist.is_synthetic}

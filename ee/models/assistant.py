@@ -26,6 +26,13 @@ class Conversation(UUIDTModel):
         indexes = [
             models.Index(fields=["updated_at"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "slack_thread_key"],
+                name="unique_team_slack_thread_key",
+                condition=models.Q(slack_thread_key__isnull=False),
+            )
+        ]
 
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
@@ -45,6 +52,23 @@ class Conversation(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
+    is_internal = models.BooleanField(
+        null=True,
+        default=False,
+        help_text="Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.",
+    )
+    slack_thread_key = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        help_text="Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'",
+    )
+    slack_workspace_domain = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):

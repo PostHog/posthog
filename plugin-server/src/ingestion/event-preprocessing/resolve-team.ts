@@ -1,17 +1,30 @@
 import { Message } from 'node-rdkafka'
 
+import { TeamManager } from '~/utils/team-manager'
+
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
+export interface ResolveTeamStepInput {
+    message: Message
+    headers: EventHeaders
+    event: IncomingEvent
+}
+
+export interface ResolveTeamStepOutput {
+    eventWithTeam: IncomingEventWithTeam
+    team: Team
+}
+
 type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
-type ResolveTeamSuccess = { error: false; eventWithTeam: IncomingEventWithTeam }
+type ResolveTeamSuccess = { error: false } & ResolveTeamStepOutput
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
 async function resolveTeam(
-    hub: Pick<Hub, 'teamManager'>,
+    teamManager: TeamManager,
     message: Message,
     headers: EventHeaders,
     event: IncomingEvent['event']
@@ -34,7 +47,7 @@ async function resolveTeam(
         return { error: true, cause: 'no_token' }
     }
 
-    const team = await hub.teamManager.getTeamByToken(event.token)
+    const team = await teamManager.getTeamByToken(event.token)
     if (!team) {
         eventDroppedCounter
             .labels({
@@ -47,6 +60,7 @@ async function resolveTeam(
 
     return {
         error: false,
+        team,
         eventWithTeam: {
             event,
             team,
@@ -56,18 +70,18 @@ async function resolveTeam(
     }
 }
 
-export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
-    hub: Hub
-): ProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
+    teamManager: TeamManager
+): ProcessingStep<TInput, TInput & ResolveTeamStepOutput> {
     return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 
-        const result = await resolveTeam(hub, message, headers, event.event)
+        const result = await resolveTeam(teamManager, message, headers, event.event)
 
         if (result.error) {
             return drop(result.cause)
         }
 
-        return ok({ ...input, eventWithTeam: result.eventWithTeam })
+        return ok({ ...input, eventWithTeam: result.eventWithTeam, team: result.team })
     }
 }

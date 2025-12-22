@@ -253,7 +253,7 @@ class EventViewSet(
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
             headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
-                headers = {"X-PostHog-Warn": "https://posthog.com/docs/events_list-upcoming-changes"}
+                headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
             elif deprecate_offset and offset:
                 headers = {
                     "X-PostHog-Warn": (

@@ -87,8 +87,15 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                 filterGroup: UniversalFiltersGroup,
                 selectedQuickFilters: Record<string, SelectedQuickFilter>
             ): UniversalFiltersGroup => {
-                const firstValue = filterGroup.values[0]
-                const omnisearchFilters = (isUniversalGroupFilterLike(firstValue) ? firstValue.values : []) as any[]
+                let omnisearchFilters: any[] = []
+                if (
+                    !!filterGroup.values &&
+                    Array.isArray(filterGroup.values) &&
+                    filterGroup.values.length > 0 &&
+                    isUniversalGroupFilterLike(filterGroup.values[0])
+                ) {
+                    omnisearchFilters = filterGroup.values[0].values
+                }
 
                 const filtersFromQuickFilters = Object.values(selectedQuickFilters).map((qf: SelectedQuickFilter) => {
                     const filterValue = qf.value === null ? undefined : Array.isArray(qf.value) ? qf.value : [qf.value]

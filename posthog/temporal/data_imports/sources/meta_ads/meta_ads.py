@@ -16,6 +16,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 # Meta Ads API only supports data from the last 3 years
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
+DEFAULT_SYNC_LOOKBACK_DAYS = 90
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -170,6 +171,11 @@ def meta_ads_source(
     name = NamingConvention().normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
+    sync_lookback_days = getattr(config, "sync_lookback_days", None)
+    if sync_lookback_days is None or sync_lookback_days < 1:
+        sync_lookback_days = DEFAULT_SYNC_LOOKBACK_DAYS
+    sync_lookback_days = min(sync_lookback_days, META_ADS_MAX_HISTORY_DAYS)
+
     def get_rows():
         integration = get_integration(config, team_id)
         access_token = integration.access_token
@@ -185,7 +191,7 @@ def meta_ads_source(
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: dt.date = dt.date.today() - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)
+                last_value: dt.date = dt.date.today() - dt.timedelta(days=sync_lookback_days)
             else:
                 last_value = db_incremental_field_last_value
 
@@ -198,7 +204,7 @@ def meta_ads_source(
             }
         elif schema.is_stats:
             time_range = {
-                "since": (dt.date.today() - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)).strftime("%Y-%m-%d"),
+                "since": (dt.date.today() - dt.timedelta(days=sync_lookback_days)).strftime("%Y-%m-%d"),
                 "until": dt.date.today().strftime("%Y-%m-%d"),
             }
 

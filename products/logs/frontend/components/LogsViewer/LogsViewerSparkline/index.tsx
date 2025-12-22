@@ -1,0 +1,126 @@
+import { useCallback, useMemo } from 'react'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { dayjs } from 'lib/dayjs'
+import { shortTimeZone } from 'lib/utils'
+
+import { DateRange } from '~/queries/schema/schema-general'
+
+export interface LogsSparklineData {
+    data: {
+        color: string | undefined
+        name: string
+        values: number[]
+    }[]
+    dates: string[]
+    labels: string[]
+}
+
+interface LogsViewerSparklineProps {
+    sparklineData: LogsSparklineData
+    sparklineLoading: boolean
+    onDateRangeChange: (dateRange: DateRange) => void
+    displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
+}
+
+export function LogsSparkline({
+    sparklineData,
+    sparklineLoading,
+    onDateRangeChange,
+    displayTimezone,
+}: LogsViewerSparklineProps): JSX.Element {
+    const { timeUnit, tickFormat } = useMemo(() => {
+        if (!sparklineData.dates.length) {
+            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm:ss' }
+        }
+        const firstDate = dayjs(sparklineData.dates[0])
+        const lastDate = dayjs(sparklineData.dates[sparklineData.dates.length - 1])
+        const hoursDiff = lastDate.diff(firstDate, 'hours')
+
+        if (hoursDiff <= 1) {
+            return { timeUnit: 'second' as const, tickFormat: 'HH:mm:ss' }
+        } else if (hoursDiff <= 6) {
+            return { timeUnit: 'minute' as const, tickFormat: 'HH:mm:ss' }
+        } else if (hoursDiff <= 48) {
+            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
+        }
+        return { timeUnit: 'day' as const, tickFormat: 'D MMM HH:mm' }
+    }, [sparklineData.dates])
+
+    const withXScale = useCallback(
+        (scale: AnyScaleOptions): AnyScaleOptions => {
+            return {
+                ...scale,
+                type: 'timeseries',
+                ticks: {
+                    display: true,
+                    maxRotation: 0,
+                    maxTicksLimit: 6,
+                    font: {
+                        size: 10,
+                        lineHeight: 1,
+                    },
+                    callback: function (value: string | number) {
+                        const d = displayTimezone ? dayjs(value).tz(displayTimezone) : dayjs(value)
+                        return d.format(tickFormat)
+                    },
+                },
+                time: {
+                    unit: timeUnit,
+                },
+            } as AnyScaleOptions
+        },
+        [timeUnit, tickFormat, displayTimezone]
+    )
+
+    const renderLabel = useCallback(
+        (label: string): string => {
+            const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
+            const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
+            return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
+        },
+        [displayTimezone]
+    )
+
+    const sparklineLabels = useMemo(() => {
+        return sparklineData.dates.map((date) => dayjs(date).toISOString())
+    }, [sparklineData.dates])
+
+    const onSelectionChange = useCallback(
+        (selection: { startIndex: number; endIndex: number }): void => {
+            const dates = sparklineData.dates
+            const dateFrom = dates[selection.startIndex]
+            const dateTo = dates[selection.endIndex + 1]
+
+            if (!dateFrom) {
+                return
+            }
+
+            onDateRangeChange({
+                date_from: dateFrom,
+                date_to: dateTo,
+            })
+        },
+        [sparklineData.dates, onDateRangeChange]
+    )
+
+    return (
+        <div className="relative h-40 flex flex-col">
+            {sparklineData.data.length > 0 ? (
+                <Sparkline
+                    labels={sparklineLabels}
+                    data={sparklineData.data}
+                    className="w-full flex-1"
+                    onSelectionChange={onSelectionChange}
+                    withXScale={withXScale}
+                    renderLabel={renderLabel}
+                />
+            ) : !sparklineLoading ? (
+                <div className="flex-1 text-muted flex items-center justify-center">No results matching filters</div>
+            ) : null}
+            {sparklineLoading && <SpinnerOverlay />}
+        </div>
+    )
+}

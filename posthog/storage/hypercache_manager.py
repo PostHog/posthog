@@ -579,3 +579,46 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
             "error": str(e),
             "namespace": config.hypercache.namespace,
         }
+
+
+def batch_check_expiry_tracking(
+    teams: list[Team],
+    config: HyperCacheManagementConfig,
+) -> dict[str | int, bool]:
+    """
+    Check if teams are tracked in the expiry sorted set using pipelining.
+
+    Uses Redis ZSCORE in a pipeline to efficiently check multiple teams
+    in a single network round trip per batch.
+
+    Args:
+        teams: List of Team objects to check
+        config: HyperCache management config
+
+    Returns:
+        Dict mapping team identifier (api_token or id) to True (tracked) or False (not tracked)
+    """
+    if not config.hypercache.expiry_sorted_set_key:
+        # No expiry tracking configured - treat all teams as tracked
+        return {config.hypercache.get_cache_identifier(team): True for team in teams}
+
+    redis_client = get_client(config.hypercache.redis_url)
+    results: dict[str | int, bool] = {}
+
+    for i in range(0, len(teams), REDIS_PIPELINE_BATCH_SIZE):
+        batch = teams[i : i + REDIS_PIPELINE_BATCH_SIZE]
+        pipeline = redis_client.pipeline(transaction=False)
+        identifiers: list[str | int] = []
+
+        for team in batch:
+            identifier = config.hypercache.get_cache_identifier(team)
+            identifiers.append(identifier)
+            pipeline.zscore(config.hypercache.expiry_sorted_set_key, str(identifier))
+
+        scores = pipeline.execute()
+
+        for identifier, score in zip(identifiers, scores):
+            # ZSCORE returns None if member doesn't exist
+            results[identifier] = score is not None
+
+    return results

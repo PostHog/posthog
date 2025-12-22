@@ -17,6 +17,7 @@ logger = structlog.get_logger(__name__)
 
 ALLOWED_VERCEL_PATHS = frozenset(
     [
+        "/billing",
         "/billing/invoices",
         "/billing/usage",
     ]

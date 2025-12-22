@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -11,7 +12,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingProduct, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 import { availableOnboardingProducts } from './utils'
@@ -40,11 +41,56 @@ const meta: Meta = {
                     return [
                         200,
                         {
+                            // 4 featured ones
+                            Github: {
+                                name: 'Github',
+                                iconPath: '/static/services/github.png',
+                                fields: [],
+                                caption: '',
+                                featured: true,
+                            },
+                            Hubspot: {
+                                name: 'Hubspot',
+                                iconPath: '/static/services/hubspot.png',
+                                fields: [],
+                                caption: '',
+                                featured: true,
+                            },
+                            Postgres: {
+                                name: 'Postgres',
+                                iconPath: '/static/services/postgres.png',
+                                fields: [],
+                                caption: '',
+                                featured: true,
+                            },
                             Stripe: {
                                 name: 'Stripe',
                                 iconPath: '/static/services/stripe.png',
                                 fields: [],
                                 caption: '',
+                                featured: true,
+                            },
+                            // Extra sources to be displayed under button
+                            Ashby: {
+                                name: 'Ashby',
+                                iconPath: '/static/services/ashby.png',
+                                fields: [],
+                                caption: '',
+                                featured: false,
+                            },
+                            Supabase: {
+                                name: 'Supabase',
+                                iconPath: '/static/services/supabase.png',
+                                fields: [],
+                                caption: '',
+                                featured: false,
+                            },
+                            Shopify: {
+                                name: 'Shopify',
+                                iconPath: '/static/services/shopify.png',
+                                fields: [],
+                                caption: '',
+                                featured: false,
                             },
                         },
                     ]
@@ -58,22 +104,58 @@ const meta: Meta = {
 }
 export default meta
 
-export const _OnboardingSDKs = (): JSX.Element => {
+// ==========================================
+// SDK Install (one example)
+// ==========================================
+
+export const SDKInstall = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
     const { setProduct } = useActions(onboardingLogic)
 
     useDelayedOnMountEffect(() => {
-        const product: OnboardingProduct = availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS]
-        setProduct(product)
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
     })
 
     return <App />
 }
+SDKInstall.parameters = {
+    testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+}
 
-export const _OnboardingProductConfiguration = (): JSX.Element => {
+export const LLMAnalyticsSDKInstall = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
 
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
+        router.actions.push(urls.onboarding(ProductKey.LLM_ANALYTICS, OnboardingStepKey.INSTALL))
+    })
+
+    return <App />
+}
+LLMAnalyticsSDKInstall.parameters = {
+    testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+}
+
+// ==========================================
+// Product Configuration Steps
+// ==========================================
+
+export const ProductAnalyticsConfiguration = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.PRODUCT_CONFIGURATION))
+    })
+
+    return <App />
+}
+
+export const SessionReplayConfiguration = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
     const { setProduct } = useActions(onboardingLogic)
 
     useDelayedOnMountEffect(() => {
@@ -84,7 +166,83 @@ export const _OnboardingProductConfiguration = (): JSX.Element => {
     return <App />
 }
 
-export const _OnboardingBilling = (): JSX.Element => {
+export const SessionReplayOptIn = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.SESSION_REPLAY))
+    })
+
+    return <App />
+}
+
+// ==========================================
+// Web Analytics
+// ==========================================
+
+export const AuthorizedDomains = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.WEB_ANALYTICS])
+        router.actions.push(urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.AUTHORIZED_DOMAINS))
+    })
+
+    return <App />
+}
+
+// ==========================================
+// Data Warehouse
+// ==========================================
+
+export const LinkData = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
+        router.actions.push(urls.onboarding(ProductKey.DATA_WAREHOUSE, OnboardingStepKey.LINK_DATA))
+    })
+
+    return <App />
+}
+
+// ==========================================
+// Error Tracking
+// ==========================================
+
+export const SourceMaps = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+        router.actions.push(urls.onboarding(ProductKey.ERROR_TRACKING, OnboardingStepKey.SOURCE_MAPS))
+    })
+
+    return <App />
+}
+
+export const Alerts = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+        router.actions.push(urls.onboarding(ProductKey.ERROR_TRACKING, OnboardingStepKey.ALERTS))
+    })
+
+    return <App />
+}
+
+// ==========================================
+// Shared Steps
+// ==========================================
+
+export const BillingPlans = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
 
     useStorybookMocks({
@@ -105,9 +263,8 @@ export const _OnboardingBilling = (): JSX.Element => {
     return <App />
 }
 
-export const _OnboardingInvite = (): JSX.Element => {
+export const InviteTeammates = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
-
     const { setProduct } = useActions(onboardingLogic)
 
     useDelayedOnMountEffect(() => {
@@ -118,9 +275,8 @@ export const _OnboardingInvite = (): JSX.Element => {
     return <App />
 }
 
-export const _OnboardingReverseProxy = (): JSX.Element => {
+export const ReverseProxy = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
-
     const { setProduct } = useActions(onboardingLogic)
 
     useDelayedOnMountEffect(() => {
@@ -131,15 +287,32 @@ export const _OnboardingReverseProxy = (): JSX.Element => {
     return <App />
 }
 
-export const _OnboardingLinkData = (): JSX.Element => {
+export const AIConsent = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
-
     const { setProduct } = useActions(onboardingLogic)
 
     useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
-        router.actions.push(urls.onboarding(ProductKey.DATA_WAREHOUSE, OnboardingStepKey.LINK_DATA))
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.AI_CONSENT))
     })
 
     return <App />
+}
+AIConsent.parameters = {
+    featureFlags: [FEATURE_FLAGS.ONBOARDING_AI_CONSENT_STEP],
+}
+
+export const TellUsMore = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+        router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.TELL_US_MORE))
+    })
+
+    return <App />
+}
+TellUsMore.parameters = {
+    featureFlags: [FEATURE_FLAGS.ONBOARDING_TELL_US_MORE_STEP],
 }

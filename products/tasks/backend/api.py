@@ -4,6 +4,7 @@ import logging
 import traceback
 from typing import cast
 
+from django.http import HttpResponse
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -67,7 +68,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -89,6 +90,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Filter by repository or organization using the repository field
         organization = params.get("organization")
         repository = params.get("repository")
+        created_by = params.get("created_by")
 
         if repository:
             repo_str = repository.strip().lower()
@@ -100,6 +102,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if organization:
             org_str = organization.strip().lower()
             qs = qs.filter(repository__istartswith=f"{org_str}/")
+
+        if created_by:
+            qs = qs.filter(created_by_id=created_by)
 
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
@@ -443,3 +448,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         expires_in = 3600
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(description="Log content in JSONL format"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run logs",
+        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
+    )
+    @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
+    def logs(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+        response = HttpResponse(log_content, content_type="application/jsonl")
+        response["Cache-Control"] = "no-cache"
+        return response

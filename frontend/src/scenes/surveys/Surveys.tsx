@@ -24,6 +24,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -138,6 +139,7 @@ function Surveys(): JSX.Element {
                     <SurveysTable />
                 </>
             )}
+            <DuplicateToProjectModal />
         </SceneContent>
     )
 }

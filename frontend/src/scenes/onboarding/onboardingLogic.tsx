@@ -22,7 +22,7 @@ export interface OnboardingLogicProps {
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
     [OnboardingStepKey.AI_CONSENT]: 'Activate PostHog AI',
-    [OnboardingStepKey.LINK_DATA]: 'Connect your data',
+    [OnboardingStepKey.LINK_DATA]: 'Import data',
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
@@ -116,7 +116,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         product: [
             null as OnboardingProduct | null,
             {
-                setProduct: (_, { product }) => product,
+                setProduct: (_, { product }) => product ?? null,
             },
         ],
         allOnboardingSteps: [
@@ -384,8 +384,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
-            if (!productKey) {
-                window.location.href = urls.default()
+            if (!productKey || !(productKey in availableOnboardingProducts)) {
                 return
             }
 

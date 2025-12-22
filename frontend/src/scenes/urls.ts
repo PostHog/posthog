@@ -135,6 +135,7 @@ export const urls = {
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
+    materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
@@ -187,6 +188,9 @@ export const urls = {
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
+    organizationDeactivated: (): string => '/organization-deactivated',
+    approvals: (): string => '/settings/organization-approvals#change-requests',
+    approval: (id: string): string => `/approvals/${id}`,
 }
 
 export interface UrlMatcher {

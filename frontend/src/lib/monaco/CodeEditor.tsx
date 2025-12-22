@@ -76,48 +76,46 @@ function initEditor(
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
     }
-    if (options.tabFocusMode || editorProps.onPressUpNoValue) {
-        editor.onKeyDown((evt) => {
-            if (options.tabFocusMode) {
-                if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
-                    const selection = editor.getSelection()
-                    if (
-                        selection &&
-                        (selection.startColumn !== selection.endColumn ||
-                            selection.startLineNumber !== selection.endLineNumber)
-                    ) {
-                        return
-                    }
-                    evt.preventDefault()
-                    evt.stopPropagation()
 
-                    const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
-                    if (!element) {
-                        return
-                    }
-                    const nextElement = evt.shiftKey
-                        ? findPreviousFocusableElement(element)
-                        : findNextFocusableElement(element)
+    editor.onKeyDown((evt) => {
+        if (evt.keyCode === monaco.KeyCode.Space) {
+            evt.stopPropagation()
+        }
 
-                    if (nextElement && 'focus' in nextElement) {
-                        nextElement.focus()
-                    }
-                }
-            }
-            if (editorProps.onPressUpNoValue) {
+        if (options.tabFocusMode) {
+            if (evt.keyCode === monaco.KeyCode.Tab && !evt.metaKey && !evt.ctrlKey) {
+                const selection = editor.getSelection()
                 if (
-                    evt.keyCode === monaco.KeyCode.UpArrow &&
-                    !evt.metaKey &&
-                    !evt.ctrlKey &&
-                    editor.getValue() === ''
+                    selection &&
+                    (selection.startColumn !== selection.endColumn ||
+                        selection.startLineNumber !== selection.endLineNumber)
                 ) {
-                    evt.preventDefault()
-                    evt.stopPropagation()
-                    editorProps.onPressUpNoValue()
+                    return
+                }
+                evt.preventDefault()
+                evt.stopPropagation()
+
+                const element: HTMLElement | null = evt.target?.parentElement?.parentElement?.parentElement ?? null
+                if (!element) {
+                    return
+                }
+                const nextElement = evt.shiftKey
+                    ? findPreviousFocusableElement(element)
+                    : findNextFocusableElement(element)
+
+                if (nextElement && 'focus' in nextElement) {
+                    nextElement.focus()
                 }
             }
-        })
-    }
+        }
+        if (editorProps.onPressUpNoValue) {
+            if (evt.keyCode === monaco.KeyCode.UpArrow && !evt.metaKey && !evt.ctrlKey && editor.getValue() === '') {
+                evt.preventDefault()
+                evt.stopPropagation()
+                editorProps.onPressUpNoValue()
+            }
+        }
+    })
 }
 
 export function CodeEditor({

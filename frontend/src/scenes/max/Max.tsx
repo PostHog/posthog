@@ -12,7 +12,7 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -161,8 +161,8 @@ export const MaxInstance = React.memo(function MaxInstance({
                     startNewConversation()
                 }}
             >
-                <div className="flex flex-1">
-                    <div className="flex items-center flex-1">
+                <div className="flex flex-1 min-w-0 overflow-hidden">
+                    <div className="flex items-center flex-1 min-w-0">
                         <AnimatedBackButton in={!backButtonDisabled}>
                             <LemonButton
                                 size="small"
@@ -174,12 +174,11 @@ export const MaxInstance = React.memo(function MaxInstance({
                             />
                         </AnimatedBackButton>
 
-                        <h3
-                            className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
-                            title={chatTitle || undefined}
-                        >
-                            {chatTitle || 'PostHog AI'}
-                        </h3>
+                        <Tooltip title={chatTitle || undefined} placement="bottom">
+                            <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">
+                                {chatTitle || 'PostHog AI'}
+                            </h3>
+                        </Tooltip>
                     </div>
                     {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
                         <LemonButton

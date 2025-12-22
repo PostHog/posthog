@@ -27,7 +27,8 @@ export class PersonsStoreTransaction {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
@@ -38,7 +39,8 @@ export class PersonsStoreTransaction {
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
+            primaryDistinctId,
+            extraDistinctIds,
             this.tx
         )
     }

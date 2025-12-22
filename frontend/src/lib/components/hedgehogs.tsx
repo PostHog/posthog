@@ -34,6 +34,7 @@ import runningHog from 'public/hedgehog/running-hog.png'
 import sleepingHog from 'public/hedgehog/sleeping-hog.png'
 import spaceHog from 'public/hedgehog/space-hog.png'
 import starHog from 'public/hedgehog/star-hog.png'
+import stopSignHog from 'public/hedgehog/stop-sign-hog.png'
 import supermanHog from 'public/hedgehog/superman-hog.png'
 import supportHeroHog from 'public/hedgehog/support-hero-hog.png'
 import surprisedHog from 'public/hedgehog/surprised-hog.png'
@@ -180,4 +181,7 @@ export const YCHog = (props: HedgehogProps): JSX.Element => {
 }
 export const BigLeaguesHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={bigLeaguesHog} {...props} />
+}
+export const StopSignHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={stopSignHog} {...props} />
 }

@@ -10,7 +10,8 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { runOnEvent } from '../../worker/plugins/run'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
-import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
+import { counterParseError } from './metrics'
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group

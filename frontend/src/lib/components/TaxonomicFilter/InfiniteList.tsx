@@ -15,6 +15,7 @@ import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definit
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
+    DataWarehousePopoverField,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -187,8 +188,14 @@ const selectedItemHasPopover = (
     )
 }
 
-const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
-    return !!listGroupType && ![TaxonomicFilterGroupType.DataWarehouse].includes(listGroupType)
+const canSelectItem = (
+    listGroupType?: TaxonomicFilterGroupType,
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+): boolean => {
+    return (
+        !!listGroupType &&
+        (dataWarehousePopoverFields?.length === 0 || listGroupType !== TaxonomicFilterGroupType.DataWarehouse)
+    )
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
@@ -202,6 +209,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         value,
         taxonomicGroups,
         selectedProperties,
+        dataWarehousePopoverFields,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -327,7 +335,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                     onClick={() => {
                         return (
-                            canSelectItem(listGroupType) &&
+                            canSelectItem(listGroupType, dataWarehousePopoverFields) &&
                             selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
                         )
                     }}

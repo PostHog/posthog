@@ -5,6 +5,7 @@ import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_e
 import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { urls } from 'scenes/urls'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 import { ReplayTabs } from '~/types'
 
@@ -17,11 +18,13 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         pageUrl: urls.replay(ReplayTabs.Playlists),
     },
     decorators: [
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')

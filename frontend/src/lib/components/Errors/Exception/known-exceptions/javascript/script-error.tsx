@@ -5,7 +5,7 @@ import { KnownExceptionBanner } from './base'
 
 defineKnownException({
     match(exception) {
-        return exception.value === 'Script error' && exception.type === 'Error'
+        return exception.value.startsWith('Script error') && exception.type === 'Error'
     },
     render() {
         return (

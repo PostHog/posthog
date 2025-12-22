@@ -341,11 +341,7 @@ const featureFlagActionsMapping: Record<
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
-    // TODO: handle activity
-    rollback_conditions: () => null,
-    performed_rollback: () => null,
     can_edit: () => null,
-    analytics_dashboards: () => null,
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,

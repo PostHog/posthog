@@ -15,13 +15,7 @@ describe('SessionConsoleLogRecorder', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        recorder = new SessionConsoleLogRecorder(
-            'test_session_id',
-            1,
-            'test_batch_id',
-            mockConsoleLogStore,
-            new Date('2024-03-15T10:00:00.000Z')
-        )
+        recorder = new SessionConsoleLogRecorder('test_session_id', 1, 'test_batch_id', mockConsoleLogStore)
     })
 
     const createConsoleLogEvent = ({
@@ -302,82 +296,6 @@ describe('SessionConsoleLogRecorder', () => {
                     batch_id: 'test_batch_id',
                 },
             ])
-        })
-
-        it('should ignore logs before switchover date', async () => {
-            const switchoverDate = new Date('2024-03-15T10:00:00.000Z')
-            const recorder = new SessionConsoleLogRecorder(
-                'test_session_id',
-                1,
-                'test_batch_id',
-                mockConsoleLogStore,
-                switchoverDate
-            )
-
-            const events = [
-                createConsoleLogEvent({
-                    level: 'info',
-                    payload: ['Before switchover'],
-                    timestamp: new Date('2024-03-15T09:59:59Z').getTime(),
-                }),
-                createConsoleLogEvent({
-                    level: 'warn',
-                    payload: ['After switchover'],
-                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
-                }),
-            ]
-            const message = createMessage('window1', events)
-
-            await recorder.recordMessage(message)
-            const result = recorder.end()
-
-            expect(result.consoleLogCount).toBe(0)
-            expect(result.consoleWarnCount).toBe(1)
-            expect(result.consoleErrorCount).toBe(0)
-
-            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
-                expect.objectContaining({
-                    level: ConsoleLogLevel.Warn,
-                    message: 'After switchover',
-                }),
-            ])
-        })
-
-        it('should skip all logs when metadataSwitchoverDate is null', async () => {
-            const recorder = new SessionConsoleLogRecorder(
-                'test_session_id',
-                1,
-                'test_batch_id',
-                mockConsoleLogStore,
-                null
-            )
-
-            const events = [
-                createConsoleLogEvent({
-                    level: 'info',
-                    payload: ['Test info message'],
-                    timestamp: 1000,
-                }),
-                createConsoleLogEvent({
-                    level: 'warn',
-                    payload: ['Test warning message'],
-                    timestamp: 2000,
-                }),
-                createConsoleLogEvent({
-                    level: 'error',
-                    payload: ['Test error message'],
-                    timestamp: 3000,
-                }),
-            ]
-            const message = createMessage('window1', events)
-
-            await recorder.recordMessage(message)
-            const result = recorder.end()
-
-            expect(result.consoleLogCount).toBe(0)
-            expect(result.consoleWarnCount).toBe(0)
-            expect(result.consoleErrorCount).toBe(0)
-            expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
         })
     })
 

@@ -1,8 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { EventHeaders, Hub, PipelineEvent, PreIngestionEvent, Team } from '../../types'
-import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { EventHeaders, PipelineEvent, PreIngestionEvent, Team } from '../../types'
+import { TeamManager } from '../../utils/team-manager'
+import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
+import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, isOkResult } from '../pipelines/results'
@@ -21,7 +24,10 @@ export type EventPipelineRunnerHeatmapStepResult<TInput> = TInput & {
 }
 
 export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelineRunnerHeatmapStepInput>(
-    hub: Hub,
+    config: EventPipelineRunnerOptions,
+    kafkaProducer: KafkaProducerWrapper,
+    teamManager: TeamManager,
+    groupTypeManager: GroupTypeManager,
     hogTransformer: HogTransformerService,
     personsStore: PersonsStore
 ): ProcessingStep<TInput, EventPipelineRunnerHeatmapStepResult<TInput>> {
@@ -31,7 +37,10 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
         const { normalizedEvent, timestamp, team, headers, groupStoreForBatch } = input
 
         const runner = new EventPipelineRunner(
-            hub,
+            config,
+            kafkaProducer,
+            teamManager,
+            groupTypeManager,
             normalizedEvent,
             hogTransformer,
             personsStore,

@@ -7,9 +7,11 @@ from posthog.schema import (
     ArtifactMessage,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
+    AssistantToolCall,
     AssistantUpdateEvent,
     FailureMessage,
     NotebookUpdateMessage,
+    SubagentUpdateEvent,
 )
 
 from posthog.models import Team, User
@@ -204,7 +206,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
     def _handle_update_message(
         self, event: AssistantDispatcherEvent, action: UpdateAction
-    ) -> AssistantUpdateEvent | None:
+    ) -> AssistantUpdateEvent | SubagentUpdateEvent | None:
         """Handle AssistantMessage that has a parent, creating an AssistantUpdateEvent."""
         if not event.node_path or not action.content:
             return None
@@ -220,6 +222,9 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         if not message_id or not tool_call_id:
             return None
+
+        if isinstance(action.content, AssistantToolCall):
+            return SubagentUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
         return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
@@ -257,8 +262,11 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         # Merge message chunks
         self._chunks[run_id] = merge_message_chunk(self._chunks[run_id], message)
 
-        # Stream ephemeral message (no ID = not persisted)
-        return normalize_ai_message(self._chunks[run_id])
+        # Stream ephemeral messages (no ID = not persisted).
+        # normalize_ai_message() returns a list when server_tool_use blocks are present,
+        # but we only stream the latest message for incremental updates
+        messages = normalize_ai_message(self._chunks[run_id])
+        return messages[-1] if messages else None
 
     async def _handle_node_end(
         self, event: AssistantDispatcherEvent, action: NodeEndAction

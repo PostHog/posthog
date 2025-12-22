@@ -973,6 +973,83 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         )
 
         testWithTeamIngester(
+            'can handle multiple personless events for different users in same batch',
+            {},
+            async (ingester, hub, team) => {
+                const distinctId1 = new UUIDT().toString()
+                const distinctId2 = new UUIDT().toString()
+                const distinctId3 = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId1)
+                            .withEvent('pageview')
+                            .withProperties({ $process_person_profile: false })
+                            .withTimestamp(timestamp)
+                            .build(),
+                        new EventBuilder(team, distinctId2)
+                            .withEvent('pageview')
+                            .withProperties({ $process_person_profile: false })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                        new EventBuilder(team, distinctId3)
+                            .withEvent('pageview')
+                            .withProperties({ $process_person_profile: false })
+                            .withTimestamp(timestamp + 2)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toEqual(3)
+                    expect(events.every((e) => e.event === 'pageview')).toBe(true)
+                    expect(events.every((e) => e.person_mode === 'propertyless')).toBe(true)
+                    expect(events.every((e) => Object.keys(e.person_properties).length === 0)).toBe(true)
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'can handle repeated personless events for same user in same batch',
+            {},
+            async (ingester, hub, team) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([
+                        new EventBuilder(team, distinctId)
+                            .withEvent('pageview')
+                            .withProperties({ $process_person_profile: false, page: '/home' })
+                            .withTimestamp(timestamp)
+                            .build(),
+                        new EventBuilder(team, distinctId)
+                            .withEvent('pageview')
+                            .withProperties({ $process_person_profile: false, page: '/about' })
+                            .withTimestamp(timestamp + 1)
+                            .build(),
+                        new EventBuilder(team, distinctId)
+                            .withEvent('pageview')
+                            .withProperties({ $process_person_profile: false, page: '/contact' })
+                            .withTimestamp(timestamp + 2)
+                            .build(),
+                    ])
+                )
+
+                await waitForExpect(async () => {
+                    const events = await fetchEvents(hub, team.id)
+                    expect(events.length).toEqual(3)
+                    expect(events.every((e) => e.person_mode === 'propertyless')).toBe(true)
+                    // All events should have the same deterministic person UUID
+                    const personIds = events.map((e) => e.person_id)
+                    expect(new Set(personIds).size).toBe(1)
+                })
+            }
+        )
+
+        testWithTeamIngester(
             'can $set and update person properties with top level $set',
             {},
             async (ingester, hub, team) => {

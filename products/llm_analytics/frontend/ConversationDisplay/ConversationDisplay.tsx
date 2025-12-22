@@ -22,7 +22,8 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
 
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        properties: eventProperties,
+        input: eventProperties.$ai_input,
+        output: eventProperties.$ai_output_choices,
     })
 
     const handleTryInPlayground = (): void => {

@@ -455,7 +455,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               }
                             : {
                                   path: shortcutPath,
-                                  type: item.type,
+                                  type: (item as FileSystemImport).iconType || item.type,
                                   ref: item.ref,
                                   href: item.href,
                               }

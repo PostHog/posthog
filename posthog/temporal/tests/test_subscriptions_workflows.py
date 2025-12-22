@@ -49,7 +49,6 @@ async def subscriptions_worker(temporal_client: Client):
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("ee.tasks.subscriptions.send_slack_subscription_report")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets_async")
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -57,7 +56,6 @@ async def subscriptions_worker(temporal_client: Client):
 async def test_subscription_delivery_scheduling(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
-    mock_send_slack: MagicMock,
     mock_metric_meter: MagicMock,
     temporal_client: Client,
     subscriptions_worker,
@@ -121,38 +119,16 @@ async def test_subscription_delivery_scheduling(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    assert mock_send_email.call_count == 0
-
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ScheduleAllSubscriptionsWorkflow],
-            activities=[deliver_subscription_report_activity, fetch_due_subscriptions_activity],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            debug_mode=True,  # turn off sandbox/deadlock detector
-        ):
-            # Enable Temporal subscriptions for this team's organization
-            with patch("posthoganalytics.feature_enabled", return_value=True):
-                await activity_environment.client.execute_workflow(
-                    ScheduleAllSubscriptionsWorkflow.run,
-                    ScheduleAllSubscriptionsWorkflowInputs(),
-                    id=str(uuid.uuid4()),
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                )
-
-    # Each subscription has 2 recipients -> 4 emails expected (only first two subs)
+    # Each subscription has 2 recipients -> 4 emails expected (only first two subs within buffer)
     assert mock_send_email.call_count == 4
     delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets")
+@patch("ee.tasks.subscriptions.generate_assets_async")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_does_not_schedule_subscription_if_item_is_deleted(
@@ -211,7 +187,6 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio
@@ -277,7 +252,6 @@ async def test_handle_subscription_value_change_email(
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("ee.tasks.subscriptions.get_slack_integration_for_team", return_value=None)
 @patch("ee.tasks.subscriptions.generate_assets_async")
 @pytest.mark.asyncio

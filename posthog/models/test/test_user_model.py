@@ -8,6 +8,41 @@ from ee.models.rbac.access_control import AccessControl
 
 
 class TestUser(BaseTest):
+    def test_user_tracks_original_is_active_on_load(self):
+        user = User.objects.create(email="tracker@example.com", is_active=True)
+
+        # Reload from DB to trigger from_db
+        loaded_user = User.objects.get(pk=user.pk)
+
+        # Should have _original_is_active set to current value
+        self.assertTrue(loaded_user._original_is_active)
+        self.assertTrue(loaded_user.is_active)
+
+        # Change is_active and verify _original_is_active still reflects original
+        loaded_user.is_active = False
+        self.assertTrue(loaded_user._original_is_active)  # Still True (original)
+        self.assertFalse(loaded_user.is_active)  # Now False (changed)
+
+    def test_user_refresh_from_db_updates_original_is_active(self):
+        user = User.objects.create(email="refresh@example.com", is_active=True)
+        loaded_user = User.objects.get(pk=user.pk)
+
+        # Simulate external change
+        User.objects.filter(pk=user.pk).update(is_active=False)
+
+        # Before refresh, _original_is_active is still True
+        self.assertTrue(loaded_user._original_is_active)
+
+        # After refresh, _original_is_active should update
+        loaded_user.refresh_from_db()
+        self.assertFalse(loaded_user._original_is_active)
+        self.assertFalse(loaded_user.is_active)
+
+    def test_new_user_instance_has_no_original_is_active(self):
+        # Newly constructed instances (not from DB) won't have _original_is_active
+        new_user = User(email="new@example.com", is_active=True)
+        self.assertFalse(hasattr(new_user, "_original_is_active"))
+
     def test_create_user_with_distinct_id(self):
         with self.settings(TEST=False):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)

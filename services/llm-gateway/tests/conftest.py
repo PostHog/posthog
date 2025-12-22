@@ -63,8 +63,9 @@ def app(mock_db_pool: MagicMock) -> Generator[FastAPI, None, None]:
 
 
 @pytest.fixture
-def client(app: FastAPI) -> TestClient:
-    return TestClient(app)
+def client(app: FastAPI) -> Generator[TestClient, None, None]:
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture
@@ -74,7 +75,7 @@ async def async_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
 
 
 @pytest.fixture
-def authenticated_client(mock_db_pool: MagicMock) -> TestClient:
+def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None, None]:
     app = create_test_app(mock_db_pool)
 
     conn = AsyncMock()
@@ -89,4 +90,5 @@ def authenticated_client(mock_db_pool: MagicMock) -> TestClient:
     mock_db_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
     mock_db_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
 
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c

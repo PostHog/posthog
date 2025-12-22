@@ -1,5 +1,4 @@
 import ast
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
@@ -7,6 +6,8 @@ from typing import Any, Literal, Optional, Union, cast
 
 from posthog.test.base import (
     APIBaseTest,
+    _create_action,
+    _create_person,
     also_test_with_materialized_columns,
     also_test_with_person_on_events_v2,
     snapshot_clickhouse_queries,
@@ -17,13 +18,11 @@ from posthog.schema import BaseMathType, FunnelsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.person.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -40,19 +39,16 @@ class FunnelStepResult:
     action_id: Optional[str] = None
 
 
-def funnel_breakdown_test_factory(
-    funnel_order_type: FunnelOrderType,
-    FunnelPerson,
-    _create_action: Callable[..., Action],
-    _create_person: Callable[..., Person],
-):
+def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+            actors = get_actors_legacy_filters(
+                filter,
+                self.team,
+                funnel_step=funnel_step,
+                funnel_step_breakdown=breakdown_value,
+            )
+            return [actor[0] for actor in actors]
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
@@ -1380,7 +1376,7 @@ def funnel_breakdown_test_factory(
                         count=1,
                         breakdown=["https://posthog.com/docs/x"],
                         type="actions",
-                        action_id=user_signed_up_action.id,  # type: ignore
+                        action_id=user_signed_up_action.id,
                     ),
                     FunnelStepResult(
                         name="paid",
@@ -2743,14 +2739,16 @@ def funnel_breakdown_test_factory(
     return TestFunnelBreakdown
 
 
-def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType, FunnelPerson):
+def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            filter = Filter(data=filter, team=self.team)
-            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
-
-            return [val["id"] for val in serialized_result]
+            actors = get_actors_legacy_filters(
+                filter,
+                self.team,
+                funnel_step=funnel_step,
+                funnel_step_breakdown=breakdown_value,
+            )
+            return [actor[0] for actor in actors]
 
         def _create_groups(self):
             create_group_type_mapping_without_created_at(

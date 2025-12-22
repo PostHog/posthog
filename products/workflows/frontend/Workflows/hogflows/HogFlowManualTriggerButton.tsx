@@ -5,11 +5,13 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyNumber } from 'lib/utils'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
+import { batchTriggerLogic } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -19,10 +21,25 @@ const TriggerPopover = ({
     props: WorkflowLogicProps
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, variableValues, inputs } = useValues(logic)
-    const { setInput, clearInputs, triggerManualWorkflow } = useActions(logic)
+    const { workflow, variableValues, inputs, isScheduleTrigger } = useValues(logic)
+    const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
-    const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
+    const { blastRadius } = useValues(
+        batchTriggerLogic({
+            id: props.id,
+            filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
+        })
+    )
+
+    const blastRadiusSuffix = (): string =>
+        workflow?.trigger?.type === 'batch' && blastRadius
+            ? ` for ${humanFriendlyNumber(blastRadius.users_affected)} users`
+            : ''
+
+    const getButtonText = (): string => {
+        const action = isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'
+        return `${action}${blastRadiusSuffix()}`
+    }
 
     const variablesSection =
         !workflow?.variables || workflow.variables.length === 0 ? (
@@ -85,14 +102,20 @@ const TriggerPopover = ({
                     status="alt"
                     onClick={() => {
                         const scheduledAt = isScheduleTrigger ? (workflow?.trigger as any)?.scheduled_at : undefined
-                        triggerManualWorkflow(variableValues, scheduledAt)
+
+                        if (workflow?.trigger?.type === 'batch') {
+                            triggerBatchWorkflow(variableValues, scheduledAt)
+                        } else {
+                            triggerManualWorkflow(variableValues, scheduledAt)
+                        }
+
                         setPopoverVisible(false)
                         clearInputs()
                     }}
                     data-attr="run-workflow-btn"
                     sideIcon={isScheduleTrigger ? <IconClock /> : <IconPlayFilled />}
                 >
-                    {isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'}
+                    {getButtonText()}
                 </LemonButton>
             </div>
         </div>

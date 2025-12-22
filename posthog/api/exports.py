@@ -118,7 +118,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 created_at__gte=start_of_month,
             ).count()
 
-            if existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM:
+            if (
+                not self.context["request"].user.is_staff
+                and existing_full_video_exports_count >= FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM
+            ):
                 raise ValidationError(
                     {
                         "export_limit_exceeded": [

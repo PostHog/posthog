@@ -73,6 +73,7 @@ export function TaxonomicPropertyFilter({
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
+    endpointFilters,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -98,6 +99,7 @@ export function TaxonomicPropertyFilter({
         eventNames,
         propertyAllowList,
         excludedProperties,
+        endpointFilters,
     })
     const { dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const filter = filters[index] ? sanitizePropertyFilter(filters[index]) : null
@@ -150,6 +152,7 @@ export function TaxonomicPropertyFilter({
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
+            endpointFilters={endpointFilters}
         />
     )
 
@@ -268,6 +271,7 @@ export function TaxonomicPropertyFilter({
                                     onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                                     size={size}
                                     tooltipDocLink={addFilterDocLink}
+                                    truncate={true}
                                 >
                                     {filterContent ?? (addText || 'Add filter')}
                                 </LemonButton>

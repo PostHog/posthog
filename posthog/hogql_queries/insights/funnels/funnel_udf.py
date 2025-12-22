@@ -49,7 +49,7 @@ class FunnelUDFMixin:
             self.context.breakdownAttributionType == BreakdownAttributionType.STEP
             and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
         ):
-            prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+            prop = "prop"
         else:
             prop = "prop_basic"
         if self._query_has_array_breakdown():

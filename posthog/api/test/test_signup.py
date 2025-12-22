@@ -1566,8 +1566,8 @@ class TestInviteSignupAPI(APIBaseTest):
             self.assertEqual(len(mail.outbox), 2)
             # Someone joined email is sent to the initial user
             self.assertListEqual(mail.outbox[0].to, [initial_user.email])
-            # Verify email is sent to the new user
-            self.assertListEqual(mail.outbox[1].to, [invite.target_email])
+            # Verify email is sent to the new user (formatted with name)
+            self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         self.organization.is_member_join_email_enabled = False

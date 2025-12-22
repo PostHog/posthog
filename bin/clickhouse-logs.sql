@@ -223,7 +223,7 @@ AS SELECT
 mapSort(mapApply((k,v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) as attributes_map_str,
 mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))), attributes))) as attributes_map_float,
 mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__datetime'), parseDateTimeBestEffortOrNull(JSONExtract(v, 'String'), 6)), attributes))) as attributes_map_datetime,
-mapSort(resource_attributes) as resource_attributes,
+mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
 toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
 FROM kafka_logs_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 

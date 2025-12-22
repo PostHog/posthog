@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
-import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +13,6 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -46,9 +45,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         changesToSave,
         inProgressViewEdits,
     } = useValues(multitabEditorLogic)
-
-    const { activePanelIdentifier } = useValues(panelLayoutLogic)
-    const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
     const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
         useActions(multitabEditorLogic)
@@ -97,17 +93,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                {activePanelIdentifier !== 'Database' ? (
-                    <LemonButton
-                        onClick={() => setActivePanelIdentifier('Database')}
-                        className="rounded-none"
-                        icon={<IconSidebarClose />}
-                        type="tertiary"
-                        size="xsmall"
-                    >
-                        Data warehouse
-                    </LemonButton>
-                ) : null}
                 <RunButton />
                 <LemonDivider vertical />
                 {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (

@@ -47,6 +47,7 @@ pub fn upload_cmd(args: &Args) -> Result<()> {
         warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
     }
 
+    args.file_selection.validate()?;
     context().capture_command_invoked("sourcemap_upload");
     upload(args)
 }
@@ -56,9 +57,12 @@ pub fn upload(args: &Args) -> Result<()> {
         warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
     }
 
-    let selection = FileSelection::from(args.file_selection.clone()).filter(is_javascript_file);
+    let selection = FileSelection::try_from(args.file_selection.clone())?;
 
-    let pairs = read_pairs(selection, &args.public_path_prefix)?;
+    let pairs = read_pairs(
+        selection.into_iter().filter(is_javascript_file),
+        &args.public_path_prefix,
+    );
 
     let sourcemap_paths = pairs
         .iter()

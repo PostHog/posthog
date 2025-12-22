@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { SparklineTimezone, logsLogic } from './logsLogic'
+import { logsLogic } from './logsLogic'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -201,26 +201,6 @@ describe('logsLogic', () => {
                 expect(logic.values.expandedLogIds.has('log-2')).toBe(false)
                 expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
             })
-        })
-    })
-
-    describe('sparklineTimezone', () => {
-        it('updates when setSparklineTimezone is called', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSparklineTimezone(SparklineTimezone.Device)
-            })
-                .toDispatchActions(['setSparklineTimezone'])
-                .toMatchValues({
-                    sparklineTimezone: SparklineTimezone.Device,
-                })
-
-            await expectLogic(logic, () => {
-                logic.actions.setSparklineTimezone(SparklineTimezone.UTC)
-            })
-                .toDispatchActions(['setSparklineTimezone'])
-                .toMatchValues({
-                    sparklineTimezone: SparklineTimezone.UTC,
-                })
         })
     })
 

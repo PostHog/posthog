@@ -53,6 +53,7 @@ import {
     MultipleSurveyQuestion,
     OnboardingStepKey,
     PersonType,
+    PropertyFilterType,
     QueryBasedInsightModel,
     type SDK,
     Survey,
@@ -680,6 +681,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             is_urgent: boolean
         }) => ({ props }),
         reportWebAnalyticsHealthRefreshed: (props: { overall_status: string; passed_count: number }) => ({ props }),
+        reportWebAnalyticsFilterApplied: (props: {
+            filter_type: string
+            property_filter_category?: PropertyFilterType
+            total_filter_count: number
+        }) => ({ props }),
+        reportWebAnalyticsFilterRemoved: (props: {
+            filter_type: string
+            property_filter_category?: PropertyFilterType
+            total_filter_count: number
+        }) => ({ props }),
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
+        reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
+        reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
+        reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1667,6 +1686,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsHealthRefreshed: ({ props }) => {
             posthog.capture('web analytics health refreshed', props)
+        },
+        reportWebAnalyticsFilterApplied: ({ props }) => {
+            posthog.capture('web analytics filter applied', props)
+        },
+        reportWebAnalyticsFilterRemoved: ({ props }) => {
+            posthog.capture('web analytics filter removed', props)
+        },
+        reportWebAnalyticsDateRangeChanged: ({ props }) => {
+            posthog.capture('web analytics date range changed', props)
+        },
+        reportWebAnalyticsCompareToggled: ({ props }) => {
+            posthog.capture('web analytics compare toggled', props)
+        },
+        reportWebAnalyticsConversionGoalSet: ({ props }) => {
+            posthog.capture('web analytics conversion goal set', props)
+        },
+        reportWebAnalyticsPathCleaningToggled: ({ props }) => {
+            posthog.capture('web analytics path cleaning toggled', props)
         },
     })),
 ])

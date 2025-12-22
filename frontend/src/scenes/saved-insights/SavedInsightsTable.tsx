@@ -8,6 +8,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -113,9 +114,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-secondary">
                     {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                              count === 1 ? '' : 's'
-                          }`
+                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
                         : null}
                 </span>
             </div>

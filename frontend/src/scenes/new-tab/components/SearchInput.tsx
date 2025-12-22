@@ -74,7 +74,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const inputRef = useRef<HTMLInputElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
     const [expandedTags, setExpandedTags] = useState(false)
-    const [isFocused, setIsFocused] = useState(false)
     const isExplorerActive = !!explorerBreadcrumbs?.length && !!onExitExplorer
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
@@ -311,14 +310,14 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
 
     return (
         <div className="relative w-full">
-            <div
+            <label
+                htmlFor="command-input"
                 className={cn(
                     textInputVariants({
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1',
-                    isFocused && 'animate-input-focus-pulse'
+                    'input-like flex flex-wrap gap-1 focus-within:border-secondary items-center rounded-lg py-1'
                 )}
             >
                 {onExitExplorer ? (
@@ -498,12 +497,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     autoFocus
                     autoComplete="off"
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg shadow-none"
-                    onFocus={() => {
-                        setIsFocused(true)
-                    }}
-                    onBlur={() => {
-                        setIsFocused(false)
-                    }}
                     size="lg"
                     suffix={
                         (inputValue !== '' || selectedCommands.length > 0) && (
@@ -530,7 +523,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         )
                     }
                 />
-            </div>
+            </label>
         </div>
     )
 })

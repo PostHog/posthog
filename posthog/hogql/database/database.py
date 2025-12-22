@@ -55,7 +55,11 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
+from posthog.hogql.database.schema.document_embeddings import (
+    HOGQL_MODEL_TABLES,
+    DocumentEmbeddingsTable,
+    RawDocumentEmbeddingsTable,
+)
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -82,7 +86,9 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
+from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
+from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -178,6 +184,9 @@ class Database(BaseModel):
             "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
             "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
             "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
+            "precalculated_person_properties": TableNode(
+                name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
+            ),
             "log_entries": TableNode(name="log_entries", table=LogEntriesTable()),
             "query_log": TableNode(name="query_log", table=QueryLogArchiveTable()),
             "app_metrics": TableNode(name="app_metrics", table=AppMetrics2Table()),
@@ -189,6 +198,8 @@ class Database(BaseModel):
             "heatmaps": TableNode(name="heatmaps", table=HeatmapsTable()),
             "exchange_rate": TableNode(name="exchange_rate", table=ExchangeRateTable()),
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
+            # Register model-specific embedding tables
+            **{name: TableNode(name=name, table=table) for name, table in HOGQL_MODEL_TABLES.items()},
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
             "logs": TableNode(name="logs", table=LogsTable()),
             "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
@@ -207,6 +218,7 @@ class Database(BaseModel):
             "web_pre_aggregated_bounces": TableNode(
                 name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()
             ),
+            "preaggregation_results": TableNode(name="preaggregation_results", table=PreaggregationResultsTable()),
             # Revenue analytics tables
             "persons_revenue_analytics": TableNode(
                 name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()

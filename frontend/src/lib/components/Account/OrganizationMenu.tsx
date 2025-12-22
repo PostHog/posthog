@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { OrgCombobox } from 'lib/components/Account/OrgCombobox'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
@@ -51,7 +51,7 @@ export function OrganizationMenu({
                                 <span className="truncate font-semibold">
                                     {currentOrganization ? currentOrganization.name : 'Select organization'}
                                 </span>
-                                <DropdownMenuOpenIndicator />
+                                <MenuOpenIndicator />
                             </>
                         )}
                     </ButtonPrimitive>

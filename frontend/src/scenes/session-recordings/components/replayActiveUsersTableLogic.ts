@@ -60,14 +60,14 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                 sp.person_id,
                 sp.pp,
                 count(distinct sp.session_id) as total_count
-            FROM session_persons sp 
+            FROM session_persons sp
             WHERE sp.person_id IS NOT NULL
             GROUP BY sp.person_id, sp.pp
             ORDER BY total_count DESC
             LIMIT 10
                 `
 
-                const qResponse = await api.queryHogQL(q)
+                const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
 
                 breakpoint()
 

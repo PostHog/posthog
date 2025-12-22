@@ -18,8 +18,10 @@ from dagster import (
 )
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
@@ -286,31 +288,52 @@ def _do_backfill(
     cluster = get_cluster()
     tags = dagster_tags(context)
 
-    def backfill_per_shard(client: Client):
-        with tags_context(kind="dagster", dagster=tags):
-            for chunk_i in range(team_id_chunks):
-                # Check for too many unmerged parts before processing each chunk
-                wait_for_parts_to_merge(context, config, sync_client=client)
+    num_shards = cluster.num_shards
+    context.log.info(f"Cluster has shards {cluster.shards}, using num_shards={num_shards} for shard filtering")
 
-                # Add team_id chunking to the where clause if needed
-                if team_id_chunks > 1:
-                    chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
-                    context.log.info(
-                        f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+    def make_backfill_fn(shard_num: int) -> Callable[[Client], None]:
+        def backfill_for_shard(client: Client):
+            shard_index = shard_num - 1  # Convert 1-indexed to 0-indexed
+            context.log.info(f"Starting backfill on shard {shard_num} (shard_index={shard_index})")
+
+            with tags_context(kind="dagster", dagster=tags):
+                for chunk_i in range(team_id_chunks):
+                    # Check for too many unmerged parts before processing each chunk
+                    wait_for_parts_to_merge(context, config, sync_client=client)
+
+                    # Add team_id chunking to the where clause if needed
+                    if team_id_chunks > 1:
+                        chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
+                        context.log.info(
+                            f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                        )
+                    else:
+                        chunk_where_clause = where_clause
+
+                    # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
+                    # as long as the backfill has run at least once for each partition, the data will be correct
+                    backfill_sql = sql_template(
+                        where=chunk_where_clause,
+                        shard_index=shard_index,
+                        num_shards=num_shards,
                     )
-                else:
-                    chunk_where_clause = where_clause
+                    context.log.info(backfill_sql)
+                    sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
 
-                # note that this is idempotent, so we don't need to worry about running it multiple times for the same partition
-                # as long as the backfill has run at least once for each partition, the data will be correct
-                backfill_sql = sql_template(where=chunk_where_clause, use_sharded_source=True)
-                context.log.info(backfill_sql)
-                sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
+                    if team_id_chunks > 1:
+                        context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
 
-                if team_id_chunks > 1:
-                    context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+            context.log.info(f"Completed backfill on shard {shard_num}")
 
-    cluster.map_one_host_per_shard(backfill_per_shard).result()
+        return backfill_for_shard
+
+    workload, node_role = (Workload.OFFLINE, NodeRole.DATA) if is_cloud() else (Workload.DEFAULT, NodeRole.ALL)
+
+    cluster.map_any_host_in_shards_by_role(
+        shard_fns={shard: make_backfill_fn(shard) for shard in cluster.shards},
+        workload=workload,
+        node_role=node_role,
+    ).result()
 
     context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")
 

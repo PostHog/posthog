@@ -1,0 +1,5 @@
+{
+    "name": "@posthog/products-analytics-platform",
+    "dependencies": {},
+    "peerDependencies": {}
+}

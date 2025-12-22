@@ -42,9 +42,9 @@ describe('PostgresPersonRepository', () => {
     // Helper function to create a person with all the necessary setup
     async function createTestPerson(teamId: number, distinctId: string, properties: Record<string, any> = {}) {
         const uuid = new UUIDT().toString()
-        const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, [
-            { distinctId },
-        ])
+        const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, {
+            distinctId,
+        })
         if (!result.success) {
             throw new Error('Failed to create person')
         }
@@ -187,9 +187,9 @@ describe('PostgresPersonRepository', () => {
             const uuid = new UUIDT().toString()
             const properties = { name: 'John Doe', email: 'john@example.com' }
 
-            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, true, uuid, [
-                { distinctId: 'test-distinct-id' },
-            ])
+            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, true, uuid, {
+                distinctId: 'test-distinct-id',
+            })
 
             if (!result.success) {
                 throw new Error('Failed to create person')
@@ -219,10 +219,18 @@ describe('PostgresPersonRepository', () => {
             const uuid = new UUIDT().toString()
             const properties = { name: 'Jane Doe' }
 
-            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, false, uuid, [
+            const result = await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
                 { distinctId: 'distinct-1', version: 0 },
-                { distinctId: 'distinct-2', version: 1 },
-            ])
+                [{ distinctId: 'distinct-2', version: 1 }]
+            )
             if (!result.success) {
                 throw new Error('Failed to create person')
             }
@@ -255,35 +263,6 @@ describe('PostgresPersonRepository', () => {
             expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe('1')
         })
 
-        it('creates a person without distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
-            const uuid = new UUIDT().toString()
-            const properties = { name: 'Anonymous' }
-
-            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, false, uuid)
-
-            if (!result.success) {
-                throw new Error('Failed to create person')
-            }
-            const person = result.person
-            const kafkaMessages = result.messages
-
-            expect(person).toEqual(
-                expect.objectContaining({
-                    id: expect.any(String),
-                    uuid: uuid,
-                    team_id: team.id,
-                    properties: properties,
-                    is_identified: false,
-                    created_at: TIMESTAMP,
-                    version: 0,
-                })
-            )
-
-            expect(kafkaMessages).toHaveLength(1) // Only person message, no distinct ID messages
-            expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
-        })
-
         it('throws error when trying to create a person with the same distinct ID twice', async () => {
             const team = await getFirstTeam(hub)
             const distinctId = 'duplicate-distinct-id'
@@ -300,7 +279,7 @@ describe('PostgresPersonRepository', () => {
                 null,
                 true,
                 uuid1,
-                [{ distinctId }]
+                { distinctId }
             )
 
             if (!result1.success) {
@@ -322,7 +301,7 @@ describe('PostgresPersonRepository', () => {
                 null,
                 true,
                 uuid2,
-                [{ distinctId }]
+                { distinctId }
             )
 
             expect(createPersonResult.success).toBe(false)
@@ -385,9 +364,10 @@ describe('PostgresPersonRepository', () => {
     describe('deletePerson()', () => {
         it('should delete person from postgres', async () => {
             const team = await getFirstTeam(hub)
-            // Create person without distinct IDs to keep deletion process simpler
             const uuid = new UUIDT().toString()
-            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, {
+                distinctId: 'delete-test-distinct',
+            })
             if (!result.success) {
                 throw new Error('Failed to create person')
             }
@@ -395,6 +375,14 @@ describe('PostgresPersonRepository', () => {
             const kafkaMessages = result.messages
 
             await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+
+            // Delete distinct IDs first to avoid FK constraint violation
+            await hub.db.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [person.id],
+                'deleteDistinctIds'
+            )
 
             const deleteMessages = await repository.deletePerson(person)
 
@@ -751,21 +739,6 @@ describe('PostgresPersonRepository', () => {
             expect(distinctIds1).toHaveLength(4) // 1 from createTestPerson + 3 added
         })
 
-        it('should return empty array when person has no distinct IDs', async () => {
-            const team = await getFirstTeam(hub)
-            // Create person without distinct IDs
-            const uuid = new UUIDT().toString()
-            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
-            if (!result.success) {
-                throw new Error('Failed to create person')
-            }
-            const person = result.person
-
-            const distinctIds = await repository.fetchPersonDistinctIds(person)
-
-            expect(distinctIds).toEqual([])
-        })
-
         it('should handle limit larger than available distinct IDs', async () => {
             const team = await getFirstTeam(hub)
             const person = await createTestPerson(team.id, 'large-limit-distinct', { name: 'Test Person' })
@@ -1077,6 +1050,91 @@ describe('PostgresPersonRepository', () => {
             )
             expect(selectResult.rows).toHaveLength(1)
             expect(selectResult.rows[0].is_merged).toBe(true)
+        })
+    })
+
+    describe('addPersonlessDistinctIdsBatch', () => {
+        it('should insert multiple personless distinct IDs in batch', async () => {
+            const team = await getFirstTeam(hub)
+            const entries = [
+                { teamId: team.id, distinctId: 'batch-distinct-1' },
+                { teamId: team.id, distinctId: 'batch-distinct-2' },
+                { teamId: team.id, distinctId: 'batch-distinct-3' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            // All should be not merged (new inserts)
+            expect(results.size).toBe(3)
+            expect(results.get(`${team.id}|batch-distinct-1`)).toBe(false)
+            expect(results.get(`${team.id}|batch-distinct-2`)).toBe(false)
+            expect(results.get(`${team.id}|batch-distinct-3`)).toBe(false)
+
+            // Verify records were inserted
+            const selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT distinct_id, is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 ORDER BY distinct_id`,
+                [team.id],
+                'verifyBatchInsert'
+            )
+            expect(selectResult.rows).toHaveLength(3)
+        })
+
+        it('should handle duplicate distinct IDs in batch (deduplicates)', async () => {
+            const team = await getFirstTeam(hub)
+            const entries = [
+                { teamId: team.id, distinctId: 'dup-distinct' },
+                { teamId: team.id, distinctId: 'dup-distinct' },
+                { teamId: team.id, distinctId: 'other-distinct' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            // Should have 2 unique entries
+            expect(results.size).toBe(2)
+            expect(results.get(`${team.id}|dup-distinct`)).toBe(false)
+            expect(results.get(`${team.id}|other-distinct`)).toBe(false)
+        })
+
+        it('should return is_merged=true for already merged distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const mergedDistinctId = 'already-merged-distinct'
+
+            // First, insert and mark as merged
+            await repository.addPersonlessDistinctIdForMerge(team.id, mergedDistinctId)
+
+            // Now try to batch insert including the merged one
+            const entries = [
+                { teamId: team.id, distinctId: mergedDistinctId },
+                { teamId: team.id, distinctId: 'new-distinct' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            expect(results.size).toBe(2)
+            expect(results.get(`${team.id}|${mergedDistinctId}`)).toBe(true) // Already merged
+            expect(results.get(`${team.id}|new-distinct`)).toBe(false) // New insert
+        })
+
+        it('should handle empty batch', async () => {
+            const results = await repository.addPersonlessDistinctIdsBatch([])
+            expect(results.size).toBe(0)
+        })
+
+        it('should handle multiple teams in same batch', async () => {
+            const team1 = await getFirstTeam(hub)
+            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
+
+            const entries = [
+                { teamId: team1.id, distinctId: 'shared-distinct' },
+                { teamId: team2Id, distinctId: 'shared-distinct' },
+            ]
+
+            const results = await repository.addPersonlessDistinctIdsBatch(entries)
+
+            expect(results.size).toBe(2)
+            expect(results.get(`${team1.id}|shared-distinct`)).toBe(false)
+            expect(results.get(`${team2Id}|shared-distinct`)).toBe(false)
         })
     })
 
@@ -1414,7 +1472,7 @@ describe('PostgresPersonRepository', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'source_person' }]
+                { distinctId: 'source_person' }
             )
             if (!result.success) {
                 throw new Error('Failed to create person')
@@ -1431,7 +1489,7 @@ describe('PostgresPersonRepository', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'target_person' }]
+                { distinctId: 'target_person' }
             )
             if (!result2.success) {
                 throw new Error('Failed to create person')
@@ -1704,7 +1762,7 @@ describe('PostgresPersonRepository', () => {
                         null,
                         true,
                         uuid,
-                        [{ distinctId: 'test-oversized' }]
+                        { distinctId: 'test-oversized' }
                     )
                 ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
@@ -1718,7 +1776,7 @@ describe('PostgresPersonRepository', () => {
                         null,
                         true,
                         uuid,
-                        [{ distinctId: 'test-oversized-2' }]
+                        { distinctId: 'test-oversized-2' }
                     )
                 ).rejects.toThrow('Person properties create would exceed size limit')
 
@@ -2041,7 +2099,7 @@ describe('PostgresPersonRepository', () => {
                         null,
                         true,
                         uuid,
-                        [{ distinctId: 'test-metrics' }]
+                        { distinctId: 'test-metrics' }
                     )
                 } catch (error) {}
 
@@ -2346,7 +2404,7 @@ describe('PostgresPersonRepository', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                [{ distinctId: 'test-metrics-create' }]
+                { distinctId: 'test-metrics-create' }
             )
 
             // Verify metrics were recorded for all three fields (3 calls total)
@@ -2461,7 +2519,7 @@ describe('PostgresPersonRepository', () => {
                 null,
                 true,
                 new UUIDT().toString(),
-                [{ distinctId: 'test-metrics-large' }]
+                { distinctId: 'test-metrics-large' }
             )
 
             // Should have 3 calls (properties, properties_last_updated_at, properties_last_operation)

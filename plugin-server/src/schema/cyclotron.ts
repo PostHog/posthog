@@ -73,12 +73,14 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
         email: z.string(),
         name: z.string().optional(),
     }),
+    replyTo: z.string().optional(),
     from: z.object({
         email: z.string(),
         name: z.string().optional(),
         integrationId: z.number(),
     }),
     subject: z.string(),
+    preheader: z.string().optional(),
     text: z.string(),
     html: z.string(),
 })

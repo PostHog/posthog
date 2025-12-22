@@ -6,7 +6,7 @@ import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { objectsEqual } from '~/lib/utils'
+import { objectsEqual, pluralize } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Dataset } from '~/types'
@@ -136,7 +136,7 @@ export const llmAnalyticsDatasetsLogic = kea<llmAnalyticsDatasetsLogicType>([
                 const start = (filters.page - 1) * DATASETS_PER_PAGE + 1
                 const end = Math.min(filters.page * DATASETS_PER_PAGE, count)
 
-                return count === 0 ? '0 datasets' : `${start}-${end} of ${count} dataset${count === 1 ? '' : 's'}`
+                return count === 0 ? '0 datasets' : `${start}-${end} of ${pluralize(count, 'dataset')}`
             },
         ],
     }),

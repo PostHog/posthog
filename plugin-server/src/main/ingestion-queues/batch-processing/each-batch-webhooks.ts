@@ -13,8 +13,7 @@ import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { TeamManager } from '../../../utils/team-manager'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
-import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { HookCommander } from '../../../worker/ingestion/hooks'
+import { HookCommander, instrumentWebhookStep } from '../../../worker/ingestion/hooks'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
 
@@ -22,6 +21,7 @@ export const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
     help: 'Number silent failures from async handlers.',
 })
+
 // exporting only for testing
 export function groupIntoBatchesByUsage(
     array: KafkaMessage[],
@@ -226,7 +226,10 @@ async function runWebhooks(actionMatcher: ActionMatcher, hookCannon: HookCommand
     const timer = new Date()
 
     try {
-        await processWebhooksStep(event, actionMatcher, hookCannon)
+        const actionMatches = actionMatcher.match(event)
+        await instrumentWebhookStep('findAndfireHooks', async () => {
+            await hookCannon.findAndFireHooks(event, actionMatches)
+        })
         pipelineStepMsSummary.labels('processWebhooksStep').observe(Date.now() - timer.getTime())
     } catch (error) {
         pipelineStepErrorCounter.labels('processWebhooksStep').inc()

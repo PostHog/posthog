@@ -108,6 +108,11 @@ export function ProductToursTable(): JSX.Element {
                                             {!tour.start_date && (
                                                 <LemonButton
                                                     fullWidth
+                                                    disabledReason={
+                                                        !tour.content?.conditions?.url
+                                                            ? 'Set a URL pattern before launching'
+                                                            : undefined
+                                                    }
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Launch this product tour?',

@@ -116,7 +116,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                         ORDER BY timestamp DESC
                         LIMIT 100`
 
-                    const res = await api.queryHogQL(query)
+                    const res = await api.queryHogQL(query, { scene: 'Heatmaps', productKey: 'heatmaps' })
 
                     return res.results?.map((x) => x[0]) as string[]
                 },
@@ -137,7 +137,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                         ORDER BY count DESC
                         LIMIT 10`
 
-                    const res = await api.queryHogQL(query)
+                    const res = await api.queryHogQL(query, { scene: 'Heatmaps', productKey: 'heatmaps' })
 
                     return res.results?.map((x) => ({ url: x[0], count: x[1] })) as { url: string; count: number }[]
                 },

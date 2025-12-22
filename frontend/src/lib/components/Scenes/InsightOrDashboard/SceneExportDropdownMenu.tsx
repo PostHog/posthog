@@ -6,9 +6,9 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { ExportContext, ExporterFormat, OnlineExportContext } from '~/types'
 
@@ -40,7 +40,7 @@ export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdo
                 <ButtonPrimitive menuItem>
                     <IconDownload />
                     Export
-                    <DropdownMenuOpenIndicator className="ml-auto" />
+                    <MenuOpenIndicator className="ml-auto" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>

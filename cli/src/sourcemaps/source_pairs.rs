@@ -1,12 +1,13 @@
 use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::content::{MinifiedSourceFile, SourceMapFile},
-    utils::files::FileSelection,
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use tracing::{debug, info, warn};
+use walkdir::DirEntry;
 
+#[derive(Debug)]
 // Source pairs are the fundamental unit of a frontend symbol set
 pub struct SourcePair {
     pub source: MinifiedSourceFile,
@@ -79,9 +80,11 @@ impl SourcePair {
     }
 }
 
-pub fn read_pairs(selection: FileSelection, prefix: &Option<String>) -> Result<Vec<SourcePair>> {
+pub fn read_pairs(
+    selection: impl Iterator<Item = DirEntry>,
+    prefix: &Option<String>,
+) -> Vec<SourcePair> {
     let pairs = selection
-        .try_into_iter()?
         .filter_map(|entry| {
             let path = entry.path();
             let entry_path = path
@@ -107,9 +110,8 @@ pub fn read_pairs(selection: FileSelection, prefix: &Option<String>) -> Result<V
             Some(SourcePair { source, sourcemap })
         })
         .collect::<Vec<SourcePair>>();
-
     info!("found {} pairs", pairs.len());
-    Ok(pairs)
+    pairs
 }
 
 impl TryInto<SymbolSetUpload> for SourcePair {

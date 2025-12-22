@@ -498,12 +498,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
-    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
-    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-        return scrollableEl.parentElement
+    let current = element.parentElement
+    while (current) {
+        if (current.classList.contains('SidePanel3000__content')) {
+            return current
+        }
+        if (current.tagName === 'MAIN') {
+            return current
+        }
+        current = current.parentElement
     }
-    return scrollableEl
+    return null
 }
 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [

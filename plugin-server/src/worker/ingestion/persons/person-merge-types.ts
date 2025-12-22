@@ -150,33 +150,33 @@ export function createDefaultSyncMergeMode(): MergeMode {
 /**
  * Helper function to determine merge mode based on hub configuration
  */
-export function determineMergeMode(hub: {
-    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
-    PERSON_MERGE_ASYNC_ENABLED: boolean
-    PERSON_MERGE_ASYNC_TOPIC: string
-    PERSON_MERGE_SYNC_BATCH_SIZE: number
-}): MergeMode {
+export function determineMergeMode(
+    personMergeMoveDistinctIdLimit: number,
+    personMergeAsyncEnabled: boolean,
+    personMergeAsyncTopic: string,
+    personMergeSyncBatchSize: number
+): MergeMode {
     // If async merge is enabled and topic is configured, use async mode for over-limit merges
-    if (hub.PERSON_MERGE_ASYNC_ENABLED && hub.PERSON_MERGE_ASYNC_TOPIC && hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT > 0) {
+    if (personMergeAsyncEnabled && personMergeAsyncTopic && personMergeMoveDistinctIdLimit > 0) {
         return {
             type: 'ASYNC',
-            topic: hub.PERSON_MERGE_ASYNC_TOPIC,
-            limit: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+            topic: personMergeAsyncTopic,
+            limit: personMergeMoveDistinctIdLimit,
         }
     }
 
     // If no async and we have a limit, use limit mode (reject over-limit merges)
-    if (hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT > 0) {
+    if (personMergeMoveDistinctIdLimit > 0) {
         return {
             type: 'LIMIT',
-            limit: hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+            limit: personMergeMoveDistinctIdLimit,
         }
     }
 
-    if (hub.PERSON_MERGE_SYNC_BATCH_SIZE > 0) {
+    if (personMergeSyncBatchSize > 0) {
         return {
             type: 'SYNC',
-            batchSize: hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+            batchSize: personMergeSyncBatchSize,
         }
     }
 

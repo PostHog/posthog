@@ -36,7 +36,17 @@ class TeamInline(TabularInlinePaginated):
         "plugins_opt_in",
         "opt_out_capture",
     )
-    readonly_fields = [*TeamAdmin.readonly_fields[:-2], "displayed_name"]
+    readonly_fields = [
+        f
+        for f in TeamAdmin.readonly_fields
+        if f
+        not in (
+            "internal_properties",
+            "export_individual_replay",
+            "import_individual_replay",
+            "remote_config_cache_actions",
+        )
+    ] + ["displayed_name"]
 
     def displayed_name(self, team: Team):
         return format_html(

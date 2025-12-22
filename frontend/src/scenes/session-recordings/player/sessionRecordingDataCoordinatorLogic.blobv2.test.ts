@@ -127,15 +127,14 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                 },
             ])
             expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
-            expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(11)
-            // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
+            // raw snapshots are cleared after processing to free memory
+            expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(0)
+            // blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
             expect(logic.values.snapshotsBySources['blob_v2-1']).toEqual({
                 sourceLoaded: true,
             })
+            // processed snapshots are stored in the cache
             expect(logic.cache.processingCache.snapshots['blob_v2-0']).toHaveLength(11)
-            expect(logic.cache.processingCache.snapshots['blob_v2-0']).toEqual(
-                logic.values.snapshotsBySources['blob_v2-0'].snapshots
-            )
         })
     })
 })

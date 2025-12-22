@@ -7,6 +7,8 @@ from unittest import skip
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     Breakdown,
     BreakdownFilter,
@@ -18,6 +20,9 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
 )
 
 from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
@@ -138,9 +143,151 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.key)
                 self.assertIsNotNone(variant.number_of_samples)
 
+    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_breakdown(self):
+    def test_mean_metric_breakdown_with_changing_property_values(self, name, use_new_query_builder):
+        """
+        Regression test for bug where users with different breakdown values across exposures
+        were counted multiple times (once per unique breakdown value).
+
+        Tests that users with multiple exposure events having different breakdown property
+        values are attributed to the breakdown value from their FIRST exposure only.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control user who changes browser between exposures
+        _create_person(distinct_ids=["user_control_changing"], team_id=self.team.pk)
+
+        # First exposure with Chrome at 12:00
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_changing",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Chrome",
+            },
+        )
+
+        # Second exposure with Safari at 13:00 (user switched browser)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_changing",
+            timestamp="2020-01-02T13:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Safari",
+            },
+        )
+
+        # Purchase event at 14:00
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_changing",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 100,
+                "$browser": "Safari",
+            },
+        )
+
+        # Control user with consistent browser
+        _create_person(distinct_ids=["user_control_consistent"], team_id=self.team.pk)
+
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_consistent",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Firefox",
+            },
+        )
+
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_consistent",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 50,
+                "$browser": "Firefox",
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify results
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+
+        # Should have 2 breakdown categories (Chrome and Firefox)
+        # NOT 3 (Chrome, Safari, Firefox) even though changing user had Safari exposure
+        # The user should be attributed to Chrome (first exposure)
+        self.assertEqual(len(result.breakdown_results), 2)
+
+        breakdown_values = [br.breakdown_value for br in result.breakdown_results]
+        self.assertIn(["Chrome"], breakdown_values)
+        self.assertIn(["Firefox"], breakdown_values)
+        # Safari should NOT appear as a breakdown
+        self.assertNotIn(["Safari"], breakdown_values)
+
+        # Find Chrome breakdown (has the changing user)
+        chrome_breakdown = next(br for br in result.breakdown_results if br.breakdown_value == ["Chrome"])
+        self.assertIsNotNone(chrome_breakdown.baseline)
+
+        # Should have exactly 1 user in Chrome (the changing user, attributed to first exposure)
+        self.assertEqual(chrome_breakdown.baseline.number_of_samples, 1)
+        self.assertEqual(chrome_breakdown.baseline.sum, 100)  # Their purchase amount
+
+        # Find Firefox breakdown (has the consistent user)
+        firefox_breakdown = next(br for br in result.breakdown_results if br.breakdown_value == ["Firefox"])
+        self.assertEqual(firefox_breakdown.baseline.number_of_samples, 1)
+        self.assertEqual(firefox_breakdown.baseline.sum, 50)
+
+    @parameterized.expand([("new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_breakdown(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -1639,3 +1786,302 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             for variant in breakdown_result.variants:
                 self.assertIsNotNone(variant.sum)
                 self.assertIsNotNone(variant.denominator_sum)
+
+    @parameterized.expand([("new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_metric_with_breakdown(self, name, use_new_query_builder):
+        """
+        Test retention metric with single breakdown dimension.
+
+        Retention = (users who completed) / (users who started)
+        Breakdown by $browser (Chrome/Safari)
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="login",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - different retention rates per browser
+        # Chrome: 2 users, 2 sign up, 2 return (100% retention)
+        # Safari: 2 users, 2 sign up, 1 returns (50% retention)
+        for i in range(4):
+            browser = "Chrome" if i < 2 else "Safari"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            # Exposure event with breakdown property
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": browser,
+                },
+            )
+
+            # All users sign up (start event)
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+            # Chrome users all return, Safari only first one returns
+            if i < 2 or i == 2:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-05T12:00:00Z",  # Day 3 after signup
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test group
+        # Chrome: 2 users, 2 sign up, 1 returns (50% retention)
+        # Safari: 2 users, 2 sign up, 2 return (100% retention)
+        for i in range(4):
+            browser = "Chrome" if i < 2 else "Safari"
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            # Exposure event with breakdown property
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": browser,
+                },
+            )
+
+            # All users sign up (start event)
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+            # Safari users all return, Chrome only first one returns
+            if i >= 2 or i == 0:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2020-01-05T12:00:00Z",  # Day 3 after signup
+                    properties={feature_flag_property: "test"},
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        self.assertIsNotNone(result.baseline)
+        self.assertIsNotNone(result.variant_results)
+
+        # Verify breakdown_results is populated with per-breakdown statistics
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)
+
+        # Verify each breakdown has correct structure (breakdown_value is a list)
+        for breakdown_result in result.breakdown_results:
+            self.assertIn(breakdown_result.breakdown_value, [["Chrome"], ["Safari"]])
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsNotNone(breakdown_result.variants)
+            self.assertGreater(len(breakdown_result.variants), 0)
+
+            baseline = breakdown_result.baseline
+            self.assertIsNotNone(baseline.number_of_samples)
+            self.assertIsNotNone(baseline.sum)
+
+            for variant in breakdown_result.variants:
+                self.assertIsNotNone(variant.number_of_samples)
+                self.assertIsNotNone(variant.sum)
+
+    @parameterized.expand([("new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_metric_with_two_breakdowns(self, name, use_new_query_builder):
+        """
+        Test retention metric with two breakdown dimensions.
+
+        Breakdown by $browser × $os
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="login",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser"), Breakdown(property="$os")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group - 4 breakdown combinations: Chrome×Mac, Chrome×Windows, Safari×Mac, Safari×Windows
+        for i in range(8):
+            browser = "Chrome" if i < 4 else "Safari"
+            os = "Mac" if i % 2 == 0 else "Windows"
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            # Exposure event with breakdown properties
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": browser,
+                    "$os": os,
+                },
+            )
+
+            # All users sign up
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+            # First user of each combination returns (50% retention per combination)
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-05T12:00:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test group
+        for i in range(8):
+            browser = "Chrome" if i < 4 else "Safari"
+            os = "Mac" if i % 2 == 0 else "Windows"
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            # Exposure event with breakdown properties
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                    "$browser": browser,
+                    "$os": os,
+                },
+            )
+
+            # All users sign up
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+            # All users return (100% retention)
+            _create_event(
+                team=self.team,
+                event="login",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        self.assertIsNotNone(result.baseline)
+        self.assertIsNotNone(result.variant_results)
+
+        # Verify breakdown_results has all 4 combinations
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 4)
+
+        # Verify each breakdown has correct structure (breakdown_value is a list of 2 elements)
+        breakdown_values = [br.breakdown_value for br in result.breakdown_results]
+        expected_combinations = [
+            ["Chrome", "Mac"],
+            ["Chrome", "Windows"],
+            ["Safari", "Mac"],
+            ["Safari", "Windows"],
+        ]
+        for expected in expected_combinations:
+            self.assertIn(expected, breakdown_values)
+
+        for breakdown_result in result.breakdown_results:
+            self.assertIsNotNone(breakdown_result.baseline)
+            self.assertIsNotNone(breakdown_result.variants)
+            self.assertGreater(len(breakdown_result.variants), 0)

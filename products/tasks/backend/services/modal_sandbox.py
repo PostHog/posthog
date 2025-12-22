@@ -1,11 +1,13 @@
 import os
 import uuid
 import logging
-from typing import Optional, cast
+from functools import lru_cache
+from typing import cast
 
 from django.conf import settings
 
 import modal
+import requests
 
 from posthog.exceptions_capture import capture_exception
 
@@ -27,6 +29,46 @@ logger = logging.getLogger(__name__)
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
+SANDBOX_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
+
+
+@lru_cache(maxsize=1)
+def _get_sandbox_image_reference() -> str:
+    """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
+    so Modal fetches the correct version. Queries GHCR once per deployment.
+    """
+    try:
+        token_resp = requests.get(
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:posthog/posthog-sandbox-base:pull",
+            timeout=10,
+        )
+        if token_resp.status_code != 200:
+            logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
+            return f"{SANDBOX_IMAGE}:master"
+
+        token = token_resp.json().get("token")
+        if not token:
+            logger.warning("GHCR token response missing token field")
+            return f"{SANDBOX_IMAGE}:master"
+
+        manifest_resp = requests.get(
+            "https://ghcr.io/v2/posthog/posthog-sandbox-base/manifests/master",
+            headers={
+                "Accept": "application/vnd.oci.image.index.v1+json",
+                "Authorization": f"Bearer {token}",
+            },
+            timeout=10,
+        )
+        if manifest_resp.status_code == 200:
+            digest = manifest_resp.headers.get("Docker-Content-Digest")
+            if digest:
+                logger.info(f"Resolved sandbox image digest: {digest}")
+                return f"{SANDBOX_IMAGE}@{digest}"
+        logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Failed to fetch sandbox image digest: {e}")
+
+    return f"{SANDBOX_IMAGE}:master"
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
@@ -41,7 +83,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
             return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
         else:
-            return modal.Image.from_registry("ghcr.io/posthog/posthog-sandbox-base:master")
+            return modal.Image.from_registry(_get_sandbox_image_reference())
 
     raise ValueError(f"Unknown template: {template}")
 
@@ -142,7 +184,7 @@ class ModalSandbox:
     def execute(
         self,
         command: str,
-        timeout_seconds: Optional[int] = None,
+        timeout_seconds: int | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
@@ -187,7 +229,7 @@ class ModalSandbox:
                 cause=e,
             )
 
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError(f"Sandbox not in running state.")
 

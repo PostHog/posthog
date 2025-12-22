@@ -10,7 +10,7 @@ from langchain_core.messages import (
     BaseMessage as LangchainBaseMessage,
 )
 from langgraph.graph import END, START
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, field_validator
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, RootModel, field_validator
 from pydantic_core import CoreSchema, core_schema
 
 from posthog.schema import (
@@ -24,28 +24,22 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     AssistantUpdateEvent,
     BaseAssistantMessage,
     ContextMessage,
     FailureMessage,
-    FunnelsQuery,
-    HogQLQuery,
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     PlanningMessage,
     ReasoningMessage,
-    RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsTopCustomersQuery,
+    SubagentUpdateEvent,
     TaskExecutionItem,
     TaskExecutionMessage,
     TaskExecutionStatus,
-    TrendsQuery,
     VisualizationMessage,
 )
 
@@ -73,28 +67,23 @@ AIMessageUnion = Union[
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
 AssistantStreamedMessageUnion = Union[AssistantMessageUnion, ArtifactMessage]
-AssistantResultUnion = Union[AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
+AssistantResultUnion = Union[
+    AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent, SubagentUpdateEvent
+]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]
     | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
-    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
+    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent | SubagentUpdateEvent]
 )
 
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 )
-AnyAssistantSupportedQuery = (
-    TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | HogQLQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsTopCustomersQuery
-)
+AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
+
+
 # We define this since AssistantMessageUnion is a type and wouldn't work with isinstance()
 ASSISTANT_MESSAGE_TYPES = (
     HumanMessage,
@@ -556,7 +545,7 @@ class NodeEndAction(BaseModel, Generic[PartialStateType]):
 
 class UpdateAction(BaseModel):
     type: Literal["UPDATE"] = "UPDATE"
-    content: str
+    content: str | AssistantToolCall
 
 
 AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
@@ -579,3 +568,7 @@ class AssistantDispatcherEvent(BaseModel):
 
 class LangGraphUpdateEvent(BaseModel):
     update: Any
+
+
+class AssistantSupportedQueryRoot(RootModel[AnyAssistantGeneratedQuery]):
+    root: AnyAssistantGeneratedQuery = Field(..., discriminator="kind")

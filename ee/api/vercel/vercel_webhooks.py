@@ -87,13 +87,13 @@ def vercel_webhook(request: Request) -> Response:
 
     logger.info("vercel_webhook_received", event_type=event_type, config_id=config_id)
 
-    if not config_id:
-        logger.error("vercel_webhook_missing_config_id", event_type=event_type)
-        return Response({"error": "Missing configurationId"}, status=status.HTTP_400_BAD_REQUEST)
-
     if not _is_billing_event(event_type):
         logger.info("vercel_webhook_non_billing_event", event_type=event_type)
         return Response({"status": "ignored"}, status=status.HTTP_200_OK)
+
+    if not config_id:
+        logger.error("vercel_webhook_missing_config_id", event_type=event_type)
+        return Response({"error": "Missing configurationId"}, status=status.HTTP_400_BAD_REQUEST)
 
     assert event_type is not None  # Guaranteed by _is_billing_event check above
 

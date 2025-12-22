@@ -31,8 +31,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, surveys_hypercache
 from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
+
+from products.product_tours.backend.models import ProductTour
 
 
 class TestSurvey(APIBaseTest):
@@ -497,7 +499,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1263,6 +1265,33 @@ class TestSurvey(APIBaseTest):
                 }
             ],
         }
+
+    def test_list_surveys_excludes_product_tour_linked_surveys(self):
+        regular_survey = Survey.objects.create(
+            team=self.team,
+            name="Regular survey",
+            type="popover",
+            questions=[{"type": "open", "question": "How are you?"}],
+        )
+
+        product_tour_survey = Survey.objects.create(
+            team=self.team,
+            name="Product tour survey",
+            type="api",
+            questions=[{"type": "rating", "question": "Rate this step"}],
+        )
+        product_tour = ProductTour.objects.create(
+            team=self.team,
+            name="Test Tour",
+            content={"steps": []},
+        )
+        product_tour.linked_surveys.add(product_tour_survey)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == str(regular_survey.id)
 
     def test_updating_survey_name_validates(self):
         survey_with_targeting = self.client.post(
@@ -3340,6 +3369,11 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
 
+        # Clear the surveys hypercache to ensure we're testing against fresh data.
+        # The hypercache stores data in both Redis/LocMemCache AND S3 object storage,
+        # and cache.clear() only clears the former.
+        surveys_hypercache.clear_cache(self.team.api_token)
+
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             # First time builds the remote config which uses a bunch of queries
             with self.assertNumQueries(3):
@@ -3368,6 +3402,11 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
         )
         self.client.logout()
+
+        # Clear the surveys hypercache to ensure we're testing against fresh data.
+        # The hypercache stores data in both Redis/LocMemCache AND S3 object storage,
+        # and cache.clear() only clears the former.
+        surveys_hypercache.clear_cache(self.team.api_token)
 
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             cache_response = self._get_surveys(token=self.team.api_token).json()

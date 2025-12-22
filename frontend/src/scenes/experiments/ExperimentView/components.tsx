@@ -23,10 +23,12 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
@@ -43,6 +45,8 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -272,8 +276,13 @@ export function ResultsHeader(): JSX.Element {
 
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
+    const { isVisible: isPageVisible } = usePageVisibility()
 
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         let count = 1
         let direction = 1
 
@@ -287,7 +296,7 @@ export function EllipsisAnimation(): JSX.Element {
         }, 300)
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     return <span>{ellipsis}</span>
 }
@@ -483,7 +492,17 @@ export function PageHeaderCustom(): JSX.Element {
                         </ButtonPrimitive>
 
                         {experiment.feature_flag && (
-                            <ButtonPrimitive menuItem onClick={() => setSurveyModalOpen(true)}>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    setSurveyModalOpen(true)
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.EXPERIMENTS,
+                                        to: ProductKey.SURVEYS,
+                                        intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                    })
+                                }}
+                            >
                                 <IconPlusSmall /> Create survey
                             </ButtonPrimitive>
                         )}
@@ -683,7 +702,11 @@ export function ShipVariantModal(): JSX.Element {
             // First test variant selected by default
             setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
         }
-    }, [experiment.id])
+    }, [
+        experiment.id,
+        experiment.parameters?.feature_flag_variants?.length,
+        experiment.parameters?.feature_flag_variants,
+    ])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null

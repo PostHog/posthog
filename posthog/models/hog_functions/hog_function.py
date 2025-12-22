@@ -106,6 +106,13 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
+    batch_export = models.ForeignKey(
+        "posthog.BatchExport",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)

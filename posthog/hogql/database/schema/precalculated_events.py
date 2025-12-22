@@ -10,7 +10,7 @@ from posthog.hogql.database.models import (
 
 
 class PrecalculatedEventsTable(Table):
-    """Table for precalculated behavioral events populated by CdpBehaviouralEventsConsumer."""
+    """Table for precalculated behavioral events populated by CdpRealtimeCohortsConsumer."""
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),

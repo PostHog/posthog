@@ -1,6 +1,5 @@
 from posthog.test.base import APIBaseTest
-
-from inline_snapshot import snapshot
+from unittest.mock import patch
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -155,17 +154,13 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
 
-        assert hog_flow.trigger["filters"].get("bytecode") == snapshot(
-            ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
-        )
+        assert hog_flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
 
-        assert hog_flow.actions[1]["filters"].get("bytecode") == snapshot(
-            ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
-        )
+        assert hog_flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
-        assert hog_flow.actions[1]["config"]["inputs"] == snapshot(
-            {"url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}}
-        )
+        assert hog_flow.actions[1]["config"]["inputs"] == {
+            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+        }
 
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
@@ -215,7 +210,7 @@ class TestHogFlowAPI(APIBaseTest):
         conditions = response.json()["actions"][1]["config"]["conditions"]
         assert "filters" in conditions[0]
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
-        assert conditions[0]["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+        assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
@@ -263,7 +258,7 @@ class TestHogFlowAPI(APIBaseTest):
         condition = response.json()["actions"][1]["config"]["condition"]
         assert "filters" in condition
         assert "bytecode" in condition["filters"], condition["filters"]
-        assert condition["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+        assert condition["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
     def test_hog_flow_condition_and_conditions_mutually_exclusive(self):
         trigger_action = {
@@ -392,3 +387,117 @@ class TestHogFlowAPI(APIBaseTest):
             "detail": "Event filters are not allowed in conditionals",
             "type": "validation_error",
         }
+
+    def test_hog_flow_batch_trigger_valid_filters(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": [{"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}]
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["trigger"]["type"] == "batch"
+        assert response.json()["trigger"]["filters"]["properties"][0]["key"] == "email"
+
+    def test_hog_flow_batch_trigger_without_filters(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+
+    def test_hog_flow_batch_trigger_filters_not_dict(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": "not a dict",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters",
+            "code": "invalid_input",
+            "detail": "Filters must be a dictionary.",
+            "type": "validation_error",
+        }
+
+    def test_hog_flow_batch_trigger_properties_not_array(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": "not an array",
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters__properties",
+            "code": "invalid_input",
+            "detail": "Properties must be an array.",
+            "type": "validation_error",
+        }
+
+    def test_hog_flow_user_blast_radius_requires_filters(self):
+        with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
+
+        assert response.status_code == 400, response.json()
+        assert "Missing filters" in response.json().get("detail", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    def test_hog_flow_user_blast_radius_returns_counts(self):
+        with patch("posthog.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            mock_get_user_blast_radius.return_value = (4, 10)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"users_affected": 4, "total_users": 10}
+        mock_get_user_blast_radius.assert_called_once_with(self.team, {"properties": []})

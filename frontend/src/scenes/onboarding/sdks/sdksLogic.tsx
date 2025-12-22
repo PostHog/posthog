@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -49,7 +49,7 @@ export const sdksLogic = kea<sdksLogicType>([
         values: [
             onboardingLogic,
             ['productKey'],
-            liveEventsTableLogic({ tabId: 'onboarding' }),
+            liveEventsLogic,
             ['eventHosts'],
             featureFlagLogic,
             ['featureFlags'],
@@ -195,13 +195,17 @@ export const sdksLogic = kea<sdksLogicType>([
                         ORDER BY latest_timestamp DESC
                         LIMIT 7`
 
-                    const res = await api.queryHogQL(query, {
-                        queryParams: {
-                            values: {
-                                protocol: window.location.protocol,
+                    const res = await api.queryHogQL(
+                        query,
+                        { scene: 'Onboarding', productKey: 'platform_and_support' },
+                        {
+                            queryParams: {
+                                values: {
+                                    protocol: window.location.protocol,
+                                },
                             },
-                        },
-                    })
+                        }
+                    )
                     const hasEvents = !!(res.results?.length ?? 0 > 0)
                     const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
                     if (hasEvents) {

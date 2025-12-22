@@ -178,7 +178,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 const newTask = await api.tasks.create(taskData)
                 lemonToast.success('Task created successfully')
-                router.actions.push(`/tasks/${newTask.id}`)
+
+                // Auto-run the task after creation
+                const taskWithRun = await api.tasks.run(newTask.id)
+                const runId = taskWithRun.latest_run?.id
+                router.actions.push(`/tasks/${newTask.id}` + (runId ? `?runId=${runId}` : ''))
+
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
                 actions.closeCreateModal()

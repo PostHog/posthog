@@ -1,3 +1,5 @@
+import { P, match } from 'ts-pattern'
+
 import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import {
@@ -219,6 +221,16 @@ export function stringify(value: any): string {
     } catch {}
 
     return ''
+}
+
+export function formatFunctionName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang' | 'mangled_name'>
+): string | undefined {
+    const functionName: string | undefined = frame.resolved_name ?? frame.mangled_name ?? undefined
+    return match([frame.lang, frame.module, functionName])
+        .with(['java', P.string, P.string], ([_, module, functionName]) => `${module}.${functionName}`)
+        .with(['java', P.string, P.nullish], ([_, module]) => `${module}`)
+        .otherwise(() => functionName)
 }
 
 export function formatResolvedName(

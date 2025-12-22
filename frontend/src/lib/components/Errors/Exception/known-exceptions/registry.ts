@@ -8,7 +8,11 @@ export class KnownExceptionRegistry {
     }
 
     static match(exception: ErrorTrackingException): KnownException | undefined {
-        return this.knownExceptionList.find((knownException) => knownException.match(exception))
+        try {
+            return this.knownExceptionList.find((knownException) => knownException.match(exception))
+        } catch {
+            return undefined
+        }
     }
 }
 

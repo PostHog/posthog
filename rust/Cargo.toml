@@ -78,9 +78,12 @@ governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
 http-body-util = "0.1.0"
 httpmock = "0.7.0"
+hyper = { version = "1.6", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
+metrics-util = "0.16.0"
 once_cell = "1.18.0"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
@@ -126,7 +129,7 @@ aws-sdk-s3 = "1.58.0"
 mockall = "0.13.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
-redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async"] }
+redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async", "tls-rustls", "tls-rustls-webpki-roots", "tokio-rustls-comp"] }
 regex = "1.11.1"
 lz-str = "0.2.1"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
@@ -141,3 +144,4 @@ clickhouse = { version = "0.13.2", features = [
 # Used for decrypting django encrypted fields
 fernet = "0.2"
 tiktoken-rs = "0.7.0"
+sha2 = "0.10"

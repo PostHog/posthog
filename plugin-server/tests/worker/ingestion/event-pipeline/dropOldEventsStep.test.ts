@@ -10,7 +10,7 @@ describe('dropOldEventsStep()', () => {
     let hub: any
     let organizationId: string
     let teamId: number
-    let mockRunner: any
+    let mockKafkaProducer: any
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -18,14 +18,8 @@ describe('dropOldEventsStep()', () => {
         organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
 
-        mockRunner = {
-            hub: {
-                db: {
-                    kafkaProducer: {
-                        queueMessages: jest.fn().mockResolvedValue(undefined),
-                    },
-                },
-            },
+        mockKafkaProducer = {
+            queueMessages: jest.fn().mockResolvedValue(undefined),
         }
     })
 
@@ -117,7 +111,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of events) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toEqual(event)
             }
         })
@@ -160,7 +154,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of eventsThatShouldPass) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toEqual(event)
             }
 
@@ -184,7 +178,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of eventsThatShouldBeDropped) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toBeNull()
             }
         })
@@ -222,7 +216,7 @@ describe('dropOldEventsStep()', () => {
 
             // Zero threshold is ignored to protect from accidentally dropping all events
             for (const event of eventsWithDifferentAges) {
-                const result = await dropOldEventsStep(mockRunner, event, teamZeroThreshold)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, teamZeroThreshold)
                 expect(result).toEqual(event)
             }
         })
@@ -259,7 +253,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of eventsThatShouldPass) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toEqual(event)
             }
 
@@ -280,7 +274,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of eventsThatShouldBeDropped) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toBeNull()
             }
         })
@@ -315,7 +309,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of eventsThatShouldPass) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toEqual(event)
             }
 
@@ -336,7 +330,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of eventsThatShouldBeDropped) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toBeNull()
             }
         })
@@ -349,7 +343,7 @@ describe('dropOldEventsStep()', () => {
                 eventType: '2_days_old',
             })
 
-            const result = await dropOldEventsStep(mockRunner, event, team)
+            const result = await dropOldEventsStep(mockKafkaProducer, event, team)
 
             expect(result).toBeNull()
         })
@@ -362,7 +356,7 @@ describe('dropOldEventsStep()', () => {
                 eventType: '1_month_old',
             })
 
-            const result = await dropOldEventsStep(mockRunner, event, team)
+            const result = await dropOldEventsStep(mockKafkaProducer, event, team)
 
             expect(result).toBeNull()
         })
@@ -375,7 +369,7 @@ describe('dropOldEventsStep()', () => {
                 eventType: '2_years_old',
             })
 
-            const result = await dropOldEventsStep(mockRunner, event, team)
+            const result = await dropOldEventsStep(mockKafkaProducer, event, team)
 
             expect(result).toBeNull()
         })
@@ -402,7 +396,7 @@ describe('dropOldEventsStep()', () => {
             ]
 
             for (const event of futureEvents) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toEqual(event)
             }
         })
@@ -430,7 +424,7 @@ describe('dropOldEventsStep()', () => {
 
             // Invalid timestamps should be handled gracefully and events should pass through
             for (const event of invalidTimestampEvents) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
+                const result = await dropOldEventsStep(mockKafkaProducer, event, team)
                 expect(result).toEqual(event)
             }
         })
@@ -456,11 +450,11 @@ describe('dropOldEventsStep()', () => {
                 eventType: 'old_event_for_warning',
             })
 
-            const result = await dropOldEventsStep(mockRunner, oldEvent, team)
+            const result = await dropOldEventsStep(mockKafkaProducer, oldEvent, team)
             expect(result).toBeNull()
 
-            // Verify that the warning was logged via the runner
-            expect(mockRunner.hub.db.kafkaProducer.queueMessages).toHaveBeenCalledWith({
+            // Verify that the warning was logged via the kafkaProducer
+            expect(mockKafkaProducer.queueMessages).toHaveBeenCalledWith({
                 topic: 'clickhouse_ingestion_warnings_test',
                 messages: [
                     {

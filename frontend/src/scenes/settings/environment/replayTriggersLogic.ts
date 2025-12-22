@@ -3,9 +3,10 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionReplayUrlTriggerConfig, TeamPublicType, TeamType } from '~/types'
+import { TeamPublicType, TeamType } from '~/types'
 
 import type { replayTriggersLogicType } from './replayTriggersLogicType'
 
@@ -26,10 +27,10 @@ function ensureAnchored(url: string): string {
 export const replayTriggersLogic = kea<replayTriggersLogicType>([
     path(['scenes', 'settings', 'project', 'replayTriggersLogic']),
     actions({
-        setUrlTriggerConfig: (urlTriggerConfig: SessionReplayUrlTriggerConfig[]) => ({ urlTriggerConfig }),
-        addUrlTrigger: (urlTriggerConfig: SessionReplayUrlTriggerConfig) => ({ urlTriggerConfig }),
+        setUrlTriggerConfig: (urlTriggerConfig: UrlTriggerConfig[]) => ({ urlTriggerConfig }),
+        addUrlTrigger: (urlTriggerConfig: UrlTriggerConfig) => ({ urlTriggerConfig }),
         removeUrlTrigger: (index: number) => ({ index }),
-        updateUrlTrigger: (index: number, urlTriggerConfig: SessionReplayUrlTriggerConfig) => ({
+        updateUrlTrigger: (index: number, urlTriggerConfig: UrlTriggerConfig) => ({
             index,
             urlTriggerConfig,
         }),
@@ -37,10 +38,10 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         newUrlTrigger: true,
         cancelProposingUrlTrigger: true,
 
-        setUrlBlocklistConfig: (urlBlocklistConfig: SessionReplayUrlTriggerConfig[]) => ({ urlBlocklistConfig }),
-        addUrlBlocklist: (urlBlocklistConfig: SessionReplayUrlTriggerConfig) => ({ urlBlocklistConfig }),
+        setUrlBlocklistConfig: (urlBlocklistConfig: UrlTriggerConfig[]) => ({ urlBlocklistConfig }),
+        addUrlBlocklist: (urlBlocklistConfig: UrlTriggerConfig) => ({ urlBlocklistConfig }),
         removeUrlBlocklist: (index: number) => ({ index }),
-        updateUrlBlocklist: (index: number, urlBlocklistConfig: SessionReplayUrlTriggerConfig) => ({
+        updateUrlBlocklist: (index: number, urlBlocklistConfig: UrlTriggerConfig) => ({
             index,
             urlBlocklistConfig,
         }),
@@ -57,7 +58,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
         urlTriggerConfig: [
-            null as SessionReplayUrlTriggerConfig[] | null,
+            null as UrlTriggerConfig[] | null,
             {
                 setUrlTriggerConfig: (_, { urlTriggerConfig }) => urlTriggerConfig,
                 addUrlTrigger: (state, { urlTriggerConfig }) => [...(state ?? []), urlTriggerConfig],
@@ -85,7 +86,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             },
         ],
         urlBlocklistConfig: [
-            null as SessionReplayUrlTriggerConfig[] | null,
+            null as UrlTriggerConfig[] | null,
             {
                 setUrlBlocklistConfig: (_, { urlBlocklistConfig }) => urlBlocklistConfig,
                 addUrlBlocklist: (state, { urlBlocklistConfig }) => [...(state ?? []), urlBlocklistConfig],
@@ -272,7 +273,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
     })),
     forms(({ values, actions }) => ({
         proposedUrlTrigger: {
-            defaults: { url: '', matching: 'regex' } as SessionReplayUrlTriggerConfig,
+            defaults: { url: '', matching: 'regex' } as UrlTriggerConfig,
             errors: ({ url }) => ({
                 url: !url
                     ? 'Must have a URL'
@@ -294,7 +295,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             },
         },
         proposedUrlBlocklist: {
-            defaults: { url: '', matching: 'regex' } as SessionReplayUrlTriggerConfig,
+            defaults: { url: '', matching: 'regex' } as UrlTriggerConfig,
             errors: ({ url }) => ({
                 url: !url ? 'Must have a URL' : undefined,
             }),

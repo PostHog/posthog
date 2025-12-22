@@ -23,6 +23,10 @@ class TestUrls(APIBaseTest):
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
+        # Root path should redirect to /login without ?next=/ since "/" is the default destination
+        response = self.client.get("/")
+        self.assertRedirects(response, "/login")
+
         response = self.client.get("/events")
         self.assertRedirects(response, "/login?next=/events")
 

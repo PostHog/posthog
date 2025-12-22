@@ -233,7 +233,7 @@
             arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
             arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date) -> if(has(start_event_timestamps, interval_date), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range))) AS start_interval_index,
             arrayJoin(arrayConcat(if(has(start_event_timestamps, date_range[plus(start_interval_index, 1)]), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 11), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
-     FROM events SAMPLE 1.0
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id

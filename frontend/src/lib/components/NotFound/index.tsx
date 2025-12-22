@@ -195,7 +195,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                             }
 
                             // Now proceed with the login-as request
-                            const loginResponse = await fetch(`/admin/login/user/${user.id}/`, {
+                            const loginResponse = await fetch(`/admin/login/user/${user.id}/read-only/`, {
                                 method: 'POST',
                                 credentials: 'same-origin',
                                 mode: 'cors',

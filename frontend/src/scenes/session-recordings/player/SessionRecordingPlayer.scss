@@ -13,10 +13,21 @@
         flex-shrink: 0;
         min-width: 20rem;
         max-width: 95%;
-        overflow: hidden;
+        padding-left: 0.5rem;
 
         &--collapsed {
             min-width: 0;
+            padding-left: 0;
+        }
+
+        &__content {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            overflow: hidden;
+            background-color: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
+            border-radius: var(--radius);
         }
 
         &__tabs {
@@ -33,6 +44,12 @@
             min-width: 100%;
             max-width: 100%;
             max-height: 60%;
+            padding-top: 0.5rem;
+            padding-left: 0;
+
+            &--collapsed {
+                padding-top: 0;
+            }
         }
     }
 }

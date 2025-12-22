@@ -277,6 +277,12 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub db_monitor_interval_secs: u64,
 
+    // How often to report cohort cache metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(default = "30")]
+    pub cohort_cache_monitor_interval_secs: u64,
+
     // Pool utilization percentage that triggers warnings (0.0-1.0)
     // - Lower values (e.g., 0.7) provide earlier warnings
     // - Higher values (e.g., 0.9) reduce alert noise
@@ -310,8 +316,26 @@ pub struct Config {
     #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
     pub team_ids_to_track: TeamIdCollection,
 
-    #[envconfig(from = "CACHE_MAX_COHORT_ENTRIES", default = "100000")]
-    pub cache_max_cohort_entries: u64,
+    /// Maximum memory capacity for the cohort cache in bytes.
+    ///
+    /// The cache uses memory-based eviction to prevent unbounded memory growth.
+    /// Each cached cohort's memory footprint is estimated based on its serialized
+    /// JSON filter and query sizes (not exact heap usage, but proportional to it).
+    /// When the cache exceeds this limit, least recently used entries are evicted.
+    ///
+    /// Default: 268435456 bytes (256 MB)
+    /// Environment variable: COHORT_CACHE_CAPACITY_BYTES
+    ///
+    /// Common values:
+    /// - 134217728 (128 MB) - For memory-constrained environments
+    /// - 268435456 (256 MB) - Default, good balance
+    /// - 536870912 (512 MB) - For high-traffic instances with many teams
+    ///
+    /// Note: Individual cache entries cannot exceed ~4 GB (u32::MAX) due to the
+    /// weigher's u32 return type, though the total cache capacity can exceed this.
+    /// In practice, individual cohorts rarely exceed 1 MB, so this is not a concern.
+    #[envconfig(from = "COHORT_CACHE_CAPACITY_BYTES", default = "268435456")]
+    pub cohort_cache_capacity_bytes: u64,
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
@@ -539,6 +563,7 @@ impl Config {
             persons_reader_statement_timeout_ms: 5000,
             writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
+            cohort_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
             health_check_interval_secs: 30,
@@ -546,7 +571,7 @@ impl Config {
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
-            cache_max_cohort_entries: 100_000,
+            cohort_cache_capacity_bytes: 268_435_456, // 256 MB
             cache_ttl_seconds: 300,
             team_cache_ttl_seconds: 432000,
             flags_cache_ttl_seconds: 432000,

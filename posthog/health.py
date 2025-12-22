@@ -17,6 +17,7 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
+import os
 from collections.abc import Callable
 from typing import Literal, cast, get_args
 from urllib.parse import urljoin
@@ -89,6 +90,18 @@ def livez(request: HttpRequest):
     return JsonResponse({"http": True})
 
 
+def is_shutting_down() -> bool:
+    """
+    Check if the pod is in the process of shutting down by looking for the
+    prestop marker file created by the Kubernetes preStop hook.
+
+    Returns False if PRESTOP_MARKER_FILE setting is empty (disables the check).
+    """
+    if not settings.PRESTOP_MARKER_FILE:
+        return False
+    return os.path.exists(settings.PRESTOP_MARKER_FILE)
+
+
 def readyz(request: HttpRequest):
     """
     Validate that everything this process need to operate correctly is in place.
@@ -111,6 +124,10 @@ def readyz(request: HttpRequest):
     and can be used to specify that a subset of dependencies should be checked,
     specific to the role a process is playing.
     """
+    if is_shutting_down():
+        logger.info("prestop_marker_detected", marker_file=settings.PRESTOP_MARKER_FILE)
+        return JsonResponse({"shutting_down": True}, status=503)
+
     exclude = set(request.GET.getlist("exclude", []))
     role = request.GET.get("role", None)
 

@@ -3,9 +3,6 @@
 import json
 from pathlib import Path
 
-# Feature flag
-LLM_ANALYTICS_TRANSLATION = "llm-analytics-translation"
-
 # Load supported languages from shared JSON file
 _LANGUAGES_JSON_PATH = Path(__file__).parent.parent.parent / "shared" / "supported_languages.json"
 with open(_LANGUAGES_JSON_PATH) as f:

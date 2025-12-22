@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Sequence
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import structlog
 from langchain_core.messages import BaseMessage
@@ -94,8 +94,8 @@ class AgentToolkitManager:
         cls._mode_toolkit = mode_toolkit
         cls._mode_registry = mode_registry
 
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
-        toolkits = [self._agent_toolkit, self._mode_toolkit]
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool | dict[str, Any]"]:
+        toolkits: list[type[AgentToolkit]] = [self._agent_toolkit, self._mode_toolkit]
 
         # Accumulate positive and negative examples from all toolkits
         positive_examples: list[TodoWriteExample] = []

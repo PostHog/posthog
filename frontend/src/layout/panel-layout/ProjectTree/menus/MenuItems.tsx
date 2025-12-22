@@ -23,6 +23,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { pluralize } from 'lib/utils'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
 
@@ -66,7 +67,7 @@ export function MenuItems({
     const { selectedPaths: customProductsSelectedPaths } = useValues(editCustomProductsModalLogic)
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
-    const { checkedItems, checkedItemsCount, checkedItemCountNumeric, checkedItemsArray } = useValues(
+    const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
         projectTreeLogic(projectTreeLogicProps)
     )
 
@@ -188,7 +189,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-move-checked-items-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Move {checkedItemsCount} selected item{checkedItemsCount === '1' ? '' : 's'} here
+                            Move {pluralize(checkedItemCountNumeric, 'selected item')} here
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuItem
@@ -200,7 +201,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-create-shortcut-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
+                            Create {pluralize(checkedItemCountNumeric, 'shortcut')} here
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuSeparator />

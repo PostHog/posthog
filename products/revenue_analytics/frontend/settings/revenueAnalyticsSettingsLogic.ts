@@ -2,6 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -199,9 +201,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             // TODO: Check how to pass the preflight region here
             values.currentTeam?.revenue_analytics_config || createEmptyConfig(),
             {
-                updateCurrentTeam: (_, { revenue_analytics_config }) => {
+                updateCurrentTeam: (state, { revenue_analytics_config }) => {
+                    // Only update if revenue_analytics_config is explicitly provided
+                    if (revenue_analytics_config === undefined) {
+                        return state
+                    }
                     // TODO: Check how to pass the preflight region here
                     return revenue_analytics_config || createEmptyConfig()
+                },
+                loadRevenueAnalyticsConfigSuccess: (_, { revenueAnalyticsConfig }) => {
+                    return revenueAnalyticsConfig || createEmptyConfig()
                 },
             },
         ],
@@ -302,6 +311,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         const updateCurrentTeam = (): void => {
             if (values.revenueAnalyticsConfig) {
                 actions.updateCurrentTeam({ revenue_analytics_config: values.revenueAnalyticsConfig })
+                lemonToast.success('Revenue analytics config saved')
             }
         }
 

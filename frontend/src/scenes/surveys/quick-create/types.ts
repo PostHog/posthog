@@ -8,11 +8,13 @@ export type QuickSurveyContext =
     | { type: QuickSurveyType.EXPERIMENT; experiment: Experiment }
     | { type: QuickSurveyType.ANNOUNCEMENT }
     | { type: QuickSurveyType.ERROR_TRACKING; exceptionType: string; exceptionMessage?: string | null }
+    | { type: QuickSurveyType.WEB_PATH; path: string }
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext
     info?: React.ReactNode
     onCancel?: () => void
+    showFollowupToggle?: boolean
 }
 
 export enum QuickSurveyType {
@@ -21,4 +23,5 @@ export enum QuickSurveyType {
     EXPERIMENT = 'experiment',
     ANNOUNCEMENT = 'announcement',
     ERROR_TRACKING = 'error_tracking',
+    WEB_PATH = 'web_path',
 }

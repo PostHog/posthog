@@ -108,6 +108,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
+        "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
     }
 
     def create_integration(
@@ -249,6 +251,54 @@ class TestOauthIntegrationModel(BaseTest):
                 "access_token": "FAKES_ACCESS_TOKEN",
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "id_token": None,
+            }
+
+    @patch("posthog.models.integration.requests.post")
+    def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
+        """
+        LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
+        so we extract user info from the id_token JWT instead.
+        """
+        import json
+        import base64
+
+        # Create a mock JWT id_token with sub and email in the payload
+        jwt_payload = {"sub": "linkedin_user_123", "email": "user@example.com", "iat": 1704110400}
+        encoded_payload = base64.urlsafe_b64encode(json.dumps(jwt_payload).encode()).decode().rstrip("=")
+        mock_id_token = f"eyJhbGciOiJSUzI1NiJ9.{encoded_payload}.fake_signature"
+
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
+                "expires_in": 3600,
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "linkedin-ads",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            assert integration.team == self.team
+            assert integration.created_by == self.user
+            # Verify sub and email were extracted from JWT
+            assert integration.config["sub"] == "linkedin_user_123"
+            assert integration.config["email"] == "user@example.com"
+            assert integration.config["refreshed_at"] == 1704110400
+            assert integration.config["expires_in"] == 3600
+
+            assert integration.sensitive_config == {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
             }
 
     def test_integration_access_token_expired(self):

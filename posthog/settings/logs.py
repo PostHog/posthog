@@ -96,6 +96,9 @@ LOGGING = {
         "posthog.tasks.email": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.exports": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.llm_analytics_usage_report": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.tasks.hypercache_verification": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.storage.hypercache_verifier": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
     },

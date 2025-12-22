@@ -46,10 +46,21 @@ export const taskLogic = kea<taskLogicType>([
             },
         ],
     })),
-
-    listeners(({ actions }) => ({
+    listeners(({ values }) => ({
+        loadTaskSuccess: () => {
+            if (values.task) {
+                tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
+        },
         runTaskSuccess: () => {
-            actions.loadTask()
+            if (values.task) {
+                tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
+        },
+        updateTaskSuccess: () => {
+            if (values.task) {
+                tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
         },
     })),
 ])

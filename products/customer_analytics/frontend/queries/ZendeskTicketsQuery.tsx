@@ -11,21 +11,24 @@ const DEFAULT_COLUMN_CONFIG: QueryContextColumn = {
 
 const ZENDESK_TICKETS_QUERY_COLUMNS = ['id', 'url', 'subject', 'status', 'priority', 'created_at', 'updated_at']
 
-interface ZendeskTicketsQueryProps {
-    personId: string
+interface BaseZendeskTicketsQueryProps {
     status?: string
     priority?: string
     orderBy?: string
     orderDirection?: string
 }
 
-export const zendeskTicketsQuery = ({
+interface ZendeskPersonTicketsQueryProps extends BaseZendeskTicketsQueryProps {
+    personId: string
+}
+
+export const zendeskPersonTicketsQuery = ({
     personId,
     status,
     priority,
     orderBy,
     orderDirection,
-}: ZendeskTicketsQueryProps): DataTableNode => {
+}: ZendeskPersonTicketsQueryProps): DataTableNode => {
     const conditions: string[] = ['1=1']
     if (status && status !== 'all') {
         conditions.push(`status = '${status}'`)
@@ -69,10 +72,49 @@ export const zendeskTicketsQuery = ({
     }
 }
 
+interface ZendeskGroupTicketsQueryProps extends BaseZendeskTicketsQueryProps {
+    groupKey: string
+}
+
+export const zendeskGroupTicketsQuery = ({
+    groupKey,
+    status,
+    priority,
+    orderBy,
+    orderDirection,
+}: ZendeskGroupTicketsQueryProps): DataTableNode => {
+    const conditions: string[] = [`o.external_id = '${groupKey}'`]
+    if (status && status !== 'all') {
+        conditions.push(`status = '${status}'`)
+    }
+    if (priority && priority !== 'all') {
+        conditions.push(`priority = '${priority}'`)
+    }
+
+    return {
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query: hogql`
+            select t.id, t.url, t.subject, t.status, t.priority, t.created_at as created_at, t.updated_at as updated_at
+            from zendesk_organizations o
+            inner join zendesk_tickets t on o.id = t.organization_id
+            where ${hogql.raw(conditions.join(' AND '))}
+            order by t.${hogql.identifier(orderBy || 'updated_at')} ${hogql.identifier(orderDirection || 'asc')}
+            limit 500
+            `,
+        },
+        showTimings: false,
+        showOpenEditorButton: false,
+        hiddenColumns: ['url'],
+        columns: ZENDESK_TICKETS_QUERY_COLUMNS,
+    }
+}
+
 export const useZendeskTicketsQueryContext = (): QueryContext => {
     return {
         columns: {
-            id: DEFAULT_COLUMN_CONFIG,
+            id: { ...DEFAULT_COLUMN_CONFIG, render: ({ value }) => <span className="ph-no-capture">{value}</span> },
             status: DEFAULT_COLUMN_CONFIG,
             priority: DEFAULT_COLUMN_CONFIG,
             created_at: { ...DEFAULT_COLUMN_CONFIG, title: 'created' },
@@ -84,9 +126,11 @@ export const useZendeskTicketsQueryContext = (): QueryContext => {
                     const urlIndex = ZENDESK_TICKETS_QUERY_COLUMNS.indexOf('url')
                     const url = (row[urlIndex] as string).replace('/api/v2', '').replace('.json', '')
                     return (
-                        <Link to={url} target="_new" className="truncate">
-                            {row[subjectIndex]}
-                        </Link>
+                        <span className="ph-no-capture">
+                            <Link to={url} target="_new" className="truncate">
+                                {row[subjectIndex]}
+                            </Link>
+                        </span>
                     )
                 },
                 width: '400px',

@@ -11,6 +11,7 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
+    Link,
     Popover,
 } from '@posthog/lemon-ui'
 
@@ -295,6 +296,7 @@ interface VariableComponentProps {
     variableOverridesAreSet: boolean
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
+    onInsertAtCursor?: (text: string) => void
     insightsUsingVariable?: string[]
     emptyState?: JSX.Element | string
     size?: 'small' | 'medium'
@@ -307,19 +309,36 @@ export const VariableComponent = ({
     variableOverridesAreSet,
     onRemove,
     variableSettingsOnClick,
+    onInsertAtCursor,
     insightsUsingVariable,
     emptyState = '',
     size = 'medium',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
-    let tooltip = `Use this variable in your HogQL by referencing {variables.${variable.code_name}}`
+    const variableAsHogQL = `{variables.${variable.code_name}}`
 
-    if (insightsUsingVariable && insightsUsingVariable.length) {
-        tooltip += `. Insights using this variable: ${insightsUsingVariable.join(', ')}`
-    }
+    const tooltip = (
+        <div className="flex flex-col gap-1">
+            <span>
+                Use this variable in your HogQL by referencing <code>{variableAsHogQL}</code>
+                {onInsertAtCursor && (
+                    <>
+                        {' '}
+                        or{' '}
+                        <Link subtle onClick={() => onInsertAtCursor(variableAsHogQL)}>
+                            insert at cursor.
+                        </Link>
+                    </>
+                )}
+            </span>
+            {insightsUsingVariable && insightsUsingVariable.length > 0 && (
+                <span>Insights using this variable: {insightsUsingVariable.join(', ')}</span>
+            )}
+        </div>
+    )
 
-    // Dont show the popover overlay for list variables not in edit mode
+    // Don't show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>

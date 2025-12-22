@@ -14,13 +14,14 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
+                cdpDataWarehouseEvents: true,
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
-                cdpBehaviouralEvents: true,
+                cdpPrecalculatedFilters: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
                 evaluationScheduler: true,
@@ -31,13 +32,14 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 ingestionV2: true,
                 cdpProcessedEvents: true,
+                cdpDataWarehouseEvents: true,
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
-                cdpBehaviouralEvents: true,
+                cdpPrecalculatedFilters: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
             }
@@ -85,9 +87,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerDelay: true,
             }
-        case PluginServerMode.cdp_behavioural_events:
+        case PluginServerMode.cdp_precalculated_filters:
             return {
-                cdpBehaviouralEvents: true,
+                cdpPrecalculatedFilters: true,
             }
         case PluginServerMode.cdp_cohort_membership:
             return {
@@ -110,6 +112,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
+            }
+        case PluginServerMode.cdp_data_warehouse_events:
+            return {
+                cdpDataWarehouseEvents: true,
             }
     }
 }

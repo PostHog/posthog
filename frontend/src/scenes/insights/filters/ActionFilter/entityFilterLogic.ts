@@ -300,7 +300,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             newFilters.splice(order + 1, 0, {
                 ...filter,
                 uuid: uuid(),
-                custom_name: undefined,
                 order: order + 1,
             } as LocalFilter)
             actions.setFilters(newFilters)

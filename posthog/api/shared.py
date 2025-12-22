@@ -214,7 +214,16 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "slug", "logo_media_id", "membership_level", "members_can_use_personal_api_keys"]
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "logo_media_id",
+            "membership_level",
+            "members_can_use_personal_api_keys",
+            "is_active",
+            "is_not_active_reason",
+        ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
