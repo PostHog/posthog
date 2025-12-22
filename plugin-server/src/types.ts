@@ -186,7 +186,7 @@ export type CdpConfig = {
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
-    CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
+    CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE: number
 
     CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: string
     CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: string

@@ -9,7 +9,6 @@ import { chainToElements } from '~/utils/db/elements-chain'
 import { pluginActionMsSummary } from '~/worker/metrics'
 import { vmFetchTracker } from '~/worker/vm/tracked-fetch'
 
-import { parseKafkaHeaders } from '../../kafka/consumer'
 import {
     Hub,
     ISOTimestamp,
@@ -75,6 +74,8 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
 
+    private inlinePercentage: number
+
     constructor(hub: Hub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
@@ -93,6 +94,12 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
         })
+
+        this.inlinePercentage = hub.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE
+
+        if (this.inlinePercentage > 1 || this.inlinePercentage < 0) {
+            throw new Error('CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE must be between 0 and 1')
+        }
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
@@ -210,6 +217,10 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
     @instrumented('cdpLegacyEventsConsumer.processEvent')
     public async processEvent(invocation: HogFunctionInvocationGlobals) {
+        if (Math.random() <= this.inlinePercentage) {
+            return await this.processEventInlined(invocation)
+        }
+
         const event: PostIngestionEvent = {
             eventUuid: invocation.event.uuid,
             event: invocation.event.event,
@@ -309,6 +320,55 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         }
     }
 
+    @instrumented('cdpLegacyEventsConsumer.processEventInlined')
+    public async processEventInlined(invocation: HogFunctionInvocationGlobals) {
+        const event: PostIngestionEvent = {
+            eventUuid: invocation.event.uuid,
+            event: invocation.event.event,
+            teamId: invocation.project.id,
+            distinctId: invocation.event.distinct_id,
+            properties: invocation.event.properties,
+            timestamp: invocation.event.timestamp as ISOTimestamp,
+            // None of these are actually used by the runOnEvent as it converts it to a PostIngestionEvent
+            projectId: invocation.project.id as ProjectId,
+            person_created_at: null,
+            person_properties: {},
+            person_id: undefined,
+        }
+
+        const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
+
+        const results = await Promise.all(
+            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation, true))
+        )
+
+        for (const result of results) {
+            const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
+            const error = result.error
+            if (result.error) {
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId,
+                            category: 'onEvent',
+                            failures: 1,
+                        },
+                        { error, event }
+                    )
+                )
+            }
+            void this.promiseScheduler.schedule(
+                this.hub.appMetrics.queueMetric({
+                    teamId: event.teamId,
+                    pluginConfigId,
+                    category: 'onEvent',
+                    successes: 1,
+                })
+            )
+        }
+    }
+
     @instrumented('cdpLegacyEventsConsumer.processBatch')
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
@@ -369,12 +429,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
                         const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
                         if (pluginConfigs.length === 0) {
-                            return
-                        }
-
-                        if (this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC) {
-                            void this.promiseScheduler.schedule(this.emitToReplicaTopic([message]))
-
                             return
                         }
 
@@ -441,24 +495,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         ][]
 
         return methodsObtainedFiltered
-    }
-
-    private async emitToReplicaTopic(kafkaMessages: Message[]) {
-        const redirectTopic = this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC
-        if (!redirectTopic) {
-            throw new Error('No redirect topic configured')
-        }
-
-        await Promise.all(
-            kafkaMessages.map((message) => {
-                return this.kafkaProducer!.produce({
-                    topic: redirectTopic,
-                    value: message.value,
-                    key: message.key ?? null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            })
-        )
     }
 }
 
