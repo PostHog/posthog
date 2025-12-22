@@ -3,15 +3,13 @@ from io import StringIO
 from django.core.management import call_command
 from django.test import TestCase
 
-from posthog.models import Organization, Team, User
+from posthog.models import User
 from posthog.models.hog_flow import HogFlow
 
 
 class BackfillHogFlowBillableActionTypesTest(TestCase):
     def setUp(self):
-        self.organization, _ = Organization.objects.get_or_create(name="Test Organization")
-        self.team, _ = Team.objects.get_or_create(organization=self.organization, defaults={"name": "Test Team"})
-        self.user, _ = User.objects.get_or_create(email="test@example.com")
+        self.organization, self.team, self.user = User.objects.bootstrap("Test Organization", "test@example.com", None)
 
     def test_backfill_with_various_billable_action_types(self):
         """Test that the command correctly backfills various billable action configurations"""
