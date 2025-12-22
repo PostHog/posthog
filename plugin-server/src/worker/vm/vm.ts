@@ -73,7 +73,7 @@ export function createPluginConfigVM(
     vm.freeze(createPosthog(hub, pluginConfig), 'posthog')
 
     // Add non-PostHog utilities to virtual machine
-    vm.freeze(vmFetch, 'fetch')
+    vm.freeze(vmFetch(pluginConfig), 'fetch')
 
     // Add used imports to the virtual machine
     const pluginHostImports: Record<string, any> = {}

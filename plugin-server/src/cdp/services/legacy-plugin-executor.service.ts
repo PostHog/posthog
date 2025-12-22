@@ -17,8 +17,7 @@ import {
     LegacyTransformationPluginMeta,
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch } from './hog-executor.service'
 
