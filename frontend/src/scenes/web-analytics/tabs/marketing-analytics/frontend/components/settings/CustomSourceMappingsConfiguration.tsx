@@ -4,9 +4,12 @@ import { useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
-import { MARKETING_DEFAULT_SOURCE_MAPPINGS, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { parseCommaSeparatedValues, removeSourceFromMappings } from '../NonIntegratedConversionsTable/mappingUtils'
 
 export interface CustomSourceMappingsConfigurationProps {
@@ -20,13 +23,15 @@ export function CustomSourceMappingsConfiguration({
 }: CustomSourceMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCustomSourceMappings } = useActions(marketingAnalyticsSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
     const [inputValues, setInputValues] = useState<Record<string, string>>(() =>
         sourceFilter && initialUtmValue ? { [sourceFilter]: initialUtmValue } : {}
     )
 
-    const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
+    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
+    const integrationsToShow = sourceFilter ? [sourceFilter] : [...enabledSources]
 
     const getInputValue = (integration: string): string => inputValues[integration] || ''
     const setInputValue = (integration: string, value: string): void => {

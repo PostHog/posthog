@@ -164,6 +164,10 @@ export const FEATURE_FLAGS = {
     THEME_OVERRIDE: 'theme', // owner: @aprilfools, see `themeLogic.ts`
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: #team-billing, see `Billing.tsx`, needed to exclude orgs with more than 100 teams
 
+    // Holidays overrides, will be around forever
+    HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
+    CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
+
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
@@ -214,6 +218,7 @@ export const FEATURE_FLAGS = {
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     ACTIVITY_EVENT_BANNER_WORDING: 'activity-event-banner-wording', // owner: @arthurdedeus #team-customer-analytics
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
+    APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay

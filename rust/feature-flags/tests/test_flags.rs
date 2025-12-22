@@ -1523,7 +1523,6 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
             Some(json!({
                 "$feature_enrollment/my-flag": true,
                 "$feature_enrollment/error-tracking": true,
-                "$feature_enrollment/llm-observability": false,
                 "$feature_enrollment/messaging-product": true,
                 "email": "gtarasov.work@gmail.com"
             })),

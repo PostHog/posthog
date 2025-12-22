@@ -42,7 +42,7 @@ class HobbyTester:
         ssh_private_key=None,
     ):
         if not token:
-            token = os.getenv("DIGITAL_OCEAN_HOBBY_TOKEN")
+            token = os.getenv("DIGITALOCEAN_TOKEN")
         self.token = token
         self.branch = branch
         self.sha = sha
