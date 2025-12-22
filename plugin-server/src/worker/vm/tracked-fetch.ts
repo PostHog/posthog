@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { PluginConfig } from '~/types'
 import { FetchOptions, legacyFetch } from '~/utils/request'
 
-const vmFetchErrorCounter = new Counter({
+const vmFetchCounter = new Counter({
     name: 'vm_fetches_total',
     help: 'Count of fetch errors in the VM',
     labelNames: ['plugin_id', 'plugin_config', 'status'],
@@ -45,12 +45,22 @@ export const createVmTrackedFetch = (pluginConfig: PluginConfig) => async (url: 
             body: fetchParams?.body,
         })
         const response = await legacyFetch(url, fetchParams)
-        vmFetchErrorCounter
-            .labels(pluginConfig.id.toString(), pluginConfig.plugin?.name ?? 'unknown', response.status.toString())
+        vmFetchCounter
+            .labels({
+                plugin_id: pluginConfig.id.toString(),
+                plugin_config: pluginConfig.plugin?.name ?? 'unknown',
+                status: response.status.toString(),
+            })
             .inc()
         return response
     } catch (error) {
-        vmFetchErrorCounter.labels(pluginConfig.plugin_id.toString(), pluginConfig.id.toString(), 'unknown').inc()
+        vmFetchCounter
+            .labels({
+                plugin_id: pluginConfig.id.toString(),
+                plugin_config: pluginConfig.plugin?.name ?? 'unknown',
+                status: 'unknown',
+            })
+            .inc()
         throw error
     }
 }
