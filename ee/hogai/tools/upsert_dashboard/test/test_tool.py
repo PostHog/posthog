@@ -302,6 +302,29 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertIn("99999999", result)
         self.assertIn("not found", result.lower())
 
+    async def test_update_deleted_dashboard_returns_error(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Deleted Dashboard",
+            created_by=self.user,
+            deleted=True,
+        )
+
+        new_insight = await self._create_insight("New Insight")
+
+        tool = self._create_tool()
+
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[new_insight.short_id],
+            replace_insights=False,
+        )
+
+        result, _ = await tool._arun_impl(action)
+
+        self.assertIn(str(dashboard.id), result)
+        self.assertIn("not found", result.lower())
+
     async def test_create_dashboard_with_no_valid_insights_returns_error(self):
         tool = self._create_tool()
 

@@ -102,7 +102,7 @@ class UpsertDashboardTool(MaxTool):
     async def _handle_update(self, action: UpdateDashboardToolArgs) -> tuple[str, ToolMessagesArtifact | None]:
         """Handle UPDATE action: update an existing dashboard."""
         try:
-            dashboard = await Dashboard.objects.aget(id=action.dashboard_id, team=self._team)
+            dashboard = await Dashboard.objects.aget(id=action.dashboard_id, team=self._team, deleted=False)
         except Dashboard.DoesNotExist:
             return DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=action.dashboard_id), None
 
@@ -122,7 +122,7 @@ class UpsertDashboardTool(MaxTool):
         all_insights = [
             i
             async for i in Insight.objects.filter(
-                dashboard_tiles__dashboard=dashboard, dashboard_tiles__deleted=False, deleted=False
+                team=self._team, dashboard_tiles__dashboard=dashboard, dashboard_tiles__deleted=False, deleted=False
             )
         ]
 
