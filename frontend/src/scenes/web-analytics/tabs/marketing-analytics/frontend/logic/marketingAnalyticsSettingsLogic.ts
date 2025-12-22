@@ -17,6 +17,8 @@ import {
     MarketingAnalyticsConfig,
     NativeMarketingSource,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
@@ -51,7 +53,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSources'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeam', 'addProductIntent']],
     })),
     actions({
         updateSourceMapping: (
@@ -72,8 +74,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         removeConversionGoal: (goalId: string) => ({
             goalId,
         }),
-        updateAttributionWindowWeeks: (weeks: number) => ({
-            weeks,
+        updateAttributionWindowDays: (days: number) => ({
+            days,
         }),
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
@@ -336,16 +338,32 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             }
         }
 
+        const trackSourceConfigured = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
+            })
+        }
+
+        const trackSettingsUpdated = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
+            })
+        }
+
         return {
-            updateSourceMapping: updateCurrentTeam,
-            updateConversionGoals: updateCurrentTeam,
-            addOrUpdateConversionGoal: updateCurrentTeam,
-            removeConversionGoal: updateCurrentTeam,
-            updateAttributionWindowWeeks: updateCurrentTeam,
-            updateAttributionMode: updateCurrentTeam,
-            updateCampaignNameMappings: updateCurrentTeam,
-            updateCustomSourceMappings: updateCurrentTeam,
-            updateCampaignFieldPreferences: updateCurrentTeam,
+            updateSourceMapping: trackSourceConfigured,
+            updateConversionGoals: trackSettingsUpdated,
+            addOrUpdateConversionGoal: trackSettingsUpdated,
+            removeConversionGoal: trackSettingsUpdated,
+            updateAttributionWindowDays: trackSettingsUpdated,
+            updateAttributionMode: trackSettingsUpdated,
+            updateCampaignNameMappings: trackSettingsUpdated,
+            updateCustomSourceMappings: trackSettingsUpdated,
+            updateCampaignFieldPreferences: trackSettingsUpdated,
             loadIntegrationCampaigns: async ({ integration }) => {
                 const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {
