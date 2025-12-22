@@ -9,7 +9,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 ingestionV2Combined: true,
-                processAsyncWebhooksHandlers: true,
+                processAsyncWebhooksHandlers: false,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
