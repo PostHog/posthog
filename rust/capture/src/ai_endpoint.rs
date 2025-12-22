@@ -82,6 +82,16 @@ struct EventMetadata {
     event_part_info: PartInfo,
 }
 
+impl EventMetadata {
+    fn event_uuid(&self) -> Option<String> {
+        self.event_json
+            .as_object()
+            .and_then(|obj| obj.get("uuid"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    }
+}
+
 impl HasEventName for EventMetadata {
     fn event_name(&self) -> &str {
         &self.event_name
@@ -199,7 +209,31 @@ pub async fn ai_handler(
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
     let event_metadata = retrieve_event_metadata(&mut multipart).await?;
 
-    // Step 2: Check token dropper early - before parsing remaining parts
+    // Step 2: Check event restrictions early - before parsing remaining parts
+    let applied_restrictions = if let Some(ref service) = state.event_restriction_service {
+        let event_ctx = RestrictionEventContext {
+            distinct_id: Some(event_metadata.distinct_id.clone()),
+            session_id: None,
+            event_name: Some(event_metadata.event_name.clone()),
+            event_uuid: event_metadata.event_uuid(),
+        };
+
+        let restrictions = service.get_restrictions(token, &event_ctx).await;
+        let applied = AppliedRestrictions::from_restrictions(&restrictions, IngestionPipeline::Ai);
+
+        if applied.should_drop {
+            report_dropped_events("event_restriction_drop", 1);
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: vec![],
+            }));
+        }
+
+        applied
+    } else {
+        AppliedRestrictions::default()
+    };
+
+    // Step 3: Check token dropper - before parsing remaining parts
     // Token dropper silently drops events (returns 200) to avoid alerting clients
     if state
         .token_dropper
@@ -212,7 +246,7 @@ pub async fn ai_handler(
         }));
     }
 
-    // Step 3: Check quota limiter - drop if over quota
+    // Step 4: Check quota limiter - drop if over quota
     // We pass a single-element vec and check if it's filtered out
     let filtered = state
         .quota_limiter
@@ -225,7 +259,7 @@ pub async fn ai_handler(
         .next()
         .ok_or(CaptureError::BillingLimit)?;
 
-    // Step 4: Retrieve and validate remaining multipart parts (continues parsing from multipart)
+    // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
     let parts = retrieve_multipart_parts(
         &mut multipart,
         state.ai_max_sum_of_parts_bytes,
@@ -233,10 +267,10 @@ pub async fn ai_handler(
     )
     .await?;
 
-    // Step 5: Parse the parts
+    // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
 
-    // Step 6: Record blob metrics and upload to S3
+    // Step 7: Record blob metrics and upload to S3
     let blob_count = parsed.blob_parts.len();
     if blob_count > 0 {
         // Record blob metrics
@@ -310,30 +344,6 @@ pub async fn ai_handler(
         }
     }
 
-    // Step 7: Apply event restrictions
-    let applied = if let Some(ref service) = state.event_restriction_service {
-        let event_ctx = RestrictionEventContext {
-            distinct_id: Some(parsed.distinct_id.clone()),
-            session_id: None,
-            event_name: Some(parsed.event_name.clone()),
-            event_uuid: Some(parsed.event_uuid.to_string()),
-        };
-
-        let restrictions = service.get_restrictions(token, &event_ctx).await;
-        let applied = AppliedRestrictions::from_restrictions(&restrictions, IngestionPipeline::Ai);
-
-        if applied.should_drop {
-            report_dropped_events("event_restriction_drop", 1);
-            return Ok(Json(AIEndpointResponse {
-                accepted_parts: parsed.accepted_parts,
-            }));
-        }
-
-        applied
-    } else {
-        AppliedRestrictions::default()
-    };
-
     // Step 8: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
@@ -344,9 +354,9 @@ pub async fn ai_handler(
         token,
         &client_ip,
         &state,
-        applied.force_overflow,
-        applied.skip_person_processing,
-        applied.redirect_to_dlq,
+        applied_restrictions.force_overflow,
+        applied_restrictions.skip_person_processing,
+        applied_restrictions.redirect_to_dlq,
     )?;
 
     // Step 9: Send event to Kafka
