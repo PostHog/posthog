@@ -189,6 +189,7 @@ export function LogRow({
                             e.preventDefault()
                             onTogglePrettify?.(log)
                         }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         tooltip={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
                         className={cn(
                             isPrettified ? 'text-brand-blue' : 'text-muted opacity-0 group-hover:opacity-100'
