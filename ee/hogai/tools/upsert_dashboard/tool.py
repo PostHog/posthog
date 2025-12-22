@@ -47,7 +47,8 @@ class UpdateDashboardToolArgs(BaseModel):
     action: Literal["update"] = "update"
     dashboard_id: str = Field(description="Provide the ID of the dashboard to be update it.")
     insight_ids: list[str] | None = Field(
-        description="The IDs of the insights to be included in the dashboard. It might be a mix of existing and new insights."
+        description="The IDs of the insights to be included in the dashboard. It might be a mix of existing and new insights.",
+        default=None,
     )
     replace_insights: bool | None = Field(
         description="Whether to replace the existing insights in the dashboard with the provided insights. True will replace all existing with the provided insights, keeping the provided ordering. False will append new insights to the end of the dashboard.",
@@ -111,7 +112,7 @@ class UpsertDashboardTool(MaxTool):
 
         insights, missing_ids = await self._resolve_insights(action.insight_ids or [])
 
-        if not insights and not action.name and not action.description:
+        if not insights and not action.name and action.description is None:
             return UPDATE_NO_CHANGES_PROMPT, None
 
         dashboard = await self._update_dashboard_with_tiles(

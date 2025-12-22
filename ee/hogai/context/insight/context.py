@@ -50,8 +50,6 @@ class InsightContext:
         """Extract and validate query from insight, handling InsightVizNode wrapper."""
 
         query = insight.query
-        if not query:
-            return None
         if isinstance(query, dict) and query.get("source"):
             query = query.get("source")
         if not query:
