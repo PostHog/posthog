@@ -96,7 +96,7 @@ describe('session recording integration', () => {
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
         mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(undefined),
+            trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
         recorder = new SessionBatchRecorder(

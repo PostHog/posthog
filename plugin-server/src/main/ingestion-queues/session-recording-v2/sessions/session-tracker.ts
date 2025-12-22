@@ -2,29 +2,20 @@ import { RedisPool } from '../../../../types'
 import { logger } from '../../../../utils/logger'
 import { SessionBatchMetrics } from './metrics'
 
-export type NewSessionCallback = (teamId: number, sessionId: string) => Promise<void>
-
 export class SessionTracker {
     private readonly keyPrefix = '@posthog/replay/session-seen'
     private readonly ttlSeconds = 48 * 60 * 60 // 48 hours
 
     constructor(private readonly redisPool: RedisPool) {}
 
-    private static readonly noopCallback: NewSessionCallback = () => Promise.resolve()
-
     /**
      * Check if session has been seen before, mark as seen if not.
-     * Invokes the callback for new sessions.
      *
      * @param teamId - The team ID
      * @param sessionId - The session ID
-     * @param onNewSession - Callback invoked when a new session is detected
+     * @returns true if this is a new session, false if already seen
      */
-    public async trackSession(
-        teamId: number,
-        sessionId: string,
-        onNewSession: NewSessionCallback = SessionTracker.noopCallback
-    ): Promise<void> {
+    public async trackSession(teamId: number, sessionId: string): Promise<boolean> {
         const key = this.generateKey(teamId, sessionId)
         const client = await this.redisPool.acquire()
 
@@ -41,9 +32,9 @@ export class SessionTracker {
                     teamId,
                     sessionId,
                 })
-
-                await onNewSession(teamId, sessionId)
             }
+
+            return isNewSession
         } finally {
             await this.redisPool.release(client)
         }

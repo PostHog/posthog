@@ -196,7 +196,7 @@ describe('SessionBatchRecorder', () => {
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
         mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(undefined),
+            trackSession: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<SessionTracker>
 
         recorder = new SessionBatchRecorder(
@@ -1977,12 +1977,8 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should rate limit new session when limiter denies', async () => {
-            // Make the session tracker invoke the callback (simulating a new session)
-            mockSessionTracker.trackSession.mockImplementation(async (_teamId, _sessionId, callback) => {
-                if (callback) {
-                    await callback(_teamId, _sessionId)
-                }
-            })
+            // Make the session tracker return true (simulating a new session)
+            mockSessionTracker.trackSession.mockResolvedValue(true)
 
             // Make limiter deny the new session
             jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
@@ -1998,11 +1994,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should track offset when new session is rate limited', async () => {
-            mockSessionTracker.trackSession.mockImplementation(async (_teamId, _sessionId, callback) => {
-                if (callback) {
-                    await callback(_teamId, _sessionId)
-                }
-            })
+            mockSessionTracker.trackSession.mockResolvedValue(true)
 
             jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
 
@@ -2018,11 +2010,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should increment new sessions rate limited metric', async () => {
-            mockSessionTracker.trackSession.mockImplementation(async (_teamId, _sessionId, callback) => {
-                if (callback) {
-                    await callback(_teamId, _sessionId)
-                }
-            })
+            mockSessionTracker.trackSession.mockResolvedValue(true)
 
             jest.mocked(NewSessionLimiter.consume).mockReturnValue(false)
 
@@ -2036,11 +2024,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should allow new session when limiter allows', async () => {
-            mockSessionTracker.trackSession.mockImplementation(async (_teamId, _sessionId, callback) => {
-                if (callback) {
-                    await callback(_teamId, _sessionId)
-                }
-            })
+            mockSessionTracker.trackSession.mockResolvedValue(true)
 
             jest.mocked(NewSessionLimiter.consume).mockReturnValue(true)
 
@@ -2054,11 +2038,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should call limiter with team ID as string', async () => {
-            mockSessionTracker.trackSession.mockImplementation(async (_teamId, _sessionId, callback) => {
-                if (callback) {
-                    await callback(_teamId, _sessionId)
-                }
-            })
+            mockSessionTracker.trackSession.mockResolvedValue(true)
 
             const message = createMessage(
                 'session1',
@@ -2073,8 +2053,8 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should not invoke limiter when session is not new', async () => {
-            // Default mock doesn't invoke the callback, simulating an existing session
-            mockSessionTracker.trackSession.mockResolvedValue(undefined)
+            // Return false to simulate an existing session
+            mockSessionTracker.trackSession.mockResolvedValue(false)
 
             const message = createMessage('session1', [
                 { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
