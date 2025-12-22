@@ -2,7 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
@@ -72,7 +72,17 @@ export class HogTransformerService {
 
     constructor(hub: Hub) {
         this.hub = hub
-        this.redis = createRedisV2Pool(hub, 'cdp')
+        // Hog transformer uses CDP Redis instance with fallback to default
+        this.redis = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
