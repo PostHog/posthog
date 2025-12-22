@@ -1,8 +1,30 @@
-import { MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-import { getOrderBy, getSortedColumnsByArray, orderArrayByPreference } from './utils'
+import { MarketingAnalyticsTableQuery, NodeKind, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+
+import { getEnabledNativeMarketingSources, getOrderBy, getSortedColumnsByArray, orderArrayByPreference } from './utils'
 
 describe('marketing analytics utils', () => {
+    describe('getEnabledNativeMarketingSources', () => {
+        it.each([
+            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, false],
+            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, true],
+            ['filters out BingAds with empty feature flags', {}, false],
+            ['filters out BingAds with undefined feature flags', undefined as any, false],
+        ])('%s', (_name, featureFlags, shouldIncludeBingAds) => {
+            const result = getEnabledNativeMarketingSources(featureFlags ?? {})
+            expect(result.includes('BingAds')).toBe(shouldIncludeBingAds)
+        })
+
+        it('always includes sources without feature flag requirements', () => {
+            const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter((s) => s !== 'BingAds')
+            const result = getEnabledNativeMarketingSources({})
+            sourcesWithoutFlags.forEach((source) => {
+                expect(result).toContain(source)
+            })
+        })
+    })
+
     describe('getOrderBy', () => {
         it('should filter order by columns that exist in the columns list', () => {
             const query: MarketingAnalyticsTableQuery = {

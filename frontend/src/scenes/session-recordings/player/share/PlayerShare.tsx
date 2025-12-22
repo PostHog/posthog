@@ -67,11 +67,13 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
     const { privateLinkUrl, privateLinkFormHasErrors } = useValues(logic)
 
     return (
-        <>
-            <p>
-                <b>Click the button below</b> to copy a direct link to this recording. Make sure the person you share it
-                with has access to this PostHog project.
-            </p>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1">
+                <div>
+                    <b>Click the button below</b> to copy a direct link to this recording.
+                </div>
+                <div>Make sure the person you share it with has access to this PostHog project.</div>
+            </div>
             <LemonButton
                 type="secondary"
                 fullWidth
@@ -83,10 +85,10 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 title={privateLinkUrl}
                 disabledReason={privateLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
             >
-                <span className="truncate">{privateLinkUrl}</span>
+                <span className="break-all">{privateLinkUrl}</span>
             </LemonButton>
             <TimestampForm {...props} />
-        </>
+        </div>
     )
 }
 
@@ -143,7 +145,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             {props.shareType === 'private' && <PrivateLink {...props} />}
 
             {props.shareType === 'public' && <PublicLink {...props} />}
@@ -162,7 +164,7 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
                   ? 'Share public link'
                   : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
-        width: 600,
+        maxWidth: '85vw',
         zIndex: '1162',
         primaryButton: null,
     })

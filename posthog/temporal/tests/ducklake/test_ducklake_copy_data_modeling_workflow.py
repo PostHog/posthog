@@ -23,7 +23,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     prepare_data_modeling_ducklake_metadata_activity,
     verify_ducklake_copy_activity,
 )
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 

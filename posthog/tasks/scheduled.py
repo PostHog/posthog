@@ -65,6 +65,8 @@ from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_ta
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.endpoints.backend.tasks import deactivate_stale_materializations
+
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
 # Organizations with delayed data ingestion that need delayed usage report re-runs
@@ -496,4 +498,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="5"),
         expire_old_change_requests.s(),
         name="expire old change requests",
+    )
+
+    # Deactivate endpoint materializations that haven't been used in 30+ days
+    sender.add_periodic_task(
+        crontab(hour="5", minute="0"),
+        deactivate_stale_materializations.s(),
+        name="deactivate stale endpoint materializations",
     )
