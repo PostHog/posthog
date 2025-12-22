@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, time::Instant};
 
+use tracing::warn;
+
 pub struct Throttler {
     limit: usize,
     duration: std::time::Duration,
@@ -34,6 +36,7 @@ impl Throttler {
                 let elapsed = now - oldest;
                 if elapsed < self.duration {
                     let wait_time = self.duration - elapsed;
+                    warn!("Throttling, waiting for {}ms", wait_time.as_millis());
                     std::thread::sleep(wait_time);
                 }
                 self.history.pop_front();
