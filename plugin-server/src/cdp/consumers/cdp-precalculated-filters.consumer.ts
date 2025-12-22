@@ -59,12 +59,10 @@ export const histogramBatchProcessingSteps = new Histogram({
  */
 export type CdpPrecalculatedFiltersConsumerHub = CdpConsumerBaseHub & Pick<Hub, 'db'>
 
-export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
+export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase<CdpPrecalculatedFiltersConsumerHub> {
     protected name = 'CdpPrecalculatedFiltersConsumer'
     private eventKafkaConsumer: KafkaConsumer
     private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
-
-    declare protected hub: CdpPrecalculatedFiltersConsumerHub
 
     constructor(hub: CdpPrecalculatedFiltersConsumerHub) {
         super(hub)

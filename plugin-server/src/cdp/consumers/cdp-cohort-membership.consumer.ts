@@ -28,11 +28,9 @@ export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema
  */
 export type CdpCohortMembershipConsumerHub = CdpConsumerBaseHub & Pick<Hub, 'postgres'>
 
-export class CdpCohortMembershipConsumer extends CdpConsumerBase {
+export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMembershipConsumerHub> {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumer
-
-    declare protected hub: CdpCohortMembershipConsumerHub
 
     constructor(hub: CdpCohortMembershipConsumerHub) {
         super(hub)

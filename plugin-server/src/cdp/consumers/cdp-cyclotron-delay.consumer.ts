@@ -17,7 +17,7 @@ export type CdpCyclotronDelayConsumerHub = CdpConsumerBaseHub &
 /**
  * Consumer for delayed invocations
  */
-export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
+export class CdpCyclotronDelayConsumer extends CdpConsumerBase<CdpCyclotronDelayConsumerHub> {
     protected name = 'CdpCyclotronDelayConsumer'
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind

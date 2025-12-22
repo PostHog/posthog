@@ -29,10 +29,9 @@ export type CdpLegacyEventsConsumerHub = CdpEventsConsumerHub &
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
  * We can then use this to gradually move over to the new hog functions
  */
-export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
+export class CdpLegacyEventsConsumer extends CdpEventsConsumer<CdpLegacyEventsConsumerHub> {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
-    declare protected hub: CdpLegacyEventsConsumerHub
 
     constructor(hub: CdpLegacyEventsConsumerHub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)

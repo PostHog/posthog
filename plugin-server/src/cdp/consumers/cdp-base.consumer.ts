@@ -57,7 +57,7 @@ export interface TeamIDWithConfig {
     consoleLogIngestionEnabled: boolean
 }
 
-export abstract class CdpConsumerBase {
+export abstract class CdpConsumerBase<THub extends CdpConsumerBaseHub = CdpConsumerBaseHub> {
     redis: RedisV2
     isStopping = false
 
@@ -85,7 +85,7 @@ export abstract class CdpConsumerBase {
 
     protected heartbeat = () => {}
 
-    constructor(protected hub: CdpConsumerBaseHub) {
+    constructor(protected hub: THub) {
         this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub.postgres, hub.pubSub)

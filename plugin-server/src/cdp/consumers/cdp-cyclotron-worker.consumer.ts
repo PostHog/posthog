@@ -25,14 +25,14 @@ export type CdpCyclotronWorkerHub = CdpConsumerBaseHub &
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
  */
-export class CdpCyclotronWorker extends CdpConsumerBase {
+export class CdpCyclotronWorker<
+    THub extends CdpCyclotronWorkerHub = CdpCyclotronWorkerHub,
+> extends CdpConsumerBase<THub> {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind
 
-    declare protected hub: CdpCyclotronWorkerHub
-
-    constructor(hub: CdpCyclotronWorkerHub, queue?: CyclotronJobQueueKind) {
+    constructor(hub: THub, queue?: CyclotronJobQueueKind) {
         super(hub)
         this.queue = queue ?? hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 

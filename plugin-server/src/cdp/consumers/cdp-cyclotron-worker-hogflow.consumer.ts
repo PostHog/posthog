@@ -18,10 +18,8 @@ import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worke
  */
 export type CdpCyclotronWorkerHogFlowHub = CdpCyclotronWorkerHub & Pick<Hub, 'teamManager'>
 
-export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
+export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWorkerHogFlowHub> {
     protected name = 'CdpCyclotronWorkerHogFlow'
-
-    declare protected hub: CdpCyclotronWorkerHogFlowHub
 
     constructor(hub: CdpCyclotronWorkerHogFlowHub) {
         super(hub, 'hogflow')

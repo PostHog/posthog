@@ -32,15 +32,13 @@ export type CdpDatawarehouseEventsConsumerHub = CdpConsumerBaseHub &
     PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
     Pick<Hub, 'teamManager' | 'SITE_URL'>
 
-export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
+export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawarehouseEventsConsumerHub> {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
 
     private hogRateLimiter: HogRateLimiterService
-
-    declare protected hub: CdpDatawarehouseEventsConsumerHub
 
     constructor(
         hub: CdpDatawarehouseEventsConsumerHub,

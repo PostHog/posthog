@@ -81,12 +81,10 @@ export type CdpSourceWebhooksConsumerHub = CdpConsumerBaseHub &
     PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
     Pick<Hub, 'SITE_URL'>
 
-export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
+export class CdpSourceWebhooksConsumer extends CdpConsumerBase<CdpSourceWebhooksConsumerHub> {
     protected name = 'CdpSourceWebhooksConsumer'
     private cyclotronJobQueue: CyclotronJobQueue
     private promiseScheduler: PromiseScheduler
-
-    declare protected hub: CdpSourceWebhooksConsumerHub
 
     constructor(hub: CdpSourceWebhooksConsumerHub) {
         super(hub)

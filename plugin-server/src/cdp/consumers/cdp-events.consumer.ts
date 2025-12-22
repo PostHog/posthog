@@ -32,7 +32,7 @@ export type CdpEventsConsumerHub = CdpConsumerBaseHub &
     PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
     Pick<Hub, 'teamManager' | 'SITE_URL'>
 
-export class CdpEventsConsumer extends CdpConsumerBase {
+export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsConsumerHub> extends CdpConsumerBase<THub> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
@@ -40,13 +40,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     private hogRateLimiter: HogRateLimiterService
 
-    declare protected hub: CdpEventsConsumerHub
-
-    constructor(
-        hub: CdpEventsConsumerHub,
-        topic: string = KAFKA_EVENTS_JSON,
-        groupId: string = 'cdp-processed-events-consumer'
-    ) {
+    constructor(hub: THub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
