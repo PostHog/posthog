@@ -13,14 +13,14 @@ export interface InsightSuggestion {
 }
 
 export interface InsightAIAnalysisLogicProps {
-    insightId: number
+    insightId: number | undefined
     query: InsightQueryNode
 }
 
 export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     path(['scenes', 'insights', 'insightAIAnalysisLogic']),
     props({} as InsightAIAnalysisLogicProps),
-    key((props) => props.insightId),
+    key((props) => props.insightId ?? 'new'),
     actions({
         startAnalysis: true,
         setHasClickedAnalyze: (hasClicked: boolean) => ({ hasClicked }),
