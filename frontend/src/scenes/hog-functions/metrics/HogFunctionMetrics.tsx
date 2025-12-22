@@ -31,7 +31,7 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
     quota_limited: {
         name: 'Quota Limited',
         description: 'Total number of invocations blocked due to quota limits',
-        color: getColorVar('warning'),
+        color: getColorVar('danger'),
     },
 }
 
