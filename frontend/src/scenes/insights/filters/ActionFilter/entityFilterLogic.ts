@@ -324,7 +324,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             actions.setLocalFilters(toFilters(newFilters))
             eventUsageLogic.actions.reportInsightFilterRemoved(index)
         },
-        splitLocalFilter: async ({ index }) => {
+        splitLocalFilter: ({ index }) => {
             const filter = values.localFilters[index]
             if (!filter || filter.type !== EntityTypes.GROUPS) {
                 return
