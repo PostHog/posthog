@@ -81,6 +81,7 @@ function UrlTriggerOptions(): JSX.Element | null {
     return (
         <IngestionControls.UrlConfig
             logic={replayTriggersLogic}
+            logicProps={{}}
             formKey="proposedUrlTrigger"
             addUrl={addUrlTrigger}
             validationWarning={urlTriggerInputValidationWarning}
@@ -123,6 +124,7 @@ function UrlBlocklistOptions(): JSX.Element | null {
     return (
         <IngestionControls.UrlConfig
             logic={replayTriggersLogic}
+            logicProps={{}}
             formKey="proposedUrlBlocklist"
             addUrl={addUrlBlocklist}
             validationWarning={urlBlocklistInputValidationWarning}
