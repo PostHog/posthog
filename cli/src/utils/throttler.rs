@@ -18,21 +18,31 @@ impl Throttler {
 
     pub fn throttle(&mut self) {
         let now = Instant::now();
-        self.history.push_back(now);
-
-        while self.history.len() > self.limit {
-            let time = self.history.pop_front().unwrap();
-            let elapsed = now - time;
-            if elapsed < self.duration {
-                // Entry not yet expired, put it back and wait
-                self.history.push_front(time);
-                let wait_time = self.duration - elapsed;
-                std::thread::sleep(wait_time);
-                // After sleeping, remove the now-expired entry
+        
+        // Remove expired entries before checking limit
+        while let Some(&oldest) = self.history.front() {
+            if now - oldest >= self.duration {
+                self.history.pop_front();
+            } else {
+                break;
+            }
+        }
+        
+        // If at limit, wait for oldest to expire
+        if self.history.len() >= self.limit {
+            if let Some(&oldest) = self.history.front() {
+                let elapsed = now - oldest;
+                if elapsed < self.duration {
+                    let wait_time = self.duration - elapsed;
+                    std::thread::sleep(wait_time);
+                }
                 self.history.pop_front();
             }
-            // Entry was expired, already removed, continue loop
         }
+        
+        // Add current request
+        self.history.push_back(Instant::now());
+    }
     }
 }
 
