@@ -103,6 +103,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
             dropzoneNodes,
         }),
+        showDropzones: true,
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
@@ -111,12 +112,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             reactFlowInstance,
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
-        onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: CreateActionType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        startMovingNode: (node: HogFlowActionNode) => ({ node }),
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -160,14 +161,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
-
+        isMovingSelectedNode: [
+            false as boolean,
+            {
+                startMovingNode: () => true,
+                stopMovingNode: () => false,
+            },
+        ],
         newDraggingNode: [
             null as CreateActionType | null,
             {
                 setNewDraggingNode: (_, { newDraggingNode }) => newDraggingNode,
             },
         ],
-
         reactFlowInstance: [
             null as ReactFlowInstance<Node, Edge> | null,
             {
@@ -423,7 +429,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
         },
 
-        onDragStart: () => {
+        showDropzones: () => {
             const { nodes, edges } = values
 
             const dropzoneNodes: DropzoneNode[] = []
@@ -637,6 +643,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
                 duration: duration ?? 100,
             })
+        },
+        startMovingNode: ({ node }) => {
+            actions.showDropzones()
+            actions.startMovingNode()
         },
     })),
 

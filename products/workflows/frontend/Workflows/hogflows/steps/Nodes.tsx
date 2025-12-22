@@ -49,7 +49,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
-    const { nodesById } = useValues(hogFlowEditorLogic)
+    const { nodesById, selectedNodeId, isMovingSelectedNode } = useValues(hogFlowEditorLogic)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -57,8 +57,10 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
+    const shouldWiggleMovingNode = isMovingSelectedNode && selectedNodeId === props.id
+
     return (
-        <div className="transition-all hover:translate-y-[-2px]">
+        <div className={clsx('transition-all hover:translate-y-[-2px]', shouldWiggleMovingNode && 'animate-bounce')}>
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />

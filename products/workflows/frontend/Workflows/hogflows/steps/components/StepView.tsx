@@ -19,9 +19,10 @@ import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { setSelectedNodeId, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
+
     const isSelected = selectedNode?.id === action.id
     const node = nodesById[action.id]
 
@@ -176,6 +177,16 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
                         <LemonMenu
                             items={[
+                                // Moving a node is the same as deleting it and re-adding it
+                                selectedNodeCanBeDeleted
+                                    ? {
+                                          label: 'Move',
+                                          status: 'default',
+                                          onClick: () => {
+                                              startMovingNode(node)
+                                          },
+                                      }
+                                    : null,
                                 {
                                     label: 'Delete',
                                     status: 'danger',
