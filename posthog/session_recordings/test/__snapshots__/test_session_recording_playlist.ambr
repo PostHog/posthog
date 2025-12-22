@@ -189,6 +189,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."mfa_disabled",
          "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
@@ -219,6 +220,7 @@
          T4."toolbar_mode",
          T4."hedgehog_config",
          T4."allow_sidebar_suggestions",
+         T4."mfa_disabled",
          T4."shortcut_position",
          T4."events_column_config",
          T4."email_opt_in"
@@ -281,6 +283,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."mfa_disabled",
          "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
@@ -729,6 +732,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."mfa_disabled",
          "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
@@ -759,6 +763,7 @@
          T4."toolbar_mode",
          T4."hedgehog_config",
          T4."allow_sidebar_suggestions",
+         T4."mfa_disabled",
          T4."shortcut_position",
          T4."events_column_config",
          T4."email_opt_in"
@@ -993,6 +998,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."mfa_disabled",
          "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
@@ -1139,6 +1145,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."mfa_disabled",
          "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
@@ -1598,6 +1605,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."mfa_disabled",
          "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
@@ -1628,6 +1636,7 @@
          T4."toolbar_mode",
          T4."hedgehog_config",
          T4."allow_sidebar_suggestions",
+         T4."mfa_disabled",
          T4."shortcut_position",
          T4."events_column_config",
          T4."email_opt_in"

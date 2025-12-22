@@ -192,6 +192,9 @@ class User(AbstractUser, UUIDTClassicModel):
     toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
+    mfa_disabled = models.BooleanField(
+        default=False, null=True, blank=True, help_text="Disable MFA for this user. Only editable by Django admins."
+    )
     shortcut_position = models.CharField(
         max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
     )
