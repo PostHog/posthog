@@ -18,6 +18,7 @@ import dagster
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.dags.common import JobOwners
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
@@ -107,7 +108,7 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
             metric=metric_obj,
         )
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, workload=Workload.OFFLINE)
         result = query_runner._calculate()
 
         result = remove_step_sessions_from_experiment_result(result)
@@ -307,7 +308,7 @@ def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.Sens
 
 @dagster.schedule(
     job=experiment_regular_metrics_timeseries_job,
-    cron_schedule="5 * * * *",  # Every hour at minute 5 (staggered from saved metrics at minute 0)
+    cron_schedule="11 * * * *",  # Every hour at minute 11 (staggered from saved metrics at minute 0)
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )

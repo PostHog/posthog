@@ -15,6 +15,7 @@ from dagster import AssetExecutionContext, RetryPolicy, RunRequest, SkipReason
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.dags.common import JobOwners
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import ExperimentMetricResult, ExperimentTimeseriesRecalculation
@@ -134,7 +135,7 @@ def experiment_timeseries_recalculation(context: AssetExecutionContext) -> dict[
             query_to_utc = end_of_day_team_tz.astimezone(ZoneInfo("UTC"))
 
             query_runner = ExperimentQueryRunner(
-                query=experiment_query, team=experiment.team, override_end_date=query_to_utc
+                query=experiment_query, team=experiment.team, override_end_date=query_to_utc, workload=Workload.OFFLINE
             )
             result = query_runner._calculate()
             result = remove_step_sessions_from_experiment_result(result)

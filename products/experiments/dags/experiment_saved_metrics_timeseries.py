@@ -16,6 +16,7 @@ import dagster
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.dags.common import JobOwners
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
@@ -113,7 +114,9 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
             metric=metric_obj,
         )
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, user_facing=False)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=experiment.team, user_facing=False, workload=Workload.OFFLINE
+        )
         result = query_runner._calculate()
 
         result = remove_step_sessions_from_experiment_result(result)
