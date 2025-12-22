@@ -22,6 +22,7 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.plugin import PluginConfig
+from posthog.models.sdk_policy_config import SdkPolicyConfig, SdkPolicyConfigAssignment
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -135,6 +136,7 @@ class RemoteConfig(UUIDTModel):
     def build_config(self):
         from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
+        from posthog.models.sdk_policy_config import get_policy_config
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
@@ -175,6 +177,7 @@ class RemoteConfig(UUIDTModel):
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
+            **(get_policy_config(team, "error-tracking", None) if team.autocapture_exceptions_opt_in else {}),
         }
 
         # MARK: Session recording
@@ -586,6 +589,16 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=SdkPolicyConfig)
+def sdk_policy_config_saved(sender, instance: "SdkPolicyConfig", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=SdkPolicyConfigAssignment)
+def sdk_policy_config_assignment_saved(sender, instance: "SdkPolicyConfigAssignment", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

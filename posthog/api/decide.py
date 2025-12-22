@@ -30,6 +30,7 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
+from posthog.models.sdk_policy_config import get_policy_config
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
@@ -197,21 +198,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         except Exception:
             pass
     response["productTours"] = has_active_tours
-
-    suppression_rules = []
-    # errors mean the database is unavailable, no-op in this case
-    if team.autocapture_exceptions_opt_in and not skip_db:
-        with tracer.start_as_current_span("suppression_rules"):
-            try:
-                with execute_with_timeout(200):
-                    suppression_rules = get_suppression_rules(team)
-            except Exception:
-                pass
-
-    response["errorTracking"] = {
-        "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
-        "suppressionRules": suppression_rules,
-    }
+    response["errorTracking"] = _error_tracking_config_response(team, skip_db)
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case
@@ -646,3 +633,30 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
         capture_exception(e)  # we don't want to fail decide if session recording config fails to load
 
     return session_recording_config_response
+
+
+def _error_tracking_config_response(team: Team, skip_db: bool) -> Union[bool, dict[str, Any]]:
+    suppression_rules = []
+    # errors mean the database is unavailable, no-op in this case
+    if team.autocapture_exceptions_opt_in and not skip_db:
+        try:
+            with tracer.start_as_current_span("suppression_rules"):
+                with execute_with_timeout(200):
+                    suppression_rules = get_suppression_rules(team)
+            with tracer.start_as_current_span("sdk_policy_config"):
+                with execute_with_timeout(200):
+                    # when we support decide / remote config in multiple libraries
+                    # we will need to set the final argument here
+                    policy_config = get_policy_config(team, "error-tracking", None)
+        except Exception:
+            pass
+
+    return {
+        "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
+        "suppressionRules": suppression_rules,
+        "sampleRate": policy_config.sample_rate if policy_config else None,
+        "linkedFeatureFlag": policy_config.linked_feature_flag if policy_config else None,
+        "urlTriggers": policy_config.url_triggers if policy_config else None,
+        "urlBlocklist": policy_config.url_blocklist if policy_config else None,
+        "eventTriggers": policy_config.event_triggers if policy_config else None,
+    }

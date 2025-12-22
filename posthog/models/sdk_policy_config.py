@@ -4,6 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from posthog.models.team.team import Team
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 
 
@@ -50,3 +51,15 @@ class SdkPolicyConfigAssignment(UUIDTModel, RootTeamMixin):
 
     class Meta:
         unique_together = ("team", "context", "library")
+
+
+def get_policy_config(
+    team: Team, context: SdkPolicyConfigAssignment.Context, library: SdkPolicyConfigAssignment.Library
+) -> dict | None:
+    return (
+        SdkPolicyConfig.objects.filter(
+            team=team, assignments__isnull=False, assignments__context=context, assignments__library=library
+        )
+        .values()
+        .first()
+    )
