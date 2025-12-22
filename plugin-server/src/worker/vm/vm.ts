@@ -48,17 +48,23 @@ export function createPluginConfigVM(
         sandbox: {},
     })
 
+    const builtFetch = createVmTrackedFetch(pluginConfig)
+
     // Add PostHog utilities to virtual machine
     vm.freeze(createConsole(hub, pluginConfig), 'console')
     vm.freeze(createPosthog(hub, pluginConfig), 'posthog')
 
     // Add non-PostHog utilities to virtual machine
-    vm.freeze(createVmTrackedFetch(pluginConfig), 'fetch')
+    vm.freeze(builtFetch, 'fetch')
 
     // Add used imports to the virtual machine
     const pluginHostImports: Record<string, any> = {}
     for (const usedImport of usedImports) {
-        pluginHostImports[usedImport] = (AVAILABLE_IMPORTS as Record<string, any>)[usedImport]
+        if (usedImport === 'fetch') {
+            pluginHostImports[usedImport] = builtFetch
+        } else {
+            pluginHostImports[usedImport] = (AVAILABLE_IMPORTS as Record<string, any>)[usedImport]
+        }
     }
     vm.freeze(pluginHostImports, '__pluginHostImports')
 
