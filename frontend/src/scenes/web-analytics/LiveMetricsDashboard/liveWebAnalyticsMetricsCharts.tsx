@@ -1,11 +1,8 @@
 import { ChartConfiguration } from 'lib/Chart'
-import { getGraphColors } from 'lib/colors'
+import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 
 import { ChartDataPoint, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
-
-const COLORS = getGraphColors()
-const DEFAULT_COLOR = '#1d4aff'
 
 export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
     const { canvasRef } = useChart<'bar'>({
@@ -17,8 +14,7 @@ export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.E
                     {
                         label: 'Active users',
                         data: data.map((d) => d.users),
-                        backgroundColor: COLORS[0] ?? DEFAULT_COLOR,
-                        borderColor: COLORS[0] ?? DEFAULT_COLOR,
+                        backgroundColor: getSeriesColor(0),
                         borderWidth: 0,
                         borderRadius: 2,
                         barPercentage: 0.8,
@@ -105,7 +101,7 @@ export const DeviceBreakdownChart = ({ data }: { data: DeviceBreakdownItem[] }):
                     datasets: [
                         {
                             data: data.map((d) => d.count),
-                            backgroundColor: [COLORS[1] ?? '#f97316', COLORS[2] ?? '#22c55e'],
+                            backgroundColor: getSeriesColorPalette(),
                             borderColor: '#fff',
                             borderWidth: 2,
                             hoverOffset: 4,
