@@ -357,7 +357,9 @@ class TestOAuthAccessTokenAuthenticator:
         [
             pytest.param("llm_gateway:read", ["llm_gateway:read"], id="single_scope"),
             pytest.param("llm_gateway:read task:read", ["llm_gateway:read", "task:read"], id="multiple_scopes"),
-            pytest.param("read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"),
+            pytest.param(
+                "read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"
+            ),
         ],
     )
     async def test_scope_parsing(
