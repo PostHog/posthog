@@ -143,6 +143,11 @@ pub fn upload(args: &Args) -> Result<()> {
         release_builder.with_git(git_info);
     }
 
+    // Add plist info as apple metadata
+    if let Some(ref info) = plist_info {
+        let _ = release_builder.with_metadata("dsym_info", info);
+    }
+
     if let Some(ref project) = resolved_project {
         release_builder.with_project(project);
     }

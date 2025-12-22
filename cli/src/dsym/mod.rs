@@ -169,14 +169,20 @@ pub fn find_dsym_bundles(directory: &PathBuf) -> Result<Vec<PathBuf>> {
 }
 
 /// Info extracted from an Info.plist file
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct PlistInfo {
     /// CFBundleIdentifier (e.g., com.example.app)
+    #[serde(rename = "CFBundleIdentifier")]
     pub bundle_identifier: Option<String>,
     /// CFBundleShortVersionString (e.g., 1.2.3)
+    #[serde(rename = "CFBundleShortVersionString")]
     pub short_version: Option<String>,
     /// CFBundleVersion (e.g., 42)
+    #[serde(rename = "CFBundleVersion")]
     pub bundle_version: Option<String>,
+    /// CFBundleDevelopmentRegion (e.g., English, en)
+    #[serde(rename = "CFBundleDevelopmentRegion")]
+    pub development_region: Option<String>,
 }
 
 impl PlistInfo {
@@ -204,6 +210,10 @@ impl PlistInfo {
                 .map(|s| s.to_string()),
             bundle_version: dict
                 .get("CFBundleVersion")
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string()),
+            development_region: dict
+                .get("CFBundleDevelopmentRegion")
                 .and_then(|v| v.as_string())
                 .map(|s| s.to_string()),
         })
