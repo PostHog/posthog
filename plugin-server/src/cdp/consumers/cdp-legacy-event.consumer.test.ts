@@ -350,4 +350,120 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(hogFunctions).toEqual([])
         })
     })
+
+    describe('CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE', () => {
+        it('should throw error if inline percentage is greater than 1', async () => {
+            const hubWithInvalidPercentage = await createHub()
+            hubWithInvalidPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 1.5
+
+            expect(() => new CdpLegacyEventsConsumer(hubWithInvalidPercentage)).toThrow(
+                'CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE must be between 0 and 1'
+            )
+
+            await closeHub(hubWithInvalidPercentage)
+        })
+
+        it('should throw error if inline percentage is less than 0', async () => {
+            const hubWithInvalidPercentage = await createHub()
+            hubWithInvalidPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = -0.1
+
+            expect(() => new CdpLegacyEventsConsumer(hubWithInvalidPercentage)).toThrow(
+                'CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE must be between 0 and 1'
+            )
+
+            await closeHub(hubWithInvalidPercentage)
+        })
+
+        it('should accept inline percentage of 0', async () => {
+            const hubWithZeroPercentage = await createHub()
+            hubWithZeroPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 0
+
+            expect(() => new CdpLegacyEventsConsumer(hubWithZeroPercentage)).not.toThrow()
+
+            await closeHub(hubWithZeroPercentage)
+        })
+
+        it('should accept inline percentage of 1', async () => {
+            const hubWithFullPercentage = await createHub()
+            hubWithFullPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 1
+
+            expect(() => new CdpLegacyEventsConsumer(hubWithFullPercentage)).not.toThrow()
+
+            await closeHub(hubWithFullPercentage)
+        })
+
+        it('should always use processEventInlined when inline percentage is 1', async () => {
+            const hubWithFullPercentage = await createHub()
+            hubWithFullPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 1
+
+            const consumerWithFullInline = new CdpLegacyEventsConsumer(hubWithFullPercentage)
+            const processEventInlinedSpy = jest.spyOn(consumerWithFullInline, 'processEventInlined')
+
+            await consumerWithFullInline.processEvent(invocation)
+
+            expect(processEventInlinedSpy).toHaveBeenCalledTimes(1)
+
+            await closeHub(hubWithFullPercentage)
+        })
+
+        it('should never use processEventInlined when inline percentage is 0', async () => {
+            const hubWithZeroPercentage = await createHub()
+            hubWithZeroPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 0
+            hubWithZeroPercentage.pluginConfigsPerTeam = new Map([[team.id, [pluginConfig]]])
+
+            const consumerWithNoInline = new CdpLegacyEventsConsumer(hubWithZeroPercentage)
+            const processEventInlinedSpy = jest.spyOn(consumerWithNoInline, 'processEventInlined')
+
+            await consumerWithNoInline.processEvent(invocation)
+
+            expect(processEventInlinedSpy).not.toHaveBeenCalled()
+
+            await closeHub(hubWithZeroPercentage)
+        })
+
+        it('should route to processEventInlined based on random percentage', async () => {
+            const hubWithPartialPercentage = await createHub()
+            hubWithPartialPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 0.5
+
+            const consumerWithPartialInline = new CdpLegacyEventsConsumer(hubWithPartialPercentage)
+            const processEventInlinedSpy = jest.spyOn(consumerWithPartialInline, 'processEventInlined')
+
+            // Mock Math.random to return predictable values
+            const randomMock = jest.spyOn(Math, 'random')
+
+            // First call: 0.3 <= 0.5, should use inlined
+            randomMock.mockReturnValueOnce(0.3)
+            await consumerWithPartialInline.processEvent(invocation)
+            expect(processEventInlinedSpy).toHaveBeenCalledTimes(1)
+
+            // Second call: 0.7 > 0.5, should not use inlined
+            randomMock.mockReturnValueOnce(0.7)
+            hubWithPartialPercentage.pluginConfigsPerTeam = new Map([[team.id, [pluginConfig]]])
+            await consumerWithPartialInline.processEvent(invocation)
+            expect(processEventInlinedSpy).toHaveBeenCalledTimes(1) // Still 1, not incremented
+
+            randomMock.mockRestore()
+            await closeHub(hubWithPartialPercentage)
+        })
+
+        it('should handle edge case where random equals inline percentage', async () => {
+            const hubWithPartialPercentage = await createHub()
+            hubWithPartialPercentage.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE = 0.5
+
+            const consumerWithPartialInline = new CdpLegacyEventsConsumer(hubWithPartialPercentage)
+            const processEventInlinedSpy = jest.spyOn(consumerWithPartialInline, 'processEventInlined')
+
+            // Mock Math.random to return exactly the inline percentage
+            const randomMock = jest.spyOn(Math, 'random')
+            randomMock.mockReturnValueOnce(0.5)
+
+            await consumerWithPartialInline.processEvent(invocation)
+
+            // 0.5 <= 0.5 should use processEventInlined
+            expect(processEventInlinedSpy).toHaveBeenCalledTimes(1)
+
+            randomMock.mockRestore()
+            await closeHub(hubWithPartialPercentage)
+        })
+    })
 })

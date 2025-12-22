@@ -339,7 +339,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
 
         const results = await Promise.all(
-            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation, true))
+            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation))
         )
 
         for (const result of results) {
