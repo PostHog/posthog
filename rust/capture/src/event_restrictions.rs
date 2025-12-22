@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::{Client as RedisClient, CustomRedisError};
-use metrics::gauge;
+use metrics::{counter, gauge};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use tokio::time::interval;
@@ -48,6 +48,56 @@ impl RestrictionType {
             Self::RedirectToDlq => "redirect_to_dlq",
             Self::SkipPersonProcessing => "skip_person_processing",
         }
+    }
+
+    fn all() -> [Self; 4] {
+        [
+            Self::DropEvent,
+            Self::ForceOverflow,
+            Self::SkipPersonProcessing,
+            Self::RedirectToDlq,
+        ]
+    }
+}
+
+/// Result of applying restrictions to an event.
+/// Contains flags indicating what actions to take.
+#[derive(Debug, Default)]
+pub struct AppliedRestrictions {
+    pub should_drop: bool,
+    pub force_overflow: bool,
+    pub skip_person_processing: bool,
+    pub redirect_to_dlq: bool,
+}
+
+impl AppliedRestrictions {
+    /// Apply restrictions and emit metrics.
+    pub fn from_restrictions(
+        restrictions: &HashSet<RestrictionType>,
+        pipeline: IngestionPipeline,
+    ) -> Self {
+        let mut result = Self::default();
+        let pipeline_str = pipeline.as_str();
+
+        for restriction_type in RestrictionType::all() {
+            if restrictions.contains(&restriction_type) {
+                counter!(
+                    "capture_event_restrictions_applied",
+                    "restriction_type" => restriction_type.as_str(),
+                    "pipeline" => pipeline_str
+                )
+                .increment(1);
+
+                match restriction_type {
+                    RestrictionType::DropEvent => result.should_drop = true,
+                    RestrictionType::ForceOverflow => result.force_overflow = true,
+                    RestrictionType::SkipPersonProcessing => result.skip_person_processing = true,
+                    RestrictionType::RedirectToDlq => result.redirect_to_dlq = true,
+                }
+            }
+        }
+
+        result
     }
 }
 

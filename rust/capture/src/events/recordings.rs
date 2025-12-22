@@ -19,13 +19,12 @@ use serde_json::{json, Value};
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
-use metrics::counter;
-
 use crate::{
     api::CaptureError,
     debug_or_info,
     event_restrictions::{
-        EventContext as RestrictionEventContext, EventRestrictionService, RestrictionType,
+        AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
+        IngestionPipeline,
     },
     prometheus::report_dropped_events,
     sinks,
@@ -223,11 +222,7 @@ pub async fn process_replay_events<'a>(
     Span::current().record("session_id", session_id_str);
 
     // Apply event restrictions
-    let mut force_overflow = false;
-    let mut skip_person_processing = false;
-    let mut redirect_to_dlq = false;
-
-    if let Some(ref service) = restriction_service {
+    let applied = if let Some(ref service) = restriction_service {
         let event_ctx = RestrictionEventContext {
             distinct_id: Some(distinct_id.clone()),
             session_id: Some(session_id_str.to_string()),
@@ -236,48 +231,20 @@ pub async fn process_replay_events<'a>(
         };
 
         let restrictions = service.get_restrictions(&context.token, &event_ctx).await;
+        let applied = AppliedRestrictions::from_restrictions(
+            &restrictions,
+            IngestionPipeline::SessionRecordings,
+        );
 
-        if restrictions.contains(&RestrictionType::DropEvent) {
-            counter!(
-                "capture_event_restrictions_applied",
-                "restriction_type" => "drop_event",
-                "pipeline" => "session_recordings"
-            )
-            .increment(1);
+        if applied.should_drop {
             report_dropped_events("event_restriction_drop", 1);
             return Ok(());
         }
 
-        if restrictions.contains(&RestrictionType::ForceOverflow) {
-            counter!(
-                "capture_event_restrictions_applied",
-                "restriction_type" => "force_overflow",
-                "pipeline" => "session_recordings"
-            )
-            .increment(1);
-            force_overflow = true;
-        }
-
-        if restrictions.contains(&RestrictionType::SkipPersonProcessing) {
-            counter!(
-                "capture_event_restrictions_applied",
-                "restriction_type" => "skip_person_processing",
-                "pipeline" => "session_recordings"
-            )
-            .increment(1);
-            skip_person_processing = true;
-        }
-
-        if restrictions.contains(&RestrictionType::RedirectToDlq) {
-            counter!(
-                "capture_event_restrictions_applied",
-                "restriction_type" => "redirect_to_dlq",
-                "pipeline" => "session_recordings"
-            )
-            .increment(1);
-            redirect_to_dlq = true;
-        }
-    }
+        applied
+    } else {
+        AppliedRestrictions::default()
+    };
 
     let window_id = first_event
         .properties
@@ -342,9 +309,9 @@ pub async fn process_replay_events<'a>(
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp),
         event_name: "$snapshot_items".to_string(),
-        force_overflow,
-        skip_person_processing,
-        redirect_to_dlq,
+        force_overflow: applied.force_overflow,
+        skip_person_processing: applied.skip_person_processing,
+        redirect_to_dlq: applied.redirect_to_dlq,
     };
 
     // Serialize snapshot data synchronously
@@ -451,6 +418,7 @@ fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_restrictions::RestrictionType;
     use serde_json::json;
 
     #[test]

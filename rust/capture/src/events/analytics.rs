@@ -8,7 +8,6 @@ use std::sync::Arc;
 use chrono::DateTime;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
-use metrics::counter;
 use serde_json;
 use tracing::{error, instrument, Span};
 
@@ -16,7 +15,8 @@ use crate::{
     api::CaptureError,
     debug_or_info,
     event_restrictions::{
-        EventContext as RestrictionEventContext, EventRestrictionService, RestrictionType,
+        AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
+        IngestionPipeline,
     },
     prometheus::report_dropped_events,
     router, sinks,
@@ -168,49 +168,18 @@ pub async fn process_events<'a>(
             };
 
             let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
+            let applied =
+                AppliedRestrictions::from_restrictions(&restrictions, IngestionPipeline::Analytics);
 
-            if restrictions.contains(&RestrictionType::DropEvent) {
-                counter!(
-                    "capture_event_restrictions_applied",
-                    "restriction_type" => "drop_event",
-                    "pipeline" => "analytics"
-                )
-                .increment(1);
+            if applied.should_drop {
                 report_dropped_events("event_restriction_drop", 1);
                 continue;
             }
 
             let mut event = e;
-
-            if restrictions.contains(&RestrictionType::ForceOverflow) {
-                counter!(
-                    "capture_event_restrictions_applied",
-                    "restriction_type" => "force_overflow",
-                    "pipeline" => "analytics"
-                )
-                .increment(1);
-                event.metadata.force_overflow = true;
-            }
-
-            if restrictions.contains(&RestrictionType::SkipPersonProcessing) {
-                counter!(
-                    "capture_event_restrictions_applied",
-                    "restriction_type" => "skip_person_processing",
-                    "pipeline" => "analytics"
-                )
-                .increment(1);
-                event.metadata.skip_person_processing = true;
-            }
-
-            if restrictions.contains(&RestrictionType::RedirectToDlq) {
-                counter!(
-                    "capture_event_restrictions_applied",
-                    "restriction_type" => "redirect_to_dlq",
-                    "pipeline" => "analytics"
-                )
-                .increment(1);
-                event.metadata.redirect_to_dlq = true;
-            }
+            event.metadata.force_overflow |= applied.force_overflow;
+            event.metadata.skip_person_processing |= applied.skip_person_processing;
+            event.metadata.redirect_to_dlq |= applied.redirect_to_dlq;
 
             filtered_events.push(event);
         }
