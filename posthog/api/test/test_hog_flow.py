@@ -1,8 +1,6 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from inline_snapshot import snapshot
-
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -156,17 +154,13 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
 
-        assert hog_flow.trigger["filters"].get("bytecode") == snapshot(
-            ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
-        )
+        assert hog_flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
 
-        assert hog_flow.actions[1]["filters"].get("bytecode") == snapshot(
-            ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
-        )
+        assert hog_flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
-        assert hog_flow.actions[1]["config"]["inputs"] == snapshot(
-            {"url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}}
-        )
+        assert hog_flow.actions[1]["config"]["inputs"] == {
+            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+        }
 
     def test_hog_flow_conditional_branch_filters_bytecode(self):
         conditional_action = {
@@ -216,7 +210,7 @@ class TestHogFlowAPI(APIBaseTest):
         conditions = response.json()["actions"][1]["config"]["conditions"]
         assert "filters" in conditions[0]
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
-        assert conditions[0]["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+        assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
@@ -264,7 +258,7 @@ class TestHogFlowAPI(APIBaseTest):
         condition = response.json()["actions"][1]["config"]["condition"]
         assert "filters" in condition
         assert "bytecode" in condition["filters"], condition["filters"]
-        assert condition["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+        assert condition["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
     def test_hog_flow_condition_and_conditions_mutually_exclusive(self):
         trigger_action = {

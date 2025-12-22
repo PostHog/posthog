@@ -16,6 +16,12 @@ from posthog.temporal.llm_analytics.trace_summarization.models import Summarizat
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+from products.llm_analytics.backend.summarization.models import (
+    GeminiModel,
+    OpenAIModel,
+    SummarizationMode,
+    SummarizationProvider,
+)
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_trace_text_repr,
@@ -36,7 +42,9 @@ async def generate_and_save_summary_activity(
     window_end: str,
     mode: str,
     batch_run_id: str,
+    provider: str,
     model: str | None = None,
+    max_length: int | None = None,
 ) -> SummarizationActivityResult:
     """
     Generate summary for a trace and save it to ClickHouse.
@@ -46,7 +54,7 @@ async def generate_and_save_summary_activity(
     """
 
     def _fetch_trace_and_format(
-        trace_id: str, team_id: int, window_start: str, window_end: str
+        trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
     ) -> tuple[dict, list, str, Team, str] | None:
         """Fetch trace data and format text representation.
 
@@ -76,6 +84,7 @@ async def generate_and_save_summary_activity(
             "truncated": False,
             "include_markers": False,
             "collapsed": False,
+            "max_length": max_length,
         }
 
         text_repr, _ = format_trace_text_repr(
@@ -148,7 +157,7 @@ async def generate_and_save_summary_activity(
 
     # Fetch trace data and format text representation
     result = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
-        trace_id, team_id, window_start, window_end
+        trace_id, team_id, window_start, window_end, max_length
     )
 
     # Handle trace not found in window
@@ -170,11 +179,22 @@ async def generate_and_save_summary_activity(
 
     # Generate summary using LLM
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
+    # Convert string inputs to enum types
+    mode_enum = SummarizationMode(mode)
+    provider_enum = SummarizationProvider(provider)
+    model_enum: OpenAIModel | GeminiModel | None = None
+    if model:
+        if provider_enum == SummarizationProvider.GEMINI:
+            model_enum = GeminiModel(model)
+        else:
+            model_enum = OpenAIModel(model)
+
     summary_result = await summarize(
         text_repr=text_repr,
         team_id=team_id,
-        mode=mode,
-        model=model,
+        mode=mode_enum,
+        provider=provider_enum,
+        model=model_enum,
     )
 
     # Save event to ClickHouse immediately

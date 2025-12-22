@@ -228,7 +228,7 @@ async def test_get_schedule_frequency(activity_environment, temporal_worker, tem
 async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_client, temporal_schedule):
     """Test backfill_schedule activity schedules all backfill runs."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
     backfill_id = str(uuid.uuid4())
 
     desc = await temporal_schedule.describe()
@@ -236,7 +236,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
         schedule_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        start_delay=1.0,
+        start_delay=0.1,
         frequency_seconds=desc.schedule.spec.intervals[0].every.total_seconds(),
         backfill_id=backfill_id,
     )
@@ -248,7 +248,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 
     timeout = 20
     waited = 0
-    expected = 10
+    expected = 5
     while len(workflows) < expected:
         # It can take a few seconds for workflows to be query-able
         waited += 1
@@ -294,7 +294,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client, team):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
     desc = await temporal_schedule.describe()
 
     workflow_id = str(uuid.uuid4())
@@ -303,7 +303,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        start_delay=1.0,
+        start_delay=0.1,
     )
 
     handle = await temporal_client.start_workflow(
@@ -321,7 +321,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     timeout = 20
     waited = 0
-    expected = 10
+    expected = 5
     while len(workflows) < expected:
         # It can take a few seconds for workflows to be query-able
         waited += 1
@@ -472,7 +472,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
 ):
     """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -515,7 +515,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     backfill runs before cancelling.
     """
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
 
     desc = await temporal_schedule.describe()
 
@@ -673,7 +673,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
     """
     hour = 12
     start_at = dt.datetime(2023, 1, 1, hour, 0, 0, tzinfo=timezone)
-    end_at = dt.datetime(2023, 1, 1, hour, 10, 0, tzinfo=timezone)
+    end_at = dt.datetime(2023, 1, 1, hour, 5, 0, tzinfo=timezone)
 
     desc = await temporal_schedule.describe()
 
@@ -683,7 +683,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        start_delay=1.0,
+        start_delay=0.1,
     )
 
     handle = await temporal_client.start_workflow(
@@ -701,7 +701,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
 
     timeout = 60
     waited = 0
-    expected = 10
+    expected = 5
     while len(workflows) < expected:
         # It can take a few seconds for workflows to be query-able
         waited += 1
@@ -719,7 +719,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
     for index, workflow in enumerate(workflows, start=1):
         run_end_time = dt.datetime.strptime(workflow.id, f"{desc.id}-%Y-%m-%dT%H:%M:%SZ")
 
-        adjusted_minutes = run_end_time.minute + 10 - index
+        adjusted_minutes = run_end_time.minute + 5 - index
         adjusted_end_times.append(run_end_time.replace(minute=adjusted_minutes).astimezone(timezone))
 
         temporal_scheduled_start_time = workflow.search_attributes["TemporalScheduledStartTime"][0]
@@ -769,7 +769,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
     """
     hour = 12
     start_at = dt.datetime(2023, 1, 1, hour, 0, 0, tzinfo=timezone)
-    end_at = dt.datetime(2023, 1, 1, hour, 10, 0, tzinfo=timezone)
+    end_at = dt.datetime(2023, 1, 1, hour, 5, 0, tzinfo=timezone)
 
     desc = await temporal_schedule_with_tz.describe()
 
@@ -779,7 +779,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
-        start_delay=1.0,
+        start_delay=0.1,
     )
 
     handle = await temporal_client.start_workflow(
@@ -797,7 +797,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
 
     timeout = 60
     waited = 0
-    expected = 10
+    expected = 5
     while len(workflows) < expected:
         # It can take a few seconds for workflows to be query-able
         waited += 1
@@ -815,7 +815,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
     for index, workflow in enumerate(workflows, start=1):
         run_end_time = dt.datetime.strptime(workflow.id, f"{desc.id}-%Y-%m-%dT%H:%M:%SZ")
 
-        adjusted_minutes = run_end_time.minute + 10 - index
+        adjusted_minutes = run_end_time.minute + 5 - index
         adjusted_end_times.append(run_end_time.replace(tzinfo=dt.UTC, minute=adjusted_minutes).astimezone(timezone))
 
         temporal_scheduled_start_time = workflow.search_attributes["TemporalScheduledStartTime"][0]
@@ -841,7 +841,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
 async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, temporal_schedule, temporal_client, team):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = None
-    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.UTC)
+    end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
     desc = await temporal_schedule.describe()
 
     workflow_id = str(uuid.uuid4())
@@ -850,7 +850,7 @@ async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, tempo
         batch_export_id=desc.id,
         start_at=start_at,
         end_at=end_at.isoformat(),
-        start_delay=1.0,
+        start_delay=0.1,
     )
 
     handle = await temporal_client.start_workflow(

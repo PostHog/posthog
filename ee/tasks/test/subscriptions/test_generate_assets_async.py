@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from urllib3.exceptions import ProtocolError
 
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models.dashboard import Dashboard
@@ -371,3 +372,37 @@ async def test_async_generate_assets_fails_after_max_retries(mock_export: MagicM
     assert assets[0].content is None
     assert "S3 error" in str(assets[0].exception)
     assert mock_export.call_count == 4
+
+
+@patch("posthog.tasks.exporter.export_asset_direct")
+async def test_async_generate_assets_retries_on_protocol_error(mock_export: MagicMock, team, user) -> None:
+    call_count = 0
+
+    def export_with_protocol_error(asset: ExportedAsset, **kwargs) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise ProtocolError("Connection aborted.")
+        asset.content = b"fake image data"
+        asset.save()
+
+    mock_export.side_effect = export_with_protocol_error
+
+    insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id="protocoltest", name="Protocol Error Test"
+    )
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    subscription = await sync_to_async(
+        lambda: type(subscription)
+        .objects.select_related("team", "dashboard", "insight", "created_by")
+        .get(id=subscription.id)
+    )()
+
+    with patch("tenacity.nap.sleep"):
+        insights, assets = await generate_assets_async(subscription)
+
+    assert len(assets) == 1
+    assert assets[0].content == b"fake image data"
+    assert assets[0].exception is None
+    assert mock_export.call_count == 3

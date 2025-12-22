@@ -65,3 +65,17 @@ export function addManagedByTag(tags: unknown): string[] {
     const existingTags = Array.isArray(tags) ? tags : []
     return existingTags.includes(MANAGED_BY_TAG) ? existingTags : [...existingTags, MANAGED_BY_TAG]
 }
+
+/**
+ * Format an array of IDs, replacing any that have TF references.
+ */
+export function formatIdsWithReplacements(
+    ids: (string | number)[],
+    replacements?: Map<string | number, string>
+): string {
+    if (!replacements?.size) {
+        return formatHclValue(ids)
+    }
+    const parts = ids.map((id) => replacements.get(id) ?? formatHclValue(id))
+    return `[${parts.join(', ')}]`
+}

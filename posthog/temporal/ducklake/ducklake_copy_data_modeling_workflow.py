@@ -28,7 +28,7 @@ from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_modeling_finished_metric,
     get_ducklake_copy_data_modeling_verification_metric,
 )
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 

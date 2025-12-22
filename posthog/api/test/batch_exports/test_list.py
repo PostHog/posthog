@@ -1,4 +1,5 @@
 import pytest
+from unittest import mock
 
 from django.test.client import Client as HttpClient
 
@@ -127,3 +128,66 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
     # Make sure we can't see these batch exports for the other team.
     response = list_batch_exports_ok(client, another_team.pk)
     assert len(response["results"]) == 0
+
+
+@pytest.fixture
+def enable_backfilling_workflows(team):
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+    ) as feature_enabled:
+        yield
+
+        feature_enabled.assert_any_call(
+            "backfill-workflows-destination",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+
+def test_list_filters_workflows_destination(client: HttpClient, organization, team, user, enable_backfilling_workflows):
+    """
+    Workflows should be filtered out from the list.
+    """
+    client.force_login(user)
+
+    s3_destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    s3_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": s3_destination_data,
+        "interval": "hour",
+    }
+
+    realtime_destination_data = {
+        "type": "Workflows",
+        "config": {},
+    }
+
+    realtime_batch_export_data = {
+        "name": "my-realtime-destination",
+        "destination": realtime_destination_data,
+        "interval": "hour",
+    }
+
+    create_batch_export_ok(client, team.pk, s3_batch_export_data)
+    create_batch_export_ok(client, team.pk, realtime_batch_export_data)
+
+    response = list_batch_exports_ok(client, team.pk)
+    assert len(response["results"]) == 1
+    assert response["results"][0]["destination"]["type"] == "S3"

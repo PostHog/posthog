@@ -11,15 +11,16 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
+COPY pyproject.toml uv.lock README.md ./
+COPY src/ src/
+RUN uv sync --locked --no-dev
 
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY src/ src/
+COPY --from=builder /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -37,7 +38,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 CMD ["gunicorn", "llm_gateway.main:app", \
      "--bind", "0.0.0.0:8080", \
-     "--workers", "4", \
+     "--workers", "2", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

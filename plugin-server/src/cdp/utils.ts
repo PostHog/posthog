@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Summary } from 'prom-client'
 import { gunzip, gzip } from 'zlib'
 
 import { sanitizeForUTF8 } from '~/utils/strings'
@@ -294,3 +295,9 @@ export const createAddLogFunction = (logs: MinimalLogEntry[]) => {
         })
     }
 }
+
+export const destinationE2eLagMsSummary = new Summary({
+    name: 'destination_e2e_lag_ms',
+    help: 'Time difference in ms between event capture time and destination finishing time',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})

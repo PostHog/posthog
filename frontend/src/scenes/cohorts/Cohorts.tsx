@@ -7,7 +7,7 @@ import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { ListHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -97,16 +97,21 @@ export function Cohorts(): JSX.Element {
                                     Edit
                                 </LemonButton>
                                 {cohortId && (
-                                    <ViewReplayButton
+                                    <ViewRecordingsPlaylistButton
                                         filters={{
                                             filter_group: {
                                                 type: FilterLogicalOperator.And,
                                                 values: [
                                                     {
-                                                        type: PropertyFilterType.Cohort,
-                                                        key: 'id',
-                                                        operator: PropertyOperator.In,
-                                                        value: cohortId,
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                type: PropertyFilterType.Cohort,
+                                                                key: 'id',
+                                                                operator: PropertyOperator.In,
+                                                                value: cohortId,
+                                                            },
+                                                        ],
                                                     },
                                                 ],
                                             },

@@ -25,7 +25,7 @@ class FeatureFlagActionBase(BaseAction):
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> tuple[bool, Optional[dict[str, Any]]]:
-        data_to_validate = intent_data.get("full_request_data", intent_data.get("desired_state", {}))
+        data_to_validate = intent_data.get("full_request_data", intent_data.get("gated_changes", {}))
         instance = context.get("instance") if context else None
 
         serializer = cls.endpoint_serializer_class(
@@ -67,7 +67,7 @@ class FeatureFlagActionBase(BaseAction):
         desired_active = request.data.get("active")
         current_active = flag.active
 
-        if desired_active is not cls.target_active_state or current_active is cls.target_active_state:
+        if desired_active != cls.target_active_state or current_active == cls.target_active_state:
             return False
 
         team = cls._get_team(view)
@@ -80,16 +80,16 @@ class FeatureFlagActionBase(BaseAction):
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:
         flag = cls._get_instance(view, *args, **kwargs)
 
-        desired_state = {}
+        gated_changes = {}
         for field in cls.intent_fields:
             if field in request.data:
-                desired_state[field] = request.data[field]
+                gated_changes[field] = request.data[field]
 
         return {
             "flag_id": flag.id,
             "flag_key": flag.key,
             "current_state": {"active": flag.active},
-            "desired_state": desired_state,
+            "gated_changes": gated_changes,
             "full_request_data": dict(request.data),
             "preconditions": {
                 "version": flag.version,
@@ -157,8 +157,8 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return {
             "description": f"Enable feature flag '{intent_data.get('flag_key', 'unknown')}'",
-            "flag_key": intent_data.get("flag_key"),
-            "action": "enable",
+            "before": intent_data.get("current_state", {}),
+            "after": intent_data.get("gated_changes", {}),
         }
 
 
@@ -174,6 +174,6 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return {
             "description": f"Disable feature flag '{intent_data.get('flag_key', 'unknown')}'",
-            "flag_key": intent_data.get("flag_key"),
-            "action": "disable",
+            "before": intent_data.get("current_state", {}),
+            "after": intent_data.get("gated_changes", {}),
         }

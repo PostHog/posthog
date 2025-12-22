@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
@@ -59,7 +59,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        results = get_actors(
+        results = get_actors_legacy_filters(
             {"funnel_to_step": 1, **filters},
             self.team,
             funnel_trends_drop_off=False,
@@ -109,7 +109,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        results = get_actors(
+        results = get_actors_legacy_filters(
             filters,
             self.team,
             funnel_trends_drop_off=False,
@@ -148,7 +148,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        results = get_actors(
+        results = get_actors_legacy_filters(
             filters,
             self.team,
             funnel_trends_drop_off=True,

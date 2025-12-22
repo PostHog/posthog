@@ -84,8 +84,8 @@ class BaseAction(ABC):
         if cls.endpoint_serializer_class is None:
             return True, None
 
-        if "desired_state" in intent_data:
-            data_to_validate = intent_data["desired_state"]
+        if "gated_changes" in intent_data:
+            data_to_validate = intent_data["gated_changes"]
             partial = True
         else:
             data_to_validate = intent_data
@@ -124,13 +124,13 @@ class BaseAction(ABC):
         """
         Generate human-readable diff for UI display.
         """
-        if "desired_state" in intent and "current_state" in intent:
+        if "gated_changes" in intent and "current_state" in intent:
             return {
                 "before": intent["current_state"],
-                "after": intent["desired_state"],
+                "after": intent["gated_changes"],
                 "changes": cls._compute_diff(
                     intent["current_state"],
-                    intent["desired_state"],
+                    intent["gated_changes"],
                 ),
             }
         else:

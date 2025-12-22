@@ -671,7 +671,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
 
         # First execution - should calculate fresh
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
@@ -681,7 +681,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         cache_key = response_data["cache_key"]
 
         # Second execution immediately - should use cache
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"debug": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["cache_key"], cache_key)
@@ -928,7 +928,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2025-09-18",
                 "date_to": "2025-09-21",
                 "properties": [{"type": "event", "operator": "exact", "key": "event", "value": "$pageview"}],
-            }
+            },
+            "debug": True,
         }
         expected_filters = [{"key": "event", "label": None, "operator": "exact", "type": "event", "value": "$pageview"}]
 
@@ -1013,6 +1014,51 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         response_data = response.json()
         self.assertEqual("validation_error", response_data["type"])
+
+    @parameterized.expand(
+        [
+            ("without_variable_override", None, 0),
+            ("with_variable_override", {"test_var": "yes"}, 1),
+        ]
+    )
+    def test_execute_endpoint_with_variable_filtering(self, _name, variables, expected_result_count):
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Test Variable",
+            code_name="test_var",
+            type=InsightVariable.Type.STRING,
+            default_value="no",
+        )
+
+        query_with_variable = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1 WHERE {variables.test_var} = 'yes'",
+            "variables": {
+                str(variable.id): {
+                    "variableId": str(variable.id),
+                    "code_name": "test_var",
+                    "value": "no",
+                }
+            },
+        }
+
+        Endpoint.objects.create(
+            name="variable_filter_test",
+            team=self.team,
+            query=query_with_variable,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        request_data = {"variables": variables} if variables else {}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/variable_filter_test/run/", request_data, format="json"
+        )
+
+        response_data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+        self.assertEqual(len(response_data["results"]), expected_result_count)
 
 
 class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):

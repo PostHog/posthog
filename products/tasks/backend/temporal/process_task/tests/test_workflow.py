@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     get_sandbox_for_repository,
     get_task_processing_context,
     track_workflow_event,
+    update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskInput,
@@ -69,6 +70,7 @@ class TestProcessTaskWorkflow:
                         execute_task_in_sandbox,
                         cleanup_sandbox,
                         track_workflow_event,
+                        update_task_run_status,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                     activity_executor=ThreadPoolExecutor(max_workers=10),

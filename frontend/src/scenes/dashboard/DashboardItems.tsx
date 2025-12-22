@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardMode, DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -51,7 +51,7 @@ export function DashboardItems(): JSX.Element {
         moveToDashboard,
         setTileOverride,
     } = useActions(dashboardLogic)
-    const { duplicateInsight, renameInsight } = useActions(insightsModel)
+    const { renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
@@ -76,15 +76,6 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
-
-    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES]
-    const duplicate = (tile: DashboardTile<QueryBasedInsightModel>, insight: QueryBasedInsightModel): void => {
-        if (canAccessTileOverrides) {
-            duplicateTile(tile)
-        } else {
-            duplicateInsight(insight)
-        }
-    }
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -183,7 +174,7 @@ export function DashboardItems(): JSX.Element {
                                     refresh={() => refreshDashboardItem({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
-                                    duplicate={() => duplicate(tile, insight)}
+                                    duplicate={() => duplicateTile(tile)}
                                     setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&

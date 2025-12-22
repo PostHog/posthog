@@ -597,14 +597,17 @@ def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs
     Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
     during authentication requests.
     """
-    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
-
     # Skip cache updates if only last_used_at is being updated
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and set(update_fields) == {"last_used_at"}:
         return
 
-    transaction.on_commit(lambda: update_personal_api_key_authentication_cache(instance))
+    # Capture user_id now (not the instance) for clean serialization to Celery
+    user_id = instance.user_id
+
+    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
+
+    transaction.on_commit(lambda: warm_personal_api_key_teams_cache_task.delay(user_id))
 
 
 @receiver(post_delete, sender=PersonalAPIKey)
@@ -612,9 +615,13 @@ def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
     """
     Handle PersonalAPIKey delete for team access cache invalidation.
     """
-    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_deleted_cache
+    # Capture data now (not the instance) for clean serialization to Celery
+    user_id = instance.user_id
+    scoped_team_ids = list(instance.scoped_teams) if instance.scoped_teams else None
 
-    transaction.on_commit(lambda: update_personal_api_key_deleted_cache(instance))
+    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_deleted_cache_task
+
+    transaction.on_commit(lambda: warm_personal_api_key_deleted_cache_task.delay(user_id, scoped_team_ids))
 
 
 @receiver(post_save, sender=User)
@@ -624,17 +631,40 @@ def user_saved(sender, instance: "User", created, **kwargs):
 
     When a user's is_active status changes, their Personal API Keys need to be
     added or removed from team authentication caches.
+
+    We track the original is_active value via User.from_db() to detect actual changes,
+    avoiding unnecessary cache warming on unrelated user saves.
+
+    Security consideration:
+    - Deactivation (is_active: True → False): Cache invalidation runs SYNCHRONOUSLY
+      to immediately revoke access. This prevents a race condition where a deactivated
+      user could continue using their API keys during Celery queue delays.
+    - Activation (is_active: False → True): Cache warming runs ASYNCHRONOUSLY via Celery
+      since there's no security concern with a slight delay in granting access.
     """
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "is_active" not in update_fields:
-        logger.debug(f"User {instance.id} updated but is_active unchanged, skipping cache update")
+    original_is_active = getattr(instance, "_original_is_active", instance.is_active)
+    is_active_changed = created or instance.is_active != original_is_active
+
+    if not is_active_changed:
+        logger.debug(f"User {instance.id} saved but is_active unchanged, skipping cache update")
         return
 
-    # If update_fields is None, we need to update cache since all fields (including is_active) might have changed
+    # Update the snapshot to prevent double-fires if the same instance is saved again
+    instance._original_is_active = instance.is_active
 
-    from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+    # Capture user_id now (not the instance) for clean serialization to Celery
+    user_id = instance.id
 
-    transaction.on_commit(lambda: update_user_authentication_cache(instance, **kwargs))
+    if instance.is_active:
+        # User activated - async is fine, no security concern with delay
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
+
+        transaction.on_commit(lambda: warm_user_teams_cache_task.delay(user_id))
+    else:
+        # User deactivated - sync to immediately revoke access (security-critical)
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_sync
+
+        transaction.on_commit(lambda: warm_user_teams_cache_sync(user_id))
 
 
 @receiver(post_save, sender=OrganizationMembership)
@@ -652,9 +682,15 @@ def organization_membership_saved(sender, instance: "OrganizationMembership", cr
     existence, not role level.
     """
     if created:
-        from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_created_cache
+        # Capture data now (not the instance) for clean serialization to Celery
+        organization_id = str(instance.organization_id)
+        user_id = instance.user_id
 
-        transaction.on_commit(lambda: update_organization_membership_created_cache(instance))
+        from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
+
+        transaction.on_commit(
+            lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "added to organization")
+        )
 
 
 @receiver(post_delete, sender=OrganizationMembership)
@@ -666,6 +702,12 @@ def organization_membership_deleted(sender, instance: "OrganizationMembership", 
     should no longer have access to teams within that organization. This ensures
     that the authentication cache is updated to reflect the change in access rights.
     """
-    from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_deleted_cache
+    # Capture data now (not the instance) for clean serialization to Celery
+    organization_id = str(instance.organization_id)
+    user_id = instance.user_id
 
-    transaction.on_commit(lambda: update_organization_membership_deleted_cache(instance))
+    from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
+
+    transaction.on_commit(
+        lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "removed from organization")
+    )

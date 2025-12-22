@@ -126,7 +126,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                                     label="Managers customer ID",
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
-                                    placeholder="",
+                                    placeholder="123-456-7890",
                                 )
                             ],
                         ),
@@ -144,6 +144,15 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                 "Please enter a valid Google Ads customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
             )
             is_valid = False
+
+        is_mcc_account = job_inputs.get("is_mcc_account", {})
+        if is_mcc_account.get("enabled"):
+            mcc_client_id = is_mcc_account.get("mcc_client_id", "")
+            if mcc_client_id and not re.match(r"^\d{3}-\d{3}-\d{4}$", mcc_client_id):
+                errors.append(
+                    "Please enter a valid Google Ads manager customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
+                )
+                is_valid = False
 
         return is_valid, errors
 

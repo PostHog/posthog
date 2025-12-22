@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
-import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
 import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
 

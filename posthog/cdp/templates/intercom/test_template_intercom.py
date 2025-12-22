@@ -1,7 +1,5 @@
 import pytest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.intercom.template_intercom import (
     template as template_intercom,
@@ -45,42 +43,38 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.intercom.io/contacts/search",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {"query": {"field": "email", "operator": "=", "value": "max@posthog.com"}},
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.intercom.io/contacts/search",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {"query": {"field": "email", "operator": "=", "value": "max@posthog.com"}},
+            },
         )
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.intercom.io/contacts",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "custom_attributes": {},
-                        "name": "Max AI",
-                        "phone": "+1234567890",
-                        "last_seen_at": "1234567890",
-                    },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.intercom.io/contacts",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {
+                    "email": "max@posthog.com",
+                    "custom_attributes": {},
+                    "name": "Max AI",
+                    "phone": "+1234567890",
+                    "last_seen_at": "1234567890",
+                },
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
@@ -101,28 +95,26 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         res = self.get_mock_fetch_calls()[1]
         res[1]["body"]["last_seen_at"] = "1234567890"
 
-        assert res == snapshot(
-            (
-                "https://api.intercom.io/contacts/123",
-                {
-                    "method": "PUT",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "custom_attributes": {
-                            "custom_property": "custom_value",
-                        },
-                        "name": "Max AI",
-                        "phone": "+1234567890",
-                        "last_seen_at": "1234567890",
-                    },
+        assert res == (
+            "https://api.intercom.io/contacts/123",
+            {
+                "method": "PUT",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {
+                    "email": "max@posthog.com",
+                    "custom_attributes": {
+                        "custom_property": "custom_value",
+                    },
+                    "name": "Max AI",
+                    "phone": "+1234567890",
+                    "last_seen_at": "1234567890",
+                },
+            },
         )
 
         self.run_function(
@@ -135,35 +127,33 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
         res = self.get_mock_fetch_calls()[1]
         res[1]["body"]["last_seen_at"] = "1234567890"
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.intercom.io/contacts/123",
-                {
-                    "method": "PUT",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {
-                        "email": "max@posthog.com",
-                        "custom_attributes": {},
-                        "name": "Max AI",
-                        "phone": "+1234567890",
-                        "last_seen_at": "1234567890",
-                        "plan": "pay-as-you-go",
-                        "company": "PostHog",
-                    },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.intercom.io/contacts/123",
+            {
+                "method": "PUT",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {
+                    "email": "max@posthog.com",
+                    "custom_attributes": {},
+                    "name": "Max AI",
+                    "phone": "+1234567890",
+                    "last_seen_at": "1234567890",
+                    "plan": "pay-as-you-go",
+                    "company": "PostHog",
+                },
+            },
         )
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=self.create_inputs(email=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+        assert self.get_mock_print_calls() == [("No email set. Skipping...",)]
 
     def test_function_errors_on_bad_status(self):
         self.fetch_responses = {
@@ -244,43 +234,39 @@ class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.intercom.io/contacts/search",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {"query": {"field": "email", "operator": "=", "value": "max@posthog.com"}},
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.intercom.io/contacts/search",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {"query": {"field": "email", "operator": "=", "value": "max@posthog.com"}},
+            },
         )
 
         res = self.get_mock_fetch_calls()[1]
         res[1]["body"]["created_at"] = "1234567890"
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.intercom.io/events",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {
-                        "event_name": "purchase",
-                        "created_at": "1234567890",
-                        "email": "max@posthog.com",
-                        "metadata": {"revenue": "50", "currency": "USD"},
-                    },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.intercom.io/events",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {
+                    "event_name": "purchase",
+                    "created_at": "1234567890",
+                    "email": "max@posthog.com",
+                    "metadata": {"revenue": "50", "currency": "USD"},
+                },
+            },
         )
 
     def test_body_includes_all_properties_if_set(self):
@@ -299,25 +285,23 @@ class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.intercom.io/events",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {
-                        "event_name": "purchase",
-                        "created_at": "1234567890",
-                        "email": "max@posthog.com",
-                        "metadata": {"revenue": "50", "currency": "USD"},
-                    },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.intercom.io/events",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
                 },
-            )
+                "body": {
+                    "event_name": "purchase",
+                    "created_at": "1234567890",
+                    "email": "max@posthog.com",
+                    "metadata": {"revenue": "50", "currency": "USD"},
+                },
+            },
         )
 
         self.run_function(
@@ -330,36 +314,34 @@ class TestTemplateIntercomEvent(BaseHogFunctionTemplateTest):
             },
         )
 
-        assert self.get_mock_fetch_calls()[1] == snapshot(
-            (
-                "https://api.intercom.io/events",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "Intercom-Version": "2.11",
-                        "Accept": "application/json",
-                        "Authorization": "Bearer ACCESS_TOKEN",
-                    },
-                    "body": {
-                        "event_name": "purchase",
-                        "created_at": "1234567890",
-                        "email": "max@posthog.com",
-                        "metadata": {
-                            "revenue": "50",
-                            "currency": "USD",
-                            "customerType": "B2C",
-                        },
+        assert self.get_mock_fetch_calls()[1] == (
+            "https://api.intercom.io/events",
+            {
+                "method": "POST",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Intercom-Version": "2.11",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer ACCESS_TOKEN",
+                },
+                "body": {
+                    "event_name": "purchase",
+                    "created_at": "1234567890",
+                    "email": "max@posthog.com",
+                    "metadata": {
+                        "revenue": "50",
+                        "currency": "USD",
+                        "customerType": "B2C",
                     },
                 },
-            )
+            },
         )
 
     def test_function_requires_identifier(self):
         self.run_function(inputs=self.create_inputs(email=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot([("No email set. Skipping...",)])
+        assert self.get_mock_print_calls() == [("No email set. Skipping...",)]
 
     def test_function_errors_on_bad_status(self):
         self.fetch_responses = {

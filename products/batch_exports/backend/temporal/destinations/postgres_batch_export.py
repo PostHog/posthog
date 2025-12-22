@@ -112,6 +112,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLTransactionError",
     # Raised when a query takes too long.
     "TimeoutError",
+    # Raised when a PostgreSQL stored procedure or function fails.
+    # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
+    "SqlRoutineException",
 )
 
 
@@ -513,13 +516,15 @@ class PostgreSQLClient:
                         await cursor.execute(merge_query)
                 except psycopg.errors.InvalidColumnReference:
                     raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
-                except TimeoutError:
+                except TimeoutError as e:
                     self.external_logger.exception(
                         "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
                         schema,
                         final_table_name,
                     )
-                    raise
+                    raise TimeoutError(
+                        f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
+                    ) from e
 
     async def copy_tsv_to_postgres(
         self,
@@ -816,6 +821,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            stage_folder=inputs.stage_folder,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
