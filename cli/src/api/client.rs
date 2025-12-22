@@ -15,6 +15,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::{invocation_context::InvocationConfig, utils::throttler::Throttler};
+const ONE_MINUTE_IN_MS: u64 = 60 * 1000;
 
 #[derive(Clone)]
 pub struct PHClient {
@@ -89,7 +90,7 @@ impl PHClient {
         let client = Self::build_client(config.skip_ssl)?;
         let throttler = Arc::new(Mutex::new(Throttler::new(
             config.rate_limit,
-            Duration::from_millis(60000),
+            Duration::from_millis(ONE_MINUTE_IN_MS),
         )));
         Ok(Self {
             config,
