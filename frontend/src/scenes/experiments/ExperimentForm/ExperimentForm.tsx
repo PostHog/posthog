@@ -248,12 +248,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
 
                 <SceneDivider />
                 <div className="flex justify-end gap-2">
-                    <LemonButton
-                        data-attr="cancel-experiment"
-                        type="secondary"
-                        size="small"
-                        onClick={handleCancel}
-                    >
+                    <LemonButton data-attr="cancel-experiment" type="secondary" size="small" onClick={handleCancel}>
                         Cancel
                     </LemonButton>
 
