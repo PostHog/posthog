@@ -234,8 +234,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_throttles(self):
         # Delete operations don't touch ClickHouse, so exclude ClickHouse throttle
         if self.action in ("destroy", "bulk_delete"):
-            return [throttle() for throttle in self.throttle_classes if throttle is not ClickHouseBurstRateThrottle]
-        return super().get_throttles()
+            return [
+                PersonsBreakGlassBurstThrottle(),
+                PersonsBreakGlassSustainedThrottle(),
+            ]
+        return [
+            ClickHouseBurstRateThrottle(),
+            PersonsBreakGlassBurstThrottle(),
+            PersonsBreakGlassSustainedThrottle(),
+        ]
 
     stickiness_class = Stickiness
 
