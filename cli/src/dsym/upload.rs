@@ -5,7 +5,7 @@ use tracing::info;
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
-    dsym::{extract_plist_info, find_dsym_bundles, DsymFile},
+    dsym::{find_dsym_bundles, DsymFile, PlistInfo},
     utils::git::get_git_info,
 };
 
@@ -92,7 +92,8 @@ pub fn upload(args: &Args) -> Result<()> {
 
     // Extract info from main dSYM's Info.plist as fallback
     let plist_info = main_dsym_path.as_ref().and_then(|p| {
-        match extract_plist_info(p) {
+        let plist_path = p.join("Contents/Info.plist");
+        match PlistInfo::from_plist(&plist_path) {
             Ok(info) => {
                 info!(
                     "Extracted plist info from {}: {:?}",

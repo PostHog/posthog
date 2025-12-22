@@ -168,7 +168,7 @@ pub fn find_dsym_bundles(directory: &PathBuf) -> Result<Vec<PathBuf>> {
     Ok(dsyms)
 }
 
-/// Info extracted from a dSYM's Info.plist
+/// Info extracted from an Info.plist file
 #[derive(Debug, Clone, Default)]
 pub struct PlistInfo {
     /// CFBundleIdentifier (e.g., com.example.app)
@@ -179,33 +179,34 @@ pub struct PlistInfo {
     pub bundle_version: Option<String>,
 }
 
-/// Extract version info from a dSYM bundle's Info.plist
-pub fn extract_plist_info(dsym_path: &PathBuf) -> Result<PlistInfo> {
-    let plist_path = dsym_path.join("Contents/Info.plist");
+impl PlistInfo {
+    /// Extract version info from an Info.plist file path
+    pub fn from_plist(plist_path: &PathBuf) -> Result<Self> {
+        if !plist_path.exists() {
+            anyhow::bail!("Info.plist not found at {}", plist_path.display());
+        }
 
-    if !plist_path.exists() {
-        anyhow::bail!("Info.plist not found at {}", plist_path.display());
+        let plist = plist::Value::from_file(plist_path)
+            .map_err(|e| anyhow!("Failed to parse Info.plist: {}", e))?;
+
+        let dict = plist
+            .as_dictionary()
+            .ok_or_else(|| anyhow!("Info.plist is not a dictionary"))?;
+
+        Ok(Self {
+            bundle_identifier: dict
+                .get("CFBundleIdentifier")
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string()),
+            short_version: dict
+                .get("CFBundleShortVersionString")
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string()),
+            bundle_version: dict
+                .get("CFBundleVersion")
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string()),
+        })
     }
-
-    let plist = plist::Value::from_file(&plist_path)
-        .map_err(|e| anyhow!("Failed to parse Info.plist: {}", e))?;
-
-    let dict = plist
-        .as_dictionary()
-        .ok_or_else(|| anyhow!("Info.plist is not a dictionary"))?;
-
-    Ok(PlistInfo {
-        bundle_identifier: dict
-            .get("CFBundleIdentifier")
-            .and_then(|v| v.as_string())
-            .map(|s| s.to_string()),
-        short_version: dict
-            .get("CFBundleShortVersionString")
-            .and_then(|v| v.as_string())
-            .map(|s| s.to_string()),
-        bundle_version: dict
-            .get("CFBundleVersion")
-            .and_then(|v| v.as_string())
-            .map(|s| s.to_string()),
-    })
 }
+
