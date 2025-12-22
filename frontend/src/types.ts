@@ -4730,6 +4730,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
     | 'logs'
@@ -4759,6 +4760,7 @@ export type APIScopeAction = 'read' | 'write'
 
 export type APIScope = {
     key: APIScopeObject
+    objectName: string
     objectPlural: string
     info?: string | JSX.Element
     disabledActions?: APIScopeAction[]

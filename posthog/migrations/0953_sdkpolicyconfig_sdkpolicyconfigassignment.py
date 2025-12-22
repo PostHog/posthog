@@ -12,7 +12,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0951_hogflowtemplate"),
+        ("posthog", "0952_add_billable_action_to_hogflows"),
     ]
 
     operations = [
