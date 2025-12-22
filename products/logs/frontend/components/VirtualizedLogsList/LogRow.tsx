@@ -15,7 +15,6 @@ import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const DEFAULT_ATTRIBUTE_COLUMN_WIDTH = 150
 const MIN_ATTRIBUTE_COLUMN_WIDTH = 80
-const MAX_ATTRIBUTE_COLUMN_WIDTH = 500
 export const RESIZER_HANDLE_WIDTH = 16 // Width of the ResizableElement handle
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
@@ -304,7 +303,6 @@ export function LogRowHeader({
                         key={`attr-${attributeKey}`}
                         defaultWidth={width + RESIZER_HANDLE_WIDTH}
                         minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
-                        maxWidth={MAX_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
                         onResize={(newWidth) =>
                             onResizeAttributeColumn?.(attributeKey, newWidth - RESIZER_HANDLE_WIDTH)
                         }
