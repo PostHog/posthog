@@ -11,11 +11,20 @@ import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer
 import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
+import {
+    ACTIONS_WIDTH,
+    CHECKBOX_WIDTH,
+    EXPAND_WIDTH,
+    MIN_ATTRIBUTE_COLUMN_WIDTH,
+    RESIZER_HANDLE_WIDTH,
+    ROW_GAP,
+    SEVERITY_WIDTH,
+    TIMESTAMP_WIDTH,
+    getAttributeColumnWidth,
+    getFixedColumnsWidth,
+    getMessageStyle,
+} from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-
-const DEFAULT_ATTRIBUTE_COLUMN_WIDTH = 150
-const MIN_ATTRIBUTE_COLUMN_WIDTH = 80
-export const RESIZER_HANDLE_WIDTH = 16 // Width of the ResizableElement handle
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -25,73 +34,6 @@ const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     error: 'bg-danger',
     fatal: 'bg-danger-dark',
 }
-
-// Fixed column widths
-const SEVERITY_WIDTH = 8
-const CHECKBOX_WIDTH = 28
-const EXPAND_WIDTH = 28
-const TIMESTAMP_WIDTH = 180
-const MESSAGE_MIN_WIDTH = 300
-const ACTIONS_WIDTH = 120
-const ROW_GAP = 8
-const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH + ACTIONS_WIDTH
-
-// Get width for an attribute column
-export const getAttributeColumnWidth = (
-    attributeKey: string,
-    attributeColumnWidths: Record<string, number>
-): number => {
-    return attributeColumnWidths[attributeKey] ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH
-}
-
-// Calculate total width of attribute columns
-const getTotalAttributeColumnsWidth = (
-    attributeColumns: string[],
-    attributeColumnWidths: Record<string, number>
-): number => {
-    return attributeColumns.reduce((sum, key) => sum + getAttributeColumnWidth(key, attributeColumnWidths), 0)
-}
-
-// Calculate total gaps: between (controls, timestamp, each attr column, message, actions)
-// = 4 fixed gaps + 1 gap per attribute column
-const getTotalGapsWidth = (attributeColumnCount: number): number => {
-    return (4 + attributeColumnCount) * ROW_GAP
-}
-
-// Calculate total width of fixed-width columns (excludes message flex column)
-export const getFixedColumnsWidth = (
-    attributeColumns: string[] = [],
-    attributeColumnWidths: Record<string, number> = {}
-): number => {
-    return (
-        FIXED_COLUMNS_TOTAL_WIDTH +
-        getTotalAttributeColumnsWidth(attributeColumns, attributeColumnWidths) +
-        getTotalGapsWidth(attributeColumns.length)
-    )
-}
-
-// Calculate total minimum width for horizontal scrolling
-export const getMinRowWidth = (
-    attributeColumns: string[] = [],
-    attributeColumnWidths: Record<string, number> = {}
-): number => {
-    return (
-        FIXED_COLUMNS_TOTAL_WIDTH +
-        MESSAGE_MIN_WIDTH +
-        getTotalAttributeColumnsWidth(attributeColumns, attributeColumnWidths) +
-        getTotalGapsWidth(attributeColumns.length)
-    )
-}
-
-export const LOG_ROW_HEADER_HEIGHT = 32
-
-// Get flex style for the message column
-const getMessageStyle = (flexWidth?: number): React.CSSProperties => ({
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: flexWidth ? Math.max(flexWidth, MESSAGE_MIN_WIDTH) : MESSAGE_MIN_WIDTH,
-    minWidth: MESSAGE_MIN_WIDTH,
-})
 
 export interface LogRowProps {
     log: ParsedLogMessage

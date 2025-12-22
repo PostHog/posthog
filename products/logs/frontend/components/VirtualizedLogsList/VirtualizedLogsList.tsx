@@ -9,13 +9,12 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { LogRow, LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import {
     LOG_ROW_HEADER_HEIGHT,
-    LogRow,
-    LogRowHeader,
     RESIZER_HANDLE_WIDTH,
     getMinRowWidth,
-} from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+} from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
