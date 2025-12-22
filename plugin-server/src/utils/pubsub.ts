@@ -39,6 +39,7 @@ export class PubSub {
         await this.redisSubscriber.unsubscribe()
 
         if (this.redisSubscriber) {
+            this.redisSubscriber.removeAllListeners('message')
             await this.redisPool.release(this.redisSubscriber)
         }
         this.redisSubscriber = undefined

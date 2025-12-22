@@ -167,6 +167,7 @@ export async function createHub(
         db,
         postgres,
         redisPool,
+        posthogRedisPool,
         cookielessRedisPool,
         kafka,
         kafkaProducer,
@@ -216,8 +217,14 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.posthogRedisPool.drain(),
+        hub.postgres?.end(),
+    ])
     await hub.redisPool.clear()
+    await hub.posthogRedisPool.clear()
     await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
