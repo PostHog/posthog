@@ -111,12 +111,6 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const series = query.series[seriesIndex]
 
-    // GroupNode is a container, not displayable - skip for now
-    // TODO: Handle GroupNode display properly
-    if (series.kind === 'GroupNode') {
-        return <></>
-    }
-
     const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
     const mathDefinition = mathDefinitions[
@@ -127,6 +121,18 @@ function SeriesDisplay({
               : 'total'
     ] as MathDefinition | undefined
 
+    const entityDisplay =
+        series.kind === 'GroupNode' ? (
+            series.nodes.map((node, i) => (
+                <React.Fragment key={i}>
+                    {i > 0 && <span className="text-muted"> or </span>}
+                    <EntityDisplay entity={node} />
+                </React.Fragment>
+            ))
+        ) : (
+            <EntityDisplay entity={series} />
+        )
+
     return (
         <div className="SeriesDisplay">
             {isFunnelsQuery(query) ? (
@@ -136,7 +142,7 @@ function SeriesDisplay({
             )}
             <div>
                 {isFunnelsQuery(query) ? 'Performed' : 'Counting'}
-                <EntityDisplay entity={series} />
+                {entityDisplay}
                 {!isFunnelsQuery(query) && (
                     <>
                         by{' '}
