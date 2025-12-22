@@ -14,8 +14,17 @@ import { AccessControlResourceType } from '~/types'
 export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
     const logic = sdkPolicyConfigLogic({ logicKey: 'error-tracking' })
 
-    const { policy, triggers, matchType, sampleRate, linkedFeatureFlag, eventTriggers } = useValues(logic)
-    const { loadPolicy, setMatchType, setSampleRate, setLinkedFeatureFlag, setEventTriggers } = useActions(logic)
+    const { policy, triggers, matchType, sampleRate, linkedFeatureFlag, eventTriggers, urlTriggers, urlBlocklist } =
+        useValues(logic)
+    const {
+        loadPolicy,
+        setMatchType,
+        setSampleRate,
+        setLinkedFeatureFlag,
+        setEventTriggers,
+        setUrlTriggers,
+        setUrlBlocklist,
+    } = useActions(logic)
 
     useEffect(() => {
         loadPolicy()
@@ -44,12 +53,20 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                     <IngestionControlsSummary triggers={triggers} />
                     <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
                         <UrlConfig
-                            logicProps={{ logicKey: 'error-tracking-url-triggers' }}
+                            logicProps={{
+                                logicKey: 'error-tracking-url-triggers',
+                                initialUrlTriggerConfig: urlTriggers,
+                                onChange: setUrlTriggers,
+                            }}
                             title="Enable exception autocapture when URL matches"
                             description="Adding a URL trigger means exception autocapture will only be started when the user visits a page that matches the URL."
                         />
                         <UrlConfig
-                            logicProps={{ logicKey: 'error-tracking-url-blocklist' }}
+                            logicProps={{
+                                logicKey: 'error-tracking-url-blocklist',
+                                initialUrlTriggerConfig: urlBlocklist,
+                                onChange: setUrlBlocklist,
+                            }}
                             title="Pause exception autocapture when URL matches"
                             description="Used to pause exception autocapture for part of a user journey"
                         />
