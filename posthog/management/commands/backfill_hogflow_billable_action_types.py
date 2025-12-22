@@ -103,10 +103,7 @@ class Command(BaseCommand):
                 except Exception as e:
                     error_count += 1
                     logger.error(
-                        "Error processing HogFlow",
-                        hog_flow_id=str(hogflow.id),
-                        team_id=hogflow.team_id,
-                        error=str(e),
+                        f"Error processing HogFlow id={hogflow.id}, team_id={hogflow.team_id}: {e}",
                         exc_info=True,
                     )
 
