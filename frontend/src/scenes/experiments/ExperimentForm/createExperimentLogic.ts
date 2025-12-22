@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
@@ -88,6 +88,41 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
     }
 
     return filtered as Partial<Experiment>
+}
+
+const draftStorageKey = (tabId?: string): string | null =>
+    tabId ? `experiment-draft-${tabId}` : null
+
+const readDraftFromStorage = (tabId?: string): Experiment | null => {
+    const key = draftStorageKey(tabId)
+    if (!key || typeof sessionStorage === 'undefined') {
+        return null
+    }
+    const raw = sessionStorage.getItem(key)
+    if (!raw) {
+        return null
+    }
+    try {
+        return JSON.parse(raw) as Experiment
+    } catch {
+        return null
+    }
+}
+
+const writeDraftToStorage = (tabId: string | undefined, experiment: Experiment): void => {
+    const key = draftStorageKey(tabId)
+    if (!key || typeof sessionStorage === 'undefined') {
+        return
+    }
+    sessionStorage.setItem(key, JSON.stringify(experiment))
+}
+
+const clearDraftStorage = (tabId?: string): void => {
+    const key = draftStorageKey(tabId)
+    if (!key || typeof sessionStorage === 'undefined') {
+        return
+    }
+    sessionStorage.removeItem(key)
 }
 
 export interface CreateExperimentLogicProps {
@@ -252,6 +287,23 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
+    events(({ actions, values, props }) => ({
+        afterMount: () => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            const draft = readDraftFromStorage(props.tabId)
+            if (draft) {
+                actions.setExperiment(draft)
+            }
+        },
+        beforeUnmount: () => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            writeDraftToStorage(props.tabId, values.experiment)
+        },
+    })),
     listeners(({ values, actions, props }) => ({
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
@@ -393,6 +445,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     }
 
                     actions.saveExperimentSuccess()
+                    clearDraftStorage(props.tabId)
 
                     if (props.tabId) {
                         const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
