@@ -1,10 +1,8 @@
 import { randomBytes } from 'crypto'
-import { Counter, Summary } from 'prom-client'
+import { Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import { RetryError } from '@posthog/plugin-scaffold'
-
-import { FetchOptions, legacyFetch } from '~/utils/request'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
 import { createCache } from './extensions/cache'
@@ -13,6 +11,7 @@ import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
 import { AVAILABLE_IMPORTS } from './imports'
+import { createVmTrackedFetch } from './tracked-fetch'
 import { transformCode } from './transforms'
 
 export class TimeoutError extends RetryError {
@@ -32,25 +31,6 @@ const vmSetupMsSummary = new Summary({
     help: 'Time to setup vm',
     labelNames: ['plugin_id'],
 })
-
-const vmFetchErrorCounter = new Counter({
-    name: 'vm_fetches_total',
-    help: 'Count of fetch errors in the VM',
-    labelNames: ['plugin_id', 'plugin_config', 'status'],
-})
-
-const vmFetch = (pluginConfig: PluginConfig) => async (url: string, fetchParams: FetchOptions) => {
-    try {
-        const response = await legacyFetch(url, fetchParams)
-        vmFetchErrorCounter
-            .labels(pluginConfig.id.toString(), pluginConfig.plugin?.name ?? 'unknown', response.status.toString())
-            .inc()
-        return response
-    } catch (error) {
-        vmFetchErrorCounter.labels(pluginConfig.plugin_id.toString(), pluginConfig.id.toString(), 'unknown').inc()
-        throw error
-    }
-}
 
 export function createPluginConfigVM(
     hub: Hub,
@@ -73,7 +53,7 @@ export function createPluginConfigVM(
     vm.freeze(createPosthog(hub, pluginConfig), 'posthog')
 
     // Add non-PostHog utilities to virtual machine
-    vm.freeze(vmFetch(pluginConfig), 'fetch')
+    vm.freeze(createVmTrackedFetch(pluginConfig), 'fetch')
 
     // Add used imports to the virtual machine
     const pluginHostImports: Record<string, any> = {}

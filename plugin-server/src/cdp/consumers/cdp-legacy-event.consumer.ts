@@ -7,6 +7,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '~/config/config'
 import { chainToElements } from '~/utils/db/elements-chain'
 import { pluginActionMsSummary } from '~/worker/metrics'
+import { vmFetchTracker } from '~/worker/vm/tracked-fetch'
 
 import { parseKafkaHeaders } from '../../kafka/consumer'
 import {
@@ -24,7 +25,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
+import { LegacyPluginExecutorService, legacyFetchTracker } from '../services/legacy-plugin-executor.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -307,6 +308,9 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 })
             )
         }
+
+        vmFetchTracker.clearRequests()
+        legacyFetchTracker.clearRequests()
     }
 
     @instrumented('cdpLegacyEventsConsumer.processBatch')

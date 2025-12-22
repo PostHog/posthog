@@ -2,6 +2,8 @@ import { Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
+import { FetchTracker } from '~/worker/vm/tracked-fetch'
+
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { GeoIp } from '../../utils/geoip'
@@ -39,6 +41,8 @@ export type PluginState = {
  */
 
 const pluginConfigCheckCache: Record<string, boolean> = {}
+
+export const legacyFetchTracker = new FetchTracker()
 
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
@@ -122,6 +126,12 @@ export class LegacyPluginExecutorService {
         const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
 
         const fetch = async (url: string, fetchParams: FetchOptions): Promise<FetchResponse> => {
+            fetchTracker.trackRequest(invocation.hogFunction.id.toString(), {
+                url,
+                method: fetchParams.method ?? 'GET',
+                body: fetchParams.body,
+            })
+
             const { fetchError, fetchResponse } = await cdpTrackedFetch({
                 url,
                 fetchParams,
