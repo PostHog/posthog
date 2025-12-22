@@ -135,7 +135,14 @@ pub async fn recording(
         }
         Ok((context, events)) => {
             let count = events.len() as u64;
-            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
+            if let Err(err) = process_replay_events(
+                state.sink.clone(),
+                state.event_restriction_service.clone(),
+                events,
+                &context,
+            )
+            .await
+            {
                 report_dropped_events(err.to_metric_tag(), count);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
                 warn!("recordings:rejected payload: {:?}", err);

@@ -19,9 +19,16 @@ use serde_json::{json, Value};
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
+use metrics::counter;
+
 use crate::{
     api::CaptureError,
-    debug_or_info, sinks,
+    debug_or_info,
+    event_restrictions::{
+        EventContext as RestrictionEventContext, EventRestrictionService, RestrictionType,
+    },
+    prometheus::report_dropped_events,
+    sinks,
     utils::uuid_v7,
     v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
 };
@@ -162,6 +169,7 @@ impl HasEventName for RawRecording {
 #[instrument(skip_all, fields(events = events.len(), session_id, request_id))]
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
+    restriction_service: Option<EventRestrictionService>,
     events: Vec<RawRecording>,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
@@ -213,6 +221,63 @@ pub async fn process_replay_events<'a>(
         return Err(CaptureError::InvalidSessionId);
     }
     Span::current().record("session_id", session_id_str);
+
+    // Apply event restrictions
+    let mut force_overflow = false;
+    let mut skip_person_processing = false;
+    let mut redirect_to_dlq = false;
+
+    if let Some(ref service) = restriction_service {
+        let event_ctx = RestrictionEventContext {
+            distinct_id: Some(distinct_id.clone()),
+            session_id: Some(session_id_str.to_string()),
+            event_name: Some("$snapshot_items".to_string()),
+            event_uuid: Some(uuid.to_string()),
+        };
+
+        let restrictions = service.get_restrictions(&context.token, &event_ctx).await;
+
+        if restrictions.contains(&RestrictionType::DropEvent) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "drop_event",
+                "pipeline" => "session_recordings"
+            )
+            .increment(1);
+            report_dropped_events("event_restriction_drop", 1);
+            return Ok(());
+        }
+
+        if restrictions.contains(&RestrictionType::ForceOverflow) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "force_overflow",
+                "pipeline" => "session_recordings"
+            )
+            .increment(1);
+            force_overflow = true;
+        }
+
+        if restrictions.contains(&RestrictionType::SkipPersonProcessing) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "skip_person_processing",
+                "pipeline" => "session_recordings"
+            )
+            .increment(1);
+            skip_person_processing = true;
+        }
+
+        if restrictions.contains(&RestrictionType::RedirectToDlq) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "redirect_to_dlq",
+                "pipeline" => "session_recordings"
+            )
+            .increment(1);
+            redirect_to_dlq = true;
+        }
+    }
 
     let window_id = first_event
         .properties
@@ -277,9 +342,9 @@ pub async fn process_replay_events<'a>(
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp),
         event_name: "$snapshot_items".to_string(),
-        force_overflow: false,
-        skip_person_processing: false,
-        redirect_to_dlq: false,
+        force_overflow,
+        skip_person_processing,
+        redirect_to_dlq,
     };
 
     // Serialize snapshot data synchronously
@@ -447,5 +512,250 @@ mod tests {
 
         let recording: RawRecording = serde_json::from_value(json).unwrap();
         assert_eq!(recording.extract_is_cookieless_mode(), Some(true));
+    }
+
+    // ============ Restriction tests ============
+
+    use crate::api::CaptureError;
+    use crate::event_restrictions::{
+        EventRestrictionService, IngestionPipeline, Restriction, RestrictionManager,
+        RestrictionScope,
+    };
+    use crate::sinks::Event;
+    use crate::v0_request::ProcessedEvent;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    struct MockSink {
+        events: Arc<Mutex<Vec<ProcessedEvent>>>,
+    }
+
+    #[async_trait]
+    impl Event for MockSink {
+        async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+            self.events.lock().unwrap().push(event);
+            Ok(())
+        }
+        async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+            self.events.lock().unwrap().extend(events);
+            Ok(())
+        }
+    }
+
+    fn create_test_recording() -> RawRecording {
+        let json = json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": {
+                "$session_id": "test-session-123",
+                "$window_id": "test-window",
+                "$snapshot_data": [{"type": 1, "data": {"test": "data"}}],
+                "$snapshot_source": "web"
+            }
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn create_test_context() -> crate::v0_request::ProcessingContext {
+        crate::v0_request::ProcessingContext {
+            request_id: "test-request".to_string(),
+            client_ip: "127.0.0.1".to_string(),
+            now: chrono::Utc::now(),
+            sent_at: None,
+            token: "test_token".to_string(),
+            historical_migration: false,
+            is_mirror_deploy: false,
+            chatty_debug_enabled: false,
+            user_agent: None,
+            lib_version: None,
+            path: "/s/".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_replay_events_drop_event_restriction() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service = EventRestrictionService::new(
+            IngestionPipeline::SessionRecordings,
+            Duration::from_secs(300),
+        );
+
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+            }],
+        );
+        service.update(manager).await;
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+
+        assert!(result.is_ok());
+        assert!(events_captured.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_replay_events_redirect_to_dlq_restriction() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service = EventRestrictionService::new(
+            IngestionPipeline::SessionRecordings,
+            Duration::from_secs(300),
+        );
+
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToDlq,
+                scope: RestrictionScope::AllEvents,
+            }],
+        );
+        service.update(manager).await;
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+
+        assert!(result.is_ok());
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.redirect_to_dlq);
+    }
+
+    #[tokio::test]
+    async fn test_process_replay_events_force_overflow_restriction() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service = EventRestrictionService::new(
+            IngestionPipeline::SessionRecordings,
+            Duration::from_secs(300),
+        );
+
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::ForceOverflow,
+                scope: RestrictionScope::AllEvents,
+            }],
+        );
+        service.update(manager).await;
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+
+        assert!(result.is_ok());
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.force_overflow);
+    }
+
+    #[tokio::test]
+    async fn test_process_replay_events_skip_person_processing_restriction() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service = EventRestrictionService::new(
+            IngestionPipeline::SessionRecordings,
+            Duration::from_secs(300),
+        );
+
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+            }],
+        );
+        service.update(manager).await;
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+
+        assert!(result.is_ok());
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.skip_person_processing);
+    }
+
+    #[tokio::test]
+    async fn test_process_replay_events_no_restriction_service() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let recording = create_test_recording();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, None, vec![recording], &context).await;
+
+        assert!(result.is_ok());
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(!captured[0].metadata.force_overflow);
+        assert!(!captured[0].metadata.skip_person_processing);
+        assert!(!captured[0].metadata.redirect_to_dlq);
+    }
+
+    #[tokio::test]
+    async fn test_process_replay_events_filtered_restriction() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+            events: events_captured.clone(),
+        });
+
+        let service = EventRestrictionService::new(
+            IngestionPipeline::SessionRecordings,
+            Duration::from_secs(300),
+        );
+
+        // Create a restriction that only applies to a different session
+        let mut manager = RestrictionManager::new();
+        let mut filters = crate::event_restrictions::RestrictionFilters::default();
+        filters.session_ids.insert("other-session".to_string());
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::Filtered(filters),
+            }],
+        );
+        service.update(manager).await;
+
+        let recording = create_test_recording(); // has session_id "test-session-123"
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, Some(service), vec![recording], &context).await;
+
+        // Should NOT be dropped because session_id doesn't match filter
+        assert!(result.is_ok());
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
     }
 }
