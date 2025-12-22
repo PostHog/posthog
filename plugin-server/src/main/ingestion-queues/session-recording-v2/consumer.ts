@@ -115,7 +115,7 @@ export class SessionRecordingIngester {
 
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub.redisPool, {
             pipeline: 'session_recordings',
         })
 

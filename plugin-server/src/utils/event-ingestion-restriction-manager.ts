@@ -1,14 +1,10 @@
+import { Pool as GenericPool } from 'generic-pool'
+import { Redis } from 'ioredis'
 import { z } from 'zod'
 
-import { Hub } from '../types'
 import { BackgroundRefresher } from './background-refresher'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
-
-export type EventIngestionRestrictionManagerHub = Pick<
-    Hub,
-    'USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG' | 'redisPool'
->
 
 export enum RedisRestrictionType {
     DROP_EVENT_FROM_INGESTION = 'drop_event_from_ingestion',
@@ -162,13 +158,13 @@ type ParsedRestriction = {
 const EMPTY_RESTRICTION_MAP = new RestrictionMap()
 
 export class EventIngestionRestrictionManager {
-    private hub: EventIngestionRestrictionManagerHub
+    private redisPool: GenericPool<Redis>
     private pipeline: IngestionPipeline
     private staticRestrictions: ParsedRestriction[] = []
     private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
 
     constructor(
-        hub: EventIngestionRestrictionManagerHub,
+        redisPool: GenericPool<Redis>,
         options: {
             pipeline?: IngestionPipeline
             staticDropEventTokens?: string[]
@@ -185,7 +181,7 @@ export class EventIngestionRestrictionManager {
             staticRedirectToDlqTokens = [],
         } = options
 
-        this.hub = hub
+        this.redisPool = redisPool
         this.pipeline = pipeline
 
         this.addStaticRestrictions(Restriction.DROP_EVENT, staticDropEventTokens)
@@ -242,9 +238,7 @@ export class EventIngestionRestrictionManager {
     }
 
     private async buildRestrictionMap(): Promise<RestrictionMap> {
-        const dynamicRestrictions = this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG
-            ? await this.fetchDynamicRestrictionsFromRedis()
-            : []
+        const dynamicRestrictions = await this.fetchDynamicRestrictionsFromRedis()
 
         const map = new RestrictionMap()
 
@@ -263,7 +257,7 @@ export class EventIngestionRestrictionManager {
         const restrictions: ParsedRestriction[] = []
 
         try {
-            const redisClient = await this.hub.redisPool.acquire()
+            const redisClient = await this.redisPool.acquire()
             try {
                 const pipeline = redisClient.pipeline()
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`)
@@ -307,7 +301,7 @@ export class EventIngestionRestrictionManager {
             } catch (error) {
                 logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })
             } finally {
-                await this.hub.redisPool.release(redisClient)
+                await this.redisPool.release(redisClient)
             }
         } catch (error) {
             logger.warn('Error acquiring Redis client from pool for token restrictions', { error })
