@@ -7,7 +7,7 @@ import { useCallback, useState } from 'react'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -24,6 +24,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
@@ -45,6 +46,7 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
@@ -206,6 +208,7 @@ export function DataTable({
         showTestAccountFilters,
         showSearch,
         showEventFilter,
+        showEventsFilter,
         showPropertyFilter,
         showHogQLEditor,
         showReload,
@@ -610,7 +613,8 @@ export function DataTable({
                                       sessionId={event?.properties?.$session_id}
                                       recordingStatus={event?.properties?.$recording_status}
                                       timestamp={event?.timestamp}
-                                      inModal
+                                      hasRecording={event?.properties?.has_recording as boolean | undefined}
+                                      openPlayerIn={RecordingPlayerType.Modal}
                                       size="xsmall"
                                       type="secondary"
                                   />
@@ -675,6 +679,9 @@ export function DataTable({
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
+        ) : null,
+        showEventsFilter && isEventsQuery(query.source) ? (
+            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -743,6 +750,9 @@ export function DataTable({
     const firstRowRight = [
         showTestAccountFilters && sourceFeatures.has(QueryFeature.testAccountFilters) ? (
             <TestAccountFilters key="test-account-filters" query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        sourceFeatures.has(QueryFeature.supportTracesFilters) ? (
+            <SupportTracesFilters key="support-traces-filters" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSavedQueries && sourceFeatures.has(QueryFeature.savedEventsQueries) ? (
             <SavedQueries key="saved-queries" query={query} setQuery={setQuery} />
@@ -814,8 +824,8 @@ export function DataTable({
                         <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && (
-                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row">
+                    {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
+                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
                             <div className="flex gap-2 items-center">{secondRowLeft}</div>
                             <div className="flex gap-2 items-center">{secondRowRight}</div>
                         </div>
@@ -864,6 +874,7 @@ export function DataTable({
                                         <InsightEmptyState
                                             heading={context?.emptyStateHeading}
                                             detail={context?.emptyStateDetail}
+                                            icon={context?.emptyStateIcon}
                                         />
                                     )
                                 }

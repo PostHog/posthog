@@ -49,6 +49,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT, INSIGHT_FUNNELS, INSIGHT_STICKINESS, TRENDS_STICKINESS, FunnelVizType
 from posthog.decorators import cached_by_filters
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import groups
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -829,8 +830,8 @@ class InsightSerializer(InsightBasicSerializer):
                     variables_override=variables_override,
                     tile_filters_override=tile_filters_override,
                 )
-            except ExposedHogQLError as e:
-                raise ValidationError(str(e))
+            except (ExposedHogQLError, ExposedCHQueryError) as e:
+                raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
@@ -1159,7 +1160,10 @@ When set, the specified dashboard's filters and date range override will be appl
             # context is used in the to_representation method to report filters used
             serializer_context.update({"dashboard": dashboard_tile.dashboard})
 
-        serialized_data = self.get_serializer(instance, context=serializer_context).data
+        try:
+            serialized_data = self.get_serializer(instance, context=serializer_context).data
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
@@ -1262,8 +1266,8 @@ When set, the specified dashboard's filters and date range override will be appl
                     result = self.calculate_trends_hogql(request)
                 else:
                     result = self.calculate_trends(request)
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
@@ -1358,8 +1362,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     funnel = self.calculate_funnel(request)
 
-        except ExposedHogQLError as e:
-            raise ValidationError(str(e))
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
 
         if isinstance(funnel["result"], BaseModel):
             funnel["result"] = funnel["result"].model_dump()

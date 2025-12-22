@@ -40,6 +40,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 import { GroupFeedCanvas } from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
 
 import { GroupOverview } from './GroupOverview'
@@ -74,7 +75,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
     }
 
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'feed' : 'overview')
+    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'profile' : 'overview')
 
     return (
         <SceneContent>
@@ -102,6 +103,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
             />
             <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
             <SceneDivider />
+            <FeedbackBanner feedbackButtonId="group-profile" />
             <LemonTabs
                 sceneInset
                 activeKey={activeTab}
@@ -110,8 +112,8 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                     ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
                         ? [
                               {
-                                  key: GroupsTabType.FEED,
-                                  label: <span data-attr="groups-feed-tab">Feed</span>,
+                                  key: GroupsTabType.PROFILE,
+                                  label: <span data-attr="groups-profile-tab">Profile</span>,
                                   content: <GroupFeedCanvas group={groupData} tabId={tabId} />,
                               },
                           ]

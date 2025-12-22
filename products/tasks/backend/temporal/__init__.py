@@ -12,7 +12,9 @@ from .process_task.activities import (
     execute_task_in_sandbox,
     get_sandbox_for_repository,
     get_task_processing_context,
+    post_slack_update,
     track_workflow_event,
+    update_task_run_status,
 )
 from .process_task.workflow import ProcessTaskWorkflow
 
@@ -28,6 +30,8 @@ ACTIVITIES = [
     execute_task_in_sandbox,
     cleanup_sandbox,
     track_workflow_event,
+    post_slack_update,
+    update_task_run_status,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

@@ -17,6 +17,8 @@ bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
 health = { path = "../common/health" }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }
@@ -48,6 +50,7 @@ chrono = { workspace = true }
 lz-str = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
@@ -55,6 +58,7 @@ common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
+httparse = "1.8"
 once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }

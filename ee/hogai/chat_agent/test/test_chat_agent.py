@@ -72,13 +72,7 @@ from ee.hogai.core.node import AssistantNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.insights_assistant import InsightsAssistant
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
+from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
@@ -153,18 +147,18 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         conversation: Optional[Conversation] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
         is_new_conversation: bool = False,
-        mode: Optional[AssistantMode] = None,
+        mode: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         ui_context: Optional[MaxUIContext] = None,
         filter_ack_messages: bool = True,
     ) -> tuple[list[AssistantOutput], ChatAgentRunner | InsightsAssistant]:
         # If no mode is specified, use ASSISTANT as default
         if mode is None:
-            mode = AssistantMode.ASSISTANT
+            mode = "assistant"
 
         # Create assistant instance
         assistant: ChatAgentRunner | InsightsAssistant
-        if mode == AssistantMode.ASSISTANT:
+        if mode == "assistant":
             assistant = ChatAgentRunner(
                 self.team,
                 conversation or self.conversation,
@@ -579,7 +573,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -680,7 +676,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantFunnelsEventsNode(event="$pageleave"),
             ]
         )
-        generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: FunnelsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -784,7 +782,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )
-        generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: RetentionSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -880,7 +880,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         query = AssistantHogQLQuery(query="SELECT 1")
-        generator_mock.return_value = RunnableLambda(lambda _: query.model_dump())
+        generator_mock.return_value = RunnableLambda(
+            lambda _: {"query": "SELECT 1", "name": "Test Insight", "description": "Test Description"}
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -1166,7 +1168,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # Create a graph that only uses the root node
         graph = AssistantGraph(self.team, self.user).compile_full_graph()
@@ -1279,14 +1283,16 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
             ]
         )
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # Run in insights tool mode
         output, _ = await self._run_assistant_graph(
             conversation=self.conversation,
             is_new_conversation=False,
             message=None,
-            mode=AssistantMode.INSIGHTS_TOOL,
+            mode="insights_tool",
             tool_call_partial_state=tool_call_state,
         )
 
@@ -1567,7 +1573,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         query_executor_mock.return_value = PartialAssistantState(
             messages=[
@@ -1583,7 +1591,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             conversation=self.conversation,
             is_new_conversation=True,
             message="Hello",
-            mode=AssistantMode.ASSISTANT,
+            mode="assistant",
             contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
 
@@ -1685,7 +1693,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             conversation=self.conversation,
             is_new_conversation=False,
             message=None,  # This simulates askMax(null)
-            mode=AssistantMode.ASSISTANT,
+            mode="assistant",
         )
 
         # Verify the assistant continued generation with the expected message

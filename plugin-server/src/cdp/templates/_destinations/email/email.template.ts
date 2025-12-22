@@ -34,6 +34,7 @@ export const template: HogFunctionTemplate = {
                     email: '',
                     name: '',
                 },
+                replyTo: '',
                 subject: '',
                 preheader: '',
                 text: 'Hello from PostHog!',

@@ -9,8 +9,6 @@
 
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
 
-    --animate-input-focus-pulse: inputFocusPulse 1s ease-in-out forwards;
-
     @keyframes inputFocusPulse {
         0% {
             box-shadow: 0 0 0px 2px var(--color-accent);

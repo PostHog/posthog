@@ -29,6 +29,7 @@ FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from posthog.models.tag import Tag
     from posthog.models.team import Team
 
 
@@ -700,6 +701,17 @@ class FeatureFlagEvaluationTag(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_flag.key} - {self.tag.name}"
+
+    @staticmethod
+    def get_team_ids_using_tag(tag: "Tag") -> list[int]:
+        """
+        Find all teams that have flags using this tag as an evaluation tag.
+
+        Used by signal handlers to invalidate caches when a tag is renamed.
+        """
+        return list(
+            FeatureFlagEvaluationTag.objects.filter(tag=tag).values_list("feature_flag__team_id", flat=True).distinct()
+        )
 
 
 class TeamDefaultEvaluationTag(UUIDModel):

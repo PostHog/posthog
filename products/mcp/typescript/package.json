@@ -30,6 +30,7 @@
     "scripts": {
         "build": "tsup",
         "dev": "wrangler dev",
+        "dev:local-resources": "wrangler dev --var POSTHOG_MCP_LOCAL_EXAMPLES_URL:http://localhost:8765/examples-mcp-resources.zip",
         "deploy": "wrangler deploy",
         "cf-typegen": "wrangler types",
         "inspector": "npx @modelcontextprotocol/inspector@0.15.0 npx -y mcp-remote@latest http://localhost:8787/mcp",
@@ -69,7 +70,9 @@
         "@langchain/core": "^0.3.72",
         "@langchain/openai": "^0.6.9",
         "@types/dotenv": "^6.1.1",
-        "@types/node": "^22.15.34",
+        "@types/node": "^22.17.2",
+        "ajv": "^8.17.1",
+        "ajv-formats": "^3.0.1",
         "dotenv": "^16.4.7",
         "langchain": "^0.3.31",
         "tsup": "^8.5.0",

@@ -19,6 +19,11 @@ import { maxLogic, mergeConversationHistory } from './maxLogic'
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
     {
+        identifier: 'web_search',
+        name: TOOL_DEFINITIONS['web_search'].name,
+        description: TOOL_DEFINITIONS['web_search'].description,
+    },
+    {
         identifier: 'session_summarization' as const,
         name: TOOL_DEFINITIONS['session_summarization'].name,
         description: TOOL_DEFINITIONS['session_summarization'].description,
@@ -160,7 +165,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 logic.mount() // we're never unmounting this
             }
             actions.openSidePanelMax()
-            logic.actions.askMax(prompt)
+            // HACK: Delay to ensure maxThreadLogic is mounted after the side panel opens - ugly, but works
+            window.setTimeout(() => logic!.actions.askMax(prompt), 100)
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {

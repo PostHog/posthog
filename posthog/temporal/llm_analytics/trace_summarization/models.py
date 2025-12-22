@@ -9,10 +9,13 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
 )
 
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 
 
 class TraceSummary(BaseModel):
@@ -35,9 +38,10 @@ class BatchSummarizationInputs:
     team_id: int
     max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW  # Hard limit on traces to process
     batch_size: int = DEFAULT_BATCH_SIZE  # Number of traces per batch
-    mode: str = DEFAULT_MODE  # 'minimal' or 'comprehensive'
+    mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES  # Time window to query (defaults to 60 min)
-    model: str | None = None  # LLM model to use (defaults to SUMMARIZATION_MODEL constant)
+    provider: SummarizationProvider = DEFAULT_PROVIDER
+    model: str = DEFAULT_MODEL
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format
@@ -53,6 +57,8 @@ class SummarizationActivityResult:
     event_count: int = 0
     skipped: bool = False
     skip_reason: str | None = None
+    embedding_requested: bool = False
+    embedding_request_error: str | None = None
 
 
 @dataclass
@@ -63,8 +69,8 @@ class BatchSummarizationMetrics:
     summaries_skipped: int = 0
     summaries_failed: int = 0
     summaries_generated: int = 0
-    embeddings_requested: int = 0
-    embeddings_failed: int = 0
+    embedding_requests_succeeded: int = 0
+    embedding_requests_failed: int = 0
     duration_seconds: float = 0.0
 
 
@@ -85,24 +91,3 @@ class CoordinatorResult:
     failed_team_ids: list[int]
     total_traces: int
     total_summaries: int
-
-
-@dataclass
-class EmbeddingActivityResult:
-    """Result from embed_summaries_activity."""
-
-    embeddings_requested: int
-    embeddings_failed: int
-
-
-@dataclass
-class SingleEmbeddingResult:
-    """Result from a single embedding attempt."""
-
-    success: bool
-    trace_id: str
-    error: str | None = None
-
-
-# Type alias for ClickHouse summary row
-SummaryRow = tuple[str, str, str, str, str]  # (trace_id, title, flow_diagram, bullets, notes)

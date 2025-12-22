@@ -10,16 +10,12 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
+from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.models import Conversation
 
 if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
+
     from ee.hogai.utils.types.composed import MaxNodeName
 
 
@@ -66,24 +62,31 @@ class ChatAgentRunner(BaseAgentRunner):
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
+        parent_span_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
         agent_mode: AgentMode | None = None,
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        use_checkpointer: bool = True,
+        is_agent_billable: bool = True,
     ):
         super().__init__(
             team,
             conversation,
             new_message=new_message,
             user=user,
-            graph=AssistantGraph(team, user).compile_full_graph(),
+            graph_class=AssistantGraph,
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
-            mode=AssistantMode.ASSISTANT,
             session_id=session_id,
             contextual_tools=contextual_tools,
             is_new_conversation=is_new_conversation,
             trace_id=trace_id,
+            parent_span_id=parent_span_id,
+            initial_state=initial_state,
             billing_context=billing_context,
+            use_checkpointer=use_checkpointer,
+            is_agent_billable=is_agent_billable,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
@@ -91,6 +94,7 @@ class ChatAgentRunner(BaseAgentRunner):
                 team=team,
                 user=user,
             ),
+            slack_thread_context=slack_thread_context,
         )
         self._selected_agent_mode = agent_mode
 
@@ -138,6 +142,10 @@ class ChatAgentRunner(BaseAgentRunner):
                 last_ai_message = message
             yield stream_event
 
+        if not self._use_checkpointer:
+            # we don't want to track subagent conversations
+            return
+
         output = last_ai_message.content if isinstance(last_ai_message, AssistantMessage) else None
         await self._report_conversation_state(
             "chat with ai",
@@ -145,6 +153,7 @@ class ChatAgentRunner(BaseAgentRunner):
                 "prompt": self._latest_message.content if self._latest_message else None,
                 "output": output,
                 "is_new_conversation": self._is_new_conversation,
+                "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
             },
         )

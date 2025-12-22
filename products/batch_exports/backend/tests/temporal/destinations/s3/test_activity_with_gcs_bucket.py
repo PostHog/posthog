@@ -4,6 +4,7 @@ import uuid
 import pytest
 
 import aioboto3
+import pytest_asyncio
 from temporalio.testing._activity import ActivityEnvironment
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
@@ -18,9 +19,9 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
     TEST_S3_MODELS,
-    _run_activity,
     assert_clickhouse_records_in_s3,
     has_valid_gcs_credentials,
+    run_activity,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import (
     assert_files_in_s3,
@@ -43,7 +44,7 @@ def bucket_name():
     return os.getenv("GCS_TEST_BUCKET")
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def gcs_client(bucket_name, s3_key_prefix):
     """Manage an S3 client to interact with a GCS bucket."""
     async with aioboto3.Session().client("s3", endpoint_url="https://storage.googleapis.com") as s3_client:
@@ -116,7 +117,7 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
         destination_default_fields=s3_default_fields(),
     )
 
-    result = await _run_activity(activity_environment, insert_inputs)
+    result = await run_activity(activity_environment, insert_inputs)
     records_exported = result.records_completed
     bytes_exported = result.bytes_exported
     assert result.error is None
@@ -236,7 +237,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
         destination_default_fields=s3_default_fields(),
     )
 
-    result = await _run_activity(activity_environment, insert_inputs)
+    result = await run_activity(activity_environment, insert_inputs)
     records_exported = result.records_completed
     bytes_exported = result.bytes_exported
     assert result.error is None

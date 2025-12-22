@@ -1,4 +1,3 @@
-import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
@@ -11,15 +10,17 @@ import express from 'ultimate-express'
 import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLegacyWebhookConsumer } from './cdp/consumers/cdp-legacy-webhook.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
+import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -36,7 +37,6 @@ import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { isTestEnv } from './utils/env-utils'
-import { initializeHeapDump } from './utils/heap-dump'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
@@ -104,20 +104,6 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
-
-        // Initialize heap dump functionality for all services
-        if (this.config.HEAP_DUMP_ENABLED) {
-            let heapDumpS3Client: S3Client | undefined
-            if (this.config.HEAP_DUMP_S3_BUCKET && this.config.HEAP_DUMP_S3_REGION) {
-                const s3Config: S3ClientConfig = {
-                    region: this.config.HEAP_DUMP_S3_REGION,
-                }
-
-                heapDumpS3Client = new S3Client(s3Config)
-            }
-
-            initializeHeapDump(this.config, heapDumpS3Client)
-        }
 
         let _initPluginsPromise: Promise<void> | undefined
 
@@ -207,6 +193,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpDataWarehouseEvents) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpInternalEventsConsumer(hub)
@@ -227,6 +221,14 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     await initPlugins()
                     const consumer = new CdpLegacyEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpLegacyWebhooks) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpLegacyWebhookConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -274,9 +276,9 @@ export class PluginServer {
                 return Promise.resolve(serverCommands.service)
             })
 
-            if (capabilities.cdpBehaviouralEvents) {
+            if (capabilities.cdpPrecalculatedFilters) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpBehaviouralEventsConsumer(hub)
+                    const worker = new CdpPrecalculatedFiltersConsumer(hub)
                     await worker.start()
                     return worker.service
                 })

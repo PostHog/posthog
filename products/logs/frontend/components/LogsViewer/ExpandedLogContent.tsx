@@ -5,9 +5,10 @@ import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
@@ -20,8 +21,9 @@ export interface ExpandedLogContentProps {
 }
 
 export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): JSX.Element {
-    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex } = useValues(logsViewerLogic)
-    const { addFilter, toggleAttributeBreakdown, recomputeRowHeights, userSetCursorAttribute } =
+    const { expandedAttributeBreakdowns, tabId, cursorIndex, cursorAttributeIndex, isAttributeColumn } =
+        useValues(logsViewerLogic)
+    const { addFilter, toggleAttributeBreakdown, toggleAttributeColumn, recomputeRowHeights, userSetCursorAttribute } =
         useActions(logsViewerLogic)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -46,15 +48,23 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
 
     const expandedBreakdownsForThisLog = expandedAttributeBreakdowns[log.uuid] || []
 
-    const attributes = log.attributes
-    const rows = Object.entries(attributes).map(([key, value], index) => ({
-        key,
-        value: String(value),
-        index,
-    }))
+    const rows = [
+        ...Object.entries(log.resource_attributes).map(([key, value], index) => ({
+            key,
+            value,
+            type: PropertyFilterType.LogResourceAttribute,
+            index,
+        })),
+        ...Object.entries(log.attributes).map(([key, value], index) => ({
+            key,
+            value,
+            type: PropertyFilterType.LogAttribute,
+            index,
+        })),
+    ]
 
     return (
-        <div ref={containerRef} className="px-2 py-1 bg-bg-light border-t border-border">
+        <div ref={containerRef} className="bg-primary border-t border-border">
             <LemonTable
                 embedded
                 showHeader={false}
@@ -78,7 +88,7 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     size="xsmall"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        addFilter(record.key, record.value)
+                                        addFilter(record.key, record.value, PropertyOperator.Exact, record.type)
                                     }}
                                 >
                                     <IconPlusSquare />
@@ -88,7 +98,7 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     size="xsmall"
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        addFilter(record.key, record.value, PropertyOperator.IsNot)
+                                        addFilter(record.key, record.value, PropertyOperator.IsNot, record.type)
                                     }}
                                 >
                                     <IconMinusSquare />
@@ -102,6 +112,18 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                     }}
                                 >
                                     <IconFilter />
+                                </LemonButton>
+                                <LemonButton
+                                    tooltip={isAttributeColumn(record.key) ? 'Remove from columns' : 'Add as column'}
+                                    size="xsmall"
+                                    active={isAttributeColumn(record.key)}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleAttributeColumn(record.key)
+                                    }}
+                                    className={isAttributeColumn(record.key) ? '' : 'opacity-30'}
+                                >
+                                    <IconTableChart />
                                 </LemonButton>
                             </div>
                         ),
@@ -139,7 +161,12 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                     showRowExpansionToggle: false,
                     isRowExpanded: (record) => expandedBreakdownsForThisLog.includes(record.key),
                     expandedRowRender: (record) => (
-                        <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                        <AttributeBreakdowns
+                            attribute={record.key}
+                            addFilter={addFilter}
+                            tabId={tabId}
+                            type={record.type}
+                        />
                     ),
                 }}
             />

@@ -4,5 +4,6 @@ kafka:
     topic: 'events_plugin_ingestion'
     group_id: 'livestream'
     session_recording_enabled: true
+    session_recording_security_protocol: 'PLAINTEXT'
 mmdb:
     path: 'GeoLite2-City.mmdb'

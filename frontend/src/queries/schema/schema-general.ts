@@ -100,6 +100,8 @@ export enum NodeKind {
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
+    LogAttributesQuery = 'LogAttributesQuery',
+    LogValuesQuery = 'LogValuesQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -209,6 +211,8 @@ export type AnyDataNode =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
+    | LogAttributesQuery
+    | LogValuesQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -291,7 +295,11 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // Logs
     | LogsQuery
+    | LogAttributesQuery
+    | LogValuesQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -338,6 +346,8 @@ export type AnyResponseType =
     | SessionsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
+    | LogAttributesQueryResponse
+    | LogValuesQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -384,6 +394,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
 }
 
@@ -775,6 +786,8 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     filterTestAccounts?: boolean
     /** Limit to events matching this string */
     event?: string | null
+    /** Filter to events matching any of these event names */
+    events?: string[] | null
     /**
      * Number of rows to return
      */
@@ -1049,6 +1062,8 @@ interface DataTableNodeViewProps {
     /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
+    /** Include an events filter above the table to filter by multiple events (EventsQuery only) */
+    showEventsFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
     showSearch?: boolean
     /** Include a property filter above the table */
@@ -1689,6 +1704,13 @@ export interface EndpointRunRequest {
      *   The query executed will return the count of $identify events, instead of $pageview's
      */
     query_override?: Record<string, any>
+    /** Specific endpoint version to execute. If not provided, the latest version is used. */
+    version?: integer
+    /**
+     * Whether to include debug information (such as the executed HogQL) in the response.
+     * @default false
+     */
+    debug?: boolean
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -2623,6 +2645,45 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
     nextCursor?: string
 }
 
+export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse> {
+    kind: NodeKind.LogAttributesQuery
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    search?: string
+    severityLevels?: LogSeverityLevel[]
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+    attributeType: string
+}
+
+export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, any>[]
+    count: number
+}
+
+export interface LogValueResult {
+    id: string
+    name: string
+}
+
+export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: LogValueResult[]
+}
+
+export interface LogValuesQuery extends DataNode<LogValuesQueryResponse> {
+    kind: NodeKind.LogValuesQuery
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    search?: string
+    severityLevels?: LogSeverityLevel[]
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+    attributeKey: string
+    attributeType: string
+}
+
 export interface SessionEventsItem {
     /** Session ID these events belong to */
     session_id: string
@@ -3181,11 +3242,17 @@ export interface ExperimentExposureTimeSeries {
     exposure_counts: number[]
 }
 
+export interface SampleRatioMismatch {
+    expected: Record<string, number>
+    p_value: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
+    sample_ratio_mismatch?: SampleRatioMismatch
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -3834,6 +3901,7 @@ export interface LLMTrace {
     traceName?: string
     errorCount?: number
     events: LLMTraceEvent[]
+    isSupportTrace?: boolean
 }
 
 export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3850,6 +3918,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -5003,6 +5072,7 @@ export enum ProductIntentContext {
     SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
+    QUICK_SURVEY_STARTED = 'quick_survey_started',
 
     // Revenue Analytics
     REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',

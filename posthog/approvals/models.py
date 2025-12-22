@@ -1,8 +1,13 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING, Optional
 
 from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+if TYPE_CHECKING:
+    from posthog.approvals.actions.base import BaseAction
+    from posthog.approvals.models import ApprovalPolicy as ApprovalPolicyType
 
 
 class ChangeRequestState(models.TextChoices):
@@ -77,6 +82,18 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     def __str__(self):
         return f"ChangeRequest({self.action_key}, {self.state})"
+
+    def get_policy(self) -> Optional["ApprovalPolicyType"]:
+        """Get the matching approval policy for this change request."""
+        from posthog.approvals.policies import PolicyEngine
+
+        return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
+
+    def get_action_class(self) -> Optional[type["BaseAction"]]:
+        """Get the action class for this change request from the registry."""
+        from posthog.approvals.actions.registry import get_action
+
+        return get_action(self.action_key)
 
 
 class ApprovalDecision(models.TextChoices):
@@ -161,3 +178,25 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     def __str__(self):
         scope = f"Team {self.team.id}" if self.team else f"Org {self.organization.id}"
         return f"ApprovalPolicy({self.action_key}, {scope})"
+
+    def get_approver_user_ids(self) -> list[int]:
+        """Get list of user IDs who can approve based on this policy's approver_config."""
+        user_ids: set[int] = set()
+
+        if "users" in self.approver_config:
+            user_ids.update(self.approver_config["users"])
+
+        approver_roles = self.approver_config.get("roles")
+        if approver_roles:
+            try:
+                from ee.models.rbac.role import RoleMembership
+
+                role_user_ids = RoleMembership.objects.filter(
+                    role_id__in=approver_roles,
+                    role__organization=self.organization,
+                ).values_list("user_id", flat=True)
+                user_ids.update(role_user_ids)
+            except ImportError:
+                pass
+
+        return list(user_ids)

@@ -35,7 +35,16 @@ class ProductTour(models.Model):
         related_query_name="product_tour_internal_targeting_flag",
     )
 
+    linked_surveys = models.ManyToManyField(
+        "posthog.Survey",
+        blank=True,
+        related_name="product_tours",
+        related_query_name="product_tour",
+    )
+
     content = models.JSONField(default=dict, blank=True)
+
+    auto_launch = models.BooleanField(default=False)
 
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)

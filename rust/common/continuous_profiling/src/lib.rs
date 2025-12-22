@@ -1,9 +1,13 @@
 use std::env;
+use std::panic;
+use std::sync::Once;
 
 use envconfig::Envconfig;
 use pyroscope::pyroscope::PyroscopeAgentRunning;
 use pyroscope::PyroscopeAgent;
 use pyroscope_pprofrs::{pprof_backend, PprofConfig};
+
+static PANIC_HOOK_INSTALLED: Once = Once::new();
 
 /// K8s metadata environment variables for Pyroscope tags
 const K8S_TAG_ENV_VARS: &[(&str, &str)] = &[
@@ -67,11 +71,49 @@ fn collect_k8s_tags() -> Vec<(String, String)> {
     tags
 }
 
+/// Install a panic hook that logs panics from pyroscope threads without aborting.
+///
+/// The pyroscope library spawns internal threads that may panic (e.g., during
+/// GZIP compression or network errors). By default, panics in threads will
+/// print to stderr but won't abort the process. However, we install a custom
+/// hook to ensure we log these panics properly and they don't interfere with
+/// the main application.
+fn install_panic_safe_hook() {
+    PANIC_HOOK_INSTALLED.call_once(|| {
+        let default_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |panic_info| {
+            let thread = std::thread::current();
+            let thread_name = thread.name().unwrap_or("<unnamed>");
+
+            // Check if this is a pyroscope-related thread by name
+            let is_pyroscope_thread =
+                thread_name.contains("pyroscope") || thread_name.contains("Pyroscope");
+
+            if is_pyroscope_thread {
+                // Log the panic but don't abort - let the thread die gracefully
+                tracing::error!(
+                    thread = %thread_name,
+                    panic = %panic_info,
+                    "Pyroscope thread panicked - profiling may be degraded but service continues"
+                );
+            } else {
+                // For non-pyroscope threads, use the default behavior
+                default_hook(panic_info);
+            }
+        }));
+    });
+}
+
 impl ContinuousProfilingConfig {
     /// Initialize continuous profiling if enabled.
     ///
     /// Returns an `Option<RunningAgent>` that should be kept alive for the
     /// duration of the application. When dropped, the agent will stop profiling.
+    ///
+    /// This function installs a panic hook to ensure that panics in pyroscope's
+    /// internal threads don't crash the main application. The pyroscope library
+    /// has some `.unwrap()` calls that can panic under certain conditions
+    /// (e.g., GZIP compression failures, network errors).
     ///
     /// # Example
     ///
@@ -92,6 +134,10 @@ impl ContinuousProfilingConfig {
             );
             return Ok(None);
         }
+
+        // Install panic hook before starting pyroscope to catch any panics
+        // from its internal threads
+        install_panic_safe_hook();
 
         let tags = collect_k8s_tags();
 
