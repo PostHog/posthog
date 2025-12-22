@@ -90,8 +90,7 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
     return filtered as Partial<Experiment>
 }
 
-const draftStorageKey = (tabId?: string): string | null =>
-    tabId ? `experiment-draft-${tabId}` : null
+const draftStorageKey = (tabId?: string): string | null => (tabId ? `experiment-draft-${tabId}` : null)
 
 const readDraftFromStorage = (tabId?: string): Experiment | null => {
     const key = draftStorageKey(tabId)
