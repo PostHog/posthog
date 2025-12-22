@@ -66,7 +66,7 @@ export function InsightVizDisplay({
     editMode?: boolean
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
-    const hasAIAnalysis = useFeatureFlag('AI_INSIGHT_ANALYSIS')
+    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
