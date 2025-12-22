@@ -381,6 +381,33 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                     }),
                 ])
             )
+
+            // Check that quota_limited log entries were produced
+            const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
+            expect(logEntries).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        topic: 'log_entries_test',
+                        value: expect.objectContaining({
+                            log_source: 'hog_function',
+                            log_source_id: fnFetchNoFilters.id,
+                            level: 'error',
+                            message: 'Function invocation blocked due to quota limit',
+                            team_id: team2.id,
+                        }),
+                    }),
+                    expect.objectContaining({
+                        topic: 'log_entries_test',
+                        value: expect.objectContaining({
+                            log_source: 'hog_function',
+                            log_source_id: fnDataWarehouseFunction.id,
+                            level: 'error',
+                            message: 'Function invocation blocked due to quota limit',
+                            team_id: team2.id,
+                        }),
+                    }),
+                ])
+            )
         })
 
         it('should not filter out functions when team is not quota limited', async () => {

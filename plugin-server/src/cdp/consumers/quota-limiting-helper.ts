@@ -1,6 +1,8 @@
+import { DateTime } from 'luxon'
+
 import { QuotaResource } from '../../common/services/quota-limiting.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { CyclotronJobInvocationHogFunction } from '../types'
+import { CyclotronJobInvocationHogFunction, LogEntry } from '../types'
 import { counterQuotaLimited } from './metrics'
 
 export interface QuotaLimitingContext {
@@ -35,6 +37,19 @@ export async function shouldBlockInvocationDueToQuota(
             },
             'hog_function'
         )
+
+        const logEntry: LogEntry = {
+            team_id: item.teamId,
+            log_source: 'hog_function',
+            log_source_id: item.functionId,
+            instance_id: item.id,
+            timestamp: DateTime.now(),
+            level: 'error',
+            message: 'Function invocation blocked due to quota limit',
+        }
+
+        context.hogFunctionMonitoringService.queueLogs([logEntry], 'hog_function')
+
         return true
     }
 
