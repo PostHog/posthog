@@ -11,7 +11,7 @@ class AuthenticatedUser:
     token_expires_at: datetime | None = None
 
 
-def has_required_scope(scopes: list[str], required: str = "task:write") -> bool:
+def has_required_scope(scopes: list[str], required: str = "llm_gateway:read") -> bool:
     if not scopes:
         return False
     return "*" in scopes or required in scopes

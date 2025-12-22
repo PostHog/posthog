@@ -21,7 +21,7 @@ class MockProviderError(Exception):
 class TestStreamingErrorHandling:
     @pytest.fixture
     def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", scopes=["task:write"])
+        return AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", scopes=["llm_gateway:read"])
 
     @pytest.mark.asyncio
     async def test_timeout_non_streaming_raises_504(self, mock_user: AuthenticatedUser) -> None:
@@ -114,7 +114,7 @@ class TestStreamingErrorHandling:
 class TestStreamingLifecycle:
     @pytest.fixture
     def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", scopes=["task:write"])
+        return AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", scopes=["llm_gateway:read"])
 
     @pytest.mark.asyncio
     async def test_successful_stream_completes(self, mock_user: AuthenticatedUser) -> None:
