@@ -60,7 +60,7 @@ export function createPluginConfigVM(
     // Add used imports to the virtual machine
     const pluginHostImports: Record<string, any> = {}
     for (const usedImport of usedImports) {
-        if (usedImport === 'fetch') {
+        if (usedImport === 'node-fetch') {
             pluginHostImports[usedImport] = builtFetch
         } else {
             pluginHostImports[usedImport] = (AVAILABLE_IMPORTS as Record<string, any>)[usedImport]
