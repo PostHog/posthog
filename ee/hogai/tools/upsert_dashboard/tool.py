@@ -10,7 +10,6 @@ from posthog.schema import ArtifactSource, DataTableNode, HogQLQuery, InsightViz
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
-from posthog.user_permissions import UserPermissions
 
 from ee.hogai.artifacts.manager import ArtifactManager, DatabaseArtifactResult, ModelArtifactResult, StateArtifactResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -142,7 +141,6 @@ class UpsertDashboardTool(MaxTool):
 
         resolved: list[Insight] = []
         missing: list[str] = []
-        insights_to_create: list[Insight] = []
 
         for insight_id, result in zip(insight_ids, results):
             if result is None:
@@ -167,25 +165,23 @@ class UpsertDashboardTool(MaxTool):
                     query=converted,
                     saved=True,
                 )
-                insights_to_create.append(insight)
-
-        # Bulk create insights from state/artifact sources
-        if insights_to_create:
-            created_insights = await Insight.objects.abulk_create(insights_to_create)
-            resolved.extend(created_insights)
+                resolved.append(insight)
 
         return resolved, missing
+
+    def _create_resolved_insights(self, results: list[Insight]) -> list[Insight]:
+        for insight in results:
+            if getattr(insight, "pk", None):
+                continue
+            insight.save()
+        return results
 
     @database_sync_to_async
     def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:
         """Check if user has permission to edit the dashboard."""
-        if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
-            user_perms = UserPermissions(user=self._user, team=self._team)
-            return user_perms.dashboard(dashboard).can_edit
-        else:
-            user_access_control = UserAccessControl(user=self._user, team=self._team)
-            access_level = user_access_control.get_user_access_level(dashboard)
-            return access_level and access_level_satisfied_for_resource("dashboard", access_level, "editor")
+        user_access_control = UserAccessControl(user=self._user, team=self._team)
+        access_level = user_access_control.get_user_access_level(dashboard)
+        return access_level and access_level_satisfied_for_resource("dashboard", access_level, "editor")
 
     @database_sync_to_async
     @transaction.atomic
@@ -197,6 +193,7 @@ class UpsertDashboardTool(MaxTool):
             team=self._team,
             created_by=self._user,
         )
+        insights = self._create_resolved_insights(insights)
         DashboardTile.objects.bulk_create(
             [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in insights]
         )
@@ -219,6 +216,9 @@ class UpsertDashboardTool(MaxTool):
             dashboard.description = description
         if name is not None or description is not None:
             dashboard.save(update_fields=["name", "description"])
+
+        # Create new insights if they don't exist
+        insights = self._create_resolved_insights(insights)
 
         insight_ids = {i.id for i in insights}
         # Fetch all existing tiles (including soft-deleted) in one query

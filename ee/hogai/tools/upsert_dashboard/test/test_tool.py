@@ -17,12 +17,14 @@ from posthog.schema import (
     RetentionFilter,
     RetentionQuery,
     TrendsQuery,
+    VisualizationMessage,
 )
 
 from posthog.models import Dashboard, DashboardTile, Insight
 
 from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
 from ee.hogai.utils.types import AssistantState
+from ee.models.assistant import AgentArtifact, Conversation
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
 
@@ -339,3 +341,59 @@ class TestUpsertDashboardTool(BaseTest):
         await dashboard.arefresh_from_db()
         self.assertEqual(dashboard.name, "Updated Name")
         self.assertEqual(dashboard.description, "Updated description")
+
+    async def test_resolve_insights_preserves_order_with_state_and_database(self):
+        # Create a conversation for artifacts
+        conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+
+        # Create an insight in database (will be resolved from Insight model)
+        db_insight = await self._create_insight("Database Insight")
+
+        # Create an artifact in database (will be resolved from AgentArtifact)
+        artifact_query = TrendsQuery(series=[EventsNode(name="$pageview")])
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=conversation,
+            name="Artifact Insight",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={
+                "query": artifact_query.model_dump(exclude_none=True),
+                "name": "Artifact Insight",
+                "description": "From artifact",
+            },
+        )
+
+        # Create a state message (will be resolved from state)
+        state_viz_id = str(uuid4())
+        state_query = TrendsQuery(series=[EventsNode(name="$identify")])
+        state_viz_message = VisualizationMessage(
+            id=state_viz_id,
+            query="state query",
+            answer=state_query,
+            plan="state plan",
+        )
+
+        state = AssistantState(messages=[state_viz_message], root_tool_call_id=str(uuid4()))
+        tool = self._create_tool(state)
+
+        # Test ordering: state, artifact, database
+        insight_ids = [state_viz_id, artifact.short_id, db_insight.short_id]
+
+        insights, missing = await tool._resolve_insights(insight_ids)
+
+        self.assertEqual(len(insights), 3)
+        self.assertEqual(len(missing), 0)
+
+        # Verify order is preserved
+        self.assertEqual(insights[0].name, "state query")
+        self.assertEqual(insights[1].name, "Artifact Insight")
+        self.assertEqual(insights[2].name, "Database Insight")
+
+        # Test different ordering: database, state, artifact
+        insight_ids = [db_insight.short_id, state_viz_id, artifact.short_id]
+        insights, missing = await tool._resolve_insights(insight_ids)
+
+        self.assertEqual(len(insights), 3)
+        self.assertEqual(insights[0].name, "Database Insight")
+        self.assertEqual(insights[1].name, "state query")
+        self.assertEqual(insights[2].name, "Artifact Insight")
