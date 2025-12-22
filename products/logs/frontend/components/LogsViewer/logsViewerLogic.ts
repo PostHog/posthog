@@ -246,6 +246,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     return next
                 },
+                setLogs: () => new Set<string>(),
             },
         ],
     })),

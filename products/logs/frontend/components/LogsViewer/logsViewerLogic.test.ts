@@ -638,5 +638,19 @@ describe('logsViewerLogic', () => {
                 logic.actions.togglePrettifyLog('log-1')
             }).toDispatchActions(['togglePrettifyLog', 'recomputeRowHeights'])
         })
+
+        it('clears when setLogs is called', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            logic.actions.togglePrettifyLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.size).toBe(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.setLogs([createMockParsedLog('new-log')])
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.size).toBe(0)
+        })
     })
 })
