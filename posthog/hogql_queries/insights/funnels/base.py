@@ -547,7 +547,7 @@ class FunnelBase(ABC):
         else:
             return []
 
-    def _get_breakdown_prop(self, group_remaining=False) -> str:
+    def _get_breakdown_prop(self) -> str:
         # SEE ABOVE for an ast implementation of the following
         if self.context.breakdown:
             return ", prop"

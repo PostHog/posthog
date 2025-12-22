@@ -15,7 +15,7 @@ TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel
 
 
 class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
-    def teardown_method(self, method) -> None:
+    def teardown_method(self) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
 
