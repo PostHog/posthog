@@ -336,19 +336,21 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes DROP_EVENT if token is in static drop list', () => {
+        it('includes DROP_EVENT if token is in static drop list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['static-drop-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token')).toContain(
                 Restriction.DROP_EVENT
             )
         })
 
-        it('includes DROP_EVENT if token:distinctId is in static drop list', () => {
+        it('includes DROP_EVENT if token:distinctId is in static drop list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['static-drop-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token', { distinct_id: '123' })
             ).toContain(Restriction.DROP_EVENT)
@@ -401,19 +403,21 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes SKIP_PERSON_PROCESSING if token is in static skip list', () => {
+        it('includes SKIP_PERSON_PROCESSING if token is in static skip list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticSkipPersonTokens: ['static-skip-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token')).toContain(
                 Restriction.SKIP_PERSON_PROCESSING
             )
         })
 
-        it('includes SKIP_PERSON_PROCESSING if token:distinctId is in static skip list', () => {
+        it('includes SKIP_PERSON_PROCESSING if token:distinctId is in static skip list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticSkipPersonTokens: ['static-skip-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token', { distinct_id: '123' })
             ).toContain(Restriction.SKIP_PERSON_PROCESSING)
@@ -468,19 +472,21 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes FORCE_OVERFLOW if token is in static overflow list', () => {
+        it('includes FORCE_OVERFLOW if token is in static overflow list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticForceOverflowTokens: ['static-overflow-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token')).toContain(
                 Restriction.FORCE_OVERFLOW
             )
         })
 
-        it('includes FORCE_OVERFLOW if token:distinctId is in static overflow list', () => {
+        it('includes FORCE_OVERFLOW if token:distinctId is in static overflow list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticForceOverflowTokens: ['static-overflow-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token', { distinct_id: '123' })
             ).toContain(Restriction.FORCE_OVERFLOW)
@@ -535,19 +541,21 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes REDIRECT_TO_DLQ if token is in static DLQ list', () => {
+        it('includes REDIRECT_TO_DLQ if token is in static DLQ list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticRedirectToDlqTokens: ['static-dlq-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token')).toContain(
                 Restriction.REDIRECT_TO_DLQ
             )
         })
 
-        it('includes REDIRECT_TO_DLQ if token:distinctId is in static DLQ list', () => {
+        it('includes REDIRECT_TO_DLQ if token:distinctId is in static DLQ list', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticRedirectToDlqTokens: ['static-dlq-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token', { distinct_id: '123' })
             ).toContain(Restriction.REDIRECT_TO_DLQ)
@@ -1193,13 +1201,14 @@ describe('EventIngestionRestrictionManager', () => {
     })
 
     describe('multiple restrictions for same entity', () => {
-        it('returns multiple restrictions when token matches multiple static lists', () => {
+        it('returns multiple restrictions when token matches multiple static lists', async () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['multi-token'],
                 staticSkipPersonTokens: ['multi-token'],
                 staticForceOverflowTokens: ['multi-token'],
                 staticRedirectToDlqTokens: ['multi-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('multi-token')
             expect(restrictions).toContain(Restriction.DROP_EVENT)
             expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)

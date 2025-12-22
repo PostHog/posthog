@@ -159,12 +159,13 @@ type ParsedRestriction = {
     identifier: RestrictionIdentifier
 }
 
+const EMPTY_RESTRICTION_MAP = new RestrictionMap()
+
 export class EventIngestionRestrictionManager {
     private hub: EventIngestionRestrictionManagerHub
     private pipeline: IngestionPipeline
     private staticRestrictions: ParsedRestriction[] = []
-    private restrictionMap: RestrictionMap = new RestrictionMap()
-    private dynamicConfigRefresher: BackgroundRefresher<void>
+    private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
 
     constructor(
         hub: EventIngestionRestrictionManagerHub,
@@ -193,25 +194,18 @@ export class EventIngestionRestrictionManager {
         this.addStaticRestrictions(Restriction.REDIRECT_TO_DLQ, staticRedirectToDlqTokens)
 
         this.dynamicConfigRefresher = new BackgroundRefresher(async () => {
-            try {
-                logger.info('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
-                await this.refreshDynamicConfig()
-            } catch (error) {
-                logger.error('ingestion event restriction manager - error refreshing dynamic config', { error })
-            }
+            logger.debug('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
+            return await this.buildRestrictionMap()
         })
 
-        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            void this.dynamicConfigRefresher.get().catch((error) => {
-                logger.error('Failed to initialize event ingestion restriction dynamic config', { error })
-            })
-        }
+        // Initialize the restriction map (includes static restrictions)
+        void this.dynamicConfigRefresher.get().catch((error) => {
+            logger.error('Failed to initialize event ingestion restriction config', { error })
+        })
     }
 
     async forceRefresh(): Promise<void> {
-        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            await this.dynamicConfigRefresher.refresh()
-        }
+        await this.dynamicConfigRefresher.refresh()
     }
 
     getAppliedRestrictions(token?: string, lookup: RestrictionLookup = {}): ReadonlySet<Restriction> {
@@ -219,55 +213,50 @@ export class EventIngestionRestrictionManager {
             return EMPTY_RESTRICTIONS
         }
 
-        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            void this.dynamicConfigRefresher.get().catch((error) => {
-                logger.warn('Error triggering background refresh for dynamic config', { error })
-            })
-        }
-
-        return this.restrictionMap.getRestrictions(token, lookup)
+        const restrictionMap = this.dynamicConfigRefresher.tryGet() ?? EMPTY_RESTRICTION_MAP
+        return restrictionMap.getRestrictions(token, lookup)
     }
 
     private addStaticRestrictions(restriction: Restriction, entries: string[]): void {
         for (const entry of entries) {
             // Static config supports: token, token:distinct_id (legacy), token:distinct_id:value
-            let parsed: ParsedRestriction
-
             if (entry.includes(':distinct_id:')) {
                 const [token, , distinctId] = entry.split(':')
-                parsed = { restriction, token, identifier: { type: 'distinct_id', value: distinctId } }
+                this.staticRestrictions.push({
+                    restriction,
+                    token,
+                    identifier: { type: 'distinct_id', value: distinctId },
+                })
             } else if (entry.includes(':')) {
                 // Legacy format: token:distinct_id
                 const [token, distinctId] = entry.split(':')
-                parsed = { restriction, token, identifier: { type: 'distinct_id', value: distinctId } }
+                this.staticRestrictions.push({
+                    restriction,
+                    token,
+                    identifier: { type: 'distinct_id', value: distinctId },
+                })
             } else {
-                parsed = { restriction, token: entry, identifier: { type: 'all' } }
+                this.staticRestrictions.push({ restriction, token: entry, identifier: { type: 'all' } })
             }
-
-            this.staticRestrictions.push(parsed)
-            this.restrictionMap.addRestriction(parsed.restriction, parsed.token, parsed.identifier)
         }
     }
 
-    private async refreshDynamicConfig(): Promise<void> {
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return
-        }
+    private async buildRestrictionMap(): Promise<RestrictionMap> {
+        const dynamicRestrictions = this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG
+            ? await this.fetchDynamicRestrictionsFromRedis()
+            : []
 
-        const dynamicRestrictions = await this.fetchDynamicRestrictionsFromRedis()
-
-        // Rebuild the lookup with both static and dynamic restrictions
-        const newMap = new RestrictionMap()
+        const map = new RestrictionMap()
 
         for (const { restriction, token, identifier } of this.staticRestrictions) {
-            newMap.addRestriction(restriction, token, identifier)
+            map.addRestriction(restriction, token, identifier)
         }
 
         for (const { restriction, token, identifier } of dynamicRestrictions) {
-            newMap.addRestriction(restriction, token, identifier)
+            map.addRestriction(restriction, token, identifier)
         }
 
-        this.restrictionMap = newMap
+        return map
     }
 
     private async fetchDynamicRestrictionsFromRedis(): Promise<ParsedRestriction[]> {
