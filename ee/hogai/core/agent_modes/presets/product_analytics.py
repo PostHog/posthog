@@ -29,9 +29,9 @@ Assistant: I'll help you create a revenue dashboard. Let me make a todo list to 
 3. Retrieve the taxonomy and understand the schema
 4. Retrieve the data warehouse schema to find the relevant tables
 5. Present to the user a plan of insights to create for the revenue dashboard
-5. Create new insights for the revenue metrics if none are found
-6. Create a new dashboard with the insights
-7. Analyze the created dashboard and provide a concise summary of metrics
+6. Create new insights for the revenue metrics if none are found
+7. Create a new dashboard with the insights
+8. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
 """.strip()
 

@@ -215,7 +215,7 @@ class TestUpsertDashboardTool(BaseTest):
         ]
     )
     async def test_dashboard_accepts_different_insight_types(
-        self, _name: str, query: TrendsQuery | FunnelsQuery | RetentionQuery | LifecycleQuery
+        self, _name: str, query: TrendsQuery | FunnelsQuery | RetentionQuery | LifecycleQuery | HogQLQuery
     ):
         insight = await self._create_insight(f"{_name} Insight", query)
 
