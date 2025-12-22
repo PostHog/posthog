@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from string import ascii_lowercase
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast, overload
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -28,7 +28,7 @@ from posthog.schema import (
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors, get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -55,9 +55,33 @@ class FunnelStepResult:
 
 def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdown(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            actors = get_actors_legacy_filters(
-                filter,
+        @overload
+        def _get_actor_ids_at_step(
+            self,
+            filters_or_query: dict[str, Any],
+            funnel_step: int,
+            breakdown_value: Optional[str] = None,
+        ) -> list[str]: ...
+        @overload
+        def _get_actor_ids_at_step(
+            self,
+            filters_or_query: FunnelsQuery,
+            funnel_step: int,
+            breakdown_value: Optional[str] = None,
+        ) -> list[str]: ...
+        def _get_actor_ids_at_step(
+            self,
+            filters_or_query: dict[str, Any] | FunnelsQuery,
+            funnel_step: int,
+            breakdown_value: Optional[str] = None,
+        ) -> list[str]:
+            funnels_query = (
+                cast(FunnelsQuery, filter_to_query(filters_or_query))
+                if isinstance(filters_or_query, dict)
+                else filters_or_query
+            )
+            actors = get_actors(
+                funnels_query,
                 self.team,
                 funnel_step=funnel_step,
                 funnel_step_breakdown=breakdown_value,
