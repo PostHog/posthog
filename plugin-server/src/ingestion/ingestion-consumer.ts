@@ -203,12 +203,16 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
-            pipeline: 'analytics',
-            staticDropEventTokens: this.tokenDistinctIdsToDrop,
-            staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
-            staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
-        })
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG,
+            hub.redisPool,
+            {
+                pipeline: 'analytics',
+                staticDropEventTokens: this.tokenDistinctIdsToDrop,
+                staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
+                staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
+            }
+        )
 
         this.name = `ingestion-consumer-${this.topic}`
         this.overflowRateLimiter = new MemoryRateLimiter(

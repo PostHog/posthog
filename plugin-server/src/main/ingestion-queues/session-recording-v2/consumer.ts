@@ -9,10 +9,7 @@ import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { SessionRecordingRedisConfig, createRedisPool } from '../../../utils/db/redis'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerHub,
-} from '../../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
@@ -62,9 +59,9 @@ export type SessionRecordingIngesterHub = Pick<
     | 'SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH'
     // For KafkaProducerWrapper.create
     | 'KAFKA_CLIENT_RACK'
-> &
     // For EventIngestionRestrictionManager
-    EventIngestionRestrictionManagerHub &
+    | 'USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG'
+> &
     // For createRedisPool
     SessionRecordingRedisConfig
 
@@ -144,9 +141,11 @@ export class SessionRecordingIngester {
 
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub, {
-            pipeline: 'session_recordings',
-        })
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(
+            this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG,
+            this.redisPool,
+            { pipeline: 'session_recordings' }
+        )
 
         this.teamFilter = new TeamFilter(teamService)
         if (ingestionWarningProducer) {
