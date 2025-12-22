@@ -206,7 +206,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     }, [])
 
     return (
-        <SceneProvider className="flex flex-row grow" tabId={tabId}>
+        <SceneProvider className="flex flex-col grow" tabId={tabId}>
             <ListBox
                 ref={listboxRef}
                 className="w-full grid grid-rows-[auto_1fr] flex-col"
