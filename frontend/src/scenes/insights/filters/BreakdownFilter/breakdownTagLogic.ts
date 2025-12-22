@@ -7,10 +7,12 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { InsightLogicProps } from '~/types'
+import { AvailableFeature, InsightLogicProps } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
@@ -33,6 +35,10 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             ['getPropertyDefinition'],
             cohortsModel,
             ['cohortsById'],
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['hasAvailableFeature'],
             taxonomicBreakdownFilterLogic,
             [
                 'isMultipleBreakdownsEnabled',
@@ -149,6 +155,19 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         pathCleaningEnabled: [
             (s) => [s.globalPathCleaningEnabled],
             (globalPathCleaningEnabled) => globalPathCleaningEnabled,
+        ],
+        hasAdvancedPaths: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.PATHS_ADVANCED),
+        ],
+        hasPathCleaningFilters: [
+            (s) => [s.currentTeam],
+            (currentTeam) => (currentTeam?.path_cleaning_filters || []).length > 0,
+        ],
+        isPathCleaningAvailable: [
+            (s) => [s.isNormalizeable, s.hasAdvancedPaths, s.hasPathCleaningFilters],
+            (isNormalizeable, hasAdvancedPaths, hasPathCleaningFilters) =>
+                isNormalizeable && hasAdvancedPaths && hasPathCleaningFilters,
         ],
         taxonomicBreakdownType: [
             (s) => [s.isMultipleBreakdownsEnabled, s.breakdownFilter, s.multipleBreakdown],

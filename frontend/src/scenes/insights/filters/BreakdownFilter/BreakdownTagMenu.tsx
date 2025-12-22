@@ -6,11 +6,7 @@ import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-
-import { AvailableFeature } from '~/types'
 
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
 import { breakdownTagLogic } from './breakdownTagLogic'
@@ -24,6 +20,8 @@ export const BreakdownTagMenu = (): JSX.Element => {
         normalizeBreakdownURL,
         histogramBinsUsed,
         pathCleaningEnabled,
+        hasAdvancedPaths,
+        hasPathCleaningFilters,
     } = useValues(breakdownTagLogic)
 
     const {
@@ -35,13 +33,6 @@ export const BreakdownTagMenu = (): JSX.Element => {
     } = useActions(breakdownTagLogic)
 
     const { isMultipleBreakdownsEnabled } = useValues(taxonomicBreakdownFilterLogic)
-
-    const { currentTeam } = useValues(teamLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-    const hasPathCleaningFilters = (currentTeam?.path_cleaning_filters || []).length > 0
-    const isPathCleaningAvailable = isNormalizeable && hasAdvancedPaths && hasPathCleaningFilters
 
     return (
         <>
@@ -77,9 +68,10 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     }
                 />
             )}
-            {isPathCleaningAvailable && (
+            {isNormalizeable && hasAdvancedPaths && (
                 <LemonSwitch
-                    checked={pathCleaningEnabled}
+                    checked={hasPathCleaningFilters ? pathCleaningEnabled : false}
+                    disabled={!hasPathCleaningFilters}
                     fullWidth={true}
                     onChange={(checked) => setPathCleaningEnabled(checked)}
                     className="min-h-10 px-2"
@@ -89,22 +81,41 @@ export const BreakdownTagMenu = (): JSX.Element => {
                             Path cleaning
                             <Tooltip
                                 title={
-                                    <>
-                                        <p>
-                                            Apply your team's path cleaning rules to standardize URLs by removing
-                                            unnecessary parameters and fragments.
-                                        </p>
-                                        <LemonButton
-                                            icon={<IconGear />}
-                                            type="primary"
-                                            size="small"
-                                            to={urls.settings('project-product-analytics', 'path-cleaning')}
-                                            targetBlank
-                                            className="w-full mt-2"
-                                        >
-                                            Edit path cleaning settings
-                                        </LemonButton>
-                                    </>
+                                    hasPathCleaningFilters ? (
+                                        <>
+                                            <p>
+                                                Apply your team's path cleaning rules to standardize URLs by removing
+                                                unnecessary parameters and fragments.
+                                            </p>
+                                            <LemonButton
+                                                icon={<IconGear />}
+                                                type="primary"
+                                                size="small"
+                                                to={urls.settings('project-product-analytics', 'path-cleaning')}
+                                                targetBlank
+                                                className="w-full mt-2"
+                                            >
+                                                Edit path cleaning settings
+                                            </LemonButton>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p>
+                                                You don't have any path cleaning filters configured. Click the button
+                                                below to set up path cleaning rules.
+                                            </p>
+                                            <LemonButton
+                                                icon={<IconGear />}
+                                                type="primary"
+                                                size="small"
+                                                to={urls.settings('project-product-analytics', 'path-cleaning')}
+                                                targetBlank
+                                                className="w-full mt-2"
+                                            >
+                                                Configure path cleaning
+                                            </LemonButton>
+                                        </>
+                                    )
                                 }
                             >
                                 <IconInfo className="text-xl text-secondary ml-1 shrink-0" />
