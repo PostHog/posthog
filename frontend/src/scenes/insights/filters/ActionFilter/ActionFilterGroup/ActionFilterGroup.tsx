@@ -11,6 +11,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
     TaxonomicPopover,
@@ -23,7 +24,12 @@ import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mat
 
 import { BaseMathType, EntityTypes, FilterLogicalOperator } from '~/types'
 
-import { ActionFilterRow, MathAvailability, MathSelector } from '../ActionFilterRow/ActionFilterRow'
+import {
+    ActionFilterRow,
+    MathAvailability,
+    MathSelector,
+    taxonomicFilterGroupTypeToEntityType,
+} from '../ActionFilterRow/ActionFilterRow'
 import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
@@ -225,18 +231,33 @@ export function ActionFilterGroup({
     }
 
     const handleAddEvent = (changedValue: any, taxonomicGroupType: any, item: any): void => {
-        const newEvent: LocalFilter = {
-            id: changedValue ? String(changedValue) : null,
-            name: item?.name ?? '',
-            type: String(taxonomicGroupType) as any,
-            order: nestedFilters.length,
-            uuid: uuid(),
+        const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
+        const mathProperties = {
             ...(filter.math && { math: filter.math }),
             ...(filter.math_property && { math_property: filter.math_property }),
             ...(filter.math_property_type && { math_property_type: filter.math_property_type }),
             ...(filter.math_hogql && { math_hogql: filter.math_hogql }),
             ...(filter.math_group_type_index !== undefined && { math_group_type_index: filter.math_group_type_index }),
         }
+
+        const newEvent: LocalFilter = {
+            id: changedValue ? String(changedValue) : null,
+            name: item?.name ?? '',
+            type: groupType ?? (String(taxonomicGroupType) as any),
+            order: nestedFilters.length,
+            uuid: uuid(),
+            ...mathProperties,
+            ...(groupType === EntityTypes.DATA_WAREHOUSE && {
+                table_name: item?.name,
+                ...Object.fromEntries(
+                    (dataWarehousePopoverFields ?? defaultDataWarehousePopoverFields).map(({ key }) => [
+                        key,
+                        item?.[key],
+                    ])
+                ),
+            }),
+        }
+
         const updatedNestedFilters = [...nestedFilters, newEvent]
         const groupName = updatedNestedFilters.map((v) => v.name).join(', ')
         updateSeriesFilter({
