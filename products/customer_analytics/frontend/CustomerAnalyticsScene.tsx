@@ -31,17 +31,15 @@ export const scene: SceneExport = {
 
 export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
-    const {
-        reportCustomerAnalyticsDashboardConfigurationButtonClicked,
-        reportCustomerAnalyticsDashboardConfigurationViewed,
-    } = useActions(eventUsageLogic)
+    const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
+        useActions(eventUsageLogic)
 
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
     }
 
     useOnMountEffect(() => {
-        reportCustomerAnalyticsDashboardConfigurationViewed()
+        reportCustomerAnalyticsViewed()
     })
 
     return (

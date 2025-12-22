@@ -84,7 +84,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
     } = useValues(customerAnalyticsSceneLogic)
 
     const { setBusinessType, setDates, setSelectedGroupType } = useActions(customerAnalyticsSceneLogic)
-    const { reportCustomerAnalyticsDashboardBusinessModeChanged, reportCustomerAnalyticsDashboardDateRangeChanged } =
+    const { reportCustomerAnalyticsDashboardBusinessModeChanged, reportCustomerAnalyticsDashboardDateFilterApplied } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
     // TODO: Add CTA for cross sell
@@ -99,7 +99,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                         dateTo={dateTo}
                         onChange={(dateFrom, dateTo) => {
                             setDates(dateFrom, dateTo)
-                            reportCustomerAnalyticsDashboardDateRangeChanged(dateFrom, dateTo)
+                            reportCustomerAnalyticsDashboardDateFilterApplied({ filter: { dateFrom, dateTo } })
                             addProductIntent({
                                 product_type: ProductKey.CUSTOMER_ANALYTICS,
                                 intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED,

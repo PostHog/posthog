@@ -12,7 +12,7 @@ import { customerAnalyticsDashboardEventsLogic } from '../scenes/CustomerAnalyti
 
 type ConfigureWithAIButtonProps = LemonButtonProps & {
     prompt: string
-    event: string
+    event?: string
     eventToHighlight?: string
     children?: React.ReactNode
 }
@@ -33,7 +33,7 @@ export function ConfigureWithAIButton({
         if (eventToHighlight) {
             addEventToHighlight(eventToHighlight)
         }
-        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked({ event })
+        reportCustomerAnalyticsDashboardConfigureEventWithAIClicked({ event: event || eventToHighlight })
     }
 
     return (

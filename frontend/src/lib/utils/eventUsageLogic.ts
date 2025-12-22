@@ -710,6 +710,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardEventsSaved: () => true,
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
         reportGroupProfileViewed: (delay?: number) => ({ delay }),
+        reportPersonProfileViewed: (delay?: number) => ({ delay }),
         reportUsageMetricsSettingsViewed: () => true,
         reportUsageMetricsCreateButtonClicked: () => true,
         reportUsageMetricsUpdateButtonClicked: () => true,
@@ -1732,6 +1733,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardConfigurationViewed: async (_, breakpoint) => {
             await breakpoint(500)
             posthog.capture('customer analytics dashboard configuration viewed')
+        },
+        reportCustomerAnalyticsDashboardDateFilterApplied: async ({ filter }) => {
+            posthog.capture('customer analytics dashboard date filter applied', { filter })
         },
         reportCustomerAnalyticsDashboardEventPickerClicked: async ({ event }) => {
             posthog.capture('customer analytics dashboard event picker clicked', { event })
