@@ -69,6 +69,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
                         previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
                         color={HOGFUNCTION_METRICS_INFO[key].color}
                         colorIfZero={getColorVar('muted')}
+                        hideIfZero={!['succeeded', 'failed', 'filtered'].includes(key)}
                     />
                 ))}
             </div>
