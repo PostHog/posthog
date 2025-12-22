@@ -20,16 +20,16 @@ const METRIC_BODY_READ_TIMEOUT: &str = "capture_body_read_timeout_total";
 /// If `chunk_timeout` is Some, each chunk read is wrapped in a timeout. If no data
 /// arrives within the timeout window, returns `CaptureError::BodyReadTimeout`.
 ///
-/// The `limit` parameter enforces a maximum body size during streaming.
+/// The `payload_size_limit` parameter enforces a maximum body size during streaming.
 pub async fn extract_body_with_timeout(
     body: Body,
-    limit: usize,
+    payload_size_limit: usize,
     chunk_timeout: Option<Duration>,
     chunk_size_kb: usize,
     path: &str,
 ) -> Result<Bytes, CaptureError> {
     let mut stream = body.into_data_stream();
-    let mut buf = BytesMut::with_capacity(std::cmp::min(limit, chunk_size_kb * 1024));
+    let mut buf = BytesMut::with_capacity(std::cmp::min(payload_size_limit, chunk_size_kb * 1024));
 
     loop {
         let chunk_result = match chunk_timeout {
@@ -56,9 +56,9 @@ pub async fn extract_body_with_timeout(
         match chunk_result {
             Some(Ok(chunk)) => {
                 // Check size limit before appending
-                if buf.len() + chunk.len() > limit {
+                if buf.len() + chunk.len() > payload_size_limit {
                     return Err(CaptureError::EventTooBig(format!(
-                        "Request body exceeds limit of {limit} bytes"
+                        "Request body exceeds limit of {payload_size_limit} bytes"
                     )));
                 }
                 buf.put(chunk);

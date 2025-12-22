@@ -58,7 +58,7 @@ pub async fn handle_recording_payload(
     // Extract body with optional chunk timeout
     let body = extract_body_with_timeout(
         body,
-        state.event_size_limit,
+        state.event_payload_size_limit,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         path.as_str(),
@@ -82,7 +82,12 @@ pub async fn handle_recording_payload(
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "extracted payload");
 
     // Decompress the payload
-    let payload = decompress_payload(data, compression, state.event_size_limit, path.as_str())?;
+    let payload = decompress_payload(
+        data,
+        compression,
+        state.event_payload_size_limit,
+        path.as_str(),
+    )?;
 
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, compression=?compression, lib_version=?lib_version, "decompressed payload");
 

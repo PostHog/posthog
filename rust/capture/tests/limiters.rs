@@ -134,7 +134,7 @@ async fn setup_router_with_limits(
         CaptureMode::Events,
         String::from("capture"),
         None,        // concurrency_limit
-        1024 * 1024, // event_size_limit
+        1024 * 1024, // event_payload_size_limit
         false,       // enable_historical_rerouting
         1,           // historical_rerouting_threshold_days
         false,       // is_mirror_deploy
