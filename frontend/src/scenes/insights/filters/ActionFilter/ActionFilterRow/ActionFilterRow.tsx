@@ -39,7 +39,6 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
@@ -222,7 +221,7 @@ export function ActionFilterRow({
     const query = mountedInsightDataLogic?.values?.query
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
-    const isTrendsContext = isTrendsFilter(filter)
+    const isTrendsContext = trendsDisplayCategory != null
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     const { insightProps: funnelInsightProps } = useValues(
