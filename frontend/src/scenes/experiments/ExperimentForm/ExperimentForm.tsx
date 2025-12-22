@@ -57,6 +57,12 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
     } = useActions(logic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
+    const handleCancel = (): void => {
+        if (!isEditMode) {
+            clearDraft()
+        }
+        router.actions.push(urls.experiments())
+    }
 
     return (
         <div>
@@ -84,12 +90,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                 data-attr="cancel-experiment"
                                 type="secondary"
                                 size="small"
-                                onClick={() => {
-                                    if (!isEditMode) {
-                                        clearDraft()
-                                    }
-                                    router.actions.push(urls.experiments())
-                                }}
+                                onClick={handleCancel}
                             >
                                 Cancel
                             </LemonButton>
@@ -251,9 +252,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                         data-attr="cancel-experiment"
                         type="secondary"
                         size="small"
-                        onClick={() => {
-                            router.actions.push(urls.experiments())
-                        }}
+                        onClick={handleCancel}
                     >
                         Cancel
                     </LemonButton>
