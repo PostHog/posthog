@@ -5,7 +5,7 @@ import { FetchOptions, legacyFetch } from '~/utils/request'
 
 const vmFetchCounter = new Counter({
     name: 'vm_fetches_total',
-    help: 'Count of fetch errors in the VM',
+    help: 'Count of fetch requests in the VM',
     labelNames: ['plugin_id', 'plugin_config', 'status'],
 })
 
@@ -42,7 +42,7 @@ export const createVmTrackedFetch = (pluginConfig: PluginConfig) => async (url: 
     const pluginConfigName = pluginConfig.plugin?.name ?? 'unknown'
 
     try {
-        vmFetchTracker.trackRequest(pluginConfig.id.toString(), {
+        vmFetchTracker.trackRequest(pluginId, {
             url,
             method: fetchParams?.method ?? 'GET',
             body: fetchParams?.body,
