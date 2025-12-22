@@ -51,11 +51,18 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         setSharedMetrics,
         setExposureCriteria,
         setFeatureFlagConfig,
+        clearDraft,
         saveExperiment,
         validateField,
     } = useActions(logic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
+    const handleCancel = (): void => {
+        if (!isEditMode) {
+            clearDraft()
+        }
+        router.actions.push(urls.experiments())
+    }
 
     return (
         <div>
@@ -83,9 +90,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                 data-attr="cancel-experiment"
                                 type="secondary"
                                 size="small"
-                                onClick={() => {
-                                    router.actions.push(urls.experiments())
-                                }}
+                                onClick={handleCancel}
                             >
                                 Cancel
                             </LemonButton>
@@ -243,14 +248,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
 
                 <SceneDivider />
                 <div className="flex justify-end gap-2">
-                    <LemonButton
-                        data-attr="cancel-experiment"
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            router.actions.push(urls.experiments())
-                        }}
-                    >
+                    <LemonButton data-attr="cancel-experiment" type="secondary" size="small" onClick={handleCancel}>
                         Cancel
                     </LemonButton>
 
