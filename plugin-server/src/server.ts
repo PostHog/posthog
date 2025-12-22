@@ -1,8 +1,5 @@
 import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
-import { CompressionCodecs, CompressionTypes } from 'kafkajs'
-import SnappyCodec from 'kafkajs-snappy'
-import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
@@ -43,9 +40,6 @@ import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
-
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
-CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',

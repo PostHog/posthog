@@ -1,6 +1,5 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
@@ -362,7 +361,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
-    KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
@@ -480,7 +478,6 @@ export interface Hub extends PluginsServerConfig {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
-    kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>

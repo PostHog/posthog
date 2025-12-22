@@ -1,5 +1,5 @@
-import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 
 import { ClickHouseTimestamp, ProjectId, RawKafkaEvent } from '../types'
 import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from './event'
@@ -124,9 +124,8 @@ describe('formPipelineEvent()', () => {
                     }),
                 })
             ),
-        } as any as KafkaMessage
+        } as any as Message
 
-        // @ts-expect-error TODO: Fix type mismatches
         expect(formPipelineEvent(message)).toEqual({
             uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
             distinct_id: 'some_distinct_id',
@@ -176,9 +175,8 @@ describe('formPipelineEvent()', () => {
                     }),
                 })
             ),
-        } as any as KafkaMessage
+        } as any as Message
 
-        // @ts-expect-error TODO: Fix type mismatches
         expect(formPipelineEvent(message)).toEqual({
             uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
             distinct_id: 'some_distinct_id',
