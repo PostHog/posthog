@@ -248,6 +248,7 @@ class AssistantNavigateUrl(StrEnum):
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
     WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
+    WEB_ANALYTICS_LIVE = "webAnalyticsLive"
     PERSONS = "persons"
 
 
