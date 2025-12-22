@@ -129,7 +129,7 @@ export const legacyEntityToNode = (
             ...shared,
             operator: entity.operator || undefined,
             nodes: (entity.nestedFilters || []).map((v) =>
-                legacyEntityToNode(v as ActionFilter, includeProperties, mathAvailability)
+                legacyEntityToNode(v as ActionFilter | DataWarehouseFilter, includeProperties, mathAvailability)
             ),
         } as GroupNode
     }
