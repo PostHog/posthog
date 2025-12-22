@@ -5,6 +5,7 @@ pub mod config;
 pub mod events;
 pub mod extractors;
 pub mod limiters;
+pub mod log_util;
 pub mod metrics_middleware;
 pub mod payload;
 pub mod prometheus;
