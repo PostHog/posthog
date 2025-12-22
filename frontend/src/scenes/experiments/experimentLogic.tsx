@@ -1090,11 +1090,10 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.loadExposures(forceRefresh)
         },
         updateExperimentMetrics: async () => {
+            // Backend automatically syncs ordering arrays when metrics change
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
-                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
         },
         updateExperimentCollectionGoal: async () => {
@@ -1220,10 +1219,9 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
+            // Backend automatically syncs ordering arrays when saved_metrics change
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: combinedMetricsIds,
-                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
-                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
 
             actions.loadExperiment()
@@ -1235,10 +1233,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
+            // Backend automatically syncs ordering arrays when saved_metrics change
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
-                primary_metrics_ordered_uuids: values.experiment.primary_metrics_ordered_uuids,
-                secondary_metrics_ordered_uuids: values.experiment.secondary_metrics_ordered_uuids,
             })
 
             actions.loadExperiment()
