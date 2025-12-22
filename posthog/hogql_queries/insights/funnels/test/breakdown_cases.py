@@ -60,20 +60,20 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             self,
             filters_or_query: dict[str, Any],
             funnel_step: int,
-            breakdown_value: Optional[str] = None,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
         ) -> list[str]: ...
         @overload
         def _get_actor_ids_at_step(
             self,
             filters_or_query: FunnelsQuery,
             funnel_step: int,
-            breakdown_value: Optional[str] = None,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
         ) -> list[str]: ...
         def _get_actor_ids_at_step(
             self,
             filters_or_query: dict[str, Any] | FunnelsQuery,
             funnel_step: int,
-            breakdown_value: Optional[str] = None,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
         ) -> list[str]:
             funnels_query = (
                 cast(FunnelsQuery, filter_to_query(filters_or_query))
