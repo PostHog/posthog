@@ -236,6 +236,7 @@ export interface SceneConfig {
      * If `app-raw`, navigation is shown, but the scene has no padding.
      * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
+     * If `context`, the scene is responsible for the layout styles used with <SceneProvider className="...">.
      * @default 'app'
      */
     layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height' | 'context'
