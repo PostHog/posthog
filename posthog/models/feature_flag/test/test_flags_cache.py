@@ -1560,6 +1560,202 @@ class TestManagementCommandsWithoutDedicatedCache(BaseTest):
         self.assertIn("NOT configured", output)
 
 
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        "flags_dedicated": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    },
+)
+class TestVerifyFlagsCacheVerboseOutput(BaseTest):
+    """Test verbose output formatting for verify_flags_cache command."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def test_verbose_missing_in_cache(self):
+        """Test verbose output for MISSING_IN_CACHE diff type."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag but don't cache it - this creates a MISSING_IN_CACHE scenario
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="uncached-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # First warm the cache to establish it, then create a new flag
+        update_flags_cache(self.team)
+
+        # Create another flag that won't be in cache
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="new-uncached-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("new-uncached-flag", output)
+        self.assertIn("exists in DB but missing from cache", output)
+
+    def test_verbose_stale_in_cache(self):
+        """Test verbose output for STALE_IN_CACHE diff type."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag and cache it
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        # Delete the flag (cache now stale)
+        flag.delete()
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("stale-flag", output)
+        self.assertIn("exists in cache but deleted from DB", output)
+
+    def test_verbose_field_mismatch(self):
+        """Test verbose output for FIELD_MISMATCH diff type with field details."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Create flag and cache it
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="mismatch-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        update_flags_cache(self.team)
+
+        # Modify the flag to create a mismatch
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag.save()
+
+        out = StringIO()
+        call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
+
+        output = out.getvalue()
+        self.assertIn("mismatch-flag", output)
+        self.assertIn("field values differ", output)
+        self.assertIn("Field:", output)
+        self.assertIn("DB:", output)
+        self.assertIn("Cache:", output)
+
+    def test_verbose_unknown_diff_type_fallback(self):
+        """Test verbose output falls back gracefully for unknown diff types."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with an unknown type
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        unknown_diff = {
+            "type": "UNKNOWN_TYPE",
+            "flag_key": "test-flag",
+        }
+        command.format_verbose_diff(unknown_diff)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("UNKNOWN_TYPE", output)
+
+    def test_verbose_missing_flag_key_uses_flag_id(self):
+        """Test verbose output uses flag_id when flag_key is missing."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method without flag_key
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_without_key = {
+            "type": "MISSING_IN_CACHE",
+            "flag_id": 12345,
+            # Note: no flag_key
+        }
+        command.format_verbose_diff(diff_without_key)
+
+        output = out.getvalue()
+        self.assertIn("Flag '12345'", output)
+
+    def test_verbose_empty_field_diffs(self):
+        """Test verbose output handles empty field_diffs gracefully."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with empty field_diffs
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_with_empty_field_diffs = {
+            "type": "FIELD_MISMATCH",
+            "flag_key": "test-flag",
+            "field_diffs": [],  # Empty list
+        }
+        command.format_verbose_diff(diff_with_empty_field_diffs)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("field values differ", output)
+        # Should not crash despite empty field_diffs
+
+    def test_verbose_missing_field_in_field_diff(self):
+        """Test verbose output handles missing 'field' key in field_diff gracefully."""
+        from io import StringIO
+
+        from posthog.management.commands.verify_flags_cache import Command
+
+        # Directly test the format_verbose_diff method with malformed field_diff
+        command = Command()
+        out = StringIO()
+        command.stdout = out  # type: ignore[assignment]
+
+        diff_with_malformed_field_diffs = {
+            "type": "FIELD_MISMATCH",
+            "flag_key": "test-flag",
+            "field_diffs": [
+                {
+                    # Missing 'field' key
+                    "db_value": "db_val",
+                    "cached_value": "cached_val",
+                }
+            ],
+        }
+        command.format_verbose_diff(diff_with_malformed_field_diffs)
+
+        output = out.getvalue()
+        self.assertIn("Flag 'test-flag'", output)
+        self.assertIn("unknown_field", output)  # Falls back to default
+        self.assertIn("db_val", output)
+        self.assertIn("cached_val", output)
+
+
 @override_settings(FLAGS_REDIS_URL=None)
 class TestServiceFlagsGuards(BaseTest):
     """Test that cache functions guard against writes when FLAGS_REDIS_URL is not set."""

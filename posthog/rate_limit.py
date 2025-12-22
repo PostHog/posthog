@@ -205,6 +205,10 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                     tags={"team_id": team_id, "route": route},
                 )
                 RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
+
+                from posthog.clickhouse.query_tagging import tag_queries
+
+                tag_queries(rate_limit_bypass=1)
                 return True
             else:
                 scope = getattr(self, "scope", None)

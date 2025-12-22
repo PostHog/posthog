@@ -81,6 +81,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
+    cdp_legacy_webhooks = 'cdp-legacy-webhooks',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
 }
@@ -186,6 +187,9 @@ export type CdpConfig = {
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
+
+    CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: string
+    CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
@@ -465,7 +469,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
-    USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -540,6 +543,7 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
+    cdpLegacyWebhooks?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean

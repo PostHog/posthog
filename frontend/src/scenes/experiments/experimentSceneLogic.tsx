@@ -42,8 +42,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         }),
         setEditMode: (editing: boolean) => ({ editing }),
         resetExperimentState: (experimentConfig: Experiment) => ({ experimentConfig }),
-        loadExperimentData: true,
-        loadExposuresData: (forceRefresh: boolean = false) => ({ forceRefresh }),
     }),
     reducers({
         activeTabKey: [
@@ -196,10 +194,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, sharedListeners, values }) => ({
+    listeners(({ sharedListeners, values }) => ({
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            actions.loadExperimentData()
+            values.experimentLogicRef?.logic.actions.loadExperiment()
         },
         setEditMode: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
@@ -210,14 +208,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             if (payload.experimentConfig) {
                 values.experimentLogicRef?.logic.actions.resetExperiment(payload.experimentConfig)
             }
-        },
-        loadExperimentData: (payload, breakpoint, action, previousState) => {
-            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExperiment()
-        },
-        loadExposuresData: (payload, breakpoint, action, previousState) => {
-            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
-            values.experimentLogicRef?.logic.actions.loadExposures(payload.forceRefresh)
         },
     })),
     tabAwareActionToUrl(({ values }) => {
@@ -255,14 +245,19 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
-            actions.setEditMode(false)
-
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 const formMode = parsedId === 'new' ? FORM_MODES.create : FORM_MODES.update
                 const existingProps = values.experimentLogicRef?.props
                 const matchesExistingLogic =
                     existingProps?.experimentId === parsedId && existingProps?.formMode === formMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === formMode
+
+                actions.setEditMode(false)
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
 
                 actions.setSceneState(parsedId, formMode)
 
@@ -276,16 +271,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                             metrics: query.metric ? [query.metric] : [],
                             name: query.name ?? '',
                         })
-                    }
-                } else {
-                    // Only load if this is a different experiment or we have no cached logic yet
-                    const shouldLoad = currentLocation.initial || !matchesExistingLogic
-
-                    if (shouldLoad) {
-                        actions.loadExperimentData()
-                        if (values.isExperimentRunning) {
-                            actions.loadExposuresData()
-                        }
                     }
                 }
             }
@@ -310,16 +295,15 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 const existingProps = values.experimentLogicRef?.props
                 const matchesExistingLogic =
                     existingProps?.experimentId === parsedId && existingProps?.formMode === parsedFormMode
+                const isSameSceneState = values.experimentId === parsedId && values.formMode === parsedFormMode
+
+                actions.setEditMode(false)
+
+                if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    return
+                }
 
                 actions.setSceneState(parsedId, parsedFormMode)
-
-                // For form modes, always reload to ensure proper data transformation (duplicate/edit)
-                // unless we're just switching back to a tab that already has this exact experiment+formMode loaded
-                const shouldLoad = currentLocation.initial || !matchesExistingLogic
-
-                if (shouldLoad) {
-                    actions.loadExperimentData()
-                }
             }
         },
     })),

@@ -16,13 +16,15 @@ use chrono::DateTime;
 use common_types::{CapturedEvent, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{debug, error, info, instrument, Span};
+use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
-use crate::api::CaptureError;
-use crate::sinks;
-use crate::utils::uuid_v7;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext};
+use crate::{
+    api::CaptureError,
+    debug_or_info, sinks,
+    utils::uuid_v7,
+    v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext},
+};
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -289,11 +291,7 @@ pub async fn process_replay_events<'a>(
         &snapshot_library,
     );
 
-    if chatty_debug_enabled {
-        info!(metadata=?metadata, context=?context, "CHATTY: serialized snapshot data");
-    } else {
-        debug!(metadata=?metadata, context=?context, "serialized snapshot data");
-    }
+    debug_or_info!(chatty_debug_enabled, metadata=?metadata, context=?context, "serialized snapshot data");
 
     let event = CapturedEvent {
         uuid,
@@ -314,11 +312,7 @@ pub async fn process_replay_events<'a>(
 
     sink.send(ProcessedEvent { metadata, event }).await?;
 
-    if chatty_debug_enabled {
-        info!(context=?context, "CHATTY: sent recordings CapturedEvent");
-    } else {
-        debug!(context=?context, "sent recordings CapturedEvent");
-    }
+    debug_or_info!(chatty_debug_enabled, context=?context, "sent recordings CapturedEvent");
 
     Ok(())
 }

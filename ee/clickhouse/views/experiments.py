@@ -889,20 +889,11 @@ class EnterpriseExperimentsViewSet(
         )
 
         # Exclude survey targeting flags (same as regular feature flag list endpoint)
-        survey_targeting_flags = Survey.objects.filter(
-            team__project_id=self.project_id, targeting_flag__isnull=False
-        ).values_list("targeting_flag_id", flat=True)
-        survey_internal_targeting_flags = Survey.objects.filter(
-            team__project_id=self.project_id, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
-        excluded_flag_ids = (
-            set(survey_targeting_flags)
-            | set(survey_internal_targeting_flags)
-            | set(product_tour_internal_targeting_flags)
-        )
+        excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
         queryset = queryset.exclude(id__in=excluded_flag_ids)
 
         # Apply search filter

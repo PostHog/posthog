@@ -102,7 +102,7 @@ export function initKea({
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401].includes(error.status) && // 401 is handled by api.ts and the userLogic
+                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText

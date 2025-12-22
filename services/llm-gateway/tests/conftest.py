@@ -52,7 +52,7 @@ def authenticated_user() -> AuthenticatedUser:
         user_id=1,
         team_id=1,
         auth_method="personal_api_key",
-        scopes=["task:write"],
+        scopes=["llm_gateway:read"],
     )
 
 
@@ -83,7 +83,7 @@ def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None,
         return_value={
             "id": "key_id",
             "user_id": 1,
-            "scopes": ["task:write"],
+            "scopes": ["llm_gateway:read"],
             "current_team_id": 1,
         }
     )
