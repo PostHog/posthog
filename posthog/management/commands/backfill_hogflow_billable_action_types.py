@@ -5,13 +5,13 @@ from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
 from django.db import transaction
 
-from posthog.models.hog_flow import HogFlow
+from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Backfill billable_action_types field for existing HogFlows by extracting billable action types (function, function_email, function_sms, function_push)"
+    help = "Backfill billable_action_types field for existing HogFlows by extracting billable action types defined in BILLABLE_ACTION_TYPES"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -81,16 +81,14 @@ class Command(BaseCommand):
 
             for hogflow in page.object_list:
                 try:
-                    # Define billable action types
-                    billable_types = {"function", "function_email", "function_sms", "function_push"}
-
                     if hogflow.actions:
                         # Extract unique billable action types from the actions list
+                        # Using centralized BILLABLE_ACTION_TYPES constant
                         billable_action_types = sorted(
                             {
                                 action.get("type", "")
                                 for action in hogflow.actions
-                                if isinstance(action, dict) and action.get("type") in billable_types
+                                if isinstance(action, dict) and action.get("type") in BILLABLE_ACTION_TYPES
                             }
                         )
                     else:

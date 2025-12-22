@@ -26,7 +26,7 @@ from posthog.cdp.validation import (
 )
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
-from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
@@ -235,10 +235,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         data["trigger"] = trigger_actions[0]["config"]
 
         # Compute and store unique billable action types for efficient quota checking
-        # Only track billable actions: function, function_email, function_sms, function_push
-        billable_types = {"function", "function_email", "function_sms", "function_push"}
+        # Only track billable actions defined in BILLABLE_ACTION_TYPES
         billable_action_types = sorted(
-            {action.get("type", "") for action in actions if action.get("type") in billable_types}
+            {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
         )
         data["billable_action_types"] = billable_action_types
 

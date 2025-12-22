@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from django.db import models
 from django.db.models.signals import post_save
@@ -15,6 +15,15 @@ if TYPE_CHECKING:
     pass
 
 logger = structlog.get_logger(__name__)
+
+# Billable action types that are subject to rate limiting and quota tracking
+# These action types incur costs and are counted against customer quotas
+BILLABLE_ACTION_TYPES: Final[set[str]] = {
+    "function",  # General function/webhook actions
+    "function_email",  # Email sending actions
+    "function_sms",  # SMS sending actions
+    "function_push",  # Push notification actions
+}
 
 
 class HogFlow(UUIDTModel):
