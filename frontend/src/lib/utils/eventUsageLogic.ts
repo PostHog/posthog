@@ -706,12 +706,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: ({ event }) => ({ event }),
         reportCustomerAnalyticsDashboardDateFilterApplied: ({ filter }) => ({ filter }),
         reportCustomerAnalyticsDashboardEventPickerClicked: ({ event }) => ({ event }),
+        reportCustomerAnalyticsAddJoinButtonClicked: ({ table }) => ({ table }),
         reportCustomerAnalyticsDashboardEventsSaved: () => true,
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
         reportGroupProfileViewed: (delay?: number) => ({ delay }),
-        reportGroupListViewed: (delay?: number) => ({ delay }),
         reportPersonProfileViewed: (delay?: number) => ({ delay }),
-        reportPersonListViewed: (delay?: number) => ({ delay }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1735,6 +1734,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomerAnalyticsDashboardConfigureEventWithAIClicked: async ({ event }) => {
             posthog.capture('customer analytics dashboard configure event with AI clicked', { event })
         },
+        reportCustomerAnalyticsAddJoinButtonClicked: async ({ table }) => {
+            posthog.capture('customer analytics add join button clicked', { table })
+        },
         reportCustomerAnalyticsDashboardEventsSaved: async () => {
             posthog.capture('customer analytics dashboard events saved')
         },
@@ -1752,25 +1754,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const eventName = delay ? 'group profile analyzed' : 'group profile viewed'
             posthog.capture(eventName, { delay })
         },
-        reportGroupListViewed: async ({ delay }, breakpoint) => {
-            if (!delay) {
-                await breakpoint(500)
-            }
-            const eventName = delay ? 'group list analyzed' : 'group list viewed'
-            posthog.capture(eventName, { delay })
-        },
         reportPersonProfileViewed: async ({ delay }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500)
             }
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
-            posthog.capture(eventName, { delay })
-        },
-        reportPersonListViewed: async ({ delay }, breakpoint) => {
-            if (!delay) {
-                await breakpoint(500)
-            }
-            const eventName = delay ? 'person list analyzed' : 'person list viewed'
             posthog.capture(eventName, { delay })
         },
     })),
