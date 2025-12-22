@@ -9,10 +9,13 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
 )
 
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 
 
 class TraceSummary(BaseModel):
@@ -35,9 +38,10 @@ class BatchSummarizationInputs:
     team_id: int
     max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW  # Hard limit on traces to process
     batch_size: int = DEFAULT_BATCH_SIZE  # Number of traces per batch
-    mode: str = DEFAULT_MODE  # 'minimal' or 'detailed'
+    mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES  # Time window to query (defaults to 60 min)
-    model: str | None = None  # LLM model to use (defaults to SUMMARIZATION_MODEL constant)
+    provider: SummarizationProvider = DEFAULT_PROVIDER
+    model: str = DEFAULT_MODEL
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format

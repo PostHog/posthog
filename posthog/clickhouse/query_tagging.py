@@ -106,6 +106,9 @@ class QueryTags(BaseModel):
     query_time_range_days: Optional[int] = None
     query_type: Optional[str] = None
 
+    rate_limit_bypass: Optional[int] = None
+    rate_limit_wait_ms: Optional[int] = None
+
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None

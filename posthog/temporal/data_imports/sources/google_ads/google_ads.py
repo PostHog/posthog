@@ -70,7 +70,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
 
         login_customer_id: str | None = None
         if config.is_mcc_account and config.is_mcc_account.enabled:
-            login_customer_id = config.is_mcc_account.mcc_client_id
+            login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
         client = GoogleAdsClient.load_from_dict(
             {

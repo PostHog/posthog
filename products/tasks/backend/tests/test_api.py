@@ -20,6 +20,7 @@ class BaseTaskAPITest(TestCase):
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
     client: APIClient
+    user: User
 
     def setUp(self):
         self.client = APIClient()
@@ -287,6 +288,60 @@ class TestTaskAPI(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("self_user", "self", [0]),
+            ("other_user", "other", [1]),
+            ("no_filter", None, [0, 1, 2]),
+        ]
+    )
+    def test_filter_by_created_by(self, _name, filter_user, expected_indices):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        users = {"self": self.user, "other": other_user, None: None}
+
+        tasks = [
+            Task.objects.create(
+                team=self.team,
+                title="My Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=self.user,
+            ),
+            Task.objects.create(
+                team=self.team,
+                title="Other Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=other_user,
+            ),
+            Task.objects.create(
+                team=self.team,
+                title="No Creator Task",
+                description="Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=None,
+            ),
+        ]
+
+        url = "/api/projects/@current/tasks/"
+        if filter_user is not None:
+            user = users[filter_user]
+            assert user is not None
+            url += f"?created_by={user.id}"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        expected_task_ids = [str(tasks[i].id) for i in expected_indices]
+
+        self.assertEqual(len(task_ids), len(expected_task_ids))
+        for expected_id in expected_task_ids:
+            self.assertIn(expected_id, task_ids)
 
 
 class TestTaskRunAPI(BaseTaskAPITest):

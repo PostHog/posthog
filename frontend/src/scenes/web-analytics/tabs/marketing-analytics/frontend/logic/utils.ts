@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+
 import {
     AttributionMode,
     ConversionGoalFilter,
@@ -25,6 +27,28 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'cloudflare-r2',
     'azure',
 ]
+
+// Map of native sources that require feature flags to be enabled
+export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    BingAds: FEATURE_FLAGS.BING_ADS_SOURCE,
+}
+
+/**
+ * Filter native marketing sources based on feature flags
+ * @param featureFlags - The feature flags object from featureFlagLogic
+ * @returns Filtered list of native marketing sources that are enabled
+ */
+export function getEnabledNativeMarketingSources(
+    featureFlags: Partial<Record<FeatureFlagKey, boolean | string>>
+): readonly NativeMarketingSource[] {
+    return VALID_NATIVE_MARKETING_SOURCES.filter((source) => {
+        const featureFlagKey = NATIVE_SOURCE_FEATURE_FLAGS[source]
+        if (featureFlagKey) {
+            return !!featureFlags[featureFlagKey]
+        }
+        return true
+    })
+}
 
 export const MAX_ITEMS_TO_SHOW = 3
 

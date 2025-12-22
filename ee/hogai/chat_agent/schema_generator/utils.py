@@ -9,3 +9,5 @@ Q = TypeVar("Q", AssistantHogQLQuery, AssistantTrendsQuery, AssistantFunnelsQuer
 
 class SchemaGeneratorOutput(BaseModel, Generic[Q]):
     query: Q
+    name: str
+    description: str
