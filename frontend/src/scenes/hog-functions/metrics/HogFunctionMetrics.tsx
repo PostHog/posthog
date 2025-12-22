@@ -28,6 +28,11 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
             'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
         color: getColorVar('danger'),
     },
+    quota_limited: {
+        name: 'Quota Limited',
+        description: 'Total number of invocations blocked due to quota limits',
+        color: getColorVar('warning'),
+    },
 }
 
 export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
@@ -38,7 +43,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
-            metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently'],
+            metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'],
             breakdownBy: 'metric_name',
         },
     })
@@ -52,7 +57,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                {['succeeded', 'failed', 'filtered', 'disabled_permanently'].map((key) => (
+                {['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'].map((key) => (
                     <AppMetricSummary
                         key={key}
                         name={HOGFUNCTION_METRICS_INFO[key].name}
