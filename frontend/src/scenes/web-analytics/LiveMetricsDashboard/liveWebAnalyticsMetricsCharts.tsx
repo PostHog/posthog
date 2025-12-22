@@ -2,7 +2,7 @@ import { ChartConfiguration } from 'lib/Chart'
 import { getGraphColors } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 
-import { ChartDataPoint, DeviceBreakdownItem } from './livePageviewsTypes'
+import { ChartDataPoint, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 
 const COLORS = getGraphColors()
 const DEFAULT_COLOR = '#1d4aff'

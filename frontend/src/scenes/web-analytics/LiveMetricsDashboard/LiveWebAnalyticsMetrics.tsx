@@ -7,9 +7,9 @@ import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLo
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { DeviceBreakdownChart, UsersPerMinuteChart } from './livePageviewsCharts'
-import { livePageviewsLogic } from './livePageviewsLogic'
-import { ChartDataPoint, DeviceBreakdownItem, PathItem } from './livePageviewsTypes'
+import { liveWebAnalyticsMetricsLogic } from './LiveWebAnalyticsMetricsLogic'
+import { ChartDataPoint, DeviceBreakdownItem, PathItem } from './LiveWebAnalyticsMetricsTypes'
+import { DeviceBreakdownChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 
 const STATS_POLL_INTERVAL_MS = 30000
 
@@ -125,8 +125,8 @@ const PathsTable = ({ paths, isLoading }: { paths: PathItem[]; isLoading: boolea
     )
 }
 
-export const LivePageviews = (): JSX.Element => {
-    const { chartData, deviceBreakdown, topPaths, totalPageviews, isLoading } = useValues(livePageviewsLogic)
+export const LiveWebAnalyticsMetrics = (): JSX.Element => {
+    const { chartData, deviceBreakdown, topPaths, totalPageviews, isLoading } = useValues(liveWebAnalyticsMetricsLogic)
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
 

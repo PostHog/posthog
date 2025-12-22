@@ -47,7 +47,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
-import { LivePageviews } from './LiveMetricsDashboard/LivePageviews'
+import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -426,7 +426,7 @@ const MainContent = (): JSX.Element => {
     }
 
     if (productTab === ProductTab.LIVE) {
-        return <LivePageviews />
+        return <LiveWebAnalyticsMetrics />
     }
 
     return <Tiles />

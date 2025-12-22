@@ -18,8 +18,8 @@ import {
 import { BaseMathType, LiveEvent } from '~/types'
 
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
-import type { livePageviewsLogicType } from './livePageviewsLogicType'
-import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } from './livePageviewsTypes'
+import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const BUCKET_WINDOW_MINUTES = 30
@@ -28,7 +28,7 @@ const BATCH_SIZE_THRESHOLD = 10
 const INITIAL_RETRY_DELAY_MS = 1000
 const MAX_RETRY_DELAY_MS = 30000
 
-export const livePageviewsLogic = kea<livePageviewsLogicType>([
+export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],

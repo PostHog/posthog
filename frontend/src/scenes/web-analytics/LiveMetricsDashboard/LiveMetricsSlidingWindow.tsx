@@ -1,4 +1,4 @@
-import { SlidingWindowBucket } from './livePageviewsTypes'
+import { SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
 
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
