@@ -6,6 +6,8 @@ import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 
+const HOGFUNCTION_METRIC_KEYS = ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'] as const
+
 export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Success',
@@ -43,7 +45,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
         forceParams: {
             appSource: 'hog_function',
             appSourceId: id,
-            metricName: ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'],
+            metricName: [...HOGFUNCTION_METRIC_KEYS],
             breakdownBy: 'metric_name',
         },
     })
@@ -57,7 +59,7 @@ export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                {['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'].map((key) => (
+                {HOGFUNCTION_METRIC_KEYS.map((key) => (
                     <AppMetricSummary
                         key={key}
                         name={HOGFUNCTION_METRICS_INFO[key].name}
