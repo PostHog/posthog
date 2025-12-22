@@ -14,6 +14,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -141,6 +142,8 @@ export function FeatureFlagReleaseConditions({
     const { setBucketingIdentifier } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const showBucketingIdentifierUI = useFeatureFlag('FLAG_BUCKETING_IDENTIFIER')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
@@ -604,7 +607,46 @@ export function FeatureFlagReleaseConditions({
                         that matches.
                     </LemonBanner>
                 )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && (
+            {!readOnly && showGroupsOptions && !hideMatchOptions && !showBucketingIdentifierUI && (
+                <div className="centered flex items-center gap-2">
+                    Match by
+                    <LemonSelect
+                        size="small"
+                        dropdownMatchSelectWidth={false}
+                        data-attr="feature-flag-aggregation-filter"
+                        onChange={(value) => {
+                            // MatchByGroupsIntroductionOption
+                            if (value == -2) {
+                                return
+                            }
+
+                            const groupTypeIndex = value !== -1 ? value : null
+                            setAggregationGroupTypeIndex(groupTypeIndex)
+                        }}
+                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
+                        options={[
+                            { value: -1, label: 'Users' },
+                            ...Array.from(groupTypes.values()).map((groupType) => ({
+                                value: groupType.group_type_index,
+                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                                disabledReason: hasEarlyAccessFeatures
+                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
+                                    : null,
+                            })),
+                            ...(includeGroupsIntroductionOption()
+                                ? [
+                                      {
+                                          value: -2,
+                                          label: 'MatchByGroupsIntroductionOption',
+                                          labelInMenu: matchByGroupsIntroductionOption,
+                                      },
+                                  ]
+                                : []),
+                        ]}
+                    />
+                </div>
+            )}
+            {!readOnly && showGroupsOptions && !hideMatchOptions && showBucketingIdentifierUI && (
                 <div className="mb-4">
                     <LemonLabel className="mb-2">Assign variant by</LemonLabel>
                     <LemonRadio
