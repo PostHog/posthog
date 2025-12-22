@@ -12,7 +12,7 @@ from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.exceptions_capture import capture_exception
 from posthog.models.file_system.user_product_list import UserProductList, get_user_product_list_count
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import ROLE_CHOICES, User
 from posthog.products import Products
 
 
@@ -46,6 +46,10 @@ class PopulateConfig(dagster.Config):
         default=None,
         description="ISO format date string. Only process users created before this date (e.g., '2024-01-01T00:00:00Z')",
     )
+    role_at_organization: str | None = pydantic.Field(
+        default=None,
+        description="Only process users with this role_at_organization value (e.g., 'engineering', 'data', 'product')",
+    )
 
     # TODO: This should be removed after we've finished running the initial populate job
     # since it's a very confusing configuration knob
@@ -63,6 +67,7 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
     - Set optional reason_text for display to users
     - Only create for users who have a specific product enabled
     - Filter by user creation date
+    - Filter by role_at_organization (e.g., 'engineering', 'data', 'product')
     - Option to process only users without existing entries
     """
     if not config.product_paths:
@@ -88,6 +93,14 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
     if config.reason:
         if config.reason not in UserProductList.Reason.values:
             raise dagster.Failure(f"Invalid reason: {config.reason}. Valid options: {UserProductList.Reason.values}")
+
+    # Validate role_at_organization if provided
+
+    valid_roles = [choice[0] for choice in ROLE_CHOICES]
+    if config.role_at_organization is not None and config.role_at_organization not in valid_roles:
+        raise dagster.Failure(
+            f"Invalid role_at_organization: {config.role_at_organization}. Valid options: {valid_roles}"
+        )
 
     context.log.info(f"Starting populate for {len(config.product_paths)} products: {config.product_paths}")
 
@@ -117,6 +130,11 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
         user_ids_with_products = UserProductList.objects.values_list("user_id", flat=True).distinct()
         users = users.exclude(id__in=user_ids_with_products)
         context.log.info("Only processing users without existing UserProductList entries")
+
+    # Filter by role_at_organization if specified
+    if config.role_at_organization:
+        users = users.filter(role_at_organization=config.role_at_organization)
+        context.log.info(f"Only processing users with role_at_organization='{config.role_at_organization}'")
 
     # Respect user preference for sidebar suggestions
     users = users.exclude(allow_sidebar_suggestions=False)
@@ -172,6 +190,7 @@ def populate_user_product_list_job():
     - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
     - user_created_before: Only process users created before this date (ISO format)
+    - role_at_organization: Only process users with this role (e.g., 'engineering', 'data')
     - only_users_without_products: Only process users without existing entries
     """
     populate_user_product_list()
