@@ -946,7 +946,7 @@ class VercelIntegration:
             )
             return redirect_url
         except RequiresExistingUserLogin as e:
-            continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
+            continuation_url = f"/login/vercel/continue/?{urlencode(params.to_dict_no_nulls())}"
             login_url = f"/login?next={quote(continuation_url)}"
 
             logger.info(
