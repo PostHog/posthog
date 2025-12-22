@@ -57,6 +57,24 @@ PROVIDER_LATENCY = Histogram(
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
 )
 
+AUTH_CACHE_HITS = Counter(
+    "llm_gateway_auth_cache_hits_total",
+    "Auth cache hits",
+    labelnames=["auth_type"],
+)
+
+AUTH_CACHE_MISSES = Counter(
+    "llm_gateway_auth_cache_misses_total",
+    "Auth cache misses",
+    labelnames=["auth_type"],
+)
+
+AUTH_INVALID = Counter(
+    "llm_gateway_auth_invalid_total",
+    "Invalid authentication attempts",
+    labelnames=["auth_type"],
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(

@@ -394,3 +394,33 @@ class TestVercelRegionProxyMixin(VercelTestBase):
                             result = self.test_viewset.dispatch(request, *[], **{})
                             self._assert_drf_response(result, expected_super_response)
                             mock_super_dispatch.assert_called_once()
+
+    def test_upsert_new_installation_in_us_region_should_not_404(self):
+        factory = RequestFactory()
+        request_body = json.dumps(
+            {
+                "scopes": ["read"],
+                "metadata": {"data_region": "US"},
+                "credentials": {"access_token": "token", "token_type": "Bearer"},
+            }
+        )
+
+        new_installation_id = "icfg_brand_new_installation"
+        payload = self._create_user_auth_payload(installation_id=new_installation_id)
+        token = self._create_jwt_token(payload)
+
+        request = factory.put(
+            f"/api/vercel/v1/installations/{new_installation_id}",
+            data=request_body,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_VERCEL_AUTH="user",
+        )
+
+        with self._setup_region_test(self.US_DOMAIN):
+            with self._patch_super_dispatch(Response(status=204)):
+                try:
+                    result = self.test_viewset.dispatch(request, *[], **{})
+                    assert result.status_code == 204
+                except exceptions.NotFound:
+                    pytest.fail("Upsert operation should not return 404 for new installations")

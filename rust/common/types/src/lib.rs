@@ -41,6 +41,9 @@ pub mod embedding {
     pub use crate::embeddings::EmbeddingModel;
     pub use crate::embeddings::EmbeddingRecord;
     pub use crate::embeddings::EmbeddingRequest;
+    pub use crate::embeddings::EmbeddingResponse;
+    pub use crate::embeddings::EmbeddingResult;
+    pub use crate::embeddings::ModelResult;
 }
 
 pub mod format {

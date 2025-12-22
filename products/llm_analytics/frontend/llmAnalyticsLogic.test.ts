@@ -200,7 +200,7 @@ describe('llmAnalyticsLogic', () => {
         expectLogic(logic).toMatchValues({
             propertyFilters: [],
             dateFilter: {
-                dateFrom: '-1d',
+                dateFrom: '-1h',
                 dateTo: null,
             },
             shouldFilterTestAccounts: false,

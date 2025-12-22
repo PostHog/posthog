@@ -37,8 +37,10 @@ export function LogsScene(): JSX.Element {
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange } = useActions(logsLogic)
 
     useEffect(() => {
-        runQuery()
-    }, [runQuery])
+        if (parsedLogs.length === 0) {
+            runQuery()
+        }
+    }, [runQuery, parsedLogs.length])
 
     return (
         <SceneContent>

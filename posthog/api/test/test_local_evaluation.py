@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.models import FeatureFlag
+from posthog.models.surveys.survey import Survey
 
 
 class TestFeatureFlagDependencyTransformation(APIBaseTest):
@@ -439,3 +440,78 @@ class TestFeatureFlagDependencyTransformation(APIBaseTest):
         # 1. The shared dependency chain is built once and reused
         # 2. All flags referencing the same dependency get the same chain
         # 3. The optimization correctly handles multiple flags with shared dependencies
+
+
+class TestSurveyFlagExclusionAPI(APIBaseTest):
+    """Integration tests for survey flag exclusion from local_evaluation endpoint (GitHub issue #43631)."""
+
+    def setUp(self):
+        super().setUp()
+        FeatureFlag.objects.all().delete()
+
+    def test_survey_flags_excluded_from_local_evaluation_endpoint(self):
+        """Survey-linked flags should be excluded from the local_evaluation API response."""
+        regular_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        targeting_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        internal_targeting_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-internal-targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        response_sampling_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-response-sampling-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
+            internal_response_sampling_flag=response_sampling_flag,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        flag_keys = [f["key"] for f in data["flags"]]
+
+        self.assertIn(regular_flag.key, flag_keys)
+        self.assertNotIn(targeting_flag.key, flag_keys)
+        self.assertNotIn(internal_targeting_flag.key, flag_keys)
+        self.assertNotIn(response_sampling_flag.key, flag_keys)
+
+    def test_linked_flag_included_in_local_evaluation_endpoint(self):
+        """User-created linked_flag should NOT be excluded from the local_evaluation API response."""
+        user_linked_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="user-linked-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            linked_flag=user_linked_flag,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        flag_keys = [f["key"] for f in data["flags"]]
+
+        self.assertIn(user_linked_flag.key, flag_keys)

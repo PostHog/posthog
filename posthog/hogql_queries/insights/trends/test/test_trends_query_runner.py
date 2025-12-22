@@ -1695,6 +1695,77 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             0,
         ]
 
+    def test_trends_breakdown_histogram_with_max_aggregation(self):
+        """
+        Test that when using max() math with histogram breakdowns, the histogram buckets
+        correctly use max (not sum) when rolling up values from different raw breakdown values
+        that fall into the same bucket.
+
+        Setup:
+        - breakdown_prop=1, agg_prop=100  -> bucket [1, 2.5]
+        - breakdown_prop=2, agg_prop=200  -> bucket [1, 2.5] (same bucket)
+        - breakdown_prop=3, agg_prop=150  -> bucket [2.5, 4.01]
+
+        Before fix: bucket [1, 2.5] would show 300 (sum of 100+200)
+        After fix: bucket [1, 2.5] should show 200 (max of 100, 200)
+        """
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"breakdown_prop": 1, "agg_prop": 100},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"breakdown_prop": 2, "agg_prop": 200},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"breakdown_prop": 3, "agg_prop": 150},
+                ),
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-13",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.MAX, math_property="agg_prop")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="breakdown_prop",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        assert len(response.results) == 2
+
+        results_by_breakdown = {r["breakdown_value"]: r for r in response.results}
+
+        assert results_by_breakdown["[1,2]"]["data"] == [0, 100.0, 0]
+
+        assert results_by_breakdown["[2,3.01]"]["data"] == [0, 200.0, 0]
+
+    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_error(self):
+        with pytest.raises(ValueError) as exc_info:
+            self._run_trends_query(
+                "2020-01-11",
+                "2020-01-13",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="agg_prop")],
+                None,
+                BreakdownFilter(
+                    breakdown_type=BreakdownType.EVENT,
+                    breakdown="breakdown_prop",
+                    breakdown_histogram_bin_count=2,
+                ),
+            )
+        assert "is not supported with histogram breakdowns" in str(exc_info.value)
+
     def test_trends_aggregation_hogql(self):
         self._create_test_events()
 
@@ -4027,7 +4098,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
             None,
             BreakdownFilter(
                 breakdown="$session_duration", breakdown_type=BreakdownType.SESSION, breakdown_histogram_bin_count=4
@@ -4037,7 +4108,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             "2020-01-20",
             IntervalType.DAY,
-            [EventsNode(event="$pageview", math=PropertyMathType.MEDIAN, math_property="$session_duration")],
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
             None,
             BreakdownFilter(
                 breakdowns=[
