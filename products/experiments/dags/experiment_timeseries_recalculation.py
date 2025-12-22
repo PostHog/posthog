@@ -214,7 +214,7 @@ experiment_timeseries_recalculation_job = dagster.define_asset_job(
     name="experiment_timeseries_recalculation_job",
     selection=[experiment_timeseries_recalculation],
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
 )
 
 
