@@ -2391,6 +2391,7 @@ dependencies = [
  "rdkafka",
  "regex",
  "reqwest 0.12.15",
+ "rustls 0.23.7",
  "serde",
  "serde_json",
  "sha2",

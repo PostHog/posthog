@@ -81,6 +81,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
+    cdp_legacy_webhooks = 'cdp-legacy-webhooks',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
 }
@@ -187,6 +188,9 @@ export type CdpConfig = {
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
 
+    CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: string
+    CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: string
+
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -285,19 +289,13 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
-    PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
-    PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
-    GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
-    GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
     PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
     BEHAVIORAL_COHORTS_DATABASE_URL: string // Optional read-write Postgres database for behavioral cohorts
     PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
-    PERSONS_MIGRATION_DATABASE_URL: string // Read-write Postgres database for persons during dual write/migration
-    PERSONS_MIGRATION_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database during dual write/migration
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
@@ -492,7 +490,6 @@ export interface Hub extends PluginsServerConfig {
     // active connections to Postgres, Redis, Kafka
     db: DB
     postgres: PostgresRouter
-    postgresPersonMigration: PostgresRouter
     redisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
@@ -547,6 +544,7 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
+    cdpLegacyWebhooks?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
@@ -1010,7 +1008,7 @@ export interface PersonUpdateFields {
     properties_last_operation: PropertiesLastOperation | null
     is_identified: boolean
     created_at: DateTime
-    version?: number // Optional: allows forcing a specific version (used for dual-write sync)
+    version?: number // Optional: allows forcing a specific version
 }
 
 /** Person model exposed outside of person-specific DB logic. */

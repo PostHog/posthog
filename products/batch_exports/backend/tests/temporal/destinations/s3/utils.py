@@ -423,12 +423,12 @@ async def run_s3_batch_export_workflow(
     return run
 
 
-async def _run_activity(activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
+async def run_activity(activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
     ):
         assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -444,7 +444,7 @@ async def _run_activity(activity_environment: ActivityEnvironment, insert_inputs
                 destination_default_fields=s3_default_fields(),
             ),
         )
-
+        insert_inputs.stage_folder = stage_folder
         result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
 
     return result

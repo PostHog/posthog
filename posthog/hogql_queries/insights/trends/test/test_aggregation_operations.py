@@ -239,6 +239,69 @@ def test_actor_id_returns_correct_field(
 
 
 @pytest.mark.parametrize(
+    "math,is_histogram_breakdown,should_raise",
+    [
+        [PropertyMathType.MEDIAN, True, True],
+        [PropertyMathType.P75, True, True],
+        [PropertyMathType.P90, True, True],
+        [PropertyMathType.P95, True, True],
+        [PropertyMathType.P99, True, True],
+        [PropertyMathType.SUM, True, False],
+        [PropertyMathType.AVG, True, False],
+        [PropertyMathType.MIN, True, False],
+        [PropertyMathType.MAX, True, False],
+        [BaseMathType.TOTAL, True, False],
+    ],
+)
+def test_get_outer_aggregation_histogram_validation(
+    math: Union[BaseMathType, PropertyMathType],
+    is_histogram_breakdown: bool,
+    should_raise: bool,
+):
+    team = Team()
+    series = EventsNode(event="$pageview", math=math)
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    field = ast.Field(chain=["total"])
+
+    if should_raise:
+        with pytest.raises(ValueError) as exc_info:
+            agg_ops.get_outer_aggregation(field, is_histogram_breakdown=is_histogram_breakdown)
+        assert "is not supported with histogram breakdowns" in str(exc_info.value)
+    else:
+        result = agg_ops.get_outer_aggregation(field, is_histogram_breakdown=is_histogram_breakdown)
+        assert isinstance(result, ast.Call)
+
+
+@pytest.mark.parametrize(
+    "math,expected_agg_name",
+    [
+        [PropertyMathType.MAX, "max"],
+        [PropertyMathType.MIN, "min"],
+        [PropertyMathType.AVG, "avg"],
+        [PropertyMathType.SUM, "sum"],
+        [BaseMathType.TOTAL, "sum"],
+    ],
+)
+def test_get_outer_aggregation(
+    math: Union[BaseMathType, PropertyMathType],
+    expected_agg_name: str,
+):
+    team = Team()
+    series = EventsNode(event="$pageview", math=math)
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    field = ast.Field(chain=["total"])
+    result = agg_ops.get_outer_aggregation(field)
+
+    assert isinstance(result, ast.Call)
+    assert result.name == expected_agg_name
+    assert result.args == [field]
+
+
+@pytest.mark.parametrize(
     "math,math_group_type_index,expected_group_field",
     [
         [BaseMathType.WEEKLY_ACTIVE, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],

@@ -52,16 +52,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
               : '',
-        PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -237,6 +227,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
+        CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-webhooks',
+        CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+
         CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
@@ -326,11 +320,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
-        PERSONS_DUAL_WRITE_ENABLED: false,
-        PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
         PERSONS_PREFETCH_ENABLED: false,
-        GROUPS_DUAL_WRITE_ENABLED: false,
-        GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // SES (Workflows email sending)

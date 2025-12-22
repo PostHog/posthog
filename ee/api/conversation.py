@@ -134,7 +134,7 @@ class MessageSerializer(MessageMinimalSerializer):
 
 
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
