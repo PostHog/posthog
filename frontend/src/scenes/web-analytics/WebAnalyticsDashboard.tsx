@@ -47,7 +47,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
-import { LivePageviews } from './LivePageviews'
+import { LivePageviews } from './LiveMetricsDashboard/LivePageviews'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -461,6 +461,20 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.LIVE,
+            label: 'Live',
+            link: '/web/live',
+        },
+    ]
+}
+
 const WebAnalyticsSurveyModal = (): JSX.Element | null => {
     const { surveyModalPath } = useValues(webAnalyticsLogic)
     const { closeSurveyModal } = useActions(webAnalyticsLogic)
@@ -530,7 +544,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
-                { key: ProductTab.LIVE, label: 'Live', link: '/web/live' },
+                ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
             ]}
             sceneInset

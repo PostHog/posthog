@@ -337,6 +337,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_AS_INSIGHT: 'web-analytics-open-as-insight', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_POSTHOG_AI: 'web-analytics-posthog-ai', // owner: @lricoy #team-web-analytics
