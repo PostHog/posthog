@@ -51,6 +51,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         setSharedMetrics,
         setExposureCriteria,
         setFeatureFlagConfig,
+        clearDraft,
         saveExperiment,
         validateField,
     } = useActions(logic)
@@ -84,6 +85,9 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                 type="secondary"
                                 size="small"
                                 onClick={() => {
+                                    if (!isEditMode) {
+                                        clearDraft()
+                                    }
                                     router.actions.push(urls.experiments())
                                 }}
                             >

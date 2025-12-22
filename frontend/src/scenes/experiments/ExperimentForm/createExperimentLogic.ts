@@ -90,7 +90,14 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
     return filtered as Partial<Experiment>
 }
 
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
 const draftStorageKey = (tabId?: string): string | null => (tabId ? `experiment-draft-${tabId}` : null)
+
+type ExperimentDraft = {
+    experiment: Experiment
+    timestamp: number
+}
 
 const readDraftFromStorage = (tabId?: string): Experiment | null => {
     const key = draftStorageKey(tabId)
@@ -102,7 +109,16 @@ const readDraftFromStorage = (tabId?: string): Experiment | null => {
         return null
     }
     try {
-        return JSON.parse(raw) as Experiment
+        const parsed = JSON.parse(raw) as ExperimentDraft | Experiment
+        if (parsed && typeof parsed === 'object' && 'experiment' in parsed && 'timestamp' in parsed) {
+            const { experiment, timestamp } = parsed as ExperimentDraft
+            if (Date.now() - timestamp > DRAFT_TTL_MS) {
+                sessionStorage.removeItem(key)
+                return null
+            }
+            return experiment
+        }
+        return parsed as Experiment
     } catch {
         return null
     }
@@ -113,7 +129,8 @@ const writeDraftToStorage = (tabId: string | undefined, experiment: Experiment):
     if (!key || typeof sessionStorage === 'undefined') {
         return
     }
-    sessionStorage.setItem(key, JSON.stringify(experiment))
+    const draft: ExperimentDraft = { experiment, timestamp: Date.now() }
+    sessionStorage.setItem(key, JSON.stringify(draft))
 }
 
 const clearDraftStorage = (tabId?: string): void => {
@@ -164,6 +181,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
         resetExperiment: true,
+        clearDraft: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
@@ -304,6 +322,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         },
     })),
     listeners(({ values, actions, props }) => ({
+        clearDraft: () => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            clearDraftStorage(props.tabId)
+        },
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
             // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
