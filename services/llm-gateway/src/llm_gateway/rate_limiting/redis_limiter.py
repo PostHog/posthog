@@ -73,11 +73,11 @@ class RateLimiter:
             return True, None
 
         try:
-            burst_key = f"ratelimit:burst:{key}"
+            burst_key = f"llm_gateway:ratelimit:burst:{key}"
             if not await self._check_redis_limit(burst_key, self.burst_limit, self.burst_window):
                 return False, "burst"
 
-            sustained_key = f"ratelimit:sustained:{key}"
+            sustained_key = f"llm_gateway:ratelimit:sustained:{key}"
             if not await self._check_redis_limit(sustained_key, self.sustained_limit, self.sustained_window):
                 return False, "sustained"
 

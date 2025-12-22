@@ -144,8 +144,8 @@ class TestRateLimiter:
 
         await limiter.check(user_id=123)
 
-        burst_ttl = await fake_redis.ttl("ratelimit:burst:123")
-        sustained_ttl = await fake_redis.ttl("ratelimit:sustained:123")
+        burst_ttl = await fake_redis.ttl("llm_gateway:ratelimit:burst:123")
+        sustained_ttl = await fake_redis.ttl("llm_gateway:ratelimit:sustained:123")
 
         assert 0 < burst_ttl <= 60
         assert 0 < sustained_ttl <= 3600
