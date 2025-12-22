@@ -19,7 +19,8 @@ import dagster
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.dags.common import JobOwners
+from posthog.clickhouse.query_tagging import tags_context
+from posthog.dags.common import JobOwners, dagster_tags
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
@@ -108,8 +109,11 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
             metric=metric_obj,
         )
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, workload=Workload.OFFLINE)
-        result = query_runner._calculate()
+        with tags_context(dagster=dagster_tags(context)):
+            query_runner = ExperimentQueryRunner(
+                query=experiment_query, team=experiment.team, workload=Workload.OFFLINE
+            )
+            result = query_runner._calculate()
 
         result = remove_step_sessions_from_experiment_result(result)
 
@@ -282,6 +286,7 @@ experiment_regular_metrics_timeseries_job = dagster.define_asset_job(
     name="experiment_regular_metrics_timeseries_job",
     selection=[experiment_regular_metrics_timeseries],
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 2}),
 )
 
 
