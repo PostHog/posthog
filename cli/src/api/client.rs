@@ -156,8 +156,7 @@ impl PHClient {
         url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
-        let mut throttler = self.throttler.lock().unwrap();
-        throttler.throttle();
+        self.throttler.lock().unwrap().throttle();
         let request = builder(self.create_request(method, url));
         match request.send() {
             Ok(response) => {
