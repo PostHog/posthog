@@ -23,11 +23,15 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, CoordinatorResult
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
+
+from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -38,9 +42,10 @@ class BatchTraceSummarizationCoordinatorInputs:
 
     max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW
     batch_size: int = DEFAULT_BATCH_SIZE
-    mode: str = DEFAULT_MODE
+    mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES
-    model: str | None = None
+    provider: SummarizationProvider = DEFAULT_PROVIDER
+    model: str = DEFAULT_MODEL
 
 
 def get_allowed_team_ids() -> list[int]:
@@ -72,9 +77,10 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         return BatchTraceSummarizationCoordinatorInputs(
             max_traces=int(inputs[0]) if len(inputs) > 0 else DEFAULT_MAX_TRACES_PER_WINDOW,
             batch_size=int(inputs[1]) if len(inputs) > 1 else DEFAULT_BATCH_SIZE,
-            mode=inputs[2] if len(inputs) > 2 else DEFAULT_MODE,
+            mode=SummarizationMode(inputs[2]) if len(inputs) > 2 else DEFAULT_MODE,
             window_minutes=int(inputs[3]) if len(inputs) > 3 else DEFAULT_WINDOW_MINUTES,
-            model=inputs[4] if len(inputs) > 4 else None,
+            provider=SummarizationProvider(inputs[4]) if len(inputs) > 4 else DEFAULT_PROVIDER,
+            model=inputs[5] if len(inputs) > 5 else DEFAULT_MODEL,
         )
 
     @temporalio.workflow.run
@@ -116,6 +122,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         batch_size=inputs.batch_size,
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
+                        provider=inputs.provider,
                         model=inputs.model,
                     ),
                     id=f"batch-summarization-team-{team_id}-{temporalio.workflow.now().isoformat()}",
