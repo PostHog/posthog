@@ -1,5 +1,3 @@
-import './ActionFilterGroup.scss'
-
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions } from 'kea'
@@ -271,21 +269,22 @@ export function ActionFilterGroup({
 
     return (
         <li
-            className="ActionFilterGroup relative"
+            className="relative min-w-0 max-w-full list-none"
             ref={setNodeRef}
             {...attributes}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 zIndex: isDragging ? 1 : undefined,
                 transform: CSS.Translate.toString(transform),
                 transition,
             }}
         >
-            <div className="ActionFilterGroup__wrapper">
-                <div className="ActionFilterGroup__header-row">
-                    {/* First row: badge, operator, math controls */}
-                    <div className="ActionFilterGroup__configuration">
+            <div className="flex flex-col overflow-hidden border border-primary rounded hover:border-secondary">
+                {/* Header: series indicator, math controls, action buttons */}
+                <div className="flex flex-wrap items-start justify-between gap-2 px-4 py-3 border-b border-primary">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                         {showSeriesIndicator && (
-                            <div className="ActionFilterGroup__series-indicator">
+                            <div className="shrink-0">
                                 {seriesIndicatorType === 'numeric' ? (
                                     <span>{index + 1}</span>
                                 ) : (
@@ -294,8 +293,8 @@ export function ActionFilterGroup({
                             </div>
                         )}
 
-                        <div className="ActionFilterGroup__control-group">
-                            <span className="ActionFilterGroup__control-label">Math:</span>
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                            <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
                             <MathSelector
                                 size="small"
                                 math={filter.math}
@@ -364,53 +363,48 @@ export function ActionFilterGroup({
                                     )}
                                 />
                             )}
-                        </div>
 
-                        {/* SQL selector (only shown when HogQL expression is selected) */}
-                        {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]?.category ===
-                            MathCategory.HogQLExpression && (
-                            <div className="ActionFilterGroup__hogql_selector">
-                                <div className="ActionFilterGroup__control-group">
-                                    <LemonDropdown
-                                        visible={isHogQLDropdownVisible}
-                                        closeOnClickInside={false}
-                                        onClickOutside={() => setHogQLDropdownVisible(false)}
-                                        overlay={
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                                <HogQLEditor
-                                                    value={filter.math_hogql || 'count()'}
-                                                    onChange={(currentValue) => {
-                                                        handleMathHogQLSelect(currentValue)
-                                                        setHogQLDropdownVisible(false)
-                                                    }}
-                                                />
-                                            </div>
-                                        }
+                            {/* HogQL expression selector */}
+                            {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
+                                ?.category === MathCategory.HogQLExpression && (
+                                <LemonDropdown
+                                    visible={isHogQLDropdownVisible}
+                                    closeOnClickInside={false}
+                                    onClickOutside={() => setHogQLDropdownVisible(false)}
+                                    overlay={
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                            <HogQLEditor
+                                                value={filter.math_hogql || 'count()'}
+                                                onChange={(currentValue) => {
+                                                    handleMathHogQLSelect(currentValue)
+                                                    setHogQLDropdownVisible(false)
+                                                }}
+                                            />
+                                        </div>
+                                    }
+                                >
+                                    <LemonButton
+                                        fullWidth
+                                        type="secondary"
+                                        size="small"
+                                        data-attr={`math-hogql-select-${index}`}
+                                        onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                     >
-                                        <LemonButton
-                                            fullWidth
-                                            type="secondary"
-                                            size="small"
-                                            data-attr={`math-hogql-select-${index}`}
-                                            onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
-                                        >
-                                            <code>{filter.math_hogql || 'count()'}</code>
-                                        </LemonButton>
-                                    </LemonDropdown>
-                                </div>
-                            </div>
-                        )}
+                                        <code>{filter.math_hogql || 'count()'}</code>
+                                    </LemonButton>
+                                </LemonDropdown>
+                            )}
+                        </div>
                     </div>
 
                     {!readOnly && (
-                        <div className="ActionFilterGroup__configuration_buttons">
+                        <div className="flex shrink-0 gap-1">
                             <Tooltip title="Remove group">
                                 <LemonButton
                                     size="small"
                                     icon={<IconTrash />}
                                     onClick={() => removeLocalFilter({ index })}
-                                    className="ActionFilterGroup__delete-btn"
                                     data-attr={`group-filter-delete-${index}`}
                                 />
                             </Tooltip>
@@ -419,7 +413,6 @@ export function ActionFilterGroup({
                                     size="small"
                                     icon={<IconUndo />}
                                     onClick={() => splitLocalFilter(index)}
-                                    className="ActionFilterGroup__split-btn"
                                     data-attr={`group-filter-split-${index}`}
                                 />
                             </Tooltip>
@@ -427,8 +420,8 @@ export function ActionFilterGroup({
                     )}
                 </div>
 
-                {/* Events section - render each nested filter as ActionFilterRow */}
-                <ul className="ActionFilterGroup__events-section">
+                {/* Events list */}
+                <ul className="flex flex-col px-4 py-2.5">
                     {nestedFilters.map((eventFilter, eventIndex) => (
                         <div key={eventFilter.uuid || eventIndex}>
                             <ActionFilterRow
@@ -452,21 +445,21 @@ export function ActionFilterGroup({
                                 excludedProperties={excludedProperties}
                             />
                             {eventIndex < nestedFilters.length - 1 && (
-                                <div className="ActionFilterGroup__operator-separator">
-                                    <div className="ActionFilterGroup__operator-line ActionFilterGroup__operator-line--left" />
-                                    <div className="ActionFilterGroup__operator-text">
+                                <div className="flex items-center gap-3 mx-0.5 my-2.5">
+                                    <div className="flex-1 h-px bg-border-primary" />
+                                    <span className="text-[11px] font-semibold text-tertiary uppercase tracking-wide">
                                         {filter.operator || FilterLogicalOperator.Or}
-                                    </div>
-                                    <div className="ActionFilterGroup__operator-line ActionFilterGroup__operator-line--right" />
+                                    </span>
+                                    <div className="flex-1 h-px bg-border-primary" />
                                 </div>
                             )}
                         </div>
                     ))}
                 </ul>
 
-                {/* Add event button with popover */}
+                {/* Add event button */}
                 {!readOnly && nestedFilters.length < 10 && (
-                    <div className="ActionFilterGroup__add-event-wrapper">
+                    <div className="px-4 py-2.5">
                         <TaxonomicPopover
                             data-attr={`add-group-event-${index}`}
                             groupType={TaxonomicFilterGroupType.Events}
