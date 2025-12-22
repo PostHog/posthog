@@ -6,52 +6,52 @@ This document classifies the plugin server modes/services by their primary funct
 
 ## Ingestion Services
 
-| Mode | Capability | Consumer Class | Hub Type |
-|------|------------|----------------|----------|
-| `ingestion-v2` | `ingestionV2` | `IngestionConsumer` | `IngestionConsumerHub` |
-| `recordings-blob-ingestion-v2` | `sessionRecordingBlobIngestionV2` | `SessionRecordingIngesterV2` | `SessionRecordingIngesterHub` |
+| Mode                                    | Capability                                | Consumer Class               | Hub Type                      |
+| --------------------------------------- | ----------------------------------------- | ---------------------------- | ----------------------------- |
+| `ingestion-v2`                          | `ingestionV2`                             | `IngestionConsumer`          | `IngestionConsumerHub`        |
+| `recordings-blob-ingestion-v2`          | `sessionRecordingBlobIngestionV2`         | `SessionRecordingIngesterV2` | `SessionRecordingIngesterHub` |
 | `recordings-blob-ingestion-v2-overflow` | `sessionRecordingBlobIngestionV2Overflow` | `SessionRecordingIngesterV2` | `SessionRecordingIngesterHub` |
 
 ## CDP Services
 
-| Mode | Capability | Consumer Class | Hub Type |
-|------|------------|----------------|----------|
-| `cdp-processed-events` | `cdpProcessedEvents` | `CdpEventsConsumer` | `CdpEventsConsumerHub` |
-| `cdp-person-updates` | `cdpPersonUpdates` | `CdpPersonUpdatesConsumer` | `CdpConsumerBaseHub` |
-| `cdp-data-warehouse-events` | `cdpDataWarehouseEvents` | `CdpDatawarehouseEventsConsumer` | `CdpDatawarehouseEventsConsumerHub` |
-| `cdp-internal-events` | `cdpInternalEvents` | `CdpInternalEventsConsumer` | `CdpConsumerBaseHub` |
-| `cdp-legacy-on-event` | `cdpLegacyOnEvent` | `CdpLegacyEventsConsumer` | `CdpLegacyEventsConsumerHub` |
-| `cdp-cyclotron-worker` | `cdpCyclotronWorker` | `CdpCyclotronWorker` | `CdpCyclotronWorkerHub` |
-| `cdp-cyclotron-worker-hogflow` | `cdpCyclotronWorkerHogFlow` | `CdpCyclotronWorkerHogFlow` | `CdpCyclotronWorkerHogFlowHub` |
-| `cdp-cyclotron-worker-delay` | `cdpCyclotronWorkerDelay` | `CdpCyclotronDelayConsumer` | `CdpCyclotronDelayConsumerHub` |
-| `cdp-precalculated-filters` | `cdpPrecalculatedFilters` | `CdpPrecalculatedFiltersConsumer` | `CdpPrecalculatedFiltersConsumerHub` |
-| `cdp-cohort-membership` | `cdpCohortMembership` | `CdpCohortMembershipConsumer` | `CdpCohortMembershipConsumerHub` |
-| `cdp-api` | `cdpApi` | `CdpApi` | `CdpApiHub` |
-| `async-webhooks` | `processAsyncWebhooksHandlers` | `startAsyncWebhooksHandlerConsumer` | `AsyncWebhooksHandlerHub` |
-| `evaluation-scheduler` | `evaluationScheduler` | `startEvaluationScheduler` | `EvaluationSchedulerHub` |
+| Mode                           | Capability                     | Consumer Class                      | Hub Type                             |
+| ------------------------------ | ------------------------------ | ----------------------------------- | ------------------------------------ |
+| `cdp-processed-events`         | `cdpProcessedEvents`           | `CdpEventsConsumer`                 | `CdpEventsConsumerHub`               |
+| `cdp-person-updates`           | `cdpPersonUpdates`             | `CdpPersonUpdatesConsumer`          | `CdpConsumerBaseHub`                 |
+| `cdp-data-warehouse-events`    | `cdpDataWarehouseEvents`       | `CdpDatawarehouseEventsConsumer`    | `CdpDatawarehouseEventsConsumerHub`  |
+| `cdp-internal-events`          | `cdpInternalEvents`            | `CdpInternalEventsConsumer`         | `CdpConsumerBaseHub`                 |
+| `cdp-legacy-on-event`          | `cdpLegacyOnEvent`             | `CdpLegacyEventsConsumer`           | `CdpLegacyEventsConsumerHub`         |
+| `cdp-cyclotron-worker`         | `cdpCyclotronWorker`           | `CdpCyclotronWorker`                | `CdpCyclotronWorkerHub`              |
+| `cdp-cyclotron-worker-hogflow` | `cdpCyclotronWorkerHogFlow`    | `CdpCyclotronWorkerHogFlow`         | `CdpCyclotronWorkerHogFlowHub`       |
+| `cdp-cyclotron-worker-delay`   | `cdpCyclotronWorkerDelay`      | `CdpCyclotronDelayConsumer`         | `CdpCyclotronDelayConsumerHub`       |
+| `cdp-precalculated-filters`    | `cdpPrecalculatedFilters`      | `CdpPrecalculatedFiltersConsumer`   | `CdpPrecalculatedFiltersConsumerHub` |
+| `cdp-cohort-membership`        | `cdpCohortMembership`          | `CdpCohortMembershipConsumer`       | `CdpCohortMembershipConsumerHub`     |
+| `cdp-api`                      | `cdpApi`                       | `CdpApi`                            | `CdpApiHub`                          |
+| `async-webhooks`               | `processAsyncWebhooksHandlers` | `startAsyncWebhooksHandlerConsumer` | `AsyncWebhooksHandlerHub`            |
+| `evaluation-scheduler`         | `evaluationScheduler`          | `startEvaluationScheduler`          | `EvaluationSchedulerHub`             |
 
 ## Logs Services
 
-| Mode | Capability | Consumer Class | Hub Type |
-|------|------------|----------------|----------|
+| Mode             | Capability      | Consumer Class          | Hub Type                   |
+| ---------------- | --------------- | ----------------------- | -------------------------- |
 | `ingestion-logs` | `logsIngestion` | `LogsIngestionConsumer` | `LogsIngestionConsumerHub` |
 
 ## Combined Modes (Local Development)
 
-| Mode | Capabilities | Description |
-|------|--------------|-------------|
-| `local-cdp` | Ingestion + CDP | Runs `ingestionV2` plus all CDP services |
-| `null` (default) | All | Runs all services including ingestion, CDP, recordings, and logs |
+| Mode             | Capabilities    | Description                                                      |
+| ---------------- | --------------- | ---------------------------------------------------------------- |
+| `local-cdp`      | Ingestion + CDP | Runs `ingestionV2` plus all CDP services                         |
+| `null` (default) | All             | Runs all services including ingestion, CDP, recordings, and logs |
 
 When `PLUGIN_SERVER_MODE` is not set (null), the server runs in combined mode with all capabilities enabled for local development.
 
 ## Summary
 
-| Category | Count | Services |
-|----------|-------|----------|
-| Ingestion | 3 | Event ingestion, session recordings (main + overflow) |
-| CDP | 13 | Event triggers, cyclotron workers, cohorts, API, webhooks, evaluation |
-| Logs | 1 | Logs ingestion |
+| Category  | Count | Services                                                              |
+| --------- | ----- | --------------------------------------------------------------------- |
+| Ingestion | 3     | Event ingestion, session recordings (main + overflow)                 |
+| CDP       | 13    | Event triggers, cyclotron workers, cohorts, API, webhooks, evaluation |
+| Logs      | 1     | Logs ingestion                                                        |
 
 ## Hub Type Hierarchy
 
@@ -89,14 +89,13 @@ Common configuration subsets are defined as reusable types:
 
 ```typescript
 // Shared fetch configuration used by multiple executors
-export type CdpFetchConfig = Pick<Hub,
-    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
 
 // Composed hub types use intersection
 export type HogExecutorServiceHub = CdpFetchConfig &
-    HogInputsServiceHub &
-    EmailServiceHub &
-    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
+  HogInputsServiceHub &
+  EmailServiceHub &
+  Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
 ```
 
 See [CONFIG.md](./CONFIG.md) for detailed configuration requirements per service.
