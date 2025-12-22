@@ -9,6 +9,7 @@ import {
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -20,7 +21,8 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
-        private recipientPreferencesService: RecipientPreferencesService
+        private recipientPreferencesService: RecipientPreferencesService,
+        private hogFlowActionBillingType: 'fetch' | 'email'
     ) {}
 
     async execute({
@@ -53,6 +55,14 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        // Add billable_invocation metric only if the function actually executed (not skipped)
+        if (!functionResult.skipped) {
+            trackHogFlowBillableInvocation(result, {
+                invocation: functionResult.invocation,
+                billingMetricType: this.hogFlowActionBillingType,
+            })
+        }
+
         return {
             nextAction: findContinueAction(invocation),
             result: functionResult.execResult,
@@ -64,7 +74,7 @@ export class HogFunctionHandler implements ActionHandler {
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
         hogExecutorOptions?: HogExecutorExecuteAsyncOptions
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
         const hogFunctionInvocation = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
             invocation,
@@ -79,6 +89,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (await this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)) {
             return {
                 finished: true,
+                skipped: true,
                 invocation: hogFunctionInvocation,
                 logs: [
                     {

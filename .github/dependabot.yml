@@ -110,7 +110,6 @@ updates:
                   - 'freezegun'
                   - 'requests-mock'
                   - 'responses'
-                  - 'inline-snapshot'
                   - 'syrupy'
                   - 'flaky'
                   - 'parameterized'

@@ -5,8 +5,8 @@ from typing import Annotated
 import asyncpg
 from fastapi import Depends, HTTPException, Request, status
 
-from llm_gateway.auth.middleware import authenticate_request
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.rate_limiting.middleware import check_rate_limit
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 
@@ -24,8 +24,9 @@ async def get_rate_limiter(request: Request) -> RateLimiter:
 async def get_authenticated_user(
     request: Request,
     db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthenticatedUser:
-    user = await authenticate_request(request, db_pool)
+    user = await auth_service.authenticate_request(request, db_pool)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user

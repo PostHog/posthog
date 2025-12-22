@@ -37,12 +37,22 @@ export class BackgroundRefresher<T> {
         if (!this.cachedValue) {
             await this.refresh()
         }
+        this.refreshIfStale()
+        return this.cachedValue!
+    }
 
-        if (Date.now() - this.lastRefreshTime > this.maxAgeMs) {
-            // We trigger the refresh but we don't use it
+    /**
+     * Returns the cached value, or undefined if not yet loaded.
+     * Triggers a background refresh if the cache is stale or empty.
+     */
+    public tryGet(): T | undefined {
+        this.refreshIfStale()
+        return this.cachedValue
+    }
+
+    private refreshIfStale(): void {
+        if (!this.cachedValue || Date.now() - this.lastRefreshTime > this.maxAgeMs) {
             void this.refresh().catch(this.errorHandler)
         }
-
-        return this.cachedValue!
     }
 }

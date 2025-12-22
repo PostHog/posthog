@@ -280,7 +280,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query query={eventsQuery} />,
+                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,

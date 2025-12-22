@@ -138,7 +138,7 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
     recording_blocks = await database_sync_to_async(list_blocks)(recording)
 
     if not recording_blocks:
-        logger.warning("No recording blocks found, skipping prefix export")
+        logger.warning("No recording blocks found, skipping prefix export...")
         return
 
     first_block = recording_blocks[0]

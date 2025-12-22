@@ -39,7 +39,7 @@ def run_tests():
             "--log-cli-level=DEBUG",
             "--log-cli-format=%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             "--log-cli-date-format=%H:%M:%S",
-            "--numprocesses=auto",
+            "--numprocesses=1",
         ],
         cwd=test_dir,
         stdout=sys.stdout,

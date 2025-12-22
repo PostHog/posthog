@@ -237,7 +237,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             <TerraformExportModal
                 isOpen={terraformModalOpen}
                 onClose={() => setTerraformModalOpen(false)}
-                insight={{ ...insight, query, derived_name: derivedName }}
+                resource={{ type: 'insight', data: { ...insight, query, derived_name: derivedName } }}
             />
 
             <ScenePanel>

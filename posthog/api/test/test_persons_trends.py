@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     flush_persons_and_events,
@@ -12,15 +13,8 @@ from posthog.test.base import (
 )
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Action, Cohort, Organization
+from posthog.models import Cohort, Organization
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def _create_cohort(**kwargs):

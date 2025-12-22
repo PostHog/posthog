@@ -39,8 +39,7 @@ export interface RawPostgresPersonRepository {
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient,
-        forcedId?: number
+        tx?: TransactionClient
     ): Promise<CreatePersonResult>
 
     updatePerson(

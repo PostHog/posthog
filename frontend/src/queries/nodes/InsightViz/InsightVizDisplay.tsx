@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -15,7 +16,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
-import { InsightDiveDeeperSection } from 'scenes/insights/InsightDiveDeeperSection'
+import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -65,6 +66,7 @@ export function InsightVizDisplay({
     editMode?: boolean
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -246,7 +248,12 @@ export function InsightVizDisplay({
         return null
     }
 
-    function renderDiveDeeperSection(): JSX.Element | null {
+    function renderAIAnalysisSection(): JSX.Element | null {
+        // Check feature flag
+        if (!hasAIAnalysis) {
+            return null
+        }
+
         // Only show in view mode
         if (editMode) {
             return null
@@ -262,7 +269,7 @@ export function InsightVizDisplay({
             return null
         }
 
-        return <InsightDiveDeeperSection query={querySource} />
+        return <InsightAIAnalysis query={querySource} />
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
@@ -326,8 +333,8 @@ export function InsightVizDisplay({
                 )}
             </div>
             <ResultCustomizationsModal />
+            {renderAIAnalysisSection()}
             {renderTable()}
-            {renderDiveDeeperSection()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )

@@ -6,6 +6,7 @@ import {
     IconCursorClick,
     IconMagicWand,
     IconMessage,
+    IconPlay,
     IconPlus,
     IconQuestion,
     IconTrash,
@@ -60,6 +61,7 @@ export function ProductToursEditingBar(): JSX.Element | null {
         editStep,
         removeStep,
         saveTour,
+        previewTour,
         generateWithAI,
         setTourFormValue,
         addStep,
@@ -249,6 +251,18 @@ export function ProductToursEditingBar(): JSX.Element | null {
                             Generate
                         </LemonButton>
                     )}
+
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconPlay />}
+                        onClick={previewTour}
+                        disabledReason={
+                            aiGenerating ? 'Wait for generation' : stepCount === 0 ? 'Add at least one step' : undefined
+                        }
+                    >
+                        Preview
+                    </LemonButton>
 
                     <LemonButton size="small" type="secondary" icon={<IconX />} onClick={() => selectTour(null)}>
                         Discard

@@ -1031,7 +1031,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         values.selectedRecordingsIds.length > 1 ? 's' : ''
                     } to the collection...`,
                 },
-                {},
                 {
                     button: {
                         label: 'View collection',

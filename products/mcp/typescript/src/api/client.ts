@@ -64,13 +64,7 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
-import {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    LogAttributeSchema,
-    LogAttributeValueSchema,
-    LogsListAttributesResponseSchema,
-    LogsQueryResponseSchema,
-} from '../schema/logs.js'
+import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
 import type {
     CreateSurveyInput,
     GetSurveySpecificStatsInput,

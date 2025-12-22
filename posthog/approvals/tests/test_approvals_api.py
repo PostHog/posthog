@@ -21,7 +21,7 @@ class TestChangeRequestViewSet(APIBaseTest):
             "resource_type": "feature_flag",
             "resource_id": "123",
             "state": ChangeRequestState.PENDING,
-            "intent": {"desired_state": {"active": True}},
+            "intent": {"gated_changes": {"active": True}},
             "intent_display": {"description": "Enable feature flag"},
             "policy_snapshot": {"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
             "expires_at": timezone.now() + timedelta(days=7),
@@ -31,7 +31,7 @@ class TestChangeRequestViewSet(APIBaseTest):
 
     def test_list_change_requests(self):
         cr = self._create_change_request()
-        response = self.client.get(f"/api/projects/{self.team.id}/change_requests/")
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
@@ -41,7 +41,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         pending = self._create_change_request(state=ChangeRequestState.PENDING)
         self._create_change_request(state=ChangeRequestState.APPLIED, resource_id="456")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/change_requests/?state=pending")
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/?state=pending")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
@@ -52,7 +52,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         self._create_change_request(resource_type="feature_flag", resource_id="456")
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/change_requests/?resource_type=feature_flag&resource_id=123"
+            f"/api/environments/{self.team.id}/change_requests/?resource_type=feature_flag&resource_id=123"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -61,7 +61,7 @@ class TestChangeRequestViewSet(APIBaseTest):
 
     def test_get_change_request(self):
         cr = self._create_change_request()
-        response = self.client.get(f"/api/projects/{self.team.id}/change_requests/{cr.id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/{cr.id}/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["id"] == str(cr.id)
@@ -73,7 +73,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         cr = self._create_change_request()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/change_requests/{cr.id}/approve/",
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/",
             {"reason": "Looks good"},
         )
 
@@ -85,7 +85,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         cr = self._create_change_request()
         Approval.objects.create(change_request=cr, created_by=self.user, decision=ApprovalDecision.APPROVED)
 
-        response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/approve/")
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already voted" in response.json()["error"].lower()
@@ -93,7 +93,7 @@ class TestChangeRequestViewSet(APIBaseTest):
     def test_approve_not_pending(self):
         cr = self._create_change_request(state=ChangeRequestState.APPLIED)
 
-        response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/approve/")
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
@@ -101,7 +101,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         cr = self._create_change_request()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/change_requests/{cr.id}/reject/",
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/",
             {"reason": "Not ready for production"},
         )
 
@@ -113,7 +113,7 @@ class TestChangeRequestViewSet(APIBaseTest):
     def test_reject_requires_reason(self):
         cr = self._create_change_request()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/reject/")
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "reason" in response.json()["error"].lower()
@@ -123,7 +123,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         Approval.objects.create(change_request=cr, created_by=self.user, decision=ApprovalDecision.APPROVED)
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/change_requests/{cr.id}/reject/",
+            f"/api/environments/{self.team.id}/change_requests/{cr.id}/reject/",
             {"reason": "Changed my mind"},
         )
 
@@ -133,7 +133,7 @@ class TestChangeRequestViewSet(APIBaseTest):
     def test_cancel_success(self):
         cr = self._create_change_request()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/cancel/")
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["status"] == "canceled"
@@ -144,14 +144,14 @@ class TestChangeRequestViewSet(APIBaseTest):
         other_user = User.objects.create(email="other@posthog.com")
         cr = self._create_change_request(created_by=other_user)
 
-        response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/cancel/")
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_cancel_not_pending(self):
         cr = self._create_change_request(state=ChangeRequestState.APPLIED)
 
-        response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/cancel/")
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/cancel/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
@@ -171,7 +171,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/approval_policies/")
+        response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
@@ -179,7 +179,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
 
     def test_create_policy(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/approval_policies/",
+            f"/api/environments/{self.team.id}/approval_policies/",
             {
                 "action_key": "feature_flag.enable",
                 "approver_config": {"quorum": 2, "users": [self.user.id]},
@@ -203,7 +203,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/approval_policies/{policy.id}/",
+            f"/api/environments/{self.team.id}/approval_policies/{policy.id}/",
             {"approver_config": {"quorum": 2, "users": [self.user.id]}},
             format="json",
         )
@@ -221,7 +221,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/approval_policies/{policy.id}/")
+        response = self.client.delete(f"/api/environments/{self.team.id}/approval_policies/{policy.id}/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not ApprovalPolicy.objects.filter(id=policy.id).exists()
@@ -242,7 +242,9 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/approval_policies/?action_key=feature_flag.enable")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/approval_policies/?action_key=feature_flag.enable"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
@@ -266,7 +268,7 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/approval_policies/?enabled=true")
+        response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/?enabled=true")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1

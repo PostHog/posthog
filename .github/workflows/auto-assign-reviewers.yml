@@ -1,25 +1,56 @@
-# � SECURITY PLACEHOLDER - DO NOT USE THIS WORKFLOW NAME �
-#
-# This workflow previously existed and was compromised. This placeholder file
-# exists to allow blocking this workflow name in GitHub's branch protection rules.
-#
-# This prevents anyone from:
-# 1. Using a cached/previous version of a workflow with this name
-# 2. Re-creating a malicious workflow using this known-compromised name
-#
-# If you need to create an auto-assign reviewers workflow, please use a
-# different name and workflow file
+name: Auto Assign Reviewers
 
-name: 'Auto Assign Reviewers'
-
+# NOTE: We use `pull_request_target` here but this is extremely dangerous.
+# DO NOT ATTEMPT TO MODIFY THIS FILE WITHOUT VALIDATING WITH THE SECURITY TEAM.
+#
+# We need to make sure we're never running untrusted code here since this workflow
+# skips any GitHub security checks and any permissions - it'll always run when a user opens a PR against our repo.
+# To make it risk free we need to GUARANTEE we're only ever running code that is trusted - i.e. from our master branch.
+#
+# This has the small downside that changes to CODEOWNERS will not be reflected in here until we merge it to master,
+# which means testing this workflow is slightly less convenient but that's well worth it.
 on:
-    workflow_dispatch:
+    pull_request_target:
+        # Only opened or when clicking ready otherwise you can never remove the reviewers
+        types: [opened, ready_for_review]
+
+permissions:
+    contents: read
 
 jobs:
-    blocked:
-        runs-on: ubuntu-latest
+    assign-reviewers:
+        runs-on: 'ubuntu-22.04'
+        if: github.event.pull_request.draft == false
+
         steps:
-            - name: This workflow is blocked
+            # GitHub app token is required because GITHUB_TOKEN can't assign team members as reviewers (requires org-level permission)
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+            - name: Checkout master branch
+              uses: actions/checkout@v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  # this value MUST be set to `master` to avoid executing untrusted code.
+                  # we execute assign-reviewers.js below from whatever branch is checked out
+                  ref: master
+
+            - name: Setup Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              with:
+                  node-version: '24'
+
+            # Script runs from master branch (protected), but can diff against PR branch
+            - name: Run reviewer assignment script
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  echo "� A workflow with this name was previously compromised and is now blocked."
-                  exit 1
+                  node .github/scripts/assign-reviewers.js

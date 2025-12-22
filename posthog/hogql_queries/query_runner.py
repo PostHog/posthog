@@ -80,6 +80,7 @@ from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
     get_app_org_rate_limiter,
+    get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -1026,6 +1027,51 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
+    def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
+        """Execute calculate() with all rate limiters applied.
+
+        Returns:
+            Tuple of (query_result, query_duration_ms)
+        """
+        concurrency_limit = self.get_api_queries_concurrency_limit()
+        is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
+        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+
+        if self.is_query_service:
+            tag_queries(chargeable=1)
+
+        with (
+            get_materialized_endpoints_rate_limiter().run(
+                team_id=self.team.pk,
+                task_id=self.query_id,
+                is_materialized_endpoint=is_materialized_endpoint,
+            ),
+            get_api_team_rate_limiter().run(
+                is_api=self.is_query_service and not is_materialized_endpoint,
+                team_id=self.team.pk,
+                task_id=self.query_id,
+                limit=concurrency_limit,
+            ),
+            get_app_org_rate_limiter().run(
+                org_id=self.team.organization_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
+                is_api=is_api_key_access,
+                limit=get_org_app_concurrency_limit(self.team.organization_id),
+            ),
+            get_app_dashboard_queries_rate_limiter().run(
+                org_id=self.team.organization_id,
+                dashboard_id=dashboard_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
+                is_api=is_api_key_access,
+            ),
+        ):
+            query_start_time = perf_counter()
+            query_result = self.calculate()
+            query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
+            return query_result, query_duration_ms
+
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -1151,43 +1197,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
                 self.modifiers.useMaterializedViews = True
 
-            concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_team_rate_limiter().run(
-                is_api=self.is_query_service,
-                team_id=self.team.pk,
-                task_id=self.query_id,
-                limit=concurrency_limit,
-            ):
-                if self.is_query_service:
-                    tag_queries(chargeable=1)
+            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
 
-                with get_app_org_rate_limiter().run(
-                    org_id=self.team.organization_id,
-                    task_id=self.query_id,
-                    team_id=self.team.id,
-                    is_api=get_query_tag_value("access_method") == "personal_api_key",
-                    limit=get_org_app_concurrency_limit(self.team.organization_id),
-                ):
-                    with get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=get_query_tag_value("access_method") == "personal_api_key",
-                    ):
-                        query_start_time = perf_counter()
-                        query_result = self.calculate()
-                        query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
-
-                        fresh_response_dict = {
-                            **query_result.model_dump(),
-                            "is_cached": False,
-                            "last_refresh": last_refresh,
-                            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                            "cache_key": cache_key,
-                            "timezone": self.team.timezone,
-                            "cache_target_age": target_age,
-                        }
+            fresh_response_dict = {
+                **query_result.model_dump(),
+                "is_cached": False,
+                "last_refresh": last_refresh,
+                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                "cache_key": cache_key,
+                "timezone": self.team.timezone,
+                "cache_target_age": target_age,
+            }
 
             try:
                 query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
@@ -1245,6 +1265,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
         """
+
+        # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
+        if self.team.pk and self.team.pk == 117239:
+            return 20  # Matches org-level limit
 
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None

@@ -81,6 +81,12 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service capture-replay
 
+    capture-ai:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service capture-ai
+
     batch-import-worker:
         shell: |-
             bin/check_postgres_up && \

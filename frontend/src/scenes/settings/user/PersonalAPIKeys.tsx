@@ -25,7 +25,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
+import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
@@ -151,6 +151,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                 filteredScopes.map(
                                                     ({
                                                         key,
+                                                        objectName,
                                                         disabledActions,
                                                         warnings,
                                                         disabledWhenProjectScoped,
@@ -168,11 +169,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                                             disabledDueToProjectScope && 'text-muted'
                                                                         )}
                                                                     >
-                                                                        <b>
-                                                                            {capitalizeFirstLetter(
-                                                                                key.replace(/_/g, ' ')
-                                                                            )}
-                                                                        </b>
+                                                                        <b>{objectName}</b>
 
                                                                         {info ? (
                                                                             <Tooltip title={info}>

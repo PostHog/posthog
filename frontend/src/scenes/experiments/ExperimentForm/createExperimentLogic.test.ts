@@ -402,6 +402,56 @@ describe('createExperimentLogic', () => {
         })
     })
 
+    describe('feature flag key auto-generation', () => {
+        it('auto-generates flag key when changing name in create mode with new flag', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentValue('name', 'My New Experiment')
+            })
+                .toDispatchActions(['setExperimentValue', 'setFeatureFlagConfig'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'My New Experiment',
+                        feature_flag_key: 'my-new-experiment',
+                    }),
+                })
+        })
+
+        it('does NOT auto-generate flag key when linking an existing flag and renaming', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagConfig({
+                    feature_flag_key: 'existing-linked-flag',
+                    feature_flag_variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                })
+            }).toMatchValues({
+                experiment: partial({
+                    feature_flag_key: 'existing-linked-flag',
+                }),
+            })
+
+            const variantsPanelLogicInstance = await import('./variantsPanelLogic').then((m) =>
+                m.variantsPanelLogic({ experiment: logic.values.experiment, disabled: false })
+            )
+            variantsPanelLogicInstance.mount()
+            variantsPanelLogicInstance.actions.setMode('link')
+
+            await expectLogic(logic, () => {
+                logic.actions.setExperimentValue('name', 'Renamed Experiment')
+            })
+                .toDispatchActions(['setExperimentValue'])
+                .toMatchValues({
+                    experiment: partial({
+                        name: 'Renamed Experiment',
+                        feature_flag_key: 'existing-linked-flag',
+                    }),
+                })
+
+            variantsPanelLogicInstance.unmount()
+        })
+    })
+
     describe('feature flag integration', () => {
         it('includes feature flag key in experiment submission', async () => {
             await expectLogic(logic, () => {
