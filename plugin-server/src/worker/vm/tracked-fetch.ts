@@ -38,6 +38,9 @@ export class FetchTracker {
 export const vmFetchTracker = new FetchTracker()
 
 export const createVmTrackedFetch = (pluginConfig: PluginConfig) => async (url: string, fetchParams?: FetchOptions) => {
+    const pluginId = pluginConfig.id.toString()
+    const pluginConfigName = pluginConfig.plugin?.name ?? 'unknown'
+
     try {
         vmFetchTracker.trackRequest(pluginConfig.id.toString(), {
             url,
@@ -47,8 +50,8 @@ export const createVmTrackedFetch = (pluginConfig: PluginConfig) => async (url: 
         const response = await legacyFetch(url, fetchParams)
         vmFetchCounter
             .labels({
-                plugin_id: pluginConfig.id.toString(),
-                plugin_config: pluginConfig.plugin?.name ?? 'unknown',
+                plugin_id: pluginId,
+                plugin_config: pluginConfigName,
                 status: response.status.toString(),
             })
             .inc()
@@ -56,8 +59,8 @@ export const createVmTrackedFetch = (pluginConfig: PluginConfig) => async (url: 
     } catch (error) {
         vmFetchCounter
             .labels({
-                plugin_id: pluginConfig.id.toString(),
-                plugin_config: pluginConfig.plugin?.name ?? 'unknown',
+                plugin_id: pluginId,
+                plugin_config: pluginConfigName,
                 status: 'unknown',
             })
             .inc()
