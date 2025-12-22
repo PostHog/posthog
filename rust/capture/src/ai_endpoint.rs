@@ -25,6 +25,7 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::event_restrictions::{EventContext as RestrictionEventContext, RestrictionType};
 use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
@@ -307,14 +308,82 @@ pub async fn ai_handler(
         }
     }
 
-    // Step 7: Build Kafka event
+    // Step 7: Apply event restrictions
+    let mut force_overflow = false;
+    let mut skip_person_processing = false;
+    let mut redirect_to_dlq = false;
+
+    if let Some(ref service) = state.event_restriction_service {
+        let event_ctx = RestrictionEventContext {
+            distinct_id: Some(parsed.distinct_id.clone()),
+            session_id: None,
+            event_name: Some(parsed.event_name.clone()),
+            event_uuid: Some(parsed.event_uuid.to_string()),
+        };
+
+        let restrictions = service.get_restrictions(token, &event_ctx).await;
+
+        if restrictions.contains(&RestrictionType::DropEvent) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "drop_event",
+                "pipeline" => "ai"
+            )
+            .increment(1);
+            report_dropped_events("event_restriction_drop", 1);
+            // Return success response with accepted_parts to avoid alerting clients
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: parsed.accepted_parts,
+            }));
+        }
+
+        if restrictions.contains(&RestrictionType::ForceOverflow) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "force_overflow",
+                "pipeline" => "ai"
+            )
+            .increment(1);
+            force_overflow = true;
+        }
+
+        if restrictions.contains(&RestrictionType::SkipPersonProcessing) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "skip_person_processing",
+                "pipeline" => "ai"
+            )
+            .increment(1);
+            skip_person_processing = true;
+        }
+
+        if restrictions.contains(&RestrictionType::RedirectToDlq) {
+            counter!(
+                "capture_event_restrictions_applied",
+                "restriction_type" => "redirect_to_dlq",
+                "pipeline" => "ai"
+            )
+            .increment(1);
+            redirect_to_dlq = true;
+        }
+    }
+
+    // Step 8: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
+    let (accepted_parts, processed_event) = build_kafka_event(
+        parsed,
+        token,
+        &client_ip,
+        &state,
+        force_overflow,
+        skip_person_processing,
+        redirect_to_dlq,
+    )?;
 
-    // Step 7: Send event to Kafka
+    // Step 9: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
         warn!("Failed to send AI event to Kafka: {:?}", e);
         e
@@ -448,6 +517,9 @@ fn build_kafka_event(
     token: &str,
     client_ip: &str,
     state: &AppState,
+    force_overflow: bool,
+    skip_person_processing: bool,
+    redirect_to_dlq: bool,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
@@ -519,9 +591,9 @@ fn build_kafka_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
-        force_overflow: false,
-        skip_person_processing: false,
-        redirect_to_dlq: false,
+        force_overflow,
+        skip_person_processing,
+        redirect_to_dlq,
     };
 
     // Create ProcessedEvent
