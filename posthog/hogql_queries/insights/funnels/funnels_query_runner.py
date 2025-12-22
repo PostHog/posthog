@@ -98,7 +98,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(
-            isUdf=self._use_udf,
             results=results,
             timings=timings,
             hogql=hogql,
@@ -108,10 +107,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 date_to=self.query_date_range.date_to(),
             ),
         )
-
-    @cached_property
-    def _use_udf(self):
-        return True
 
     @cached_property
     def funnel_order_class(self):
