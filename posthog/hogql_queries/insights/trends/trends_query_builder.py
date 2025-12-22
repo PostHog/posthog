@@ -937,8 +937,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if series.operator == "OR":
             return ast.Or(exprs=group_filters)
 
-        if series.operator == "AND":
-            return ast.And(exprs=group_filters)
+        # if series.operator == "AND":
+        #     return ast.And(exprs=group_filters)
 
         return None
 
