@@ -2869,8 +2869,7 @@ async fn setup_ai_test_router_with_restriction(
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     // Create restriction service with the specified restriction for AI pipeline
-    let service =
-        EventRestrictionService::new(IngestionPipeline::Ai, Duration::from_secs(300));
+    let service = EventRestrictionService::new(IngestionPipeline::Ai, Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
     manager.restrictions.insert(
@@ -3032,12 +3031,8 @@ async fn test_ai_endpoint_restriction_does_not_apply_to_other_tokens() {
     let form = create_ai_event_form("$ai_generation", "test_user", properties);
 
     // Use a DIFFERENT token that is NOT restricted
-    let response = send_multipart_request(
-        &test_client,
-        form,
-        Some("phc_not_restricted_token"),
-    )
-    .await;
+    let response =
+        send_multipart_request(&test_client, form, Some("phc_not_restricted_token")).await;
 
     assert_eq!(response.status(), StatusCode::OK);
 
