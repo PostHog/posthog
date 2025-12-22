@@ -9,12 +9,12 @@ from posthog.models.utils import RootTeamMixin, UUIDTModel
 
 class SdkPolicyConfig(UUIDTModel, RootTeamMixin):
     class MatchType(models.TextChoices):
-        AND = "and", "AND"
-        OR = "or", "OR"
+        ALL = "all"
+        ANY = "any"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     match_type = models.CharField(
-        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.AND
+        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
     )
 
     sample_rate = models.DecimalField(
@@ -30,6 +30,23 @@ class SdkPolicyConfig(UUIDTModel, RootTeamMixin):
         default=None, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(30000)]
     )
     linked_feature_flag = models.JSONField(null=True, blank=True)
-    events_trigger = ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
-    url_trigger = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    event_triggers = ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
+    url_triggers = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
     url_blocklist = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+
+
+class SdkPolicyConfigAssignment(UUIDTModel, RootTeamMixin):
+    class Context(models.TextChoices):
+        ERROR_TRACKING = "error-tracking"
+
+    class Library(models.TextChoices):
+        WEB = "web"
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    config = models.ForeignKey("SdkPolicyConfig", on_delete=models.CASCADE, related_name="assignments")
+    context = models.CharField(max_length=24, choices=Context.choices, null=False, blank=False)
+    # None value applies to libraries without a specific assignment
+    library = models.CharField(max_length=24, choices=Library.choices, null=True, blank=True, default=None)
+
+    class Meta:
+        unique_together = ("team", "context", "library")

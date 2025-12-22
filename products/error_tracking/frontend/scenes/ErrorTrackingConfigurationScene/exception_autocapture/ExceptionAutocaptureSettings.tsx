@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -65,17 +67,19 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 <ErrorTrackingClientSuppression disabled={!checked} />
             </div>
 
-            <div>
-                <div className="flex justify-between">
-                    <h3>Ingestion controls</h3>
-                    <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingSuppressionRules} />
+            <FlaggedFeature flag={FEATURE_FLAGS.ERROR_TRACKING_INGESTION_CONTROLS}>
+                <div>
+                    <div className="flex justify-between">
+                        <h3>Ingestion controls</h3>
+                        <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingSuppressionRules} />
+                    </div>
+                    <p>
+                        Setting ingestion controls allows you to selectively enable exception autocapture based on the
+                        user or scenario
+                    </p>
+                    <ErrorTrackingIngestionControls disabled={!checked} />
                 </div>
-                <p>
-                    Setting ingestion controls allows you to selectively enable exception autocapture based on the user
-                    or scenario
-                </p>
-                <ErrorTrackingIngestionControls disabled={!checked} />
-            </div>
+            </FlaggedFeature>
         </div>
     )
 }

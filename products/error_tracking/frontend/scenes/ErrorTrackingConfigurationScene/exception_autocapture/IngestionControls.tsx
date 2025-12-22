@@ -10,8 +10,9 @@ import { sdkPolicyConfigLogic } from 'lib/components/IngestionControls/sdkPolicy
 import { AccessControlResourceType } from '~/types'
 
 export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
-    const { policy, matchType, triggers } = useValues(sdkPolicyConfigLogic)
-    const { loadPolicy, setMatchType } = useActions(sdkPolicyConfigLogic)
+    const logic = sdkPolicyConfigLogic({ logicKey: 'error-tracking' })
+    const { policy, matchType, triggers } = useValues(logic)
+    const { loadPolicy, setMatchType } = useActions(logic)
 
     useEffect(() => {
         loadPolicy()

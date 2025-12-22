@@ -62,11 +62,14 @@ interface LinkedFeatureFlag extends Pick<FeatureFlagBasicType, 'id' | 'key'> {
 }
 
 export interface SDKPolicyConfig {
+    id: string
     match_type: 'any' | 'all'
     sample_rate: number
     minimum_duration_milliseconds: number | null
     linked_feature_flag: LinkedFeatureFlag | null
-    events_trigger: string[]
-    url_trigger: UrlTriggerConfig[]
+    event_triggers: string[]
+    url_triggers: UrlTriggerConfig[]
     url_blocklist: UrlTriggerConfig[]
 }
+
+export type SDKPolicyConfigContext = 'error-tracking'
