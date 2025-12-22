@@ -92,7 +92,7 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
 
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-const draftStorageKey = (tabId?: string): string | null => (tabId ? `experiment-draft-${tabId}` : null)
+const draftStorageKey = (tabId: string): string => `experiment-draft-${tabId}`
 
 type ExperimentDraft = {
     experiment: Experiment
@@ -100,11 +100,10 @@ type ExperimentDraft = {
 }
 
 const readDraftFromStorage = (tabId?: string): Experiment | null => {
-    const key = draftStorageKey(tabId)
-    if (!key || typeof sessionStorage === 'undefined') {
+    if (!tabId || typeof sessionStorage === 'undefined') {
         return null
     }
-    const raw = sessionStorage.getItem(key)
+    const raw = sessionStorage.getItem(draftStorageKey(tabId))
     if (!raw) {
         return null
     }
@@ -113,7 +112,7 @@ const readDraftFromStorage = (tabId?: string): Experiment | null => {
         if (parsed && typeof parsed === 'object' && 'experiment' in parsed && 'timestamp' in parsed) {
             const { experiment, timestamp } = parsed as ExperimentDraft
             if (Date.now() - timestamp > DRAFT_TTL_MS) {
-                sessionStorage.removeItem(key)
+                sessionStorage.removeItem(draftStorageKey(tabId))
                 return null
             }
             return experiment
@@ -125,20 +124,18 @@ const readDraftFromStorage = (tabId?: string): Experiment | null => {
 }
 
 const writeDraftToStorage = (tabId: string | undefined, experiment: Experiment): void => {
-    const key = draftStorageKey(tabId)
-    if (!key || typeof sessionStorage === 'undefined') {
+    if (!tabId || typeof sessionStorage === 'undefined') {
         return
     }
     const draft: ExperimentDraft = { experiment, timestamp: Date.now() }
-    sessionStorage.setItem(key, JSON.stringify(draft))
+    sessionStorage.setItem(draftStorageKey(tabId), JSON.stringify(draft))
 }
 
 const clearDraftStorage = (tabId?: string): void => {
-    const key = draftStorageKey(tabId)
-    if (!key || typeof sessionStorage === 'undefined') {
+    if (!tabId || typeof sessionStorage === 'undefined') {
         return
     }
-    sessionStorage.removeItem(key)
+    sessionStorage.removeItem(draftStorageKey(tabId))
 }
 
 export interface CreateExperimentLogicProps {
