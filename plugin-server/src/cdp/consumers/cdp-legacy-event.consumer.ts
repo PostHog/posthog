@@ -259,7 +259,9 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             if (invocations.length !== pluginMethodsToRun.length) {
                 logger.warn('Legacy plugin hog function invocations count does not match plugin methods to run count', {
                     hog_function_invocations_count: invocations.length,
+                    hog_function_invocations: invocations.map((invocation) => invocation.hogFunction.name).join(', '),
                     plugin_methods_to_run_count: pluginMethodsToRun.length,
+                    plugin_names: pluginMethodsToRun.map(([pluginConfig]) => pluginConfig.plugin?.name).join(', '),
                     event_uuid: invocation.event.uuid,
                     team_id: invocation.project.id,
                 })
