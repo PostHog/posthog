@@ -70,12 +70,11 @@ sleep 3
 make_request() {
     local token=$1
     local ip=$2
-    curl -s -o /dev/null -w "%{http_code}" \
+    curl -s -o /dev/null \
         -X POST "$ENDPOINT" \
         -H "Content-Type: application/json" \
         -H "X-Forwarded-For: $ip" \
-        -d "{\"token\": \"$token\", \"distinct_id\": \"test-user\"}" \
-        2>/dev/null || echo "ERR"
+        -d "{\"token\": \"$token\", \"distinct_id\": \"test-user\"}"
 }
 
 # Generate a random IP address
@@ -83,12 +82,8 @@ random_ip() {
     echo "$((RANDOM % 256)).$((RANDOM % 256)).$((RANDOM % 256)).$((RANDOM % 256))"
 }
 
-# Temp file for collecting response codes
-RESPONSE_LOG=$(mktemp)
-trap "rm -f $RESPONSE_LOG" EXIT
-
 export -f make_request random_ip
-export ENDPOINT RESPONSE_LOG
+export ENDPOINT
 
 # Track progress
 TOTAL=$((NUM_TOKENS * REQUESTS_PER_TOKEN))
@@ -109,7 +104,7 @@ for i in $(seq 1 $NUM_TOKENS); do
             sleep 0.01
         done
 
-        make_request "$TOKEN" "$(random_ip)" >> "$RESPONSE_LOG" &
+        make_request "$TOKEN" "$(random_ip)" &
 
         COUNT=$((COUNT + 1))
         if [ $((COUNT % 100)) -eq 0 ]; then
@@ -133,14 +128,6 @@ echo "Total requests:    $TOTAL"
 echo "Time elapsed:      ${ELAPSED}s"
 echo "Average rate:      $((TOTAL / (ELAPSED + 1))) req/s"
 echo ""
-
-# Summarize response codes
-echo "Response codes:"
-sort "$RESPONSE_LOG" | uniq -c | sort -rn | while read count code; do
-    printf "  %s: %d\n" "$code" "$count"
-done
-echo ""
-
 echo "Now wait 60-70 seconds for cleanup to run, and check the logs for:"
 echo "  - 'Rate limiter cleanup completed'"
 echo "  - 'token_entries', 'ip_entries', 'definitions_entries'"
