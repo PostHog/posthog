@@ -91,7 +91,7 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
     def create_resource(self, context: dagster.InitResourceContext):
         context.log.info("Initializing PostHogAnalyticsResource")
 
-        if not self.personal_api_key.strip() and not posthoganalytics.personal_api_key.strip():
+        if not (self.personal_api_key or "").strip() and not (posthoganalytics.personal_api_key or "").strip():
             context.log.warning(
                 "Personal API key not set on the PostHogAnalyticsResource. Local feature flag evaluation will not work."
             )

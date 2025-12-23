@@ -171,12 +171,12 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "WEB_ANALYTICS_WARMING_DAYS": (
-        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7),
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
         "Number of days to look back for frequently-run web analytics queries",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
-        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10),
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10, type_cast=int),
         "Minimum query count threshold for web analytics cache warming",
         int,
     ),
