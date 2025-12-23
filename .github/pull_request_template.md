@@ -21,7 +21,7 @@
 
 ## Publish to changelog?
 
-<!-- For features only. -->
+<!-- For features only. Check the box if this should go in our changelog. -->
 
 - [ ] 🚀 Yes, publish to #changelog and website changelog
 
