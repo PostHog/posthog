@@ -1,23 +1,9 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { buildIntegerMatcher } from '~/config/config'
-import { chainToElements } from '~/utils/db/elements-chain'
-import { pluginActionMsSummary } from '~/worker/metrics'
 
-import {
-    Hub,
-    ISOTimestamp,
-    PluginConfig,
-    PluginMethodsConcrete,
-    PostIngestionEvent,
-    ProjectId,
-    RawClickHouseEvent,
-    ValueMatcher,
-} from '../../types'
+import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
@@ -54,12 +40,6 @@ type PluginConfigHogFunction = {
     hogFunction: HogFunctionType
 }
 
-const legacyPluginConfigComparisonCounter = new Counter({
-    name: 'cdp_legacy_event_consumer_plugin_config_comparison_total',
-    help: 'The number of times we have compared plugin configs to hog functions',
-    labelNames: ['result'],
-})
-
 const legacyPluginExecutionResultCounter = new Counter({
     name: 'cdp_legacy_event_consumer_execution_result_total',
     help: 'The number of times we have executed a legacy plugin',
@@ -75,7 +55,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
 
-    private pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
 
@@ -89,8 +68,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
             pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
         })
-
-        this.pluginConfigsToSkipElementsParsing = buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true)
 
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',
@@ -222,112 +199,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
     @instrumented('cdpLegacyEventsConsumer.processEvent')
     public async processEvent(invocation: HogFunctionInvocationGlobals) {
-        if (Math.random() <= this.inlinePercentage) {
-            return await this.processEventInlined(invocation)
-        }
-
-        const event: PostIngestionEvent = {
-            eventUuid: invocation.event.uuid,
-            event: invocation.event.event,
-            teamId: invocation.project.id,
-            distinctId: invocation.event.distinct_id,
-            properties: invocation.event.properties,
-            timestamp: invocation.event.timestamp as ISOTimestamp,
-            // None of these are actually used by the runOnEvent as it converts it to a PostIngestionEvent
-            projectId: invocation.project.id as ProjectId,
-            person_created_at: null,
-            person_properties: {},
-            person_id: undefined,
-        }
-        // Runs onEvent for all plugins for this team in parallel
-        const pluginMethodsToRun = await this.getPluginMethodsForTeam(event.teamId, 'onEvent')
-
-        const results = await Promise.all(
-            pluginMethodsToRun.map(async ([pluginConfig, onEvent]) => {
-                if (!this.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
-                    // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
-                    mutatePostIngestionEventWithElementsList(event)
-                }
-
-                const onEventPayload = convertToOnEventPayload(event)
-
-                let error: any = null
-
-                // Runs onEvent for a single plugin without any retries
-                const timer = new Date()
-                try {
-                    // TODO: This is where we should proxy to the legacy plugin call
-                    await onEvent(onEventPayload)
-                } catch (e) {
-                    error = e
-                }
-
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', error ? 'error' : 'success')
-                    .observe(new Date().getTime() - timer.getTime())
-
-                return { pluginConfigId: pluginConfig.id, error }
-            })
-        )
-
-        try {
-            const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
-
-            if (invocations.length !== pluginMethodsToRun.length) {
-                logger.warn('Legacy plugin hog function invocations count does not match plugin methods to run count', {
-                    hog_function_invocations_count: invocations.length,
-                    hog_function_invocations: invocations.map((invocation) => invocation.hogFunction.name).join(', '),
-                    plugin_methods_to_run_count: pluginMethodsToRun.length,
-                    plugin_names: pluginMethodsToRun.map(([pluginConfig]) => pluginConfig.plugin?.name).join(', '),
-                    event_uuid: invocation.event.uuid,
-                    team_id: invocation.project.id,
-                })
-                legacyPluginConfigComparisonCounter.labels('mismatch').inc()
-            } else {
-                legacyPluginConfigComparisonCounter.labels('match').inc()
-            }
-
-            if (!invocations.length) {
-                return
-            }
-
-            for (const invocation of invocations) {
-                await this.legacyPluginExecutor.execute(invocation, true)
-            }
-        } catch (error: any) {
-            logger.error('Error comparing plugin configs to hog functions', {
-                error: error?.message,
-            })
-        }
-
-        for (const { pluginConfigId, error } of results) {
-            if (error) {
-                void this.promiseScheduler.schedule(
-                    this.hub.appMetrics.queueError(
-                        {
-                            teamId: event.teamId,
-                            pluginConfigId,
-                            category: 'onEvent',
-                            failures: 1,
-                        },
-                        { error, event }
-                    )
-                )
-            } else {
-                void this.promiseScheduler.schedule(
-                    this.hub.appMetrics.queueMetric({
-                        teamId: event.teamId,
-                        pluginConfigId,
-                        category: 'onEvent',
-                        successes: 1,
-                    })
-                )
-            }
-        }
-    }
-
-    @instrumented('cdpLegacyEventsConsumer.processEventInlined')
-    public async processEventInlined(invocation: HogFunctionInvocationGlobals) {
         const event: PostIngestionEvent = {
             eventUuid: invocation.event.uuid,
             event: invocation.event.event,
@@ -414,8 +285,9 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                             return
                         }
 
-                        const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
-                        if (pluginConfigs.length === 0) {
+                        const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
+
+                        if (!pluginConfigHogFunctions?.length) {
                             return
                         }
 
@@ -458,61 +330,5 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 hogFunction
             )
         })
-    }
-
-    private async getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(
-        teamId: number,
-        method: M
-    ): Promise<[PluginConfig, PluginMethodsConcrete[M]][]> {
-        const pluginConfigs = this.hub.pluginConfigsPerTeam.get(teamId) || []
-        if (pluginConfigs.length === 0) {
-            return []
-        }
-
-        const methodsObtained = await Promise.all(
-            pluginConfigs.map(async (pluginConfig) => [
-                pluginConfig,
-                await pluginConfig?.instance?.getPluginMethod(method),
-            ])
-        )
-
-        const methodsObtainedFiltered = methodsObtained.filter(([_, method]) => !!method) as [
-            PluginConfig,
-            PluginMethodsConcrete[M],
-        ][]
-
-        return methodsObtainedFiltered
-    }
-}
-
-function mutatePostIngestionEventWithElementsList(event: PostIngestionEvent): void {
-    if (event.elementsList) {
-        // Don't set if already done before
-        return
-    }
-
-    event.elementsList = event.properties['$elements_chain']
-        ? chainToElements(event.properties['$elements_chain'], event.teamId)
-        : []
-
-    event.elementsList = event.elementsList.map((element) => ({
-        ...element,
-        attr_class: element.attributes?.attr__class ?? element.attr_class,
-        $el_text: element.text,
-    }))
-}
-
-function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
-    return {
-        distinct_id: event.distinctId,
-        ip: null, // deprecated : within properties[$ip] now
-        team_id: event.teamId,
-        event: event.event,
-        properties: event.properties,
-        timestamp: event.timestamp,
-        $set: event.properties.$set,
-        $set_once: event.properties.$set_once,
-        uuid: event.eventUuid,
-        elements: event.elementsList ?? [],
     }
 }
