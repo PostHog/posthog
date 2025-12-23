@@ -8,6 +8,7 @@ import { useMemo, useRef, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
+import { SceneProvider } from '~/layout/scenes/SceneProvider'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
@@ -138,7 +139,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
-                                        <div className="flex h-[calc(100vh-var(--scene-layout-header-height))]">
+                                        <SceneProvider className="flex flex-row grow" tabId={tabId}>
                                             <DatabaseTree databaseTreeRef={databaseTreeRef} />
                                             <div
                                                 data-attr="editor-scene"
@@ -152,8 +153,8 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                                                     }
                                                 />
                                             </div>
-                                        </div>
-                                        <ViewLinkModal />
+                                            <ViewLinkModal />
+                                        </SceneProvider>
                                     </BindLogic>
                                 </BindLogic>
                             </BindLogic>

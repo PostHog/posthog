@@ -26,7 +26,7 @@ export const DatabaseTree = memo(function DatabaseTree({
     return (
         <div
             className={cn(
-                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col',
+                'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col h-scene-height',
                 isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`,
                 databaseTreeWillCollapse && 'opacity-50'
             )}
@@ -53,7 +53,7 @@ export const DatabaseTree = memo(function DatabaseTree({
             </div>
             <ScrollableShadows
                 direction="vertical"
-                className="flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto"
+                className="flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true grow overflow-auto"
                 innerClassName="flex flex-col gap-2"
                 styledScrollbars
             >

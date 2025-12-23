@@ -90,7 +90,7 @@ export function Navigation({
                         role="main"
                         tabIndex={0}
                         id="main-content"
-                        className="@container/main-content bg-surface-tertiary"
+                        className="@container/main-content bg-surface-tertiary flex flex-col"
                         style={
                             {
                                 '--scene-layout-rect-right': mainContentRect?.right + 'px',

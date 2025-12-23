@@ -71,7 +71,7 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
-    const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { forceScenePanelClosedWhenRelative, sceneContextClassName } = useValues(sceneLayoutLogic)
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
@@ -98,16 +98,20 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
             <div
                 className={cn(
-                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    'relative bg-[var(--scene-layout-background)]',
                     {
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
                             scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                        'p-0':
+                        'min-h-scene-height p-0':
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                        'h-[calc(100vh-var(--scene-layout-header-height))]':
-                            sceneConfig?.layout === 'app-full-scene-height',
-                    }
+                        'min-h-scene-height p-4':
+                            sceneConfig?.layout !== 'app-raw-no-header' &&
+                            sceneConfig?.layout !== 'app-raw' &&
+                            sceneConfig?.layout !== 'context',
+                        'min-h-scene-height h-scene-height': sceneConfig?.layout === 'app-full-scene-height',
+                    },
+                    sceneConfig?.layout === 'context' ? `scene-provider ${sceneContextClassName}` : undefined
                 )}
             >
                 {children}
