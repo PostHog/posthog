@@ -7,7 +7,7 @@ import { useCallback, useState } from 'react'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -46,6 +46,7 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
@@ -207,6 +208,7 @@ export function DataTable({
         showTestAccountFilters,
         showSearch,
         showEventFilter,
+        showEventsFilter,
         showPropertyFilter,
         showHogQLEditor,
         showReload,
@@ -612,7 +614,7 @@ export function DataTable({
                                       recordingStatus={event?.properties?.$recording_status}
                                       timestamp={event?.timestamp}
                                       hasRecording={event?.properties?.has_recording as boolean | undefined}
-                                      inModal
+                                      openPlayerIn={RecordingPlayerType.Modal}
                                       size="xsmall"
                                       type="secondary"
                                   />
@@ -677,6 +679,9 @@ export function DataTable({
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
+        ) : null,
+        showEventsFilter && isEventsQuery(query.source) ? (
+            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />

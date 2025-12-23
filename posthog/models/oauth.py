@@ -1,7 +1,8 @@
 import enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -67,26 +68,58 @@ class OAuthApplication(AbstractApplication):
 
             parsed_uri = urlparse(uri)
 
-            if not parsed_uri.netloc:
-                raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
-
-            is_loopback = is_loopback_host(parsed_uri.hostname)
-
-            allowed_schemes = ["http", "https"] if is_loopback else ["https"]
-
-            if parsed_uri.scheme not in allowed_schemes:
-                raise ValidationError(
-                    {
-                        "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
-                    }
-                )
-
             if parsed_uri.fragment:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
+
+            # Custom URL schemes for native apps (RFC 8252 Section 7.1)
+            # These look like: myapp://callback, array://oauth
+            is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
+
+            if is_custom_scheme:
+                allowed_schemes = cast(
+                    list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
+                )
+                if parsed_uri.scheme not in allowed_schemes:
+                    raise ValidationError(
+                        {
+                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed. Allowed schemes: {', '.join(allowed_schemes)}"
+                        }
+                    )
+            else:
+                # Standard HTTP(S) validation
+                if not parsed_uri.netloc:
+                    raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
+
+                is_loopback = is_loopback_host(parsed_uri.hostname)
+
+                # http is only allowed for loopback addresses (localhost, 127.x.x.x)
+                allowed_schemes = ["http", "https"] if is_loopback else ["https"]
+
+                if parsed_uri.scheme not in allowed_schemes:
+                    raise ValidationError(
+                        {
+                            "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
+                        }
+                    )
 
     def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)
+
+    def get_allowed_schemes(self) -> list[str]:
+        """Extract unique schemes from the application's registered redirect URIs, filtered against allowed schemes."""
+        from django.conf import settings
+
+        allowed_list = cast(list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"]))
+        globally_allowed = set(allowed_list)
+        schemes: set[str] = set()
+        for uri in self.redirect_uris.split(" "):
+            if not uri:
+                continue
+            parsed_uri = urlparse(uri)
+            if parsed_uri.scheme and parsed_uri.scheme in globally_allowed:
+                schemes.add(parsed_uri.scheme)
+        return list(schemes) if schemes else ["https"]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
     # NOTE: By default an application should be linked to the organization that created it.

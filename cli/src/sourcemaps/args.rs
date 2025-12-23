@@ -2,7 +2,7 @@ use std::{fmt::Display, path::PathBuf};
 
 use anyhow::{bail, Result};
 
-use crate::utils::files::FileSelection;
+use crate::{api::releases::ReleaseBuilder, utils::files::FileSelection};
 
 #[derive(clap::Args, Clone)]
 pub struct FileSelectionArgs {
@@ -61,4 +61,17 @@ pub struct ReleaseArgs {
     /// if not provided.
     #[arg(long)]
     pub version: Option<String>,
+}
+
+impl From<ReleaseArgs> for ReleaseBuilder {
+    fn from(args: ReleaseArgs) -> Self {
+        let mut builder = ReleaseBuilder::default();
+        args.project
+            .as_ref()
+            .map(|project| builder.with_project(project));
+        args.version
+            .as_ref()
+            .map(|version| builder.with_version(version));
+        builder
+    }
 }
