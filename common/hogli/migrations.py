@@ -105,7 +105,8 @@ def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     try:
         shutil.copy2(source_path, cache_path)
         return True
-    except Exception:
+    except Exception as e:
+        click.secho(f"  ⚠ Could not cache {app}.{name}: {e}", fg="yellow", err=True)
         return False
 
 
@@ -300,7 +301,8 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
             if hidden.exists():
                 hidden.rename(original)
         return False
-    except Exception:
+    except Exception as e:
+        click.secho(f"  ⚠ Rollback failed for {app}.{name}: {e}", fg="red", err=True)
         target_path.unlink(missing_ok=True)
         if original_max_migration is not None:
             max_migration_path.write_text(f"{original_max_migration}\n")

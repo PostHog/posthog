@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sys
 import shutil
+import warnings
 import subprocess
 from pathlib import Path
 
@@ -39,8 +40,8 @@ def get_managed_apps() -> set[str]:
                     migrations_dir = product_dir / "backend" / "migrations"
                     if migrations_dir.exists():
                         managed.add(product_dir.name)
-    except Exception:
-        pass
+    except Exception as e:
+        warnings.warn(f"Could not scan product apps for migrations: {e}", stacklevel=2)
 
     return managed
 
@@ -72,7 +73,8 @@ def cache_migration(app_label: str, migration_name: str) -> bool:
     try:
         shutil.copy2(source_path, cache_path)
         return True
-    except Exception:
+    except Exception as e:
+        warnings.warn(f"Could not cache migration {app_label}.{migration_name}: {e}", stacklevel=2)
         return False
 
 
