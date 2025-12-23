@@ -362,7 +362,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @extend_schema(
-        exclude=True,  # NOTE: We exlude as we want to push people to use the more powerful bulk_delete endpoint
+        exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         parameters=[
             OpenApiParameter(
                 "delete_events",
@@ -940,7 +940,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
     @extend_schema(
-        exclude=True,  # NOTE: We exlude as we want to push people to use the more powerful bulk_delete endpoint
+        exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         description="Queue deletion of all recordings associated with this person.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
@@ -956,7 +956,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound(detail="Person not found.")
 
     @extend_schema(
-        exclude=True,  # NOTE: We exlude as we want to push people to use the more powerful bulk_delete endpoint
+        exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         description="Queue deletion of all events associated with this person. The task runs during non-peak hours.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
