@@ -8,9 +8,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import Role, RoleMembership
 
 
-class TestTeamConversionGoals(BaseTest):
+class TestTeamCoreEventsConfig(BaseTest):
     @parameterized.expand(
         [
             (
@@ -18,6 +20,7 @@ class TestTeamConversionGoals(BaseTest):
                 {
                     "id": "goal-1",
                     "name": "Purchase",
+                    "category": "monetization",
                     "filter": {"kind": "EventsNode", "event": "$purchase"},
                 },
             ),
@@ -26,6 +29,7 @@ class TestTeamConversionGoals(BaseTest):
                 {
                     "id": "goal-2",
                     "name": "Signup Action",
+                    "category": "activation",
                     "filter": {"kind": "ActionsNode", "id": 123},
                 },
             ),
@@ -34,8 +38,10 @@ class TestTeamConversionGoals(BaseTest):
                 {
                     "id": "goal-3",
                     "name": "Stripe Charges",
+                    "category": "monetization",
                     "filter": {
                         "kind": "DataWarehouseNode",
+                        "id": "stripe_charges",
                         "table_name": "stripe_charges",
                         "timestamp_field": "created_at",
                         "distinct_id_field": "customer_email",
@@ -48,6 +54,7 @@ class TestTeamConversionGoals(BaseTest):
                 {
                     "id": "goal-4",
                     "name": "Revenue",
+                    "category": "monetization",
                     "filter": {
                         "kind": "EventsNode",
                         "event": "purchase",
@@ -56,39 +63,73 @@ class TestTeamConversionGoals(BaseTest):
                     },
                 },
             ),
-            (
-                "goal with category",
-                {
-                    "id": "goal-5",
-                    "name": "Purchase",
-                    "filter": {"kind": "EventsNode", "event": "purchase"},
-                    "category": "monetization",
-                },
-            ),
         ]
     )
-    def test_conversion_goals_valid(self, _name: str, goal: dict):
-        self.team.conversion_goals = [goal]
-        self.team.save()
-        self.team.refresh_from_db()
+    def test_core_events_valid(self, _name: str, event: dict):
+        config = self.team.core_events_config
+        config.core_events = [event]
+        config.save()
+        config.refresh_from_db()
 
-        goals = self.team.conversion_goals
-        assert len(goals) == 1
-        assert goals[0].id == goal["id"]
-        assert goals[0].name == goal["name"]
+        events = config.core_events
+        assert len(events) == 1
+        assert events[0]["id"] == event["id"]
+        assert events[0]["name"] == event["name"]
 
-    def test_conversion_goals_empty_by_default(self):
-        assert self.team.conversion_goals == []
+    def test_core_events_empty_by_default(self):
+        assert self.team.core_events_config.core_events == []
 
-    def test_conversion_goals_missing_required_field_raises(self):
+    def test_core_events_missing_filter_raises(self):
         with self.assertRaises(ValidationError):
-            self.team.conversion_goals = [
+            config = self.team.core_events_config
+            config.core_events = [
                 {
                     "id": "goal-1",
                     "name": "Bad Goal",
+                    "category": "monetization",
                     # missing filter
                 }
             ]
+
+    def test_core_events_missing_category_raises(self):
+        with self.assertRaises(ValidationError):
+            config = self.team.core_events_config
+            config.core_events = [
+                {
+                    "id": "goal-1",
+                    "name": "Bad Goal",
+                    "filter": {"kind": "EventsNode", "event": "purchase"},
+                    # missing category
+                }
+            ]
+
+    def test_core_events_all_events_not_allowed(self):
+        """All events (empty event name) should not be allowed as a core event."""
+        with self.assertRaises(ValidationError) as context:
+            config = self.team.core_events_config
+            config.core_events = [
+                {
+                    "id": "goal-1",
+                    "name": "All Events Goal",
+                    "category": "monetization",
+                    "filter": {"kind": "EventsNode", "event": None},
+                }
+            ]
+        assert "All events" in str(context.exception)
+
+    def test_core_events_empty_event_name_not_allowed(self):
+        """Empty event name should not be allowed as a core event."""
+        with self.assertRaises(ValidationError) as context:
+            config = self.team.core_events_config
+            config.core_events = [
+                {
+                    "id": "goal-1",
+                    "name": "Empty Event Goal",
+                    "category": "monetization",
+                    "filter": {"kind": "EventsNode", "event": ""},
+                }
+            ]
+        assert "All events" in str(context.exception)
 
 
 class TestTeam(BaseTest):
@@ -133,7 +174,6 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team(self):
         """Test that only users with specific access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
 
         # Make the team private
         AccessControl.objects.create(
@@ -166,7 +206,6 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
 
         # Make the team private
         AccessControl.objects.create(
@@ -209,8 +248,6 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import Role, RoleMembership
 
         # Make the team private
         AccessControl.objects.create(

@@ -42,7 +42,6 @@ import {
 } from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
-import { ConversionGoalsSettings } from './environment/ConversionGoalsSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
@@ -336,21 +335,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-conversion-goals',
-        title: 'Conversion goals',
-        flag: 'NEW_TEAM_CONVERSION_GOALS',
-        settings: [
-            {
-                id: 'conversion-goals',
-                title: 'Conversion goals',
-                description:
-                    'Define conversion goals that can be used across Marketing analytics, Customer analytics, and Revenue analytics.',
-                component: <ConversionGoalsSettings />,
             },
         ],
     },

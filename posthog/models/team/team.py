@@ -49,8 +49,6 @@ from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, Per
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
-    from posthog.schema import ConversionGoal
-
     from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
@@ -569,33 +567,12 @@ class Team(UUIDTClassicModel):
         )
         return config
 
-    @property
-    def conversion_goals(self) -> list["ConversionGoal"]:
-        """Get unified conversion goals from extra_settings."""
-        from posthog.schema import ConversionGoal
+    @cached_property
+    def core_events_config(self):
+        from posthog.models.core_event import TeamCoreEventsConfig
 
-        raw_goals = (self.extra_settings or {}).get("conversion_goals", [])
-        return [ConversionGoal.model_validate(goal) for goal in raw_goals]
-
-    @conversion_goals.setter
-    def conversion_goals(self, value: list[dict]) -> None:
-        """Set unified conversion goals in extra_settings."""
-        from django.core.exceptions import ValidationError
-
-        from posthog.schema import ConversionGoal
-
-        if self.extra_settings is None:
-            self.extra_settings = {}
-
-        validated_goals = []
-        for goal in value or []:
-            try:
-                validated = ConversionGoal.model_validate(goal)
-                validated_goals.append(validated.model_dump())
-            except Exception as e:
-                raise ValidationError(f"Invalid conversion goal: {e}")
-
-        self.extra_settings["conversion_goals"] = validated_goals
+        config, _ = TeamCoreEventsConfig.objects.get_or_create(team=self)
+        return config
 
     @property
     def default_modifiers(self) -> dict:

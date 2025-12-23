@@ -4537,8 +4537,8 @@ export enum MarketingAnalyticsHelperForColumnNames {
     CostPer = 'Cost per',
 }
 
-/** Category for conversion goals (lifecycle stages) */
-export enum ConversionGoalCategory {
+/** Category for core events (lifecycle stages) */
+export enum CoreEventCategory {
     Acquisition = 'acquisition',
     Activation = 'activation',
     Monetization = 'monetization',
@@ -4549,8 +4549,8 @@ export enum ConversionGoalCategory {
     Reactivation = 'reactivation',
 }
 
-/** Unified conversion goal stored in Team settings */
-export interface ConversionGoal {
+/** Unified core event stored in Team settings */
+export interface CoreEvent {
     /** Unique identifier */
     id: string
     /** Display name */
@@ -4558,7 +4558,7 @@ export interface ConversionGoal {
     /** Optional description */
     description?: string
     /** Category (acquisition, activation, retention, referral, revenue) */
-    category?: ConversionGoalCategory
+    category: CoreEventCategory
     /** Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.) */
     filter: EventsNode | ActionsNode | DataWarehouseNode
 }

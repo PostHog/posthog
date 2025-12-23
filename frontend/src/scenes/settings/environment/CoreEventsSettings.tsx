@@ -13,15 +13,15 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
-    ConversionGoal,
-    ConversionGoalCategory,
+    CoreEvent,
+    CoreEventCategory,
     DataWarehouseNode,
     EventsNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { ActionFilter, BaseMathType, FilterType, GroupMathType, PropertyMathType } from '~/types'
 
-import { conversionGoalsLogic } from './conversionGoalsLogic'
+import { coreEventsLogic } from './coreEventsLogic'
 
 // Only allow: total count, unique users/groups, and property sum
 const ALLOWED_MATH_TYPES = [
@@ -32,18 +32,18 @@ const ALLOWED_MATH_TYPES = [
 ] as const
 
 const CATEGORY_OPTIONS = [
-    { value: ConversionGoalCategory.Acquisition, label: 'Acquisition', description: 'Sign up, app install' },
-    { value: ConversionGoalCategory.Activation, label: 'Activation', description: 'Onboarding, first core action' },
+    { value: CoreEventCategory.Acquisition, label: 'Acquisition', description: 'Sign up, app install' },
+    { value: CoreEventCategory.Activation, label: 'Activation', description: 'Onboarding, first core action' },
     {
-        value: ConversionGoalCategory.Monetization,
+        value: CoreEventCategory.Monetization,
         label: 'Monetization',
         description: 'Purchase, subscription started',
     },
-    { value: ConversionGoalCategory.Expansion, label: 'Expansion', description: 'Plan upgraded' },
-    { value: ConversionGoalCategory.Referral, label: 'Referral', description: 'Invite sent' },
-    { value: ConversionGoalCategory.Retention, label: 'Retention', description: 'Repeat purchase' },
-    { value: ConversionGoalCategory.Churn, label: 'Churn', description: 'Subscription canceled' },
-    { value: ConversionGoalCategory.Reactivation, label: 'Reactivation', description: 'Returned after churn' },
+    { value: CoreEventCategory.Expansion, label: 'Expansion', description: 'Plan upgraded' },
+    { value: CoreEventCategory.Referral, label: 'Referral', description: 'Invite sent' },
+    { value: CoreEventCategory.Retention, label: 'Retention', description: 'Repeat purchase' },
+    { value: CoreEventCategory.Churn, label: 'Churn', description: 'Subscription canceled' },
+    { value: CoreEventCategory.Reactivation, label: 'Reactivation', description: 'Returned after churn' },
 ]
 
 function getFilterTypeLabel(filter: EventsNode | ActionsNode | DataWarehouseNode): string {
@@ -151,14 +151,14 @@ function nodeToActionFilter(filter: EventsNode | ActionsNode | DataWarehouseNode
 
 const defaultFilter: EventsNode = {
     kind: NodeKind.EventsNode,
-    event: '',
+    event: 'Please select an event, action, or data warehouse table',
 }
 
 interface FormState {
     id: string | null // null for new, string for editing
     name: string
     description: string
-    category: ConversionGoalCategory | null
+    category: CoreEventCategory | null
     filter: EventsNode | ActionsNode | DataWarehouseNode
 }
 
@@ -170,17 +170,17 @@ const createEmptyFormState = (): FormState => ({
     filter: defaultFilter,
 })
 
-const goalToFormState = (goal: ConversionGoal): FormState => ({
-    id: goal.id,
-    name: goal.name,
-    description: goal.description || '',
-    category: goal.category || null,
-    filter: goal.filter,
+const eventToFormState = (event: CoreEvent): FormState => ({
+    id: event.id,
+    name: event.name,
+    description: event.description || '',
+    category: event.category,
+    filter: event.filter,
 })
 
-export function ConversionGoalsSettings(): JSX.Element {
-    const { conversionGoals } = useValues(conversionGoalsLogic)
-    const { addConversionGoal, updateConversionGoal, removeConversionGoal } = useActions(conversionGoalsLogic)
+export function CoreEventsSettings(): JSX.Element {
+    const { coreEvents } = useValues(coreEventsLogic)
+    const { addCoreEvent, updateCoreEvent, removeCoreEvent } = useActions(coreEventsLogic)
 
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [formState, setFormState] = useState<FormState>(createEmptyFormState())
@@ -192,8 +192,8 @@ export function ConversionGoalsSettings(): JSX.Element {
         setIsModalOpen(true)
     }
 
-    const handleOpenEditModal = (goal: ConversionGoal): void => {
-        setFormState(goalToFormState(goal))
+    const handleOpenEditModal = (event: CoreEvent): void => {
+        setFormState(eventToFormState(event))
         setIsModalOpen(true)
     }
 
@@ -215,31 +215,48 @@ export function ConversionGoalsSettings(): JSX.Element {
     }
 
     const handleSave = (): void => {
-        if (!formState.name.trim()) {
+        if (!formState.name.trim() || !formState.category) {
             return
         }
 
-        const goal: ConversionGoal = {
+        const event: CoreEvent = {
             id: formState.id || uuid(),
             name: formState.name.trim(),
             description: formState.description.trim() || undefined,
-            category: formState.category || undefined,
+            category: formState.category,
             filter: formState.filter,
         }
 
         if (isEditing) {
-            updateConversionGoal(goal)
+            updateCoreEvent(event)
         } else {
-            addConversionGoal(goal)
+            addCoreEvent(event)
         }
         handleCloseModal()
     }
 
-    const isFormValid =
-        formState.name.trim() !== '' &&
-        ((formState.filter.kind === NodeKind.EventsNode && formState.filter.event) ||
+    const getDisabledReason = (): string | undefined => {
+        if (!formState.name.trim()) {
+            return 'Please enter a name for this core event'
+        }
+        const hasValidFilter =
+            (formState.filter.kind === NodeKind.EventsNode &&
+                formState.filter.event != defaultFilter.event &&
+                formState.filter.kind === NodeKind.EventsNode &&
+                formState.filter.event) ||
             (formState.filter.kind === NodeKind.ActionsNode && formState.filter.id !== undefined) ||
-            (formState.filter.kind === NodeKind.DataWarehouseNode && formState.filter.table_name))
+            (formState.filter.kind === NodeKind.DataWarehouseNode && formState.filter.table_name)
+
+        if (!hasValidFilter) {
+            return 'Please select an event, action, or data warehouse table'
+        }
+        if (!formState.category) {
+            return 'Please select a category'
+        }
+        return undefined
+    }
+
+    const disabledReason = getDisabledReason()
 
     // Build filter for ActionFilterComponent
     const currentFilter = nodeToActionFilter(formState.filter)
@@ -248,78 +265,79 @@ export function ConversionGoalsSettings(): JSX.Element {
         <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <h3 className="font-bold">
-                    {conversionGoals.length === 0
-                        ? 'No conversion goals configured'
-                        : `${conversionGoals.length} conversion goal${conversionGoals.length === 1 ? '' : 's'}`}
+                    {coreEvents.length === 0
+                        ? 'No core events configured'
+                        : `${coreEvents.length} core event${coreEvents.length === 1 ? '' : 's'}`}
                 </h3>
                 <LemonButton type="primary" icon={<IconPlusSmall />} onClick={handleOpenNewModal}>
-                    Add conversion goal
+                    Add core event
                 </LemonButton>
             </div>
 
             <LemonTable
                 rowKey={(item) => item.id}
-                dataSource={conversionGoals}
+                dataSource={coreEvents}
                 columns={[
                     {
                         key: 'name',
                         title: 'Name',
-                        render: (_, goal: ConversionGoal) => <span className="font-medium">{goal.name}</span>,
+                        render: (_, event: CoreEvent) => <span className="font-medium">{event.name}</span>,
                     },
                     {
                         key: 'type',
                         title: 'Type',
-                        render: (_, goal: ConversionGoal) => getFilterTypeLabel(goal.filter),
+                        render: (_, event: CoreEvent) => getFilterTypeLabel(event.filter),
                     },
                     {
                         key: 'filter',
                         title: 'Filter',
-                        render: (_, goal: ConversionGoal) => (
-                            <span className="text-muted">{getFilterSummary(goal.filter)}</span>
+                        render: (_, event: CoreEvent) => (
+                            <span className="text-muted">{getFilterSummary(event.filter)}</span>
                         ),
                     },
                     {
                         key: 'category',
                         title: 'Category',
-                        render: (_, goal: ConversionGoal) =>
-                            goal.category
-                                ? CATEGORY_OPTIONS.find((o) => o.value === goal.category)?.label || goal.category
+                        render: (_, event: CoreEvent) =>
+                            event.category
+                                ? CATEGORY_OPTIONS.find((o) => o.value === event.category)?.label || event.category
                                 : '-',
                     },
                     {
                         key: 'actions',
                         title: 'Actions',
                         width: 100,
-                        render: (_, goal: ConversionGoal) => (
+                        render: (_, event: CoreEvent) => (
                             <div className="flex gap-1">
                                 <LemonButton
                                     icon={<IconPencil />}
                                     size="small"
-                                    onClick={() => handleOpenEditModal(goal)}
+                                    onClick={() => handleOpenEditModal(event)}
                                     tooltip="Edit"
                                 />
                                 <LemonButton
                                     icon={<IconTrash />}
                                     size="small"
                                     status="danger"
-                                    onClick={() => removeConversionGoal(goal.id)}
+                                    onClick={() => removeCoreEvent(event.id)}
                                     tooltip="Remove"
                                 />
                             </div>
                         ),
                     },
                 ]}
-                emptyState="No conversion goals configured yet. Add your first conversion goal above."
+                emptyState="No core events configured yet. Add your first core event above."
             />
 
             <LemonModal
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
-                title={isEditing ? 'Edit conversion goal' : 'Add conversion goal'}
+                title={isEditing ? 'Edit core event' : 'Add core event'}
+                width="40rem"
                 footer={
                     <>
                         <LemonButton onClick={handleCloseModal}>Cancel</LemonButton>
-                        <LemonButton type="primary" onClick={handleSave} disabled={!isFormValid}>
+                        <LemonButton type="primary" onClick={handleSave} disabledReason={disabledReason}>
                             {isEditing ? 'Update' : 'Add'}
                         </LemonButton>
                     </>
@@ -340,7 +358,7 @@ export function ConversionGoalsSettings(): JSX.Element {
                         <LemonTextArea
                             value={formState.description}
                             onChange={(value) => setFormState((prev) => ({ ...prev, description: value }))}
-                            placeholder="Describe what this conversion goal tracks"
+                            placeholder="Describe what this core event tracks"
                         />
                     </div>
 
@@ -350,7 +368,7 @@ export function ConversionGoalsSettings(): JSX.Element {
                             bordered
                             filters={currentFilter}
                             setFilters={handleFilterChange}
-                            typeKey="conversion-goals-settings"
+                            typeKey="core-events-settings"
                             mathAvailability={MathAvailability.All}
                             allowedMathTypes={ALLOWED_MATH_TYPES}
                             hideRename
@@ -362,17 +380,19 @@ export function ConversionGoalsSettings(): JSX.Element {
                                 TaxonomicFilterGroupType.Actions,
                                 TaxonomicFilterGroupType.DataWarehouse,
                             ]}
+                            excludedProperties={{
+                                [TaxonomicFilterGroupType.Events]: [null],
+                            }}
                         />
                     </div>
 
                     <div className="space-y-1">
-                        <LemonLabel>Category (optional)</LemonLabel>
+                        <LemonLabel>Category</LemonLabel>
                         <LemonSelect
                             value={formState.category}
                             onChange={(value) => setFormState((prev) => ({ ...prev, category: value }))}
                             options={CATEGORY_OPTIONS}
                             placeholder="Select a category"
-                            allowClear
                         />
                     </div>
                 </div>

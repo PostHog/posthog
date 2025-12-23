@@ -706,7 +706,7 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class ConversionGoalCategory(StrEnum):
+class CoreEventCategory(StrEnum):
     ACQUISITION = "acquisition"
     ACTIVATION = "activation"
     MONETIZATION = "monetization"
@@ -13244,12 +13244,12 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
 
 
-class ConversionGoal(BaseModel):
+class CoreEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    category: ConversionGoalCategory | None = Field(
-        default=None, description="Category (acquisition, activation, retention, referral, revenue)"
+    category: CoreEventCategory = Field(
+        ..., description="Category (acquisition, activation, retention, referral, revenue)"
     )
     description: str | None = Field(default=None, description="Optional description")
     filter: EventsNode | ActionsNode | DataWarehouseNode = Field(
