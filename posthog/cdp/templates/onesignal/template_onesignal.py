@@ -61,7 +61,7 @@ if (res.status >= 200 and res.status < 300) {
             "key": "externalId",
             "type": "string",
             "label": "External ID",
-            "description": "A unique identifier that is used to identify this person across both OneSignal, Posthog, and other external systems.",
+            "description": "A unique identifier that is used to identify this person across OneSignal, PostHog, and other external systems.",
             "default": "{person.id}",
             "secret": False,
             "required": True,
