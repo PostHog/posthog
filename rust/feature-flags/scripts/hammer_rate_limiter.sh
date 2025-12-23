@@ -25,8 +25,8 @@
 #
 #   Expected output in Terminal 1:
 #     - token_entries increases during the hammer run (e.g., 20-100+ entries)
-#     - After requests stop, token_entries drops to 0 on the next cleanup cycle
-#     - ip_entries=1 (all requests from localhost share one IP)
+#     - ip_entries increases as random IPs are generated via X-Forwarded-For
+#     - After requests stop, both counters drop to 0 on the next cleanup cycle
 #
 # OPTIONS:
 #   -n NUM_TOKENS    Number of unique tokens to generate (default: 1000)
@@ -69,15 +69,26 @@ sleep 3
 # Generate request function
 make_request() {
     local token=$1
+    local ip=$2
     curl -s -o /dev/null -w "%{http_code}" \
         -X POST "$ENDPOINT" \
         -H "Content-Type: application/json" \
+        -H "X-Forwarded-For: $ip" \
         -d "{\"token\": \"$token\", \"distinct_id\": \"test-user\"}" \
         2>/dev/null || echo "ERR"
 }
 
-export -f make_request
-export ENDPOINT
+# Generate a random IP address
+random_ip() {
+    echo "$((RANDOM % 256)).$((RANDOM % 256)).$((RANDOM % 256)).$((RANDOM % 256))"
+}
+
+# Temp file for collecting response codes
+RESPONSE_LOG=$(mktemp)
+trap "rm -f $RESPONSE_LOG" EXIT
+
+export -f make_request random_ip
+export ENDPOINT RESPONSE_LOG
 
 # Track progress
 TOTAL=$((NUM_TOKENS * REQUESTS_PER_TOKEN))
@@ -98,7 +109,7 @@ for i in $(seq 1 $NUM_TOKENS); do
             sleep 0.01
         done
 
-        make_request "$TOKEN" &
+        make_request "$TOKEN" "$(random_ip)" >> "$RESPONSE_LOG" &
 
         COUNT=$((COUNT + 1))
         if [ $((COUNT % 100)) -eq 0 ]; then
@@ -122,6 +133,14 @@ echo "Total requests:    $TOTAL"
 echo "Time elapsed:      ${ELAPSED}s"
 echo "Average rate:      $((TOTAL / (ELAPSED + 1))) req/s"
 echo ""
+
+# Summarize response codes
+echo "Response codes:"
+sort "$RESPONSE_LOG" | uniq -c | sort -rn | while read count code; do
+    printf "  %s: %d\n" "$code" "$count"
+done
+echo ""
+
 echo "Now wait 60-70 seconds for cleanup to run, and check the logs for:"
 echo "  - 'Rate limiter cleanup completed'"
 echo "  - 'token_entries', 'ip_entries', 'definitions_entries'"
