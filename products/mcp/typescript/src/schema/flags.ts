@@ -18,10 +18,9 @@ const booleanOps = [...base] as const
 
 const arrayOps = ['in', 'not_in'] as const
 
-const operatorSchema = z.enum([...base, ...stringOpsForSchema, ...numberOpsForSchema, ...arrayOps] as unknown as [
-    string,
-    ...string[],
-])
+const operatorValues = [...new Set([...stringOps, ...numberOps, ...booleanOps, ...arrayOps])] as [string, ...string[]]
+
+const operatorSchema = z.enum(operatorValues)
 
 export const PersonPropertyFilterSchema = z
     .object({

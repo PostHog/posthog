@@ -26,7 +26,7 @@ logger = structlog.get_logger(__name__)
 CacheType = Literal["flags", "team_metadata"]
 
 # Lock timeout matches time_limit to ensure lock is released if task is killed
-LOCK_TIMEOUT_SECONDS = 4 * 60 * 60  # 4 hours
+LOCK_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 
 
 def _run_cache_verification(cache_type: CacheType) -> None:
@@ -86,8 +86,8 @@ def _run_cache_verification(cache_type: CacheType) -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=4 * 60 * 60 - 300,  # 3h 55min warning
-    time_limit=4 * 60 * 60,  # 4 hour hard limit (distributed lock prevents overlap)
+    soft_time_limit=45 * 60,  # 45 min soft limit
+    time_limit=60 * 60,  # 1 hour hard limit
 )
 def verify_and_fix_flags_cache_task() -> None:
     """
@@ -105,8 +105,8 @@ def verify_and_fix_flags_cache_task() -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=4 * 60 * 60 - 300,  # 3h 55min warning
-    time_limit=4 * 60 * 60,  # 4 hour hard limit (distributed lock prevents overlap)
+    soft_time_limit=45 * 60,  # 45 min soft limit
+    time_limit=60 * 60,  # 1 hour hard limit
 )
 def verify_and_fix_team_metadata_cache_task() -> None:
     """

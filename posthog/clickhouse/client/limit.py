@@ -12,6 +12,7 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
@@ -107,14 +108,13 @@ class RateLimit:
         in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
         if in_beta:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
-        elif "limit" in kwargs:
-            limit_value = kwargs.get("limit")
-            if limit_value is not None:
-                max_concurrency = int(limit_value)
+        elif limit_value := kwargs.get("limit", None):
+            max_concurrency = int(limit_value)
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
         count = 1
+        wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
         while (
             self.redis_client.eval(
@@ -128,6 +128,7 @@ class RateLimit:
 
             # team in beta cannot skip limits
             if bypass or (not in_beta and self.bypass_all):
+                tag_queries(rate_limit_bypass=1)
                 result = "allow" if bypass else "block"
                 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                     task_name=task_name,
@@ -146,7 +147,10 @@ class RateLimit:
                     limit_name=self.limit_name,
                     result="retry",
                 ).inc()
-                self.sleep(backoff(count))
+                wait_sec = backoff(count)
+                self.sleep(wait_sec)
+                wait_total += wait_sec
+                tag_queries(rate_limit_wait_ms=int(1000 * wait_total))
                 count += 1
                 continue
 
@@ -183,6 +187,7 @@ __API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
 __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+__MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 
 
 def get_api_team_rate_limiter():
@@ -217,10 +222,10 @@ def get_api_team_rate_limiter():
             # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
             # the slot is free.
             retry=0.134,
-            # The default timeout for a query on ClickHouse is 60s. p99 duration is 19s, 30 seconds should be enough
-            # for some other query to finish. If the query cannot get a slot in this period, the user should contact us
-            # about increasing the quota.
-            retry_timeout=30.0,
+            # The default timeout for an API query on ClickHouse is 10s. p99 duration is 19s,
+            # 15 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
+            # the user should contact us about increasing the quota.
+            retry_timeout=15.0,
         )
     return __API_CONCURRENT_QUERY_PER_TEAM
 
@@ -308,10 +313,41 @@ def get_web_analytics_api_rate_limiter():
                 current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
             ),
             ttl=600,
+        )
+    return __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM
+
+
+def get_materialized_endpoints_rate_limiter():
+    """
+    Limits the number of concurrent materialized endpoint queries per team.
+
+    Materialized endpoint queries read from pre-computed S3 tables,
+    so they can handle higher concurrency than inline queries.
+    """
+    global __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM
+
+    def __applicable(
+        *args,
+        team_id: Optional[int] = None,
+        is_materialized_endpoint: Optional[bool] = None,
+        **kwargs,
+    ) -> bool:
+        return bool(not TEST and team_id and is_materialized_endpoint)
+
+    if __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM is None:
+        __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM = RateLimit(
+            max_concurrency=10,
+            applicable=__applicable,
+            limit_name="materialized_endpoints_per_team",
+            get_task_name=lambda *args, **kwargs: f"materialized_endpoints:query:per-team:{kwargs.get('team_id')}",
+            get_task_id=lambda *args, **kwargs: (
+                current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
+            ),
+            ttl=600,
             retry=0.134,
             retry_timeout=30.0,
         )
-    return __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM
+    return __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM
 
 
 class ConcurrencyLimitExceeded(Exception):

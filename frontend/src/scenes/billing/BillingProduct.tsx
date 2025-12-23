@@ -80,6 +80,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const productDisplayNameOverrides: Record<string, string> = {
         realtime_destinations: 'Data pipelines',
+        workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
 

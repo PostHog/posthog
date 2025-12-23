@@ -42,6 +42,41 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         20971520.0, // 20MB (cutoff for dropping analytics event payloads)
                     // backend will include Inf+ bucket
     ];
+    // S3 upload latency buckets (in seconds, 2x increments)
+    const S3_LATENCY_SECONDS: &[f64] = &[
+        0.01,  // 10ms
+        0.02,  // 20ms
+        0.04,  // 40ms
+        0.08,  // 80ms
+        0.16,  // 160ms
+        0.32,  // 320ms
+        0.64,  // 640ms
+        1.28,  // 1.28s
+        2.56,  // 2.56s
+        5.12,  // 5.12s
+        10.24, // 10.24s
+    ];
+    // S3 upload body size buckets (in bytes, 2x increments)
+    const S3_BODY_SIZES: &[f64] = &[
+        1024.0,     // 1KB
+        2048.0,     // 2KB
+        4096.0,     // 4KB
+        8192.0,     // 8KB
+        16384.0,    // 16KB
+        32768.0,    // 32KB
+        65536.0,    // 64KB
+        131072.0,   // 128KB
+        262144.0,   // 256KB
+        524288.0,   // 512KB
+        1048576.0,  // 1MB
+        2097152.0,  // 2MB
+        4194304.0,  // 4MB
+        8388608.0,  // 8MB
+        16777216.0, // 16MB
+        33554432.0, // 32MB
+    ];
+    // Blob count per event (2x increments)
+    const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
 
     PrometheusBuilder::new()
         .add_global_label("role", role)
@@ -59,8 +94,28 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         )
         .unwrap()
         .set_buckets_for_metric(
-            Matcher::Prefix("capture_debug_".to_string()),
-            EXPONENTIAL_SECONDS,
+            Matcher::Full("capture_s3_upload_duration_seconds".to_string()),
+            S3_LATENCY_SECONDS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_s3_upload_body_size_bytes".to_string()),
+            S3_BODY_SIZES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_blob_count_per_event".to_string()),
+            BLOB_COUNTS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_blob_size_bytes".to_string()),
+            S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_ai_blob_total_bytes_per_event".to_string()),
+            S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
         )
         .unwrap()
         .install_recorder()
