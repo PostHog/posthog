@@ -16,10 +16,11 @@ export const errorTrackingSpikeDetectionLogic = kea<errorTrackingSpikeDetectionL
     path(['products', 'error_tracking', 'configuration', 'spike_detection', 'errorTrackingSpikeDetectionLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam', 'loadCurrentTeamSuccess']],
+        actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
         setMultiplier: (multiplier: number) => ({ multiplier }),
+        syncFromTeam: (multiplier: number) => ({ multiplier }),
         persistSettings: true,
     }),
     reducers(() => ({
@@ -27,21 +28,22 @@ export const errorTrackingSpikeDetectionLogic = kea<errorTrackingSpikeDetectionL
             DEFAULT_MULTIPLIER as number,
             {
                 setMultiplier: (_, { multiplier }) => clamp(Math.round(multiplier), MIN_MULTIPLIER, MAX_MULTIPLIER),
+                syncFromTeam: (_, { multiplier }) => clamp(Math.round(multiplier), MIN_MULTIPLIER, MAX_MULTIPLIER),
             },
         ],
     })),
     subscriptions(({ actions }) => ({
         currentTeam: (currentTeam: TeamType) => {
-            actions.setMultiplier(currentTeam?.error_tracking_spike_detection_multiplier ?? DEFAULT_MULTIPLIER)
+            actions.syncFromTeam(currentTeam?.error_tracking_spike_detection_multiplier ?? DEFAULT_MULTIPLIER)
         },
     })),
     afterMount(({ actions, values }) => {
-        actions.setMultiplier(values.currentTeam?.error_tracking_spike_detection_multiplier ?? DEFAULT_MULTIPLIER)
+        actions.syncFromTeam(values.currentTeam?.error_tracking_spike_detection_multiplier ?? DEFAULT_MULTIPLIER)
     }),
     listeners(({ actions, values }) => ({
         setMultiplier: () => actions.persistSettings(),
         persistSettings: async (_, breakpoint) => {
-            await breakpoint(1000)
+            await breakpoint(500)
             actions.updateCurrentTeam({
                 error_tracking_spike_detection_multiplier: values.multiplier,
             })
