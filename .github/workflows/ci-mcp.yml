@@ -23,7 +23,7 @@ jobs:
               with:
                   filters: |
                       mcp:
-                        - 'products/mcp/**'
+                        - 'services/mcp/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 
@@ -55,7 +55,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Run unit tests
-              run: cd products/mcp && pnpm run test
+              run: cd services/mcp && pnpm run test
 
     integration-tests:
         name: Integration Tests
@@ -85,7 +85,7 @@ jobs:
               run: pnpm install
 
             - name: Run integration tests
-              run: cd products/mcp && pnpm run test:integration
+              run: cd services/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: ${{ secrets.MCP_TEST_API_BASE_URL }}
                   TEST_POSTHOG_PERSONAL_API_KEY: ${{ secrets.MCP_TEST_PERSONAL_API_KEY }}

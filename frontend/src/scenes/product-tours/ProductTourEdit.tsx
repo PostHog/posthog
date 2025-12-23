@@ -27,6 +27,7 @@ import { PropertyDefinitionType, SurveyMatchType } from '~/types'
 
 import { AutoShowSection } from './components/AutoShowSection'
 import { EditInToolbarButton } from './components/EditInToolbarButton'
+import { ProductTourCustomization } from './components/ProductTourCustomization'
 import { ProductTourEditTab, productTourLogic } from './productTourLogic'
 
 function InlineCode({ text }: { text: string }): JSX.Element {
@@ -106,7 +107,10 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                 <LemonTabs
                     activeKey={editTab}
                     onChange={(newTab) => setEditTab(newTab as ProductTourEditTab)}
-                    tabs={[{ key: ProductTourEditTab.Configuration, label: 'Configuration' }]}
+                    tabs={[
+                        { key: ProductTourEditTab.Configuration, label: 'Configuration' },
+                        { key: ProductTourEditTab.Customization, label: 'Customization' },
+                    ]}
                 />
 
                 {editTab === ProductTourEditTab.Configuration && (
@@ -301,6 +305,19 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {editTab === ProductTourEditTab.Customization && (
+                    <ProductTourCustomization
+                        appearance={productTourForm.content?.appearance}
+                        steps={productTourForm.content?.steps ?? []}
+                        onChange={(appearance) => {
+                            setProductTourFormValue('content', {
+                                ...productTourForm.content,
+                                appearance,
+                            })
+                        }}
+                    />
                 )}
             </SceneContent>
         </Form>

@@ -1925,7 +1925,8 @@
                 "filter_session_recordings",
                 "create_insight",
                 "create_form",
-                "task"
+                "task",
+                "upsert_dashboard"
             ],
             "type": "string"
         },
@@ -10655,6 +10656,7 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
+                "revenue_analytics_mrr",
                 "revenue_analytics_product",
                 "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
@@ -21285,6 +21287,16 @@
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
+                "marketing_analytics_source_configured",
+                "marketing_analytics_settings_updated",
+                "marketing_analytics_dashboard_interaction",
+                "marketing_analytics_ads_integration_visited",
+                "customer_analytics_dashboard_business_mode_changed",
+                "customer_analytics_dashboard_configuration_button_clicked",
+                "customer_analytics_dashboard_filters_changed",
+                "customer_analytics_dashboard_events_saved",
+                "customer_analytics_viewed",
+                "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "vercel_integration"

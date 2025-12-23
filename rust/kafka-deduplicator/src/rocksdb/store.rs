@@ -11,6 +11,7 @@ use rocksdb::{
     WriteOptions,
 };
 use std::time::Instant;
+use tracing::error;
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
@@ -77,7 +78,18 @@ fn rocksdb_options() -> Options {
     // Universal compaction reduces write amplification for write-heavy workloads
     // Trade-off: higher space amplification, but better for batch writes on slow storage
     opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-    opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
+
+    // NOTE: We don't call optimize_universal_style_compaction() because it sets Snappy compression.
+    // Instead, we manually configure universal compaction for reduced CPU usage:
+    // - Higher size_ratio (10% vs 1% default) means less aggressive compaction
+    // - This reduces compaction frequency at the cost of slightly higher space amplification
+    let mut universal_opts = rocksdb::UniversalCompactOptions::default();
+    universal_opts.set_size_ratio(10); // Allow 10% size difference before compacting (default: 1)
+    universal_opts.set_min_merge_width(2); // Minimum files to merge (default: 2)
+    universal_opts.set_max_merge_width(16); // Maximum files to merge at once (default: UINT_MAX)
+    universal_opts.set_max_size_amplification_percent(200); // Allow 2x space amp (default: 200)
+    universal_opts.set_compression_size_percent(-1); // Compress all levels (default: -1)
+    opts.set_universal_compaction_options(&universal_opts);
 
     let mut block_opts = block_based_table_factory();
     // Timestamp CF
@@ -282,15 +294,27 @@ impl RocksDbStore {
 
     fn put_batch_internal(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
+        let entry_count = entries.len();
         let mut batch = WriteBatch::default();
         for (key, value) in entries {
             batch.put_cf(&cf, key, value);
         }
+        let batch_size_bytes = batch.size_in_bytes();
         let mut write_opts = WriteOptions::default();
         write_opts.set_sync(false);
-        self.db
-            .write_opt(batch, &write_opts)
-            .context("Failed to put batch")
+        self.db.write_opt(batch, &write_opts).map_err(|e| {
+            error!(
+                cf_name = cf_name,
+                entry_count = entry_count,
+                batch_size_bytes = batch_size_bytes,
+                db_path = %self.path_location.display(),
+                rocksdb_error = %e,
+                "RocksDB write_opt failed"
+            );
+            anyhow::anyhow!(
+                "Failed to put batch ({entry_count} entries, {batch_size_bytes} bytes): {e}"
+            )
+        })
     }
 
     pub fn delete_range(&self, cf_name: &str, start: &[u8], end: &[u8]) -> Result<()> {

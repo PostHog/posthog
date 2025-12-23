@@ -309,6 +309,7 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         self.generate_clickhouse_sql()
+
         if self.clickhouse_sql is not None:
             self._execute_clickhouse_query()
 
