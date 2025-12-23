@@ -808,7 +808,7 @@ class VercelIntegration:
             raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
         # Cache claims for potential existing user login flow (needed because the code can only be exchanged once)
-        VercelIntegration._set_cached_claims(code, claims, timeout=300)  # 5 minutes
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)  # 5 minutes
 
         return claims
 
@@ -844,7 +844,7 @@ class VercelIntegration:
                     logged_in_email=request.user.email,
                     integration="vercel",
                 )
-                VercelIntegration._set_cached_claims(params.code, claims, timeout=300)
+                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
                 error_params = {
                     "expected_email": claims.user_email,
                     "current_email": request.user.email,
@@ -934,7 +934,7 @@ class VercelIntegration:
         return claims
 
     @staticmethod
-    def _set_cached_claims(code: str, claims: VercelUserClaims, timeout: int = 300) -> None:
+    def set_cached_claims(code: str, claims: VercelUserClaims, timeout: int = 300) -> None:
         claims_key = VercelIntegration._get_cache_key(code)
         cache.set(claims_key, claims, timeout=timeout)
 
@@ -969,7 +969,7 @@ class VercelIntegration:
         except RequiresExistingUserLogin as e:
             # Re-cache the claims so they're available after the user logs in
             if isinstance(claims, VercelUserClaims):
-                VercelIntegration._set_cached_claims(params.code, claims, timeout=300)
+                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
 
             continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
             message = f"Please log in with {e.email} to link your Vercel account"
