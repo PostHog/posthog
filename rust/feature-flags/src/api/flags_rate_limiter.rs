@@ -147,6 +147,13 @@ impl KeyedRateLimiter {
     fn len(&self) -> usize {
         self.limiter.len()
     }
+
+    /// Returns true if no keys are currently tracked.
+    ///
+    /// Note: This is approximate and shares the same limitations as `len()`.
+    fn is_empty(&self) -> bool {
+        self.limiter.is_empty()
+    }
 }
 
 /// Token bucket rate limiter for feature flag requests.
@@ -256,10 +263,9 @@ impl FlagsRateLimiter {
 
     /// Returns true if no keys are currently tracked.
     ///
-    /// Note: This is approximate since the underlying state store may have
-    /// concurrent modifications. Use for monitoring, not correctness.
+    /// Note: This is approximate and shares the same limitations as [`Self::len`].
     pub fn is_empty(&self) -> bool {
-        self.inner.len() == 0
+        self.inner.is_empty()
     }
 }
 
@@ -525,10 +531,9 @@ impl IpRateLimiter {
 
     /// Returns true if no keys are currently tracked.
     ///
-    /// Note: This is approximate since the underlying state store may have
-    /// concurrent modifications. Use for monitoring, not correctness.
+    /// Note: This is approximate and shares the same limitations as [`Self::len`].
     pub fn is_empty(&self) -> bool {
-        self.inner.len() == 0
+        self.inner.is_empty()
     }
 }
 
