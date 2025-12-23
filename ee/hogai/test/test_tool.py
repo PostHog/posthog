@@ -248,7 +248,7 @@ class ToolWithAccessControlTool(MaxTool):
     description: str = "A test tool with access control"
     args_schema: type[BaseModel] = DummyToolInput
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("feature_flag", "editor")]
 
     async def _arun_impl(self, input_value: str):
@@ -262,7 +262,7 @@ class ToolWithNoAccessControlTool(MaxTool):
     description: str = "A test tool without access control"
     args_schema: type[BaseModel] = DummyToolInput
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return []
 
     async def _arun_impl(self, input_value: str):
@@ -278,15 +278,15 @@ class TestMaxToolAccessControl(BaseTest):
         access_control = tool.user_access_control
         self.assertIsInstance(access_control, UserAccessControl)
 
-    def test_get_required_access_default_returns_empty(self):
-        """Default get_required_access should return empty list."""
+    def test_get_required_resource_access_default_returns_empty(self):
+        """Default get_required_resource_access should return empty list."""
         tool = DummyTool(team=self.team, user=self.user)
-        self.assertEqual(tool.get_required_access(), [])
+        self.assertEqual(tool.get_required_resource_access(), [])
 
-    def test_get_required_access_can_be_overridden(self):
-        """get_required_access can be overridden to return requirements."""
+    def test_get_required_resource_access_can_be_overridden(self):
+        """get_required_resource_access can be overridden to return requirements."""
         tool = ToolWithAccessControlTool(team=self.team, user=self.user)
-        requirements = tool.get_required_access()
+        requirements = tool.get_required_resource_access()
         self.assertEqual(requirements, [("feature_flag", "editor")])
 
     def test_check_access_control_passes_when_user_has_access(self):
@@ -309,7 +309,7 @@ class TestMaxToolAccessControl(BaseTest):
             self.assertEqual(ctx.exception.required_level, "editor")
 
     def test_check_access_control_skips_when_no_requirements(self):
-        """_check_access_control should skip when get_required_access returns empty list."""
+        """_check_access_control should skip when get_required_resource_access returns empty list."""
         tool = ToolWithNoAccessControlTool(team=self.team, user=self.user)
 
         # Should not call check_access_level_for_resource at all
@@ -323,7 +323,7 @@ class TestToolAccessControlDeclarations(BaseTest):
     Test that all tools declare their access control requirements.
 
     New tools MUST either:
-    1. Implement get_required_access() returning non-empty list, OR
+    1. Implement get_required_resource_access() returning non-empty list, OR
     2. Be explicitly added to TOOLS_WITHOUT_ACCESS_CONTROL with a reason
     """
 
@@ -367,9 +367,9 @@ class TestToolAccessControlDeclarations(BaseTest):
             if tool_name.value in self.TOOLS_WITHOUT_ACCESS_CONTROL:
                 continue
 
-            # Check that get_required_access() is implemented
+            # Check that get_required_resource_access() is implemented
             tool_instance = tool_class(team=self.team, user=self.user, description="Test description")
-            required_access = tool_instance.get_required_access()
+            required_access = tool_instance.get_required_resource_access()
 
             if not required_access:
                 missing_access_control.append(tool_name)
@@ -377,5 +377,5 @@ class TestToolAccessControlDeclarations(BaseTest):
         if missing_access_control:
             self.fail(
                 f"Tools without access control declaration: {missing_access_control}. "
-                f"Either add get_required_access() or add to TOOLS_WITHOUT_ACCESS_CONTROL with a reason."
+                f"Either add get_required_resource_access() or add to TOOLS_WITHOUT_ACCESS_CONTROL with a reason."
             )

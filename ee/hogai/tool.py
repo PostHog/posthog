@@ -62,7 +62,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def get_required_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """
         Declare what resource-level access this tool requires to be used.
 
@@ -101,10 +101,10 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     def _check_access_control(self) -> None:
         """
-        Checks all resource-level access requirements declared in `get_required_access()`.
+        Checks all resource-level access requirements declared in `get_required_resource_access()`.
         Raises MaxToolAccessDeniedError if any check fails.
         """
-        required_access = self.get_required_access()
+        required_access = self.get_required_resource_access()
         if not required_access:
             return
 

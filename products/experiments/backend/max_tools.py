@@ -53,7 +53,7 @@ Examples:
     context_prompt_template: str = "Creates a new A/B test experiment in the project"
     args_schema: type[BaseModel] = CreateExperimentArgs
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("experiment", "editor")]
 
     async def _arun_impl(
@@ -209,7 +209,7 @@ class ExperimentSummaryTool(MaxTool):
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("experiment", "viewer")]
 
     async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:

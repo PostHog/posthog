@@ -125,10 +125,10 @@ The main access check logic lives in `posthog/rbac/user_access_control.py`.
 
 **To implement access control:**
 
-1. Override `get_required_access()` in your tool:
+1. Override `get_required_resource_access()` in your tool:
 
 ```python
-def get_required_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
     return [("feature_flag", "editor")]  # Single resource
     # Or multiple: return [("dashboard", "editor"), ("insight", "viewer")]
 ```

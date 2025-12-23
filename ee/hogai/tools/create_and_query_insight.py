@@ -160,7 +160,7 @@ class CreateAndQueryInsightTool(MaxTool):
     description: str = INSIGHT_TOOL_PROMPT
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
 
-    def get_required_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """Creating/querying an insight requires editor-level access to insights."""
         return [("insight", "editor")]
 

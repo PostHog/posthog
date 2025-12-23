@@ -47,7 +47,7 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
     context_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("error_tracking", "viewer")]
 
     def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
@@ -191,7 +191,7 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("error_tracking", "viewer")]
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
@@ -232,7 +232,7 @@ class ErrorTrackingExplainIssueTool(MaxTool):
     name: str = "error_tracking_explain_issue"
     description: str = "Given the stack trace and context of an error tracking issue, provide a summary of the problem and potential resolutions."
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("error_tracking", "viewer")]
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:

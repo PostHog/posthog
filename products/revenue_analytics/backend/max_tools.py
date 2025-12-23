@@ -176,7 +176,7 @@ class FilterRevenueAnalyticsTool(MaxTool):
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("revenue_analytics", "viewer")]
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:

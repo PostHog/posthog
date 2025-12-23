@@ -51,7 +51,7 @@ IMPORTANT: When adding insights, you must provide a complete description of what
 
     args_schema: type[BaseModel] = EditCurrentDashboardArgs
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
     @database_sync_to_async

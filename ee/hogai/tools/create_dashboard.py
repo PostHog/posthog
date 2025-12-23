@@ -34,7 +34,7 @@ class CreateDashboardTool(MaxTool):
     args_schema: type[BaseModel] = CreateDashboardToolArgs
     show_tool_call_message: bool = False
 
-    def get_required_access(self):
+    def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
     async def _arun_impl(

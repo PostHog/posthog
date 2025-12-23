@@ -525,7 +525,7 @@ class CreateInsightTool(MaxTool):
     args_schema: type[BaseModel] = CreateInsightToolArgs
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
 
-    def get_required_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """Creating an insight requires editor-level access to insights."""
         return [("insight", "editor")]
 
