@@ -61,6 +61,12 @@ const legacyPluginConfigComparisonCounter = new Counter({
     labelNames: ['result'],
 })
 
+const legacyPluginExecutionResultCounter = new Counter({
+    name: 'cdp_legacy_event_consumer_execution_result_total',
+    help: 'The number of times we have executed a legacy plugin',
+    labelNames: ['result', 'template_id'],
+})
+
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
@@ -346,6 +352,12 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         for (const result of results) {
             const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
             const error = result.error
+            legacyPluginExecutionResultCounter
+                .labels({
+                    result: error ? 'error' : 'success',
+                    template_id: result.invocation.hogFunction.template_id,
+                })
+                .inc()
             if (result.error) {
                 void this.promiseScheduler.schedule(
                     this.hub.appMetrics.queueError(
