@@ -15,6 +15,7 @@ import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
 import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
 import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
+import { EmailActionTestContent } from './testing/HogFlowEditorNotificationPanelTest'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
@@ -113,7 +114,12 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                     <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                 )}
                 {mode === 'variables' && <HogFlowEditorPanelVariables />}
-                {mode === 'test' && <HogFlowEditorPanelTest />}
+                {mode === 'test' &&
+                    (selectedNode?.data?.type === 'function_email' ? (
+                        <EmailActionTestContent />
+                    ) : (
+                        <HogFlowEditorPanelTest />
+                    ))}
                 {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                 {mode === 'logs' && <HogFlowEditorPanelLogs />}
             </div>
