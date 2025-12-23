@@ -699,6 +699,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
         reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
         reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
+        // Customer Analytics
+        reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
+        reportCustomerAnalyticsDashboardConfigurationButtonClicked: () => true,
+        reportCustomerAnalyticsDashboardDateFilterApplied: ({ filter }) => ({ filter }),
         reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
     }),
     listeners(({ values }) => ({
@@ -1707,6 +1711,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('web analytics path cleaning toggled', props)
         },
         // Customer Analytics
+        reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {
+            posthog.capture('customer analytics dashboard business mode changed', { business_mode })
+        },
+        reportCustomerAnalyticsDashboardConfigurationButtonClicked: async () => {
+            posthog.capture('customer analytics dashboard configuration button clicked')
+        },
         reportCustomerAnalyticsViewed: async ({ delay }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500)

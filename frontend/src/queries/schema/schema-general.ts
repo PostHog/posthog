@@ -5088,7 +5088,9 @@ export enum ProductIntentContext {
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = 'marketing_analytics_ads_integration_visited',
 
     // Customer Analytics
+    CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = 'customer_analytics_dashboard_business_mode_changed',
     CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = 'customer_analytics_dashboard_configuration_button_clicked',
+    CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = 'customer_analytics_dashboard_filters_changed',
     CUSTOMER_ANALYTICS_VIEWED = 'customer_analytics_viewed',
 
     // Nav Panel Advertisement
