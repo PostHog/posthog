@@ -699,6 +699,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
         reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
         reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
+        reportCustomerAnalyticsViewed: (delay?: number) => ({ delay }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1704,6 +1705,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
+        },
+        // Customer Analytics
+        reportCustomerAnalyticsViewed: async ({ delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500)
+            }
+            const eventName = delay ? 'customer analytics analyzed' : 'customer analytics viewed'
+            posthog.capture(eventName, { delay })
         },
     })),
 ])

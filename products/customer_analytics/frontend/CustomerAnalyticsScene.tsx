@@ -1,15 +1,19 @@
-import { BindLogic } from 'kea'
+import { BindLogic, useActions } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
@@ -26,9 +30,21 @@ export const scene: SceneExport = {
 }
 
 export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const { addProductIntent } = useActions(teamLogic)
+    const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
+        useActions(eventUsageLogic)
+
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
     }
+
+    useOnMountEffect(() => {
+        reportCustomerAnalyticsViewed()
+        addProductIntent({
+            product_type: ProductKey.CUSTOMER_ANALYTICS,
+            intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_VIEWED,
+        })
+    })
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -45,6 +61,14 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                             size="small"
                             type="secondary"
                             to={urls.customerAnalyticsConfiguration()}
+                            onClick={() => {
+                                addProductIntent({
+                                    product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                    intent_context:
+                                        ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
+                                })
+                                reportCustomerAnalyticsDashboardConfigurationButtonClicked()
+                            }}
                             tooltip="Configure customer analytics"
                             children="Configure"
                             data-attr="customer-analytics-config"
