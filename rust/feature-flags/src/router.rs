@@ -1,4 +1,9 @@
-use std::{future::ready, sync::Arc, time::Duration};
+use std::{
+    future::ready,
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+    time::Duration,
+};
 
 use rand::Rng;
 
@@ -205,28 +210,37 @@ fn spawn_rate_limiter_cleanup_task(
         loop {
             interval.tick().await;
 
-            // Remove stale entries (keys that haven't been used within the rate limit window)
-            flags_rate_limiter.retain_recent();
-            flags_rate_limiter.shrink_to_fit();
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                // Remove stale entries (keys that haven't been used within the rate limit window)
+                flags_rate_limiter.retain_recent();
+                flags_rate_limiter.shrink_to_fit();
 
-            ip_rate_limiter.retain_recent();
-            ip_rate_limiter.shrink_to_fit();
+                ip_rate_limiter.retain_recent();
+                ip_rate_limiter.shrink_to_fit();
 
-            flag_definitions_limiter.retain_recent();
-            flag_definitions_limiter.shrink_to_fit();
+                flag_definitions_limiter.retain_recent();
+                flag_definitions_limiter.shrink_to_fit();
 
-            // Report metrics for monitoring
-            gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
-            gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
-            gauge!("flags_rate_limiter_definitions_entries")
-                .set(flag_definitions_limiter.len() as f64);
+                // Report metrics for monitoring
+                gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries")
+                    .set(flag_definitions_limiter.len() as f64);
 
-            tracing::debug!(
-                token_entries = flags_rate_limiter.len(),
-                ip_entries = ip_rate_limiter.len(),
-                definitions_entries = flag_definitions_limiter.len(),
-                "Rate limiter cleanup completed"
-            );
+                tracing::debug!(
+                    token_entries = flags_rate_limiter.len(),
+                    ip_entries = ip_rate_limiter.len(),
+                    definitions_entries = flag_definitions_limiter.len(),
+                    "Rate limiter cleanup completed"
+                );
+            }));
+
+            if let Err(e) = result {
+                tracing::error!(
+                    ?e,
+                    "Rate limiter cleanup panicked, will retry next interval"
+                );
+            }
         }
     });
 }
