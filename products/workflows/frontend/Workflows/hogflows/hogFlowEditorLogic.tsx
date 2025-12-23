@@ -455,23 +455,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         currentEdgeId: edge.id,
                     })
 
-                    // If we're moving a node, we shouldn't show dropzones on edges connected to that node as this would be a noop.
-                    const shouldShowDropzone = values.isCopyingNode
-                        ? ![edge.source, edge.target].includes(values.nodeToBeAdded?.id)
-                        : true
-
-                    if (shouldShowDropzone) {
-                        dropzoneNodes.push({
-                            id: `dropzone_edge_${edge.id}`,
-                            type: 'dropzone',
-                            position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
-                            data: {
-                                edge,
-                            },
-                            draggable: false,
-                            selectable: false,
-                        })
-                    }
+                    dropzoneNodes.push({
+                        id: `dropzone_edge_${edge.id}`,
+                        type: 'dropzone',
+                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                        data: {
+                            edge,
+                        },
+                        draggable: false,
+                        selectable: false,
+                    })
 
                     // If this branch edge has same target as other edges, we also add a single dropzone near the target node
                     const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
