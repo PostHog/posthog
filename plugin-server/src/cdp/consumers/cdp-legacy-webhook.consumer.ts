@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaConsumer } from '~/kafka/consumer'
-import { addGroupPropertiesToPostIngestionEvent } from '~/main/ingestion-queues/batch-processing/each-batch-webhooks'
 
 import {
     Action,
@@ -18,6 +17,9 @@ import { PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload, convertToPostIngestionEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { ActionManager } from '../legacy-webhooks/action-manager'
+import { ActionMatcher } from '../legacy-webhooks/action-matcher'
+import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 import { CdpConsumerBase } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
@@ -30,6 +32,8 @@ import { counterParseError } from './metrics'
 export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     protected name = 'CdpLegacyWebhookConsumer'
     protected kafkaConsumer: KafkaConsumer
+    protected actionManager: ActionManager
+    protected actionMatcher: ActionMatcher
 
     constructor(hub: Hub) {
         super(hub)
@@ -39,12 +43,15 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
             topic: hub.CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC,
         })
 
+        this.actionManager = new ActionManager(hub.postgres, hub.pubSub)
+        this.actionMatcher = new ActionMatcher(this.actionManager)
+
         logger.info('🔁', `CdpLegacyWebhookConsumer setup`)
     }
 
     @instrumented('cdpLegacyWebhookConsumer.processEvent')
     public async processEvent(event: PostIngestionEvent) {
-        const actionMatches = this.hub.actionMatcher.match(event)
+        const actionMatches = this.actionMatcher.match(event)
         if (!actionMatches.length) {
             return
         }
@@ -126,7 +133,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
                         const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
                         if (
-                            !this.hub.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
+                            !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
                             !(await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
                         ) {
                             // exit early if no webhooks nor resthooks
@@ -159,7 +166,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
-        await this.hub.actionManager.start()
+        await this.actionManager.start()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -176,7 +183,7 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
-        await this.hub.actionManager.stop()
+        await this.actionManager.stop()
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }
