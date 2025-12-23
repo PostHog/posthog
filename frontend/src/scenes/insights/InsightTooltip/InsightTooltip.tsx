@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import {
+    AnomalyInfo,
     COL_CUTOFF,
     InsightTooltipProps,
     InvertedSeriesDatum,
@@ -24,6 +25,17 @@ import {
     getTooltipTitle,
     invertDataSource,
 } from './insightTooltipUtils'
+
+function AnomalyIndicator({ anomalyInfo }: { anomalyInfo: AnomalyInfo }): JSX.Element {
+    return (
+        <div className="text-danger text-xs mt-1 flex items-center gap-1.5">
+            <span>⚠️</span>
+            <span className="font-medium">Anomaly</span>
+            {anomalyInfo.score !== null && <span className="text-muted">· score {anomalyInfo.score.toFixed(2)}</span>}
+            <span className="text-muted">· {anomalyInfo.alertName}</span>
+        </div>
+    )
+}
 
 export function ClickToInspectActors({
     isTruncated,
@@ -233,18 +245,23 @@ export function InsightTooltip({
         title: <span className="whitespace-nowrap">{title}</span>,
         sticky: true,
         render: function renderDatum(_, datum, rowIdx) {
-            return renderSeries(
-                <InsightLabel
-                    action={datum.action}
-                    fallbackName={datum.label}
-                    showSingleName
-                    hideBreakdown
-                    hideCompare
-                    hideIcon
-                    allowWrap
-                />,
-                datum,
-                rowIdx
+            return (
+                <div>
+                    {renderSeries(
+                        <InsightLabel
+                            action={datum.action}
+                            fallbackName={datum.label}
+                            showSingleName
+                            hideBreakdown
+                            hideCompare
+                            hideIcon
+                            allowWrap
+                        />,
+                        datum,
+                        rowIdx
+                    )}
+                    {datum.anomalyInfo && <AnomalyIndicator anomalyInfo={datum.anomalyInfo} />}
+                </div>
             )
         },
     })
