@@ -2802,7 +2802,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
         @parameterized.expand(
             [
                 ("event_prop", BreakdownType.EVENT, ["$browser"], "Chrome", "Firefox"),
-                ("person_prop", BreakdownType.PERSON, ["some_val"], "val1", "val2"),
+                ("person_prop", BreakdownType.PERSON, ["some_prop"], "val1", "val2"),
                 ("data_warehouse_prop", BreakdownType.DATA_WAREHOUSE, ["event_name"], "payment_succeeded", ""),
             ]
         )
