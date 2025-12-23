@@ -380,6 +380,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person = self.get_object()
             # Convert query params to request data format expected by bulk_delete
             self._bulk_delete_persons(
+                request=request,
                 ids=[str(person.uuid)],
                 delete_events="delete_events" in request.GET,
                 delete_recordings="delete_recordings" in request.GET,
@@ -433,6 +434,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         keep_person = request.data.get("keep_person")
 
         self._bulk_delete_persons(
+            request=request,
             distinct_ids=request.data.get("distinct_ids"),
             ids=request.data.get("ids"),
             delete_events=delete_events,
@@ -444,9 +446,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _bulk_delete_persons(
         self,
-        distinct_ids: list[str] | None = None,
-        ids: list[str] | None = None,
-        delete_events=False,
+        request: request.Request,
+        distinct_ids: builtins.list[str] | None = None,
+        ids: builtins.list[str] | None = None,
+        delete_events: bool = False,
         delete_recordings: bool = False,
         keep_person: bool = False,
     ) -> None:
@@ -982,7 +985,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=202)
 
-    def _queue_event_deletion(self, persons: list[Person]) -> None:
+    def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
         """Helper to queue deletion of all events for a person."""
         AsyncDeletion.objects.bulk_create(
             [
@@ -997,7 +1000,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
 
-    def _queue_delete_recordings(self, persons: list[Person]) -> None:
+    def _queue_delete_recordings(self, persons: builtins.list[Person]) -> None:
         temporal = sync_connect()
 
         for person in persons:
@@ -1005,9 +1008,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 distinct_ids=person.distinct_ids,
                 team_id=self.team_id,
             )
-            workflow_id = (
-                f"delete-recordings-with-person-{'-'.join([person.uuid for person in persons])}-{uuid.uuid4()}"
-            )
+            workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
 
             asyncio.run(
                 temporal.start_workflow(
