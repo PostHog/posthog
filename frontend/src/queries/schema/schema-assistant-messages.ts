@@ -356,7 +356,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
 
 export type AssistantTool =
     | 'search_session_recordings'
-    | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'

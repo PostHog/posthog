@@ -224,7 +224,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [
             (s) => [s.registeredToolMap],
-            (registeredToolMap) => !!registeredToolMap.create_and_query_insight || !!registeredToolMap.create_insight,
+            (registeredToolMap) => !!registeredToolMap.create_insight,
         ],
         toolSuggestions: [
             (s) => [s.tools],
