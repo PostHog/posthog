@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union, cast, overload
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -23,6 +24,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DateRange,
     EventsNode,
+    FunnelsFilter,
     FunnelsQuery,
 )
 
@@ -2841,16 +2843,18 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                     breakdownFilter=BreakdownFilter(
                         breakdown_type=BreakdownType.EVENT,
-                        breakdown="$browser",
+                        breakdown=["$browser"],
                     ),
+                    funnelsFilter=FunnelsFilter(funnelOrderType=funnel_order_type),
                 )
 
                 runner = FunnelsQueryRunner(query=funnels_query, team=self.team)
                 response = runner.calculate()
                 results = response.results
 
+                breakdown_index = 0
                 self._assert_funnel_breakdown_result_is_correct(
-                    results[0],
+                    results[breakdown_index],
                     [
                         FunnelStepResult(name="$pageview", count=1, breakdown=["Chrome"]),
                         FunnelStepResult(
@@ -2874,8 +2878,42 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     [people["person1"].uuid],
                 )
 
+                # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
+                if funnel_order_type == FunnelOrderType.UNORDERED:
+                    breakdown_index = breakdown_index + 1
+                    self._assert_funnel_breakdown_result_is_correct(
+                        results[breakdown_index],
+                        [
+                            FunnelStepResult(
+                                name="",
+                                count=4,
+                                breakdown=[""],
+                            ),
+                            FunnelStepResult(
+                                name="",
+                                count=0,
+                                breakdown=[""],
+                                type="data_warehouse",
+                            ),
+                        ],
+                    )
+
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, ""),
+                        [
+                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
+                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                        ],
+                    )
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 2, ""),
+                        [],
+                    )
+
                 self._assert_funnel_breakdown_result_is_correct(
-                    results[1],
+                    results[breakdown_index + 1],
                     [
                         FunnelStepResult(name="$pageview", count=1, breakdown=["Firefox"]),
                         FunnelStepResult(
