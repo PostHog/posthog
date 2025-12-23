@@ -558,6 +558,34 @@ export const WebStatsTrendTile = ({
     )
 }
 
+export const AveragePageViewVisualizationTile = ({
+    query,
+    insightProps,
+    attachTo,
+}: QueryWithInsightProps<DataVisualizationNode>): JSX.Element => {
+    const { setInterval } = useActions(webAnalyticsLogic)
+    const {
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            <div className="flex flex-row items-center justify-end m-2 mr-4">
+                <div className="flex flex-row items-center">
+                    <span className="mr-2">Group by</span>
+                    <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
+                </div>
+            </div>
+            <Query
+                attachTo={attachTo}
+                query={query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+            />
+        </div>
+    )
+}
+
 export const MarketingAnalyticsTrendTile = ({
     query,
     showIntervalTile,
@@ -966,6 +994,10 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
         return <WebVitalsPathBreakdownTile attachTo={attachTo} query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.DataVisualizationNode) {
+        return <AveragePageViewVisualizationTile attachTo={attachTo} query={query} insightProps={insightProps} />
     }
 
     return (
