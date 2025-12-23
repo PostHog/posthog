@@ -1090,7 +1090,6 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.loadExposures(forceRefresh)
         },
         updateExperimentMetrics: async () => {
-            // Backend automatically syncs ordering arrays when metrics change
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
@@ -1219,7 +1218,6 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
-            // Backend automatically syncs ordering arrays when saved_metrics change
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: combinedMetricsIds,
             })
@@ -1233,7 +1231,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
-            // Backend automatically syncs ordering arrays when saved_metrics change
             await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
                 saved_metrics_ids: sharedMetricsIds,
             })
