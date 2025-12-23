@@ -144,6 +144,7 @@
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
+         "posthog_team"."error_tracking_spikes_detection_multiplier",
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
