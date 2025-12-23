@@ -153,13 +153,11 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
                 priority,
             })
         }
-    }, [isRefReady, name, keybind, intent, interaction, scope, disabled, ref, callback, priority, registerAppShortcut])
 
-    useEffect(() => {
         return () => {
             unregisterAppShortcut(name)
         }
-    }, [name, unregisterAppShortcut])
+    }, [isRefReady, name, intent, interaction, scope, disabled, ref, callback, priority, registerAppShortcut]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return { ref, callbackRef }
 }
