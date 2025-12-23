@@ -58,8 +58,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
 
-    private inlinePercentage: number
-
     constructor(hub: Hub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
@@ -76,12 +74,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
         })
-
-        this.inlinePercentage = hub.CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE
-
-        if (this.inlinePercentage > 1 || this.inlinePercentage < 0) {
-            throw new Error('CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE must be between 0 and 1')
-        }
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
