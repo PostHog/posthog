@@ -1,14 +1,8 @@
 from itertools import cycle
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 from uuid import uuid4
 
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    NonAtomicBaseTest,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -21,9 +15,9 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
-from pydantic import BaseModel
 
 from posthog.schema import (
+    AgentMode,
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
@@ -41,7 +35,6 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    AssistantUpdateEvent,
     DashboardFilter,
     EventTaxonomyItem,
     FailureMessage,
@@ -69,8 +62,8 @@ from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.chat_agent.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.core.node import AssistantNode
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.insights_assistant import InsightsAssistant
+from ee.hogai.test.base import BaseAssistantTest
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
@@ -86,19 +79,12 @@ query_executor_mock = patch(
 )
 
 
-class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
+class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
     CLASS_DATA_LEVEL_SETUP = False
     maxDiff = None
 
     def setUp(self):
         super().setUp()
-        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
-        self.core_memory = CoreMemory.objects.create(
-            team=self.team,
-            text="Initial memory.",
-            initial_text="Initial memory.",
-            scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
-        )
 
         # Azure embeddings mocks
         self.azure_client_mock = patch(
@@ -117,11 +103,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ).start()
 
-        self.checkpointer_patch = patch("ee.hogai.core.base.global_checkpointer", new=DjangoCheckpointer())
-        self.checkpointer_patch.start()
-
     def tearDown(self):
-        self.checkpointer_patch.stop()
         self.azure_client_mock.stop()
         self.embed_query_mock.stop()
         super().tearDown()
@@ -151,6 +133,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         contextual_tools: Optional[dict[str, Any]] = None,
         ui_context: Optional[MaxUIContext] = None,
         filter_ack_messages: bool = True,
+        agent_mode: Optional[AgentMode] = None,
     ) -> tuple[list[AssistantOutput], ChatAgentRunner | InsightsAssistant]:
         # If no mode is specified, use ASSISTANT as default
         if mode is None:
@@ -167,6 +150,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 is_new_conversation=is_new_conversation,
                 initial_state=tool_call_partial_state,
                 contextual_tools=contextual_tools,
+                agent_mode=agent_mode,
             )
         else:
             assistant = InsightsAssistant(
@@ -197,154 +181,6 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
             ]
         return output, assistant
-
-    def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):
-        self.assertEqual(len(output), len(expected_output), output)
-        for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
-            zip(output, expected_output)
-        ):
-            if (
-                output_msg_type == AssistantEventType.CONVERSATION
-                and expected_msg_type == AssistantEventType.CONVERSATION
-            ):
-                self.assertEqual(output_msg, expected_msg)
-            elif (
-                output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE
-            ) or (output_msg_type == AssistantEventType.UPDATE and expected_msg_type == AssistantEventType.UPDATE):
-                msg_dict = (
-                    expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
-                )
-                msg_dict.pop("id", None)
-                output_msg_dict = cast(BaseModel, output_msg).model_dump(exclude_none=True)
-                output_msg_dict.pop("id", None)
-                self.assertLessEqual(
-                    msg_dict.items(),
-                    output_msg_dict.items(),
-                    f"Message content mismatch at index {i}",
-                )
-            else:
-                raise ValueError(f"Unexpected message type: {output_msg_type} and {expected_msg_type}")
-
-    def assertStateMessagesEqual(self, messages: list[Any], expected_messages: list[Any]):
-        self.assertEqual(len(messages), len(expected_messages))
-        for i, (message, expected_message) in enumerate(zip(messages, expected_messages)):
-            expected_msg_dict = (
-                expected_message.model_dump(exclude_none=True)
-                if isinstance(expected_message, BaseModel)
-                else expected_message
-            )
-            expected_msg_dict.pop("id", None)
-            msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
-            msg_dict.pop("id", None)
-            self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
-
-    async def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root()
-            .compile()
-        )
-
-        with (
-            patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model") as root_mock,
-            patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model") as planner_mock,
-        ):
-            config: RunnableConfig = {
-                "configurable": {
-                    "thread_id": self.conversation.id,
-                }
-            }
-
-            def root_side_effect(msgs: list[BaseMessage]):
-                last_message = msgs[-1]
-
-                if (
-                    isinstance(last_message.content, list)
-                    and isinstance(last_message.content[-1], dict)
-                    and last_message.content[-1]["type"] == "tool_result"
-                ):
-                    return RunnableLambda(lambda _: messages.AIMessage(content="Agent needs help with this query"))
-
-                return messages.AIMessage(
-                    content="Okay",
-                    tool_calls=[
-                        {
-                            "id": "1",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar"},
-                        }
-                    ],
-                )
-
-            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
-
-            # Interrupt the graph
-            planner_mock.return_value = FakeChatOpenAI(
-                responses=[
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_1",
-                                "name": "ask_user_for_help",
-                                "args": {"request": "Need help with this query"},
-                            }
-                        ],
-                    )
-                ]
-            )
-            output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
-            expected_output = [
-                ("message", HumanMessage(content="Hello")),
-                (
-                    "message",
-                    AssistantMessage(
-                        content="Okay",
-                        tool_calls=[
-                            AssistantToolCall(
-                                id="1",
-                                name="create_and_query_insight",
-                                args={"query_description": "Foobar"},
-                            )
-                        ],
-                    ),
-                ),
-                (
-                    "update",
-                    AssistantUpdateEvent(
-                        id="message_1",
-                        content="Picking relevant events and properties",
-                        tool_call_id="1",
-                    ),
-                ),
-                (
-                    "message",
-                    AssistantToolCallMessage(
-                        content="The agent has requested help:\nrequest='Need help with this query'", tool_call_id="1"
-                    ),
-                ),
-                ("message", AssistantMessage(content="Agent needs help with this query")),
-            ]
-            self.assertConversationEqual(output, expected_output)
-            snapshot: StateSnapshot = await graph.aget_state(config)
-            self.assertFalse(snapshot.next)
-            self.assertFalse(snapshot.values.get("intermediate_steps"))
-            self.assertFalse(snapshot.values.get("plan"))
-            self.assertFalse(snapshot.values.get("graph_status"))
-            self.assertFalse(snapshot.values.get("root_tool_call_id"))
-            self.assertFalse(snapshot.values.get("root_tool_insight_plan"))
-            self.assertFalse(snapshot.values.get("root_tool_insight_type"))
-            self.assertFalse(snapshot.values.get("root_tool_calls_count"))
-
-    async def test_trends_interrupt_when_asking_for_help(self):
-        await self._test_human_in_the_loop("trends")
-
-    async def test_funnels_interrupt_when_asking_for_help(self):
-        await self._test_human_in_the_loop("funnel")
-
-    async def test_retention_interrupt_when_asking_for_help(self):
-        await self._test_human_in_the_loop("retention")
 
     async def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model") as mock:
@@ -533,22 +369,19 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch(
         "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
     )
-    async def test_full_trends_flow(
-        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
-    ):
+    async def test_full_trends_flow(self, memory_collector_mock, root_mock, generator_mock, title_generator_mock):
         res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar"},
+                        "name": "create_insight",
+                        "args": {"insight_type": "trends", "title": "Test Insight", "query_description": "Foobar"},
                     }
                 ],
             )
@@ -558,20 +391,6 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res2])
 
-        planner_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        )
         query = AssistantTrendsQuery(series=[])
         generator_mock.return_value = RunnableLambda(
             lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
@@ -581,7 +400,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        self.assertEqual(len(actual_output), 6)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
@@ -596,15 +415,11 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(actual_output[2][1], AssistantMessage)
         assert isinstance(actual_output[2][1], AssistantMessage)
         assert actual_output[2][1].tool_calls is not None
-        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
-
-        # Check update events
-        self.assertEqual(actual_output[3][0], "update")
-        self.assertEqual(actual_output[4][0], "update")
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_insight")
 
         # Check artifact message - enriched from ArtifactRefMessage
-        self.assertEqual(actual_output[5][0], "message")
-        artifact_msg = actual_output[5][1]
+        self.assertEqual(actual_output[3][0], "message")
+        artifact_msg = actual_output[3][1]
         self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
         self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
@@ -612,41 +427,38 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(artifact_msg.content.query, query)
 
         # Check tool call message
-        self.assertEqual(actual_output[6][0], "message")
-        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertEqual(actual_output[4][0], "message")
+        self.assertIsInstance(actual_output[4][1], AssistantToolCallMessage)
 
         # Check final assistant message
-        self.assertEqual(actual_output[7][0], "message")
-        assert isinstance(actual_output[7][1], AssistantMessage)
-        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
+        self.assertEqual(actual_output[5][0], "message")
+        assert isinstance(actual_output[5][1], AssistantMessage)
+        self.assertEqual(actual_output[5][1].content, "The results indicate a great future for you.")
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 7)
+        self.assertEqual(len(actual_output), 5)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 7)
+        self.assertEqual(len(actual_output), 5)
 
     @title_generator_mock
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch(
         "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
     )
-    async def test_full_funnel_flow(
-        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
-    ):
+    async def test_full_funnel_flow(self, memory_collector_mock, root_mock, generator_mock, title_generator_mock):
         res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar"},
+                        "name": "create_insight",
+                        "args": {"insight_type": "funnel", "title": "Test Insight", "query_description": "Foobar"},
                     }
                 ],
             )
@@ -656,20 +468,6 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res2])
 
-        planner_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "funnel", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        )
         query = AssistantFunnelsQuery(
             series=[
                 AssistantFunnelsEventsNode(event="$pageview"),
@@ -684,7 +482,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        self.assertEqual(len(actual_output), 6)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
@@ -699,15 +497,11 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(actual_output[2][1], AssistantMessage)
         assert isinstance(actual_output[2][1], AssistantMessage)
         assert actual_output[2][1].tool_calls is not None
-        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
-
-        # Check update events
-        self.assertEqual(actual_output[3][0], "update")
-        self.assertEqual(actual_output[4][0], "update")
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_insight")
 
         # Check artifact message - enriched from ArtifactRefMessage
-        self.assertEqual(actual_output[5][0], "message")
-        artifact_msg = actual_output[5][1]
+        self.assertEqual(actual_output[3][0], "message")
+        artifact_msg = actual_output[3][1]
         self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
         self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
@@ -715,34 +509,30 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(artifact_msg.content.query, query)
 
         # Check tool call message
-        self.assertEqual(actual_output[6][0], "message")
-        assert isinstance(actual_output[6][1], AssistantToolCallMessage)
-        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertEqual(actual_output[4][0], "message")
+        self.assertIsInstance(actual_output[4][1], AssistantToolCallMessage)
 
         # Check final assistant message
-        self.assertEqual(actual_output[7][0], "message")
-        assert isinstance(actual_output[7][1], AssistantMessage)
-        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
+        self.assertEqual(actual_output[5][0], "message")
+        assert isinstance(actual_output[5][1], AssistantMessage)
+        self.assertEqual(actual_output[5][1].content, "The results indicate a great future for you.")
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 7)
+        self.assertEqual(len(actual_output), 5)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 7)
+        self.assertEqual(len(actual_output), 5)
 
     @title_generator_mock
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch(
         "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
     )
-    async def test_full_retention_flow(
-        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
-    ):
+    async def test_full_retention_flow(self, memory_collector_mock, root_mock, generator_mock, title_generator_mock):
         action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
 
         res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
@@ -751,8 +541,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar"},
+                        "name": "create_insight",
+                        "args": {"insight_type": "retention", "title": "Test Insight", "query_description": "Foobar"},
                     }
                 ],
             )
@@ -762,20 +552,6 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res2])
 
-        planner_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "retention", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        )
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
                 targetEntity=AssistantRetentionEventsNode(name="$pageview"),
@@ -790,7 +566,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        self.assertEqual(len(actual_output), 6)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
@@ -805,15 +581,11 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(actual_output[2][1], AssistantMessage)
         assert isinstance(actual_output[2][1], AssistantMessage)
         assert actual_output[2][1].tool_calls is not None
-        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
-
-        # Check update events
-        self.assertEqual(actual_output[3][0], "update")
-        self.assertEqual(actual_output[4][0], "update")
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_insight")
 
         # Check artifact message - enriched from ArtifactRefMessage
-        self.assertEqual(actual_output[5][0], "message")
-        artifact_msg = actual_output[5][1]
+        self.assertEqual(actual_output[3][0], "message")
+        artifact_msg = actual_output[3][1]
         self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
         self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
@@ -821,42 +593,38 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(artifact_msg.content.query, query)
 
         # Check tool call message
-        self.assertEqual(actual_output[6][0], "message")
-        assert isinstance(actual_output[6][1], AssistantToolCallMessage)
-        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertEqual(actual_output[4][0], "message")
+        self.assertIsInstance(actual_output[4][1], AssistantToolCallMessage)
 
         # Check final assistant message
-        self.assertEqual(actual_output[7][0], "message")
-        assert isinstance(actual_output[7][1], AssistantMessage)
-        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
+        self.assertEqual(actual_output[5][0], "message")
+        assert isinstance(actual_output[5][1], AssistantMessage)
+        self.assertEqual(actual_output[5][1].content, "The results indicate a great future for you.")
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 7)
+        self.assertEqual(len(actual_output), 5)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertEqual(len(actual_output), 7)
+        self.assertEqual(len(actual_output), 5)
 
     @title_generator_mock
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch(
         "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
     )
-    async def test_full_sql_flow(
-        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
-    ):
+    async def test_full_sql_flow(self, memory_collector_mock, root_mock, generator_mock, title_generator_mock):
         res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar"},
+                        "name": "create_insight",
+                        "args": {"insight_type": "sql", "title": "Test Insight", "query_description": "Foobar"},
                     }
                 ],
             )
@@ -866,19 +634,6 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         root_mock.side_effect = cycle([res1, res2])
 
-        planner_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "id": "call_1",
-                        "name": "final_answer",
-                        "args": {"query_kind": "sql", "plan": "Plan"},
-                    }
-                ],
-                response_metadata={"id": "call_1"},
-            )
-        )
         query = AssistantHogQLQuery(query="SELECT 1")
         generator_mock.return_value = RunnableLambda(
             lambda _: {"query": "SELECT 1", "name": "Test Insight", "description": "Test Description"}
@@ -888,7 +643,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
         # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        self.assertEqual(len(actual_output), 6)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
@@ -903,15 +658,11 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(actual_output[2][1], AssistantMessage)
         assert isinstance(actual_output[2][1], AssistantMessage)
         assert actual_output[2][1].tool_calls is not None
-        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
-
-        # Check update events
-        self.assertEqual(actual_output[3][0], "update")
-        self.assertEqual(actual_output[4][0], "update")
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_insight")
 
         # Check artifact message - enriched from ArtifactRefMessage
-        self.assertEqual(actual_output[5][0], "message")
-        artifact_msg = actual_output[5][1]
+        self.assertEqual(actual_output[3][0], "message")
+        artifact_msg = actual_output[3][1]
         self.assertIsInstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
         self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
@@ -919,14 +670,13 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(artifact_msg.content.query, query)
 
         # Check tool call message
-        self.assertEqual(actual_output[6][0], "message")
-        assert isinstance(actual_output[6][1], AssistantToolCallMessage)
-        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertEqual(actual_output[4][0], "message")
+        self.assertIsInstance(actual_output[4][1], AssistantToolCallMessage)
 
         # Check final assistant message
-        self.assertEqual(actual_output[7][0], "message")
-        assert isinstance(actual_output[7][1], AssistantMessage)
-        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
+        self.assertEqual(actual_output[5][0], "message")
+        assert isinstance(actual_output[5][1], AssistantMessage)
+        self.assertEqual(actual_output[5][1].content, "The results indicate a great future for you.")
 
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
@@ -1229,8 +979,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                     tool_calls=[
                         {
                             "id": "1",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar"},
+                            "name": "create_insight",
+                            "args": {"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
                         }
                     ],
                 )
@@ -1526,12 +1276,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch("ee.hogai.chat_agent.query_executor.nodes.QueryExecutorNode.arun")
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.chat_agent.rag.nodes.InsightRagContextNode.run")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
-    async def test_create_and_query_insight_contextual_tool(
-        self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock
-    ):
+    async def test_create_insight_contextual_tool(self, root_mock, generator_mock, query_executor_mock):
         def root_side_effect(msgs: list[BaseMessage]):
             last_message = msgs[-1]
 
@@ -1547,31 +1293,14 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 tool_calls=[
                     {
                         "id": "xyz",
-                        "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar"},
+                        "name": "create_insight",
+                        "args": {"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
                     }
                 ],
             )
 
         root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
-        rag_mock.return_value = PartialAssistantState(
-            rag_context="",
-        )
 
-        planner_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        )
         query = AssistantTrendsQuery(series=[])
         generator_mock.return_value = RunnableLambda(
             lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
@@ -1592,7 +1321,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
             message="Hello",
             mode="assistant",
-            contextual_tools={"create_and_query_insight": {"current_query": "query"}},
+            contextual_tools={"create_insight": {"current_query": "query"}},
         )
 
         # Verify output length
@@ -1611,7 +1340,7 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(output[2][1], AssistantMessage)
         assert isinstance(output[2][1], AssistantMessage)
         assert output[2][1].tool_calls is not None
-        self.assertEqual(output[2][1].tool_calls[0].name, "create_and_query_insight")
+        self.assertEqual(output[2][1].tool_calls[0].name, "create_insight")
 
         # Check update events
         self.assertEqual(output[3][0], "update")
@@ -1674,8 +1403,8 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             AssistantToolCall(
                                 id="tool-1",
-                                name="create_and_query_insight",
-                                args={"query_description": "test"},
+                                name="create_insight",
+                                args={"title": "Foobar", "query_description": "Foobar", "insight_type": "trends"},
                             )
                         ],
                     ),
