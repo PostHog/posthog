@@ -135,12 +135,12 @@ def get_person_name_helper(
 
 
 class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "persons_burst"
+    scope = "persons_delete_burst"
     rate = "480/minute"
 
 
 class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "persons_sustained"
+    scope = "persons_delete_sustained"
     rate = "4800/hour"
 
 
