@@ -138,6 +138,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'compareFilter',
                 'hasHostFilter',
                 'validatedDomainFilter',
+                'authorizedDomains',
             ],
         ],
         actions: [
@@ -723,37 +724,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 embedded: false,
             }),
-        ],
-        authorizedDomains: [
-            (s) => [s.authorizedUrls],
-            (authorizedUrls) => {
-                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
-                // - They are URLs, we want domains
-                // - There might be duplicates, so clean them up
-                // - There might be duplicates across http/https, so clean them up
-
-                // First create URL objects and group them by hostname+port
-                const urlsByDomain = new Map<string, URL[]>()
-
-                for (const urlStr of authorizedUrls) {
-                    try {
-                        const url = new URL(urlStr)
-                        const key = url.host // hostname + port if present
-                        if (!urlsByDomain.has(key)) {
-                            urlsByDomain.set(key, [])
-                        }
-                        urlsByDomain.get(key)!.push(url)
-                    } catch {
-                        // Silently skip URLs that can't be parsed
-                    }
-                }
-
-                // For each domain, prefer https over http
-                return Array.from(urlsByDomain.values()).map((urls) => {
-                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
-                    return preferredUrl.origin
-                })
-            },
         ],
     }),
     selectors(({ actions }) => ({
