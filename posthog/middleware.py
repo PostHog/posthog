@@ -873,10 +873,10 @@ def is_read_only_impersonation(request: HttpRequest) -> bool:
 # HTTP methods that are considered idempotent/safe and allowed during impersonation
 IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
-# Paths that are allowed for non-idempotent requests during impersonation.
+# Paths that are allowed for non-idempotent requests during read-only impersonation.
 # These should be paths that are safe or necessary for the impersonated session to function.
 # Supports both prefix strings and compiled regex patterns.
-IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
+READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # These endpoints use POST but are read-only
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
@@ -895,7 +895,7 @@ class ImpersonationReadOnlyMiddleware:
     to prevent unintended modifications to the impersonated user's data.
 
     Safe methods (GET, HEAD, OPTIONS, TRACE) are always allowed.
-    Specific paths can be allowlisted via IMPERSONATION_ALLOWLISTED_PATHS.
+    Specific paths can be allowlisted via READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS.
     """
 
     def __init__(self, get_response):
@@ -921,7 +921,7 @@ class ImpersonationReadOnlyMiddleware:
         )
 
     def _is_path_allowlisted(self, path: str) -> bool:
-        for allowed_path in IMPERSONATION_ALLOWLISTED_PATHS:
+        for allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
             if isinstance(allowed_path, re.Pattern):
                 if allowed_path.match(path):
                     return True
