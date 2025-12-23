@@ -12,7 +12,6 @@ that have different migrations applied.
 from __future__ import annotations
 
 import os
-import re
 import sys
 import shutil
 import warnings
@@ -24,23 +23,11 @@ from django.core.management.commands.migrate import Command as DjangoMigrateComm
 from django.db import DEFAULT_DB_ALIAS
 from django.db.migrations.recorder import MigrationRecorder
 
-# Cache directory for migration files
-MIGRATION_CACHE_DIR = Path.home() / ".cache" / "posthog-migrations"
-
-# Pattern to validate migration names (without .py extension)
-# Must start with 4 digits, underscore, then alphanumeric/underscores only
-MIGRATION_NAME_PATTERN = re.compile(r"^(\d{4})_[a-zA-Z0-9_]+$")
-
-# Pattern to validate app names (valid Python package names)
-APP_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
-
-
-def validate_migration_path_components(app: str, name: str) -> bool:
-    """Validate app and migration name to prevent path traversal.
-
-    Returns True if valid, False otherwise.
-    """
-    return bool(APP_NAME_PATTERN.match(app) and MIGRATION_NAME_PATTERN.match(name))
+from hogli.migration_utils import (
+    MIGRATION_CACHE_DIR,
+    get_cached_migration,
+    is_valid_migration_path as validate_migration_path_components,
+)
 
 
 def get_managed_apps() -> set[str]:
@@ -124,17 +111,6 @@ def get_orphaned_migrations(connection) -> list[tuple[str, str]]:
             orphaned.append((app_label, migration_name))
 
     return orphaned
-
-
-def get_cached_migration(app_label: str, migration_name: str) -> Path | None:
-    """Check if a migration is cached.
-
-    Validates inputs to prevent path traversal attacks.
-    """
-    if not validate_migration_path_components(app_label, migration_name):
-        return None
-    cache_path = MIGRATION_CACHE_DIR / app_label / f"{migration_name}.py"
-    return cache_path if cache_path.exists() else None
 
 
 def get_previous_migration(app_label: str, migration_name: str, connection) -> str:
@@ -241,23 +217,34 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         return True
 
     except Exception as e:
-        # Clean up on failure - wrap each cleanup in try/except to ensure all run
+        # Clean up on failure - wrap each cleanup in try/except to ensure all run.
+        # Log cleanup failures so they can be debugged if the filesystem ends up
+        # in an unexpected state (e.g., hidden migrations not restored).
         try:
             target_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as cleanup_err:
+            warnings.warn(
+                f"Cleanup failed: could not remove temporary file {target_path}: {cleanup_err}",
+                stacklevel=2,
+            )
         try:
             if original_max_migration is not None:
                 max_migration_path.write_text(f"{original_max_migration}\n")
-        except Exception:
-            pass
+        except Exception as cleanup_err:
+            warnings.warn(
+                f"Cleanup failed: could not restore max_migration.txt: {cleanup_err}",
+                stacklevel=2,
+            )
         # Restore hidden migrations
         for original, hidden in hidden_migrations:
             try:
                 if hidden.exists():
                     hidden.rename(original)
-            except Exception:
-                pass
+            except Exception as cleanup_err:
+                warnings.warn(
+                    f"Cleanup failed: could not restore hidden migration {original}: {cleanup_err}",
+                    stacklevel=2,
+                )
         stdout.write(f"    Error: {e}")
         return False
 
