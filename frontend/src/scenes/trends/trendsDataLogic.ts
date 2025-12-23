@@ -106,6 +106,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'resultCustomizationBy as resultCustomizationByRaw',
                 'getTheme',
                 'theme',
+                'showAlertPoints',
             ],
         ],
         actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
