@@ -63,10 +63,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(hub)
 
-        logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
-            pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
-        })
-
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',
             loader: async (teamIds: string[]) => this.loadAndBuildHogFunctions(teamIds),
