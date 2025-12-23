@@ -50,6 +50,13 @@ OPENAI_CONFIG = ProviderConfig(
     output_tokens_field="completion_tokens",
 )
 
+OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="responses",
+    input_tokens_field="input_tokens",
+    output_tokens_field="output_tokens",
+)
+
 
 async def handle_llm_request(
     request_data: dict[str, Any],
