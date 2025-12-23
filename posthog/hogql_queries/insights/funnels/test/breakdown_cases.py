@@ -2803,7 +2803,13 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             [
                 ("event_prop", BreakdownType.EVENT, ["$browser"], "Chrome", "Firefox"),
                 ("person_prop", BreakdownType.PERSON, ["some_prop"], "val1", "val2"),
-                ("data_warehouse_prop", BreakdownType.DATA_WAREHOUSE, ["event_name"], "payment_succeeded", ""),
+                (
+                    "data_warehouse_prop",
+                    BreakdownType.DATA_WAREHOUSE,
+                    ["event_name"],
+                    "payment_succeeded",
+                    "payment_failed",
+                ),
             ]
         )
         @snapshot_clickhouse_queries
@@ -2913,14 +2919,24 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ],
                     )
 
-                    self.assertCountEqual(
-                        self._get_actor_ids_at_step(funnels_query, 1, ""),
-                        [
+                    if breakdown_type == "data_warehouse":
+                        expected_actor_ids = [
+                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                            UUID("c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47"),
+                        ]
+                    else:
+                        expected_actor_ids = [
                             UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
                             UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
                             UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
                             UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
-                        ],
+                        ]
+
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, ""),
+                        expected_actor_ids,
                     )
                     self.assertCountEqual(
                         self._get_actor_ids_at_step(funnels_query, 2, ""),
@@ -2943,10 +2959,17 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 1, second_val),
-                    [people["person2"].uuid],
-                )
+                if breakdown_type == "data_warehouse":
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, second_val),
+                        [UUID("8cadb28f-1825-f158-73fa-3f228865b540")],
+                    )
+                else:
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, second_val),
+                        [people["person2"].uuid],
+                    )
+
                 self.assertCountEqual(
                     self._get_actor_ids_at_step(funnels_query, 2, second_val),
                     [],
