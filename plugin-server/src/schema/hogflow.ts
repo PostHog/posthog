@@ -224,6 +224,7 @@ export const HogFlowSchema = z.object({
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
+    billable_action_types: z.array(z.string()).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

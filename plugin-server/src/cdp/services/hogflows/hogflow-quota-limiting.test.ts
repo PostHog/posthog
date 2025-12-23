@@ -21,6 +21,7 @@ describe('HogFlow Quota Limiting', () => {
             enabled: true,
             actions: [],
             trigger: { type: 'event' },
+            billable_action_types: [],
         } as unknown as HogFlow
 
         it('should not limit workflow when team has no quota limits', async () => {
@@ -29,6 +30,7 @@ describe('HogFlow Quota Limiting', () => {
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
                 actions: [{ type: 'function_email' } as any, { type: 'function' } as any],
+                billable_action_types: ['function_email', 'function'],
             }
 
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
@@ -50,6 +52,7 @@ describe('HogFlow Quota Limiting', () => {
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
                 actions: [{ type: 'function_email' } as any, { type: 'function' } as any],
+                billable_action_types: ['function_email', 'function'],
             }
 
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
@@ -65,11 +68,77 @@ describe('HogFlow Quota Limiting', () => {
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
                 actions: [{ type: 'delay' } as any, { type: 'function' } as any, { type: 'function_email' } as any],
+                billable_action_types: ['function', 'function_email'],
             }
 
             const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
 
             expect(result.isLimited).toBe(true)
+        })
+
+        it('should not limit workflow with no billable action types', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+
+            const hogFlow: HogFlow = {
+                ...baseHogFlow,
+                actions: [{ type: 'delay' } as any, { type: 'conditional_branch' } as any],
+                billable_action_types: [],
+            }
+
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+
+            expect(result.isLimited).toBe(false)
+            expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
+        })
+
+        it('should not limit workflow when billable_action_types is null', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+
+            const hogFlow: HogFlow = {
+                ...baseHogFlow,
+                actions: [{ type: 'function' } as any],
+                billable_action_types: null,
+            }
+
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+
+            expect(result.isLimited).toBe(false)
+            expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
+        })
+
+        it('should not check quota limits when billable_action_types is undefined', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+
+            const hogFlow: HogFlow = {
+                ...baseHogFlow,
+                actions: [{ type: 'function' } as any],
+                billable_action_types: undefined,
+            }
+
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+
+            expect(result.isLimited).toBe(false)
+            expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
+        })
+
+        it('should only check relevant quota limits based on billable action types', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
+
+            const hogFlow: HogFlow = {
+                ...baseHogFlow,
+                actions: [{ type: 'function' } as any, { type: 'delay' } as any],
+                billable_action_types: ['function'],
+            }
+
+            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+
+            expect(result.isLimited).toBe(false)
+            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledTimes(2)
+            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(teamId, 'workflow_emails')
+            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+                teamId,
+                'workflow_destinations_dispatched'
+            )
         })
     })
 })

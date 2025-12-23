@@ -22,7 +22,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
-import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
+import { counterHogFunctionStateOnEvent, counterParseError, counterQuotaLimited, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
 export class CdpEventsConsumer extends CdpConsumerBase {
