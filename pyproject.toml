@@ -109,6 +109,7 @@ dependencies = [
     "pymysql==1.1.1",
     "pymongo==4.13.2",
     "pyodbc==5.1.0",
+    "pyod==2.0.2",
     "pyroscope-io~=0.8.8",
     "python-dateutil~=2.9.0",
     "python-snappy~=0.7.3",
