@@ -6,8 +6,6 @@ from pydantic import BaseModel, Field
 from posthog.schema import AssistantTool, AssistantToolCallMessage
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import AccessControlLevel
-from posthog.scopes import APIScopeObject
 
 from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
@@ -525,7 +523,7 @@ class CreateInsightTool(MaxTool):
     args_schema: type[BaseModel] = CreateInsightToolArgs
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
 
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+    def get_required_resource_access(self):
         """Creating an insight requires editor-level access to insights."""
         return [("insight", "editor")]
 
