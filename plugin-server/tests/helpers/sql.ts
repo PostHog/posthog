@@ -147,7 +147,7 @@ export async function resetTestDatabase(extraServerConfig: Partial<PluginsServer
             throw e
         })
 
-    const teamIdToCreate = 1 // TODO: This might be wrong
+    const teamIdToCreate = 2 // TODO: This might be wrong
     await createUserTeamAndOrganization(pg, teamIdToCreate)
     await pg.end()
 }
@@ -328,33 +328,6 @@ export async function getTeam(hub: Hub, teamId: Team['id']): Promise<Team | null
 
 export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
-}
-
-export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'>) => {
-    return await insertRow(pg, 'posthog_plugin', {
-        ...plugin,
-        config_schema: {},
-        from_json: false,
-        from_web: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_preinstalled: false,
-        capabilities: {},
-    })
-}
-
-export const createPluginConfig = async (
-    pg: PostgresRouter,
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config'>
-) => {
-    return await insertRow(pg, 'posthog_pluginconfig', {
-        ...pluginConfig,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        enabled: true,
-        order: 0,
-        config: {},
-    })
 }
 
 export const createOrganization = async (pg: PostgresRouter) => {
