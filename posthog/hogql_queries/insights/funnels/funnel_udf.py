@@ -23,10 +23,6 @@ class FunnelProtocol(Protocol):
     def _default_breakdown_selector(self) -> str: ...
 
 
-TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
-
-
 class FunnelUDFMixin:
     def _prop_vals(self: FunnelProtocol):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
