@@ -207,7 +207,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
     require_evaluation_environment_tags: false,
-    error_tracking_spikes_detection_multiplier: 10,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

@@ -32,8 +32,16 @@ export function ErrorTrackingSpikesDetection(): JSX.Element {
 
             <div className="bg-bg-light border border-border rounded-lg p-4">
                 <div className="text-sm">
-                    If your issue occurrences increase by {multiplier}x over the baseline, we will emit an internal
-                    event <code>issue_spiking</code>
+                    If the number of occurrences of your issue increases by{' '}
+                    <span className="font-semibold bg-warning-highlight text-warning-dark px-1.5 py-0.5 rounded">
+                        {multiplier}x
+                    </span>{' '}
+                    compared to the baseline, we will emit an internal event <code>issue_spiking</code>
+                </div>
+            </div>
+            <div className="bg-bg-light border border-border rounded-lg p-4">
+                <div className="text-sm">
+                    Baseline is calculated as the average number of occurences over the last hour
                 </div>
             </div>
         </div>

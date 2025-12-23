@@ -1152,14 +1152,14 @@ impl TestContext {
             query_str.push_str(", secret_api_token_backup");
         }
 
-        query_str.push_str(", name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES ($1, $2, $3::uuid, $4, $5, $6");
+        query_str.push_str(", name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled, error_tracking_spikes_detection_multiplier) VALUES ($1, $2, $3::uuid, $4, $5, $6");
 
         // Add backup token parameter placeholder if provided
         if backup_secret_token.is_some() {
             query_str.push_str(", $7");
-            query_str.push_str(", $8, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $9, 'USD', '30d', false)");
+            query_str.push_str(", $8, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $9, 'USD', '30d', false, 10)");
         } else {
-            query_str.push_str(", $7, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $8, 'USD', '30d', false)");
+            query_str.push_str(", $7, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '[\"data-attr\"]', false, false, '[]', '[]', '[]', '[]', '[]', $8, 'USD', '30d', false, 10)");
         }
 
         let mut query = sqlx::query(&query_str)
