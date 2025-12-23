@@ -47,13 +47,8 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
         )
     })?;
 
-    let release_id = get_release_for_maps(
-        minified_map_path,
-        &release.project,
-        &release.version,
-        [&minified_map],
-    )?
-    .map(|r| r.id.to_string());
+    let release_id = get_release_for_maps(minified_map_path, release.clone(), [&minified_map])?
+        .map(|r| r.id.to_string());
 
     // The flow here differs from plain sourcemap injection a bit - here, we don't ever
     // overwrite the chunk ID, because at this point in the build process, we no longer

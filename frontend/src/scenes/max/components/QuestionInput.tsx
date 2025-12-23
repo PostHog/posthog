@@ -85,7 +85,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    let disabledReason = threadLoading && !dataProcessingAccepted ? 'Pending approval' : submissionDisabledReason
+    let disabledReason = !threadLoading
+        ? !dataProcessingAccepted
+            ? 'Pending approval'
+            : submissionDisabledReason
+        : undefined
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
@@ -201,15 +205,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <LemonButton
                                 type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
                                 onClick={() => {
+                                    if (threadLoading) {
+                                        stopGeneration()
+                                        return
+                                    }
                                     if (submissionDisabledReason) {
                                         textAreaRef?.current?.focus()
                                         return
                                     }
-                                    if (threadLoading) {
-                                        stopGeneration()
-                                    } else {
-                                        askMax(question)
-                                    }
+                                    askMax(question)
                                 }}
                                 tooltip={
                                     disabledReason ? (
@@ -225,8 +229,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
-                                // disabledReason={disabledReason}
-                                className={disabledReason || threadLoading ? 'opacity-[0.5]' : ''}
+                                disabledReason={disabledReason}
+                                className={disabledReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     threadLoading ? (
