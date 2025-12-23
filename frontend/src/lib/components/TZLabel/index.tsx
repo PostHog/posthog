@@ -169,10 +169,16 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     ref
 ): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
-    const displayTime = useMemo(
-        () => (displayTimezone ? parsedTime.tz(displayTimezone) : parsedTime),
-        [parsedTime, displayTimezone]
-    )
+    const displayTime = useMemo(() => {
+        if (!displayTimezone) {
+            return parsedTime
+        }
+        try {
+            return parsedTime.tz(displayTimezone)
+        } catch {
+            return parsedTime
+        }
+    }, [parsedTime, displayTimezone])
 
     const format = useCallback(() => {
         return formatDate || formatTime
