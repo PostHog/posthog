@@ -1,6 +1,6 @@
-// products/mcp/typescript/tests/unit/schema.ajv.test.ts
+// services/mcp/typescript/tests/unit/schema.ajv.test.ts
 // Guard test: compiles MCP tool input schemas with AJV in strict mode.
-// Uses the generated schema at products/mcp/schema/tool-inputs.json to catch
+// Uses the generated schema at services/mcp/schema/tool-inputs.json to catch
 // invalid or Ajv-strict-incompatible changes early in CI.
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
@@ -23,7 +23,7 @@ test('AJV strict compiles all MCP tool input schemas', async () => {
         // Guidance if the generated schema file is missing
         throw new Error(
             `Could not read schema file at ${schemaPath}.
-If this package generates schemas, run: pnpm --dir products/mcp schema:build:json`
+If this package generates schemas, run: pnpm --dir services/mcp schema:build:json`
         )
     }
 
