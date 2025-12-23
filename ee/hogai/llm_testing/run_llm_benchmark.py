@@ -14,6 +14,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import yaml
 import openai
 import tiktoken
 import anthropic
@@ -34,6 +35,7 @@ MODELS = [
     "claude-sonnet-4-5-20250929",
     "gpt-5.2",
     "claude-opus-4-5-20251101",
+    "gemini-3-flash-preview",
 ]
 
 TIMEOUT_SECONDS = 300  # 5 minutes
@@ -119,6 +121,42 @@ def save_result_file(experiment_id: str, model: str, response: str) -> None:
     result_file = result_dir / f"{model}.txt"
     with open(result_file, "w") as f:
         f.write(response)
+
+
+def validate_yaml_format(experiment_id: str, model: str) -> bool:
+    """Validate that the response is valid YAML format."""
+    result_file = RESULTS_DIR / experiment_id / f"{model}.txt"
+    if not result_file.exists():
+        return False
+
+    text = result_file.read_text().strip()
+
+    if text.startswith("```yaml"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        yaml.safe_load(text)
+        return True
+    except Exception as err:
+        print(f"Invalid YAML format for ee/hogai/llm_testing/results/{experiment_id}/{model}.txt: {err}")
+        return False
+
+
+def validate_results_for_model(model: str, prompts: list[tuple[str, str, str]]) -> None:
+    """Validate YAML format for all successful results of a model."""
+    for exp_id, _sys_prompt, _prompt in prompts:
+        if not STATE.get(exp_id, {}).get(model, {}).get("success", False):
+            continue
+
+        is_valid = validate_yaml_format(exp_id, model)
+        STATE[exp_id][model]["format_valid"] = is_valid
+
+    save_state(STATE)
 
 
 async def call_gemini(system_prompt: str, prompt: str, model: str) -> str:
@@ -280,10 +318,12 @@ async def run_benchmark_for_model(model: str, prompts: list[tuple[str, str, str]
 
     if not tasks:
         print(f"  All prompts already completed for {model}")
-        return
+    else:
+        print(f"  Running {len(tasks)} prompts...")
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-    print(f"  Running {len(tasks)} prompts...")
-    await asyncio.gather(*tasks, return_exceptions=True)
+    print(f"  Validating YAML format...")
+    validate_results_for_model(model, prompts)
 
 
 def calculate_stats(values: list[float]) -> dict[str, float]:
@@ -314,6 +354,8 @@ def print_stats(state: dict[str, dict[str, Any]], expected_count: int) -> None:
         total_errors = 0
         total_timeouts = 0
         total_requests = 0
+        total_format_valid = 0
+        total_format_invalid = 0
 
         for _experiment_id, models_data in state.items():
             if model not in models_data:
@@ -332,6 +374,10 @@ def print_stats(state: dict[str, dict[str, Any]], expected_count: int) -> None:
                     input_tokens_list.append(data["input_tokens"])
                 if data.get("output_tokens") is not None:
                     output_tokens_list.append(data["output_tokens"])
+                if data.get("format_valid") is True:
+                    total_format_valid += 1
+                elif data.get("format_valid") is False:
+                    total_format_invalid += 1
 
         if total_requests == 0:
             print("  No data")
@@ -344,6 +390,10 @@ def print_stats(state: dict[str, dict[str, Any]], expected_count: int) -> None:
         total_attempts = total_success + total_errors + total_timeouts
         error_rate = (total_errors / total_attempts * 100) if total_attempts > 0 else 0
         timeout_rate = (total_timeouts / total_attempts * 100) if total_attempts > 0 else 0
+
+        total_format_checked = total_format_valid + total_format_invalid
+        format_valid_rate = (total_format_valid / total_format_checked * 100) if total_format_checked > 0 else 0
+        format_invalid_rate = (total_format_invalid / total_format_checked * 100) if total_format_checked > 0 else 0
 
         print(f"  Response Time (s):")
         print(f"    avg: {response_stats['avg']:.2f}")
@@ -359,9 +409,11 @@ def print_stats(state: dict[str, dict[str, Any]], expected_count: int) -> None:
         print(f"    max: {output_stats['max']:.0f}")
         print(f"  Totals:")
         print(f"    expected: {expected_count}")
-        print(f"    successful: {total_success}")
+        # print(f"    successful: {total_success}")
         print(f"    errors: {total_errors} ({error_rate:.2f}%)")
         print(f"    timeouts: {total_timeouts} ({timeout_rate:.2f}%)")
+        print(f"    format valid: {total_format_valid} ({format_valid_rate:.2f}%)")
+        print(f"    format invalid: {total_format_invalid} ({format_invalid_rate:.2f}%)")
 
 
 async def main() -> None:
