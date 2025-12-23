@@ -1279,6 +1279,8 @@ export type TrendsFilter = {
     showLegend?: TrendsFilterLegacy['show_legend']
     /** @default false */
     showAlertThresholdLines?: boolean
+    /** @default false */
+    showAlertPoints?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
@@ -3785,6 +3787,102 @@ export interface TrendsAlertConfig {
     series_index: integer
     check_ongoing_interval?: boolean
 }
+
+// Anomaly Detection Types
+export enum DetectorType {
+    THRESHOLD = 'threshold',
+    ZSCORE = 'zscore',
+    MAD = 'mad',
+    IQR = 'iqr',
+    ISOLATION_FOREST = 'isolation_forest',
+    ECOD = 'ecod',
+    COPOD = 'copod',
+    KNN = 'knn',
+    ENSEMBLE = 'ensemble',
+}
+
+export enum EnsembleMode {
+    AND = 'and',
+    OR = 'or',
+}
+
+export interface PreprocessingConfig {
+    diffs?: boolean
+    lags?: integer // 0-10, for multivariate models (KNN, Isolation Forest)
+    smoothing?: integer // Moving average window size (0 or undefined = no smoothing)
+}
+
+export interface ThresholdDetectorConfig {
+    type: DetectorType.THRESHOLD
+    threshold_type: InsightThresholdType
+    bounds: InsightsThresholdBounds
+    preprocessing?: PreprocessingConfig
+}
+
+export interface ZScoreDetectorConfig {
+    type: DetectorType.ZSCORE
+    threshold?: number // default 3.0
+    window?: integer // default 30
+    preprocessing?: PreprocessingConfig
+}
+
+export interface MADDetectorConfig {
+    type: DetectorType.MAD
+    threshold?: number // default 3.0
+    window?: integer // default 30
+    preprocessing?: PreprocessingConfig
+}
+
+export interface IQRDetectorConfig {
+    type: DetectorType.IQR
+    multiplier?: number // default 1.5
+    window?: integer // default 30
+    preprocessing?: PreprocessingConfig
+}
+
+export interface IsolationForestDetectorConfig {
+    type: DetectorType.ISOLATION_FOREST
+    contamination?: number // default 0.1
+    n_estimators?: integer // default 100
+    preprocessing?: PreprocessingConfig
+}
+
+export interface ECODDetectorConfig {
+    type: DetectorType.ECOD
+    contamination?: number // default 0.1
+    preprocessing?: PreprocessingConfig
+}
+
+export interface COPODDetectorConfig {
+    type: DetectorType.COPOD
+    contamination?: number // default 0.1
+    preprocessing?: PreprocessingConfig
+}
+
+export interface KNNDetectorConfig {
+    type: DetectorType.KNN
+    n_neighbors?: integer // default 5
+    contamination?: number // default 0.1
+    preprocessing?: PreprocessingConfig
+}
+
+export type SingleDetectorConfig =
+    | ThresholdDetectorConfig
+    | ZScoreDetectorConfig
+    | MADDetectorConfig
+    | IQRDetectorConfig
+    | IsolationForestDetectorConfig
+    | ECODDetectorConfig
+    | COPODDetectorConfig
+    | KNNDetectorConfig
+
+export interface EnsembleDetectorConfig {
+    type: DetectorType.ENSEMBLE
+    mode: EnsembleMode
+    detectors: SingleDetectorConfig[] // 2-5 detectors
+}
+
+export type DetectorConfig = SingleDetectorConfig | EnsembleDetectorConfig
 
 export interface HogCompileResponse {
     bytecode: any[]

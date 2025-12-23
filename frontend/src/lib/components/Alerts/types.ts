@@ -2,6 +2,7 @@ import {
     AlertCalculationInterval,
     AlertCondition,
     AlertState,
+    DetectorConfig,
     InsightThreshold,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
@@ -17,6 +18,7 @@ export interface AlertTypeBase {
     insight: QueryBasedInsightModel
     config: AlertConfig
     skip_weekend?: boolean
+    detector_config?: DetectorConfig | null
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -31,6 +33,23 @@ export interface AlertCheck {
     calculated_value: number
     state: AlertState
     targets_notified: boolean
+    anomaly_scores?: (number | null)[] | null
+    triggered_points?: number[] | null
+    triggered_dates?: string[] | null // Dates of anomaly points for chart matching
+    interval?: string | null // Insight interval when check was created
+}
+
+export interface BackfillResult {
+    triggered_indices: number[]
+    scores: (number | null)[]
+    total_points: number
+    anomaly_count: number
+    data?: number[]
+    labels?: string[]
+    dates?: string[]
+    series_label?: string
+    saved_check_id?: string
+    check_state?: string
 }
 
 export interface AlertType extends AlertTypeBase {
