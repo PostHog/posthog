@@ -50,6 +50,24 @@ MIGRATION_APPS = {
 # Pattern to match migration files (0001_initial.py, etc.)
 MIGRATION_PATTERN = re.compile(r"^(\d{4})_.+\.py$")
 
+# Pattern to validate migration names (without .py extension)
+# Must start with 4 digits, underscore, then alphanumeric/underscores only
+MIGRATION_NAME_PATTERN = re.compile(r"^(\d{4})_[a-zA-Z0-9_]+$")
+
+# Pattern to validate app names (valid Python package names)
+APP_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
+
+
+def _validate_migration_path_components(app: str, name: str) -> None:
+    """Validate app and migration name to prevent path traversal.
+
+    Raises ValueError if either component contains invalid characters.
+    """
+    if not APP_NAME_PATTERN.match(app):
+        raise ValueError(f"Invalid app name: {app}")
+    if not MIGRATION_NAME_PATTERN.match(name):
+        raise ValueError(f"Invalid migration name: {name}")
+
 
 @dataclass
 class MigrationInfo:
@@ -94,7 +112,11 @@ def _get_all_migration_apps() -> dict[str, Path]:
 
 
 def _get_cache_path(app: str, name: str) -> Path:
-    """Get the cache path for a migration file."""
+    """Get the cache path for a migration file.
+
+    Validates inputs to prevent path traversal attacks.
+    """
+    _validate_migration_path_components(app, name)
     return MIGRATION_CACHE_DIR / app / f"{name}.py"
 
 

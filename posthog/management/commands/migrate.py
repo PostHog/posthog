@@ -12,6 +12,7 @@ that have different migrations applied.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import shutil
 import warnings
@@ -25,6 +26,21 @@ from django.db.migrations.recorder import MigrationRecorder
 
 # Cache directory for migration files
 MIGRATION_CACHE_DIR = Path.home() / ".cache" / "posthog-migrations"
+
+# Pattern to validate migration names (without .py extension)
+# Must start with 4 digits, underscore, then alphanumeric/underscores only
+MIGRATION_NAME_PATTERN = re.compile(r"^(\d{4})_[a-zA-Z0-9_]+$")
+
+# Pattern to validate app names (valid Python package names)
+APP_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
+
+
+def validate_migration_path_components(app: str, name: str) -> bool:
+    """Validate app and migration name to prevent path traversal.
+
+    Returns True if valid, False otherwise.
+    """
+    return bool(APP_NAME_PATTERN.match(app) and MIGRATION_NAME_PATTERN.match(name))
 
 
 def get_managed_apps() -> set[str]:
@@ -58,7 +74,14 @@ def get_app_migrations_dir(app_label: str) -> Path | None:
 
 
 def cache_migration(app_label: str, migration_name: str) -> bool:
-    """Cache a migration file for later rollback."""
+    """Cache a migration file for later rollback.
+
+    Validates inputs to prevent path traversal attacks.
+    """
+    # Validate inputs to prevent path traversal
+    if not validate_migration_path_components(app_label, migration_name):
+        return False
+
     migrations_dir = get_app_migrations_dir(app_label)
     if not migrations_dir:
         return False
@@ -104,7 +127,12 @@ def get_orphaned_migrations(connection) -> list[tuple[str, str]]:
 
 
 def get_cached_migration(app_label: str, migration_name: str) -> Path | None:
-    """Check if a migration is cached."""
+    """Check if a migration is cached.
+
+    Validates inputs to prevent path traversal attacks.
+    """
+    if not validate_migration_path_components(app_label, migration_name):
+        return None
     cache_path = MIGRATION_CACHE_DIR / app_label / f"{migration_name}.py"
     return cache_path if cache_path.exists() else None
 
