@@ -507,7 +507,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
     // Tab switching shortcuts
     useAppShortcut({
         name: 'WebAnalyticsTab1',
-        keybind: keyBinds.tab1,
+        keybind: [keyBinds.tab1],
         intent: 'Web analytics tab',
         interaction: 'function',
         callback: () => setProductTab(ProductTab.ANALYTICS),
@@ -515,7 +515,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
     })
     useAppShortcut({
         name: 'WebAnalyticsTab2',
-        keybind: keyBinds.tab2,
+        keybind: [keyBinds.tab2],
         intent: 'Web vitals tab',
         interaction: 'function',
         callback: () => setProductTab(ProductTab.WEB_VITALS),
@@ -523,7 +523,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
     })
     useAppShortcut({
         name: 'WebAnalyticsTab3',
-        keybind: keyBinds.tab3,
+        keybind: [keyBinds.tab3],
         intent: 'Page reports tab',
         interaction: 'function',
         callback: () => setProductTab(ProductTab.PAGE_REPORTS),
@@ -531,11 +531,12 @@ const WebAnalyticsTabs = (): JSX.Element => {
     })
     useAppShortcut({
         name: 'WebAnalyticsTab4',
-        keybind: keyBinds.tab4,
+        keybind: [keyBinds.tab4],
         intent: 'Health tab',
         interaction: 'function',
         callback: () => setProductTab(ProductTab.HEALTH),
         scope: Scene.WebAnalytics,
+        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
 
     const handleShare = (): void => {
