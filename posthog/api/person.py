@@ -464,13 +464,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person_ids = PersonDistinctId.objects.filter(
                 team_id=self.team_id, distinct_id__in=distinct_ids
             ).values_list("person_id", flat=True)
-            persons = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
+            persons_queryset = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
         elif ids:
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
+            persons_queryset = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
+
+        # Materialize queryset once before any deletions to avoid re-evaluating
+        # after records are deleted (which would return empty results)
+        persons = list(persons_queryset)
 
         if not keep_person:
             for person in persons:
@@ -488,10 +492,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         if delete_events:
-            self._queue_event_deletion(list(persons))
+            self._queue_event_deletion(persons)
 
         if delete_recordings:
-            self._queue_delete_recordings(list(persons))
+            self._queue_delete_recordings(persons)
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
@@ -999,27 +1003,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def _queue_delete_recordings(self, persons: builtins.list[Person]) -> None:
+        if not persons:
+            return
+
         temporal = sync_connect()
 
-        for person in persons:
-            input = RecordingsWithPersonInput(
-                distinct_ids=person.distinct_ids,
-                team_id=self.team_id,
-            )
-            workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
-
-            asyncio.run(
-                temporal.start_workflow(
-                    "delete-recordings-with-person",
-                    input,
-                    id=workflow_id,
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
+        async def start_all_workflows():
+            tasks = []
+            for person in persons:
+                workflow_input = RecordingsWithPersonInput(
+                    distinct_ids=person.distinct_ids,
+                    team_id=self.team_id,
                 )
-            )
+                workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
+                tasks.append(
+                    temporal.start_workflow(
+                        "delete-recordings-with-person",
+                        workflow_input,
+                        id=workflow_id,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
+                )
+            await asyncio.gather(*tasks)
+
+        asyncio.run(start_all_workflows())
 
 
 def paginated_result(
