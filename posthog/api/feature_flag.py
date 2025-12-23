@@ -1873,9 +1873,9 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
-            200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
-            402: OpenApiResponse(response=serializers.DictField()),
-            500: OpenApiResponse(response=serializers.DictField()),
+            200: OpenApiResponse(response=LocalEvaluationResponseSerializer),
+            402: OpenApiResponse(response=serializers.DictField),
+            500: OpenApiResponse(response=serializers.DictField),
         },
     )
     @action(
