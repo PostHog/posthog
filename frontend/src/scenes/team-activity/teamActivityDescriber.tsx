@@ -712,6 +712,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
 
         return { description: descriptions }
     },
+    error_tracking_spikes_detection_multiplier: createSimpleValueHandler('error tracking spikes detection multiplier'),
 
     // Complex configs that require a custom describer
     customer_analytics_config: customerAnalyticsConfigurationDescriber,
