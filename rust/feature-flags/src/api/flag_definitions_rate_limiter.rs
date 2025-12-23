@@ -163,6 +163,53 @@ where
     pub fn custom_rate_count(&self) -> usize {
         self.custom_limiters.read().unwrap().len()
     }
+
+    /// Removes stale entries from all rate limiters to prevent unbounded memory growth.
+    ///
+    /// This should be called periodically (e.g., every 60 seconds) by a background task.
+    /// Keys that haven't been used within the rate limit window are removed from both
+    /// the default limiter and all custom limiters.
+    pub fn retain_recent(&self) {
+        // Clean up the default limiter
+        self.default_limiter.retain_recent();
+
+        // Clean up all custom limiters
+        let custom_limiters = self.custom_limiters.read().unwrap();
+        for limiter in custom_limiters.values() {
+            limiter.retain_recent();
+        }
+    }
+
+    /// Shrinks the capacity of all rate limiter state stores if possible.
+    ///
+    /// Should be called after `retain_recent()` to reclaim memory.
+    pub fn shrink_to_fit(&self) {
+        self.default_limiter.shrink_to_fit();
+
+        let custom_limiters = self.custom_limiters.read().unwrap();
+        for limiter in custom_limiters.values() {
+            limiter.shrink_to_fit();
+        }
+    }
+
+    /// Returns the total number of keys currently tracked across all limiters.
+    ///
+    /// Note: This may return an approximate value.
+    pub fn len(&self) -> usize {
+        let mut total = self.default_limiter.len();
+
+        let custom_limiters = self.custom_limiters.read().unwrap();
+        for limiter in custom_limiters.values() {
+            total += limiter.len();
+        }
+
+        total
+    }
+
+    /// Returns true if no keys are currently tracked in any limiter.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[cfg(test)]

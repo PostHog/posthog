@@ -122,6 +122,31 @@ impl KeyedRateLimiter {
 
         allowed
     }
+
+    /// Removes stale entries from the rate limiter to prevent unbounded memory growth.
+    ///
+    /// Keys whose rate limiting state is indistinguishable from a fresh state
+    /// (i.e., the theoretical arrival time lies in the past) are removed.
+    /// This should be called periodically (e.g., every 60 seconds) to clean up
+    /// entries for keys that are no longer actively making requests.
+    fn retain_recent(&self) {
+        self.limiter.retain_recent();
+    }
+
+    /// Shrinks the capacity of the rate limiter's state store if possible.
+    ///
+    /// Should be called after `retain_recent()` to reclaim memory from removed entries.
+    fn shrink_to_fit(&self) {
+        self.limiter.shrink_to_fit();
+    }
+
+    /// Returns the number of keys currently tracked in the rate limiter.
+    ///
+    /// Note: This may return an approximate value depending on the underlying
+    /// state store implementation.
+    fn len(&self) -> usize {
+        self.limiter.len()
+    }
 }
 
 /// Token bucket rate limiter for feature flag requests.
@@ -207,6 +232,31 @@ impl FlagsRateLimiter {
     /// ```
     pub fn allow_request(&self, bucket_key: &str) -> bool {
         self.inner.allow_request(bucket_key)
+    }
+
+    /// Removes stale entries from the rate limiter to prevent unbounded memory growth.
+    ///
+    /// This should be called periodically (e.g., every 60 seconds) by a background task.
+    /// Keys that haven't been used within the rate limit window are removed.
+    pub fn retain_recent(&self) {
+        self.inner.retain_recent();
+    }
+
+    /// Shrinks the capacity of the rate limiter's state store if possible.
+    ///
+    /// Should be called after `retain_recent()` to reclaim memory.
+    pub fn shrink_to_fit(&self) {
+        self.inner.shrink_to_fit();
+    }
+
+    /// Returns the approximate number of keys currently tracked.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true if no keys are currently tracked.
+    pub fn is_empty(&self) -> bool {
+        self.inner.len() == 0
     }
 }
 
@@ -448,6 +498,31 @@ impl IpRateLimiter {
     /// ```
     pub fn allow_request(&self, ip: &str) -> bool {
         self.inner.allow_request(ip)
+    }
+
+    /// Removes stale entries from the rate limiter to prevent unbounded memory growth.
+    ///
+    /// This should be called periodically (e.g., every 60 seconds) by a background task.
+    /// Keys that haven't been used within the rate limit window are removed.
+    pub fn retain_recent(&self) {
+        self.inner.retain_recent();
+    }
+
+    /// Shrinks the capacity of the rate limiter's state store if possible.
+    ///
+    /// Should be called after `retain_recent()` to reclaim memory.
+    pub fn shrink_to_fit(&self) {
+        self.inner.shrink_to_fit();
+    }
+
+    /// Returns the approximate number of keys currently tracked.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true if no keys are currently tracked.
+    pub fn is_empty(&self) -> bool {
+        self.inner.len() == 0
     }
 }
 
