@@ -248,9 +248,9 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 isTrendsContext && filter.type === EntityTypes.GROUPS ? (
                                     <ActionFilterGroup
                                         key={filter.uuid}
-                                        logic={logic}
                                         filter={filter}
                                         index={index}
+                                        typeKey={typeKey}
                                         filterCount={localFilters.length}
                                         sortable={sortable}
                                         showSeriesIndicator={showSeriesIndicator}
