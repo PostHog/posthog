@@ -3,16 +3,7 @@ import { Form, Group } from 'kea-forms'
 import { useCallback } from 'react'
 
 import { IconChevronLeft, IconInfo } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonCheckbox,
-    LemonCollapse,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    SpinnerOverlay,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonCheckbox, LemonCollapse, LemonSelect, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
@@ -21,23 +12,28 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { alphabet, formatDate } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import {
     AlertCalculationInterval,
-    AlertConditionType,
     AlertState,
+    DetectorConfig,
+    DetectorType,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { SnoozeButton } from '../SnoozeButton'
-import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
+import { alertFormLogic } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
+import { insightAlertsLogic } from '../insightAlertsLogic'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
+import { BackfillPreview } from './BackfillPreview'
+import { DetectorSelector } from './DetectorSelector'
 
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
@@ -102,6 +98,12 @@ interface EditAlertModalProps {
     insightLogicProps?: InsightLogicProps
 }
 
+const DEFAULT_DETECTOR_CONFIG: DetectorConfig = {
+    type: DetectorType.THRESHOLD,
+    threshold_type: InsightThresholdType.ABSOLUTE,
+    bounds: {},
+} as DetectorConfig
+
 export function EditAlertModal({
     isOpen,
     alertId,
@@ -115,7 +117,6 @@ export function EditAlertModal({
     const { alert, alertLoading } = useValues(_alertLogic)
     const { loadAlert } = useActions(_alertLogic)
 
-    // need to reload edited alert as well
     const _onEditSuccess = useCallback(
         (alertId: AlertType['id'] | undefined) => {
             if (alertId) {
@@ -125,6 +126,16 @@ export function EditAlertModal({
         },
         [loadAlert, onEditSuccess]
     )
+
+    // Callback to refresh both alertLogic and insightAlertsLogic after backfill
+    const onBackfillComplete = useCallback(() => {
+        loadAlert()
+        // Also refresh insightAlertsLogic to update anomaly points on the chart
+        if (insightLogicProps) {
+            const { loadAlerts } = insightAlertsLogic({ insightId, insightLogicProps }).actions
+            loadAlerts()
+        }
+    }, [loadAlert, insightId, insightLogicProps])
 
     const formLogicProps = {
         alert,
@@ -138,17 +149,13 @@ export function EditAlertModal({
     const { setAlertFormValue } = useActions(formLogic)
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
-    const {
-        alertSeries,
-        isNonTimeSeriesDisplay,
-        isBreakdownValid,
-        formulaNodes,
-        interval: trendInterval,
-    } = useValues(trendsLogic)
+    const { alertSeries, isBreakdownValid, formulaNodes } = useValues(trendsLogic)
 
     const creatingNewAlert = alertForm.id === undefined
-    // can only check ongoing interval for absolute value/increase alerts with upper threshold
-    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
+
+    // Ensure detector_config is always set
+    const detectorConfig: DetectorConfig = (alertForm.detector_config ?? DEFAULT_DETECTOR_CONFIG) as DetectorConfig
+    const isThresholdDetector = detectorConfig.type === DetectorType.THRESHOLD
 
     return (
         <LemonModal onClose={onClose} isOpen={isOpen} width={600} simple title="">
@@ -165,7 +172,6 @@ export function EditAlertModal({
                     <LemonModal.Header>
                         <div className="flex items-center gap-2">
                             <LemonButton icon={<IconChevronLeft />} onClick={onClose} size="xsmall" />
-
                             <h3>{creatingNewAlert ? 'New' : 'Edit '} Alert</h3>
                         </div>
                     </LemonModal.Header>
@@ -232,126 +238,21 @@ export function EditAlertModal({
                                                     }
                                                     disabledReason={
                                                         isBreakdownValid &&
-                                                        `For trends with breakdown, the alert will fire if any of the breakdown
-                                            values breaches the threshold.`
+                                                        `For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.`
                                                     }
                                                 />
                                             </LemonField>
                                         </Group>
-                                        <Group name={['condition']}>
-                                            <LemonField name="type">
-                                                <LemonSelect
-                                                    fullWidth
-                                                    className="w-40"
-                                                    data-attr="alertForm-condition"
-                                                    options={[
-                                                        {
-                                                            label: 'has value',
-                                                            value: AlertConditionType.ABSOLUTE_VALUE,
-                                                        },
-                                                        {
-                                                            label: 'increases by',
-                                                            value: AlertConditionType.RELATIVE_INCREASE,
-                                                            disabledReason:
-                                                                isNonTimeSeriesDisplay &&
-                                                                'This condition is only supported for time series trends',
-                                                        },
-                                                        {
-                                                            label: 'decreases by',
-                                                            value: AlertConditionType.RELATIVE_DECREASE,
-                                                            disabledReason:
-                                                                isNonTimeSeriesDisplay &&
-                                                                'This condition is only supported for time series trends',
-                                                        },
-                                                    ]}
-                                                />
-                                            </LemonField>
-                                        </Group>
+                                        <div className="text-muted-alt">triggers alert</div>
                                     </div>
-                                    <div className="flex gap-4 items-center">
-                                        <div>less than</div>
-                                        <LemonField name="lower">
-                                            <LemonInput
-                                                type="number"
-                                                className="w-30"
-                                                data-attr="alertForm-lower-threshold"
-                                                value={
-                                                    alertForm.threshold.configuration.type ===
-                                                        InsightThresholdType.PERCENTAGE &&
-                                                    alertForm.threshold.configuration.bounds?.lower
-                                                        ? alertForm.threshold.configuration.bounds?.lower * 100
-                                                        : alertForm.threshold.configuration.bounds?.lower
-                                                }
-                                                onChange={(value) =>
-                                                    setAlertFormValue('threshold', {
-                                                        configuration: {
-                                                            type: alertForm.threshold.configuration.type,
-                                                            bounds: {
-                                                                ...alertForm.threshold.configuration.bounds,
-                                                                lower:
-                                                                    value &&
-                                                                    alertForm.threshold.configuration.type ===
-                                                                        InsightThresholdType.PERCENTAGE
-                                                                        ? value / 100
-                                                                        : value,
-                                                            },
-                                                        },
-                                                    })
-                                                }
-                                            />
-                                        </LemonField>
-                                        <div>or more than</div>
-                                        <LemonField name="upper">
-                                            <LemonInput
-                                                type="number"
-                                                className="w-30"
-                                                data-attr="alertForm-upper-threshold"
-                                                value={
-                                                    alertForm.threshold.configuration.type ===
-                                                        InsightThresholdType.PERCENTAGE &&
-                                                    alertForm.threshold.configuration.bounds?.upper
-                                                        ? alertForm.threshold.configuration.bounds?.upper * 100
-                                                        : alertForm.threshold.configuration.bounds?.upper
-                                                }
-                                                onChange={(value) =>
-                                                    setAlertFormValue('threshold', {
-                                                        configuration: {
-                                                            type: alertForm.threshold.configuration.type,
-                                                            bounds: {
-                                                                ...alertForm.threshold.configuration.bounds,
-                                                                upper:
-                                                                    value &&
-                                                                    alertForm.threshold.configuration.type ===
-                                                                        InsightThresholdType.PERCENTAGE
-                                                                        ? value / 100
-                                                                        : value,
-                                                            },
-                                                        },
-                                                    })
-                                                }
-                                            />
-                                        </LemonField>
-                                        {alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
-                                            <Group name={['threshold', 'configuration']}>
-                                                <LemonField name="type">
-                                                    <LemonSegmentedButton
-                                                        options={[
-                                                            {
-                                                                value: InsightThresholdType.PERCENTAGE,
-                                                                label: '%',
-                                                                tooltip: 'Percent',
-                                                            },
-                                                            {
-                                                                value: InsightThresholdType.ABSOLUTE,
-                                                                label: '#',
-                                                                tooltip: 'Absolute number',
-                                                            },
-                                                        ]}
-                                                    />
-                                                </LemonField>
-                                            </Group>
-                                        )}
+
+                                    <div className="mt-4">
+                                        <DetectorSelector
+                                            config={detectorConfig}
+                                            onChange={(config) => setAlertFormValue('detector_config', config)}
+                                        />
                                     </div>
+
                                     <div className="flex gap-4 items-center">
                                         <div>Run alert every</div>
                                         <LemonField name="calculation_interval">
@@ -365,28 +266,17 @@ export function EditAlertModal({
                                                 }))}
                                             />
                                         </LemonField>
-                                        <div>
-                                            and check {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}
-                                        </div>
-                                        <LemonSelect
-                                            fullWidth
-                                            className="w-28"
-                                            data-attr="alertForm-trend-interval"
-                                            disabledReason={
-                                                <>
-                                                    To change the interval being checked, edit and <b>save</b> the
-                                                    interval which the insight is 'grouped by'
-                                                </>
-                                            }
-                                            value={trendInterval ?? 'day'}
-                                            options={[
-                                                {
-                                                    label: trendInterval ?? 'day',
-                                                    value: trendInterval ?? 'day',
-                                                },
-                                            ]}
-                                        />
                                     </div>
+
+                                    {!isThresholdDetector && (
+                                        <BackfillPreview
+                                            insightId={insightId}
+                                            seriesIndex={alertForm.config.series_index ?? 0}
+                                            detectorConfig={detectorConfig}
+                                            alertId={alertId}
+                                            onBackfillComplete={onBackfillComplete}
+                                        />
+                                    )}
                                 </div>
                             </div>
 
@@ -424,33 +314,7 @@ export function EditAlertModal({
                                             key: 'advanced',
                                             header: 'Advanced options',
                                             content: (
-                                                <div className="space-y-2">
-                                                    <Group name={['config']}>
-                                                        <div className="flex gap-1">
-                                                            <LemonField name="check_ongoing_interval">
-                                                                <LemonCheckbox
-                                                                    checked={
-                                                                        can_check_ongoing_interval &&
-                                                                        alertForm?.config.check_ongoing_interval
-                                                                    }
-                                                                    data-attr="alertForm-check-ongoing-interval"
-                                                                    fullWidth
-                                                                    label="Check ongoing period"
-                                                                    disabledReason={
-                                                                        !can_check_ongoing_interval &&
-                                                                        'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
-                                                                    }
-                                                                />
-                                                            </LemonField>
-                                                            <Tooltip
-                                                                title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
-                                                                placement="right"
-                                                                delayMs={0}
-                                                            >
-                                                                <IconInfo />
-                                                            </Tooltip>
-                                                        </div>
-                                                    </Group>
+                                                <div className="space-y-4">
                                                     <LemonField name="skip_weekend">
                                                         <LemonCheckbox
                                                             checked={
@@ -472,6 +336,29 @@ export function EditAlertModal({
                                                             }
                                                         />
                                                     </LemonField>
+                                                    {isThresholdDetector && (
+                                                        <Group name={['config']}>
+                                                            <div className="flex gap-1">
+                                                                <LemonField name="check_ongoing_interval">
+                                                                    <LemonCheckbox
+                                                                        checked={
+                                                                            alertForm?.config.check_ongoing_interval
+                                                                        }
+                                                                        data-attr="alertForm-check-ongoing-interval"
+                                                                        fullWidth
+                                                                        label="Check ongoing period"
+                                                                    />
+                                                                </LemonField>
+                                                                <Tooltip
+                                                                    title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </div>
+                                                        </Group>
+                                                    )}
                                                 </div>
                                             ),
                                         },
