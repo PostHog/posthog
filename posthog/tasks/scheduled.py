@@ -8,7 +8,6 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 
 from posthog.caching.warming import schedule_warming_for_teams_task
-from posthog.caching.web_analytics_warming import warm_web_analytics_cache_task
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
@@ -154,11 +153,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
-    )
-
-    # Web Analytics queries cache sync - hourly
-    sender.add_periodic_task(
-        crontab(hour="*", minute="0"), warm_web_analytics_cache_task.s(), name="warm web analytics queries caches"
     )
 
     # Team access cache warming - every 10 minutes
