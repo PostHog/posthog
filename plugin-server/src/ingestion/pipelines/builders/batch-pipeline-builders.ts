@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+// Use type-only import to avoid loading node-rdkafka in worker threads
+import type { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'

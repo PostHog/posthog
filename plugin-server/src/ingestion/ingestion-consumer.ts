@@ -31,8 +31,12 @@ import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineInput,
+    MultithreadedIngestionPipelineConfig,
+    MultithreadedIngestionPipelineContext,
+    MultithreadedIngestionPipelineInput,
     PerDistinctIdPipelineInput,
     createJoinedIngestionPipeline,
+    createMultithreadedIngestionPipeline,
     createPerDistinctIdPipeline,
     createPreprocessingPipeline,
 } from './analytics'
@@ -114,6 +118,12 @@ export class IngestionConsumer {
         void,
         JoinedIngestionPipelineContext,
         JoinedIngestionPipelineContext
+    >
+    private multithreadedPipeline!: BatchPipeline<
+        MultithreadedIngestionPipelineInput,
+        void,
+        MultithreadedIngestionPipelineContext,
+        MultithreadedIngestionPipelineContext
     >
 
     constructor(
@@ -262,6 +272,29 @@ export class IngestionConsumer {
             joinedPipelineConfig
         ).build()
 
+        // Initialize multi-threaded pipeline
+        const multithreadedPipelineConfig: MultithreadedIngestionPipelineConfig = {
+            hub: this.hub,
+            kafkaProducer: this.kafkaProducer!,
+            personsStore: this.personsStore,
+            hogTransformer: this.hogTransformer,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowRateLimiter: this.overflowRateLimiter,
+            overflowEnabled: this.overflowEnabled(),
+            overflowTopic: this.overflowTopic || '',
+            dlqTopic: this.dlqTopic,
+            promiseScheduler: this.promiseScheduler,
+            perDistinctIdOptions,
+            teamManager: this.hub.teamManager,
+            groupTypeManager: this.hub.groupTypeManager,
+            groupId: this.groupId,
+            numWorkers: this.hub.INGESTION_MULTITHREADED_NUM_WORKERS ?? 4,
+        }
+        this.multithreadedPipeline = createMultithreadedIngestionPipeline(
+            newBatchPipelineBuilder<MultithreadedIngestionPipelineInput, MultithreadedIngestionPipelineContext>(),
+            multithreadedPipelineConfig
+        ).build()
+
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
                 {
@@ -286,6 +319,11 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        // Shutdown multi-threaded pipeline workers
+        if (this.multithreadedPipeline && 'shutdown' in this.multithreadedPipeline) {
+            logger.info('🔁', `${this.name} - stopping multi-threaded pipeline workers`)
+            await (this.multithreadedPipeline as any).shutdown()
+        }
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -340,8 +378,8 @@ export class IngestionConsumer {
                 await this.runJoinedIngestionPipeline(messages, groupStoreForBatch)
                 break
             case 'multi-threaded':
-                // TODO: Implement multi-threaded pipeline
-                throw new Error('Multi-threaded pipeline not yet implemented')
+                await this.runMultithreadedIngestionPipeline(messages, groupStoreForBatch)
+                break
             case 'legacy':
             default:
                 await this.runLegacyIngestionPipeline(messages, groupStoreForBatch)
@@ -401,6 +439,20 @@ export class IngestionConsumer {
 
         // Drain the pipeline
         while ((await this.joinedPipeline.next()) !== null) {
+            // Continue until all results are processed
+        }
+    }
+
+    private async runMultithreadedIngestionPipeline(
+        messages: Message[],
+        groupStoreForBatch: GroupStoreForBatch
+    ): Promise<void> {
+        const batch = messages.map((message) => createContext(ok({ message, groupStoreForBatch }), { message }))
+
+        this.multithreadedPipeline.feed(batch)
+
+        // Drain the pipeline
+        while ((await this.multithreadedPipeline.next()) !== null) {
             // Continue until all results are processed
         }
     }

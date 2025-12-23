@@ -221,6 +221,8 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     /** Pipeline implementation: 'legacy', 'joined', or 'multi-threaded' */
     INGESTION_PIPELINE_IMPLEMENTATION: 'legacy' | 'joined' | 'multi-threaded'
+    /** Number of worker threads for multi-threaded pipeline */
+    INGESTION_MULTITHREADED_NUM_WORKERS: number
 }
 
 export type LogsIngestionConsumerConfig = {

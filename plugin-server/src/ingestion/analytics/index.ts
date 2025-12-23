@@ -38,3 +38,10 @@ export {
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineInput,
 } from './joined-ingestion-pipeline'
+
+export {
+    createMultithreadedIngestionPipeline,
+    MultithreadedIngestionPipelineConfig,
+    MultithreadedIngestionPipelineContext,
+    MultithreadedIngestionPipelineInput,
+} from './multithreaded-ingestion-pipeline'
