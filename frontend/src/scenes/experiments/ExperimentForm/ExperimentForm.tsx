@@ -102,7 +102,13 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                             >
                                 <LemonButton
                                     loading={isExperimentSubmitting}
-                                    disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                                    disabledReason={
+                                        !canSubmitExperiment
+                                            ? experiment.name.length === 0
+                                                ? 'Experiment name is required'
+                                                : 'Experiment is not valid'
+                                            : undefined
+                                    }
                                     data-attr="save-experiment"
                                     type="primary"
                                     size="small"
@@ -259,7 +265,13 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                     >
                         <LemonButton
                             loading={isExperimentSubmitting}
-                            disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                            disabledReason={
+                                !canSubmitExperiment
+                                    ? experiment.name.length === 0
+                                        ? 'Experiment name is required'
+                                        : 'Experiment is not valid'
+                                    : undefined
+                            }
                             data-attr="save-experiment"
                             type="primary"
                             size="small"
