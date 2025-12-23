@@ -8,7 +8,7 @@ from dagster_aws.s3.resources import S3Resource
 from posthog.dags.common.resources import (
     ClickhouseClusterResource,
     PostgresResource,
-    PostHogAnalayticsResource,
+    PostHogAnalyticsResource,
     RedisResource,
 )
 
@@ -31,6 +31,9 @@ resources_by_env = {
             user=dagster.EnvVar("POSTGRES_USER"),
             password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
+        "posthoganalytics": dagster.ResourceDefinition.none_resource(
+            description="Dummy PostHogAnalytics resource since posthoganalytics is configured properly in production."
+        ),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
@@ -50,7 +53,7 @@ resources_by_env = {
             user=dagster.EnvVar("POSTGRES_USER"),
             password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
-        "posthoganalytics": PostHogAnalayticsResource(personal_api_key=dagster.EnvVar("PERSONAL_API_KEY")),
+        "posthoganalytics": PostHogAnalyticsResource(personal_api_key=dagster.EnvVar("PERSONAL_API_KEY")),
     },
 }
 

@@ -11,7 +11,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
-from posthog.dags.common.resources import PostHogAnalayticsResource
+from posthog.dags.common.resources import PostHogAnalyticsResource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
@@ -126,7 +126,7 @@ def queries_to_keep_fresh(
 
 @dagster.op()
 def get_teams_for_warming_op(
-    context: dagster.OpExecutionContext, posthoganalytics: PostHogAnalayticsResource
+    context: dagster.OpExecutionContext, posthoganalytics: PostHogAnalyticsResource
 ) -> list[int]:
     team_ids = teams_enabled_for_web_analytics_cache_warming()
 
