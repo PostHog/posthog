@@ -249,6 +249,14 @@ impl FlagsRateLimiter {
         self.inner.shrink_to_fit();
     }
 
+    /// Removes stale entries and shrinks capacity.
+    ///
+    /// Convenience method that calls `retain_recent()` followed by `shrink_to_fit()`.
+    pub fn cleanup(&self) {
+        self.retain_recent();
+        self.shrink_to_fit();
+    }
+
     /// Returns the approximate number of keys currently tracked.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
@@ -509,6 +517,14 @@ impl IpRateLimiter {
     /// Should be called after `retain_recent()` to reclaim memory.
     pub fn shrink_to_fit(&self) {
         self.inner.shrink_to_fit();
+    }
+
+    /// Removes stale entries and shrinks capacity.
+    ///
+    /// Convenience method that calls `retain_recent()` followed by `shrink_to_fit()`.
+    pub fn cleanup(&self) {
+        self.retain_recent();
+        self.shrink_to_fit();
     }
 
     /// Returns the approximate number of keys currently tracked.

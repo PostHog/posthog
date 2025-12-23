@@ -192,6 +192,14 @@ where
         }
     }
 
+    /// Removes stale entries and shrinks capacity across all limiters.
+    ///
+    /// Convenience method that calls `retain_recent()` followed by `shrink_to_fit()`.
+    pub fn cleanup(&self) {
+        self.retain_recent();
+        self.shrink_to_fit();
+    }
+
     /// Returns the total number of keys currently tracked across all limiters.
     ///
     /// Note: This may return an approximate value.

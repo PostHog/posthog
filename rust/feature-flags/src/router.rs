@@ -206,15 +206,10 @@ fn spawn_rate_limiter_cleanup_task(
             interval.tick().await;
 
             let result = catch_unwind(AssertUnwindSafe(|| {
-                // Remove stale entries (keys that haven't been used within the rate limit window)
-                flags_rate_limiter.retain_recent();
-                flags_rate_limiter.shrink_to_fit();
-
-                ip_rate_limiter.retain_recent();
-                ip_rate_limiter.shrink_to_fit();
-
-                flag_definitions_limiter.retain_recent();
-                flag_definitions_limiter.shrink_to_fit();
+                // Remove stale entries and reclaim memory
+                flags_rate_limiter.cleanup();
+                ip_rate_limiter.cleanup();
+                flag_definitions_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
