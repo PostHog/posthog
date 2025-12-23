@@ -3,6 +3,9 @@ from typing import Any, cast
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
+from azure.ai.inference import EmbeddingsClient
+from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
+from azure.core.credentials import AzureKeyCredential
 from pydantic import BaseModel
 
 from posthog.schema import AssistantEventType
@@ -27,9 +30,27 @@ class BaseAssistantTest(NonAtomicBaseTest):
         )
         self.checkpointer_patch = patch("ee.hogai.core.base.global_checkpointer", new=DjangoCheckpointer())
         self.checkpointer_patch.start()
+        # Azure embeddings mocks
+        self.azure_client_mock = patch(
+            "ee.hogai.chat_agent.rag.nodes.get_azure_embeddings_client",
+            return_value=EmbeddingsClient(
+                endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
+            ),
+        ).start()
+        self.embed_query_mock = patch(
+            "azure.ai.inference.EmbeddingsClient.embed",
+            return_value=EmbeddingsResult(
+                id="test",
+                model="test",
+                usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
+                data=[],
+            ),
+        ).start()
 
     def tearDown(self):
         self.checkpointer_patch.stop()
+        self.azure_client_mock.stop()
+        self.embed_query_mock.stop()
         super().tearDown()
 
     def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):

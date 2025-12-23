@@ -8,6 +8,7 @@ from langchain_core import messages
 from langchain_core.runnables import RunnableLambda
 
 from posthog.schema import (
+    ArtifactMessage,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -16,6 +17,7 @@ from posthog.schema import (
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantToolCallMessage,
     AssistantTrendsQuery,
     HumanMessage,
     MaxUIContext,
@@ -122,13 +124,15 @@ class TestChatAgent(BaseAssistantTest):
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
-        # Verify output length
-        self.assertEqual(len(actual_output), 2)
+        # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
+        self.assertEqual(len(actual_output), 3)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
         self.assertEqual(actual_output[1][0], "message")
         self.assertIsInstance(actual_output[1][1], VisualizationMessage)
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -182,13 +186,15 @@ class TestChatAgent(BaseAssistantTest):
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
-        # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
+        self.assertEqual(len(actual_output), 3)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
         self.assertEqual(actual_output[1][0], "message")
         self.assertIsInstance(actual_output[1][1], VisualizationMessage)
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -244,13 +250,15 @@ class TestChatAgent(BaseAssistantTest):
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
-        # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
+        self.assertEqual(len(actual_output), 3)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
         self.assertEqual(actual_output[1][0], "message")
         self.assertIsInstance(actual_output[1][1], VisualizationMessage)
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -297,18 +305,20 @@ class TestChatAgent(BaseAssistantTest):
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
 
-        # Verify output length
-        self.assertEqual(len(actual_output), 8)
+        # Verify output length (conversation + VisualizationMessage + ArtifactMessage)
+        self.assertEqual(len(actual_output), 3)
 
         # Check conversation output
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
         self.assertEqual(actual_output[1][0], "message")
         self.assertIsInstance(actual_output[1][1], VisualizationMessage)
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
     @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
-    async def test_insights_tool_mode_flow(self, planner_mock, generator_mock, title_generator_mock):
+    async def test_insights_tool_mode_flow(self, planner_mock, generator_mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
         tool_call_id = str(uuid4())
@@ -344,11 +354,12 @@ class TestChatAgent(BaseAssistantTest):
             message=None,
             tool_call_partial_state=tool_call_state,
         )
-
-        # Check artifact message - enriched from ArtifactRefMessage
-        self.assertEqual(len(output), 2)
-        self.assertEqual(output[0][0], "conversation")
-        self.assertEqual(output[1][0], "message")
-        viz_msg = output[1][1]
+        # Check artifact message (VisualizationMessage + ArtifactMessage + AssistantToolCallMessage)
+        self.assertEqual(len(output), 3)
+        self.assertEqual(output[0][0], "message")
+        viz_msg = output[0][1]
         assert isinstance(viz_msg, VisualizationMessage)
         self.assertEqual(viz_msg.answer, query)
+        assert isinstance(output[1][1], ArtifactMessage)
+        self.assertEqual(output[2][0], "message")
+        self.assertIsInstance(output[2][1], AssistantToolCallMessage)
