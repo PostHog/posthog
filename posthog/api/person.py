@@ -488,11 +488,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         if delete_events:
-            # Once the person is deleted, queue deletion of associated data, if that was requested
             self._queue_event_deletion(list(persons))
 
         if delete_recordings:
-            # Once the person is deleted, queue deletion of associated data, if that was requested
             self._queue_delete_recordings(list(persons))
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
