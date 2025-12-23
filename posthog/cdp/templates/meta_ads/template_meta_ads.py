@@ -35,13 +35,37 @@ if (not empty(inputs.eventSourceUrl)) {
 
 for (let key, value in inputs.userData) {
     if (not empty(value)) {
-        body.data.1.user_data[key] := value
+        // Handle array values passed as JSON strings
+        if (typeof(value) == 'string' and startsWith(value, '[')) {
+            // Try to parse as JSON array
+            try {
+                let parsed := jsonParse(value)
+                body.data.1.user_data[key] := parsed
+            } catch (e) {
+                // If parsing fails, keep as string
+                body.data.1.user_data[key] := value
+            }
+        } else {
+            body.data.1.user_data[key] := value
+        }
     }
 }
 
 for (let key, value in inputs.customData) {
     if (not empty(value)) {
-        body.data.1.custom_data[key] := value
+        // Handle array values passed as JSON strings
+        if (typeof(value) == 'string' and startsWith(value, '[')) {
+            // Try to parse as JSON array
+            try {
+                let parsed := jsonParse(value)
+                body.data.1.custom_data[key] := parsed
+            } catch (e) {
+                // If parsing fails, keep as string
+                body.data.1.custom_data[key] := value
+            }
+        } else {
+            body.data.1.custom_data[key] := value
+        }
     }
 }
 
