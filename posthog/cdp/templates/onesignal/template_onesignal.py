@@ -23,13 +23,15 @@ let getPayload := () -> {
   'timestamp': inputs.eventTimestamp
 }
 
+let payload := getPayload()
+
 let res := fetch(f'https://api.onesignal.com/apps/{inputs.appId}/custom_events', {
   'method': 'POST',
   'headers': {
     'Authorization': f'Key {inputs.apiKey}',
     'Content-Type': 'application/json'
   },
-  'body': {'events':[getPayload()]}
+  'body': {'events':[payload]}
 })
 
 if (res.status >= 200 and res.status < 300) {
