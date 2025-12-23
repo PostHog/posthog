@@ -136,12 +136,12 @@ def get_person_name_helper(
 
 class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "persons_burst"
-    rate = "180/minute"
+    rate = "480/minute"
 
 
 class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "persons_sustained"
-    rate = "1200/hour"
+    rate = "4800/hour"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
