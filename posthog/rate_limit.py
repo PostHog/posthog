@@ -653,18 +653,6 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
-class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
-    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
-    # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "15/minute"
-
-
-class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
-    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
-    # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "75/hour"
-
-
 class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_burst"
     rate = "1200/minute"
