@@ -19,7 +19,7 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     const [isHighlighted, setIsHighlighted] = useState(false)
-    const { isMovingNode } = useValues(hogFlowEditorLogic)
+    const { isCopyingNode } = useValues(hogFlowEditorLogic)
     const { setHighlightedDropzoneNodeId, copyNodeToHighlightedDropzone } = useActions(hogFlowEditorLogic)
 
     useEffect(() => {
@@ -32,7 +32,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             onDragLeave={() => setIsHighlighted(false)}
             onMouseOver={() => setIsHighlighted(true)}
             onMouseOut={() => setIsHighlighted(false)}
-            onClick={isMovingNode ? () => copyNodeToHighlightedDropzone() : undefined}
+            onClick={isCopyingNode ? () => copyNodeToHighlightedDropzone() : undefined}
             className={clsx(
                 'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer hover:border-primary hover:bg-surface-primary',
                 isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
@@ -44,7 +44,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             }}
         >
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
-                {isMovingNode ? (
+                {isCopyingNode ? (
                     // Show a shortcut icon when a node is being moved
                     <IconShortcut className="text-sm text-primary" />
                 ) : (
@@ -59,7 +59,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
-    const { nodesById, isMovingNode, nodeToBeAdded } = useValues(hogFlowEditorLogic)
+    const { nodesById, isCopyingNode, nodeToBeAdded } = useValues(hogFlowEditorLogic)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -67,10 +67,10 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const shouldWiggleMovingNode = isMovingNode && nodeToBeAdded?.id === props.id
+    const shouldWiggleCopyingNode = isCopyingNode && nodeToBeAdded?.id === props.id
 
     return (
-        <div className={clsx('transition-all hover:translate-y-[-2px]', shouldWiggleMovingNode && 'animate-bounce')}>
+        <div className={clsx('transition-all hover:translate-y-[-2px]', shouldWiggleCopyingNode && 'animate-bounce')}>
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
