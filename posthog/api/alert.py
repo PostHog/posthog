@@ -1,16 +1,17 @@
 import dataclasses
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from rest_framework import serializers, viewsets
+import numpy as np
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertCondition, AlertState, InsightThreshold, TrendsAlertConfig
+from posthog.schema import AlertCondition, AlertState, DetectorConfig, InsightThreshold, TrendsAlertConfig
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
@@ -42,6 +43,11 @@ class AlertConditionField(serializers.JSONField):
 
 @extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
 class TrendsAlertConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
+class DetectorConfigField(serializers.JSONField):
     pass
 
 
@@ -78,6 +84,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "anomaly_scores",
+            "triggered_points",
+            "triggered_dates",
+            "interval",
         ]
         read_only_fields = fields
 
@@ -111,9 +121,10 @@ class RelativeDateTimeField(serializers.DateTimeField):
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(many=True, read_only=True)
-    threshold = ThresholdSerializer()
+    threshold = ThresholdSerializer(required=False, allow_null=True)
     condition = AlertConditionField(required=False, allow_null=True)
     config = TrendsAlertConfigField(required=False, allow_null=True)
+    detector_config = DetectorConfigField(required=False, allow_null=True)
     insight = serializers.PrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
@@ -145,6 +156,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "next_check_at",
             "checks",
             "config",
+            "detector_config",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -308,6 +320,19 @@ class AlertSerializer(serializers.ModelSerializer):
         return attrs
 
 
+MAX_BACKFILL_OBSERVATIONS = 200
+
+
+class BackfillRequestSerializer(serializers.Serializer):
+    detector_config = DetectorConfigField(required=True)
+    n_observations = serializers.IntegerField(min_value=10, max_value=MAX_BACKFILL_OBSERVATIONS, default=100)
+    insight_id = serializers.IntegerField(required=True)
+    series_index = serializers.IntegerField(default=0, min_value=0)
+    alert_id = serializers.UUIDField(
+        required=False, allow_null=True, help_text="If provided, saves results as AlertCheck records"
+    )
+
+
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = AlertConfiguration.objects.all().order_by("-created_at")
@@ -333,12 +358,184 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(insight=insight_id)
 
         page = self.paginate_queryset(queryset)
+        alerts = page if page is not None else list(queryset)
+
+        # Populate checks for each alert (needed for anomaly points visualization)
+        for alert in alerts:
+            alert.checks = list(alert.alertcheck_set.all().order_by("-created_at")[:5])
+
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = self.get_serializer(alerts, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["post"])
+    def backfill(self, request, *args, **kwargs):
+        """
+        Run a detector on historical insight data and optionally save results as AlertCheck records.
+
+        POST /api/projects/:team_id/alerts/backfill/
+
+        Request body:
+        - detector_config: DetectorConfig object
+        - n_observations: number of data points to analyze (10-200)
+        - insight_id: the insight to analyze
+        - series_index: which series to analyze (for multi-series insights)
+        - alert_id: (optional) if provided, saves results as AlertCheck records
+
+        Returns:
+        - triggered_indices: list of indices where anomalies were detected
+        - scores: list of anomaly scores for each point
+        - total_points: total number of points analyzed
+        - anomaly_count: number of anomalies detected
+        - data: the actual data values analyzed
+        - saved_check_id: (if alert_id provided) the ID of the saved AlertCheck
+        """
+        from posthog.schema import IntervalType, TrendsQuery
+
+        from posthog.api.services.query import ExecutionMode
+        from posthog.caching.calculate_results import calculate_for_query_based_insight
+        from posthog.schema_migrations.upgrade_manager import upgrade_query
+        from posthog.tasks.alerts.detectors import get_detector
+        from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS
+        from posthog.utils import get_from_dict_or_attr
+
+        serializer = BackfillRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        # Get the insight
+        try:
+            insight = Insight.objects.get(id=data["insight_id"], team_id=self.team_id)
+        except Insight.DoesNotExist:
+            return Response({"error": "Insight not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        detector_config = data["detector_config"]
+        n_observations = data["n_observations"]
+        series_index = data["series_index"]
+        alert_id = data.get("alert_id")
+
+        # Validate alert if provided
+        alert = None
+        if alert_id:
+            try:
+                alert = AlertConfiguration.objects.get(id=alert_id, team_id=self.team_id)
+            except AlertConfiguration.DoesNotExist:
+                return Response({"error": "Alert not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get the query from insight
+        with upgrade_query(insight):
+            query = insight.query
+            kind = get_from_dict_or_attr(query, "kind")
+
+            if kind in WRAPPER_NODE_KINDS:
+                query = get_from_dict_or_attr(query, "source")
+                kind = get_from_dict_or_attr(query, "kind")
+
+            if kind != "TrendsQuery":
+                return Response(
+                    {"error": f"Backfill is only supported for TrendsQuery, got {kind}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            query = TrendsQuery.model_validate(query)
+
+        # Calculate date range for backfill
+        match query.interval:
+            case IntervalType.DAY:
+                date_from = f"-{n_observations}d"
+            case IntervalType.WEEK:
+                date_from = f"-{n_observations}w"
+            case IntervalType.MONTH:
+                date_from = f"-{n_observations}m"
+            case _:
+                date_from = f"-{n_observations}h"
+
+        filters_override = {"date_from": date_from}
+
+        # Calculate insight results
+        try:
+            calculation_result = calculate_for_query_based_insight(
+                insight,
+                team=insight.team,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                user=request.user,
+                filters_override=filters_override,
+            )
+        except Exception as e:
+            return Response({"error": f"Failed to calculate insight: {e!s}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not calculation_result.result:
+            return Response({"error": "No results from insight calculation"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Pick the series
+        results = calculation_result.result
+        if series_index >= len(results):
+            return Response(
+                {"error": f"Series index {series_index} out of range (insight has {len(results)} series)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        selected_series = results[series_index]
+        time_series_data = selected_series.get("data", [])
+
+        if not time_series_data:
+            return Response({"error": "No data in selected series"}, status=status.HTTP_400_BAD_REQUEST)
+
+        data_array = np.array(time_series_data)
+
+        # Create and run detector
+        try:
+            detector = get_detector(detector_config)
+            result = detector.detect_batch(data_array)
+        except Exception as e:
+            return Response({"error": f"Detector error: {e!s}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        response_data = {
+            "triggered_indices": result.triggered_indices,
+            "scores": result.all_scores,
+            "total_points": len(data_array),
+            "anomaly_count": len(result.triggered_indices),
+            "data": time_series_data,
+            "labels": selected_series.get("labels", []),
+            "dates": selected_series.get("dates", []),
+            "series_label": selected_series.get("label", ""),
+        }
+
+        # Save AlertCheck if alert_id was provided
+        if alert:
+            # Calculate average value for the calculated_value field
+            calculated_value = float(np.mean(data_array)) if len(data_array) > 0 else None
+
+            # Determine state based on anomalies
+            check_state = AlertState.FIRING if len(result.triggered_indices) > 0 else AlertState.NOT_FIRING
+
+            # Extract timestamps for triggered points (for chart matching)
+            # The "days" field contains date strings (for daily) or datetime strings (for hourly)
+            timestamps = selected_series.get("days", [])
+            triggered_dates = (
+                [timestamps[i] for i in result.triggered_indices if i < len(timestamps)] if timestamps else None
+            )
+
+            check = AlertCheck.objects.create(
+                alert_configuration=alert,
+                calculated_value=calculated_value,
+                condition=alert.condition,
+                targets_notified={},
+                state=check_state,
+                error=None,
+                anomaly_scores=result.all_scores,
+                triggered_points=result.triggered_indices,
+                triggered_dates=triggered_dates,
+                interval=query.interval.value if query.interval else None,
+            )
+
+            response_data["saved_check_id"] = str(check.id)
+            response_data["check_state"] = check_state
+
+        return Response(response_data)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):
@@ -357,17 +554,17 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 
 @dataclasses.dataclass(frozen=True)
 class AlertConfigurationContext(ActivityContextBase):
-    insight_id: Optional[int] = None
-    insight_short_id: Optional[str] = None
-    insight_name: Optional[str] = "Insight"
-    alert_id: Optional[int] = None
-    alert_name: Optional[str] = "Alert"
+    insight_id: int | None = None
+    insight_short_id: str | None = None
+    insight_name: str | None = "Insight"
+    alert_id: int | None = None
+    alert_name: str | None = "Alert"
 
 
 @dataclasses.dataclass(frozen=True)
 class AlertSubscriptionContext(AlertConfigurationContext):
-    subscriber_name: Optional[str] = None
-    subscriber_email: Optional[str] = None
+    subscriber_name: str | None = None
+    subscriber_email: str | None = None
 
 
 @mutable_receiver(model_activity_signal, sender=AlertConfiguration)
