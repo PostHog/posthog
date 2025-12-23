@@ -20,7 +20,7 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
     const [isHighlighted, setIsHighlighted] = useState(false)
     const { isMovingNode } = useValues(hogFlowEditorLogic)
-    const { setHighlightedDropzoneNodeId, moveNodeToHighlightedDropzone } = useActions(hogFlowEditorLogic)
+    const { setHighlightedDropzoneNodeId, copyNodeToHighlightedDropzone } = useActions(hogFlowEditorLogic)
 
     useEffect(() => {
         setHighlightedDropzoneNodeId(isHighlighted ? id : null)
@@ -30,7 +30,9 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
         <div
             onDragOver={() => setIsHighlighted(true)}
             onDragLeave={() => setIsHighlighted(false)}
-            onClick={isMovingNode ? () => moveNodeToHighlightedDropzone() : undefined}
+            onMouseOver={() => setIsHighlighted(true)}
+            onMouseOut={() => setIsHighlighted(false)}
+            onClick={isMovingNode ? () => copyNodeToHighlightedDropzone() : undefined}
             className={clsx(
                 'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer hover:border-primary hover:bg-surface-primary',
                 isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
@@ -57,7 +59,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
 function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
 
-    const { nodesById, movingNodeId } = useValues(hogFlowEditorLogic)
+    const { nodesById, isMovingNode, nodeToBeAdded } = useValues(hogFlowEditorLogic)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -65,7 +67,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const shouldWiggleMovingNode = movingNodeId === props.id
+    const shouldWiggleMovingNode = isMovingNode && nodeToBeAdded?.id === props.id
 
     return (
         <div className={clsx('transition-all hover:translate-y-[-2px]', shouldWiggleMovingNode && 'animate-bounce')}>

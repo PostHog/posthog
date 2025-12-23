@@ -2,7 +2,7 @@ import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
@@ -19,7 +19,7 @@ import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
-    const { setSelectedNodeId, startMovingNode } = useActions(hogFlowEditorLogic)
+    const { setSelectedNodeId, startCopyingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
 
@@ -180,16 +180,16 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 // Moving a node is the same as deleting it and re-adding it
                                 selectedNodeCanBeDeleted
                                     ? {
-                                          label: 'Move',
+                                          label: 'Copy',
+                                          icon: <IconCopy />,
                                           status: 'default',
-                                          onClick: () => {
-                                              startMovingNode(node)
-                                          },
+                                          onClick: () => startCopyingNode(node),
                                       }
                                     : null,
                                 {
                                     label: 'Delete',
                                     status: 'danger',
+                                    icon: <IconTrash />,
                                     onClick: () => {
                                         void deleteElements({ nodes: [node] })
                                         setSelectedNodeId(null)

@@ -118,9 +118,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
-        startMovingNode: (node: HogFlowActionNode) => ({ node }),
-        stopMovingNode: true,
-        moveNodeToHighlightedDropzone: true,
+        startCopyingNode: (node: HogFlowActionNode) => ({ node }),
+        stopCopyingNode: true,
+        copyNodeToHighlightedDropzone: true,
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -164,18 +164,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
             },
         ],
-        isMovingNode: [
+        isCopyingNode: [
             false,
             {
-                startMovingNode: () => true,
-                stopMovingNode: () => false,
+                startCopyingNode: () => true,
+                stopCopyingNode: () => false,
             },
         ],
         nodeToBeAdded: [
             null as CreateActionType | HogFlowActionNode | null,
             {
                 setNodeToBeAdded: (_, { nodeToBeAdded }) => nodeToBeAdded,
-                startMovingNode: (_, { node }) => node,
+                startCopyingNode: (_, { node }) => node.data,
             },
         ],
         reactFlowInstance: [
@@ -456,7 +456,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     })
 
                     // If we're moving a node, we shouldn't show dropzones on edges connected to that node as this would be a noop.
-                    const shouldShowDropzone = values.isMovingNode
+                    const shouldShowDropzone = values.isCopyingNode
                         ? ![edge.source, edge.target].includes(values.nodeToBeAdded?.id)
                         : true
 
@@ -659,19 +659,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 duration: duration ?? 100,
             })
         },
-        startMovingNode: () => {
+        startCopyingNode: () => {
             actions.showDropzones()
         },
-        stopMovingNode: () => {
+        stopCopyingNode: () => {
             actions.hideDropzones()
         },
-        moveNodeToHighlightedDropzone: () => {
+        copyNodeToHighlightedDropzone: () => {
             // Copy action, move to new spot
             actions.onDrop()
             // Clear moving node ID
-            actions.stopMovingNode()
-            // Delete old node ID
-            actions.onNodesDelete([{ id: values.movingNodeId! } as HogFlowActionNode])
+            actions.stopCopyingNode()
         },
     })),
 
