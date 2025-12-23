@@ -427,13 +427,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 // For FunnelsActorsQuery, the actual query is nested at source.source
                 let insightQuery = source
-                if (source.kind === 'FunnelsActorsQuery' && 'source' in source) {
-                    insightQuery = source.source
+                if (source.kind === 'FunnelsActorsQuery' && 'source' in source && source.source) {
+                    insightQuery = source.source as any
                 }
 
                 // Extract events from the insight query series
                 if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
-                    insightQuery.series.forEach((series, index) => {
+                    insightQuery.series.forEach((series) => {
                         if ('event' in series && series.event) {
                             const eventFilter: any = {
                                 id: series.event,
@@ -451,18 +451,17 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             filters.push(eventFilter)
                         }
                     })
-                } else {
                 }
 
                 // Add breakdown filters if present
-                if (actorsQuery.breakdown && propertiesTimelineFilter?.breakdown) {
+                if ('breakdown' in source && source.breakdown && propertiesTimelineFilter?.breakdown) {
                     const breakdownFilter = {
                         key: propertiesTimelineFilter.breakdown,
-                        value: actorsQuery.breakdown,
+                        value: source.breakdown,
                         operator: PropertyOperator.Exact,
                         type: PropertyFilterType.Event,
                     }
-                    filters.push(breakdownFilter)
+                    filters.push(breakdownFilter as UniversalFilterValue)
                 }
 
                 // Add global properties from the insight query
@@ -479,8 +478,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 let date_to = propertiesTimelineFilter?.date_to
 
                 if ('dateRange' in insightQuery && insightQuery.dateRange) {
-                    date_from = insightQuery.dateRange.date_from || date_from
-                    date_to = insightQuery.dateRange.date_to || date_to
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
                 }
 
                 // Build the nested AND structure required by RecordingUniversalFilters

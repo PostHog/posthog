@@ -15,12 +15,11 @@ type ViewRecordingsPlaylistButtonProps = {
     disabled?: boolean
     disabledReason?: string | JSX.Element | null
     onClick?: () => void
-    openInBrowserTab?: boolean
 } & Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'>
 
 /**
  * Button for opening the Session Replay page with filters applied.
- * Opens in a new PostHog tab (or browser tab if openInBrowserTab=true) to view a filtered playlist of recordings.
+ * Opens in a new PostHog tab to view a filtered playlist of recordings.
  */
 export default function ViewRecordingsPlaylistButton({
     filters,
@@ -29,22 +28,12 @@ export default function ViewRecordingsPlaylistButton({
     disabled,
     disabledReason,
     onClick: onClickCallback,
-    openInBrowserTab = false,
     ...buttonProps
 }: ViewRecordingsPlaylistButtonProps): JSX.Element {
     const onClick = (): void => {
         onClickCallback?.()
-
-        // Only pass filters if they're not empty
-        const hasFilters = Object.keys(filters).length > 0
-
-        const url = hasFilters ? urls.replay(ReplayTabs.Home, filters) : urls.replay(ReplayTabs.Home)
-
-        if (openInBrowserTab) {
-            window.open(url, '_blank')
-        } else {
-            newInternalTab(url)
-        }
+        const url = urls.replay(ReplayTabs.Home, filters)
+        newInternalTab(url)
     }
 
     const button = (
