@@ -6,7 +6,7 @@ from string import Formatter
 from typing import Any, Literal, Self
 
 import structlog
-from asgiref.sync import async_to_sync, sync_to_async
+from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from posthog.schema import AssistantTool
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
@@ -168,7 +169,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
-        # using sync_to_async because UserAccessControl is fully sync
+        # using database_sync_to_async because UserAccessControl is fully sync
         await database_sync_to_async(self._check_access_control)()
         try:
             return await self._arun_with_context(*args, **kwargs)
