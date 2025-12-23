@@ -10,6 +10,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import {
+    VALID_NON_NATIVE_MARKETING_SOURCES,
+    VALID_SELF_MANAGED_MARKETING_SOURCES,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
@@ -20,6 +24,7 @@ import {
     SourceFieldConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
+    VALID_NATIVE_MARKETING_SOURCES,
     externalDataSources,
 } from '~/queries/schema/schema-general'
 import {
@@ -772,14 +777,41 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(false)
         },
-        setManualLinkingProvider: () => {
+        setManualLinkingProvider: ({ provider }) => {
             actions.onNext()
+
+            // Track marketing analytics intent for self-managed marketing sources
+            if (provider && VALID_SELF_MANAGED_MARKETING_SOURCES.includes(provider)) {
+                actions.addProductIntent({
+                    product_type: ProductKey.MARKETING_ANALYTICS,
+                    intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                })
+            }
         },
-        selectConnector: () => {
+        selectConnector: ({ connector }) => {
             actions.addProductIntent({
                 product_type: ProductKey.DATA_WAREHOUSE,
                 intent_context: ProductIntentContext.SELECTED_CONNECTOR,
             })
+
+            // Track interest for marketing ad sources and marketing analytics
+            const isNativeMarketingSource =
+                connector?.name &&
+                VALID_NATIVE_MARKETING_SOURCES.includes(
+                    connector.name as (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
+                )
+            const isExternalMarketingSource =
+                connector?.name &&
+                VALID_NON_NATIVE_MARKETING_SOURCES.includes(
+                    connector.name as (typeof VALID_NON_NATIVE_MARKETING_SOURCES)[number]
+                )
+
+            if (isNativeMarketingSource || isExternalMarketingSource) {
+                actions.addProductIntent({
+                    product_type: ProductKey.MARKETING_ANALYTICS,
+                    intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                })
+            }
         },
         toggleAllTables: ({ selectAll }) => {
             actions.setDatabaseSchemas(

@@ -5,10 +5,12 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
+import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -107,6 +109,7 @@ function TemplateItem({
     'data-attr': string
 }): JSX.Element {
     const [isHovering, setIsHovering] = useState(false)
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     const scopeTag = template.scope === 'global' ? 'official' : template.scope === 'team' ? 'team' : null
 
@@ -119,13 +122,30 @@ function TemplateItem({
             data-attr={dataAttr}
         >
             {onDelete && (
-                <div className="absolute top-2 right-2 z-10">
-                    <LemonButton
-                        icon={<IconTrash />}
+                <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+                    <More
                         size="small"
-                        status="danger"
-                        onClick={onDelete}
-                        tooltip="Delete template"
+                        className="bg-white/20 dark:bg-white/10 backdrop-blur-sm hover:bg-white/40 dark:hover:bg-white/20 transition-colors"
+                        dropdown={{
+                            visible: isMenuOpen,
+                            onVisibilityChange: setIsMenuOpen,
+                            closeOnClickInside: true,
+                        }}
+                        overlay={
+                            <LemonMenuOverlay
+                                items={[
+                                    {
+                                        label: 'Delete',
+                                        status: 'danger' as const,
+                                        icon: <IconTrash />,
+                                        onClick: (e) => {
+                                            setIsMenuOpen(false)
+                                            onDelete(e)
+                                        },
+                                    },
+                                ]}
+                            />
+                        }
                     />
                 </div>
             )}

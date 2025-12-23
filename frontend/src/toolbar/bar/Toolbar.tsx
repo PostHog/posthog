@@ -347,7 +347,7 @@ export function Toolbar(): JSX.Element | null {
         useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
-    const { selectedTourId } = useValues(productToursLogic)
+    const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
@@ -379,13 +379,17 @@ export function Toolbar(): JSX.Element | null {
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
+
+        if (userIntent === 'add-product-tour' || userIntent === 'edit-product-tour') {
+            setVisibleMenu('product-tours')
+        }
     }, [userIntent]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (isEmbeddedInApp) {
         return null
     }
 
-    const showEditingBar = selectedTourId !== null
+    const showEditingBar = selectedTourId !== null && !isPreviewing
 
     return (
         <>

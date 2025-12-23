@@ -19,8 +19,13 @@ pub struct Cli {
     /// Disable non-zero exit codes on errors. Use with caution.
     #[arg(long, default_value = "false")]
     no_fail: bool,
+
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
+
+    /// Set the number of requests per minute for the Posthog API Client.
+    #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
+    rate_limit: Option<usize>,
 
     #[command(subcommand)]
     command: Commands,
@@ -118,7 +123,11 @@ impl Cli {
 
     fn run_impl(self) -> Result<(), CapturedError> {
         if !matches!(self.command, Commands::Login) {
-            init_context(self.host.clone(), self.skip_ssl_verification)?;
+            init_context(
+                self.host.clone(),
+                self.skip_ssl_verification,
+                self.rate_limit,
+            )?;
         }
 
         match self.command {

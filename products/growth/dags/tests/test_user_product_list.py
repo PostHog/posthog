@@ -1,5 +1,3 @@
-from datetime import datetime, timedelta
-
 import pytest
 from unittest.mock import patch
 
@@ -252,45 +250,6 @@ class TestPopulateUserProductListOp:
             assert metadata["created"].value == 2  # type: ignore
 
     @pytest.mark.django_db
-    def test_populate_filters_by_user_created_before(self):
-        org = Organization.objects.create(name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
-        cutoff_date = datetime.now()
-
-        user_old = User.objects.create(
-            email="old@example.com",
-            first_name="Old",
-            allow_sidebar_suggestions=True,
-            date_joined=cutoff_date - timedelta(days=10),
-        )
-        user_new = User.objects.create(
-            email="new@example.com",
-            first_name="New",
-            allow_sidebar_suggestions=True,
-            date_joined=cutoff_date + timedelta(days=10),
-        )
-        user_old.join(organization=org)
-        user_new.join(organization=org)
-
-        with patch(
-            "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
-        ):
-            context = build_op_context(
-                op_config={
-                    "product_paths": ["product_analytics"],
-                    "user_created_before": cutoff_date.isoformat(),
-                }
-            )
-
-            populate_user_product_list(context)
-
-            old_entry = UserProductList.objects.filter(user=user_old, team=team)
-            new_entry = UserProductList.objects.filter(user=user_new, team=team)
-
-            assert old_entry.count() == 1
-            assert new_entry.count() == 0
-
-    @pytest.mark.django_db
     def test_populate_filters_by_require_existing_product(self):
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
@@ -329,43 +288,6 @@ class TestPopulateUserProductListOp:
 
             assert with_entry.count() == 1
             assert without_entry.count() == 0
-
-    @pytest.mark.django_db
-    def test_populate_filters_by_only_users_without_products(self):
-        org = Organization.objects.create(name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
-        user_with_products = User.objects.create(
-            email="with@example.com", first_name="With", allow_sidebar_suggestions=True
-        )
-        user_without_products = User.objects.create(
-            email="without@example.com", first_name="Without", allow_sidebar_suggestions=True
-        )
-        user_with_products.join(organization=org)
-        user_without_products.join(organization=org)
-
-        UserProductList.objects.create(
-            user=user_with_products, team=team, product_path="product_analytics", enabled=True
-        )
-
-        with patch("products.growth.dags.user_product_list.get_valid_product_paths", return_value={"session_replay"}):
-            context = build_op_context(
-                op_config={
-                    "product_paths": ["session_replay"],
-                    "only_users_without_products": True,
-                }
-            )
-
-            populate_user_product_list(context)
-
-            with_entry = UserProductList.objects.filter(
-                user=user_with_products, team=team, product_path="session_replay"
-            )
-            without_entry = UserProductList.objects.filter(
-                user=user_without_products, team=team, product_path="session_replay"
-            )
-
-            assert with_entry.count() == 0
-            assert without_entry.count() == 1
 
     @pytest.mark.django_db
     def test_populate_fails_with_empty_product_paths(self):
@@ -411,22 +333,6 @@ class TestPopulateUserProductListOp:
                 populate_user_product_list(context)
 
     @pytest.mark.django_db
-    def test_populate_fails_with_mutually_exclusive_options(self):
-        with patch(
-            "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
-        ):
-            context = build_op_context(
-                op_config={
-                    "product_paths": ["product_analytics"],
-                    "require_existing_product": "product_analytics",
-                    "only_users_without_products": True,
-                }
-            )
-
-            with pytest.raises(dagster.Failure, match="cannot be used together"):
-                populate_user_product_list(context)
-
-    @pytest.mark.django_db
     def test_populate_fails_with_invalid_reason(self):
         with patch(
             "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
@@ -439,6 +345,64 @@ class TestPopulateUserProductListOp:
             )
 
             with pytest.raises(Exception):  # Dagster will fail at config validation time
+                populate_user_product_list(context)
+
+    @pytest.mark.django_db
+    def test_populate_filters_by_role_at_organization(self):
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user_engineering = User.objects.create(
+            email="eng@example.com",
+            first_name="Engineer",
+            allow_sidebar_suggestions=True,
+            role_at_organization="engineering",
+        )
+        user_data = User.objects.create(
+            email="data@example.com", first_name="Data", allow_sidebar_suggestions=True, role_at_organization="data"
+        )
+        user_no_role = User.objects.create(
+            email="norole@example.com", first_name="NoRole", allow_sidebar_suggestions=True, role_at_organization=None
+        )
+        user_engineering.join(organization=org)
+        user_data.join(organization=org)
+        user_no_role.join(organization=org)
+
+        with patch(
+            "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
+        ):
+            context = build_op_context(
+                op_config={
+                    "product_paths": ["product_analytics"],
+                    "role_at_organization": "engineering",
+                }
+            )
+
+            populate_user_product_list(context)
+
+            eng_entry = UserProductList.objects.filter(user=user_engineering, team=team)
+            data_entry = UserProductList.objects.filter(user=user_data, team=team)
+            no_role_entry = UserProductList.objects.filter(user=user_no_role, team=team)
+
+            assert eng_entry.count() == 1
+            assert data_entry.count() == 0
+            assert no_role_entry.count() == 0
+
+            metadata = context.get_output_metadata("result")
+            assert metadata["created"].value == 1  # type: ignore
+
+    @pytest.mark.django_db
+    def test_populate_fails_with_invalid_role_at_organization(self):
+        with patch(
+            "products.growth.dags.user_product_list.get_valid_product_paths", return_value={"product_analytics"}
+        ):
+            context = build_op_context(
+                op_config={
+                    "product_paths": ["product_analytics"],
+                    "role_at_organization": "invalid_role",
+                }
+            )
+
+            with pytest.raises(dagster.Failure, match="Invalid role_at_organization"):
                 populate_user_product_list(context)
 
 

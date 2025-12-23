@@ -82,7 +82,7 @@ title_generator_mock = patch(
 )
 
 query_executor_mock = patch(
-    "ee.hogai.chat_agent.query_executor.nodes.execute_and_format_query", new=AsyncMock(return_value="Result")
+    "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Result")
 )
 
 

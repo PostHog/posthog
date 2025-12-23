@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { userLogic } from 'scenes/userLogic'
 
 import { workflowLogic } from './workflowLogic'
 import type { workflowTemplateLogicType } from './workflowTemplateLogicType'
@@ -17,7 +18,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
     props({ id: 'new' } as WorkflowTemplateLogicProps),
     key((props) => props.id || 'new'),
     connect(() => ({
-        values: [workflowLogic, ['workflow']],
+        values: [workflowLogic, ['workflow'], userLogic, ['user']],
     })),
     actions({
         showSaveAsTemplateModal: true,
@@ -45,13 +46,18 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     return
                 }
 
+                let scope: 'team' | 'global' = 'team'
+                if (values.user?.is_staff) {
+                    scope = formValues.scope ?? 'team'
+                }
+
                 try {
                     await api.hogFlowTemplates.createHogFlowTemplate({
                         ...workflow,
                         name: formValues.name || workflow.name || '',
                         description: formValues.description || workflow.description || '',
                         image_url: formValues.image_url || undefined,
-                        scope: formValues.scope || 'team',
+                        scope,
                     })
                     lemonToast.success('Workflow template created')
                     actions.hideSaveAsTemplateModal()
