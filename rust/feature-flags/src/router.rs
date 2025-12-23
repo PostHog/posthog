@@ -5,8 +5,6 @@ use std::{
     time::Duration,
 };
 
-use rand::Rng;
-
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
@@ -203,10 +201,7 @@ fn spawn_rate_limiter_cleanup_task(
     cleanup_interval_secs: u64,
 ) {
     tokio::spawn(async move {
-        // Add jitter to avoid synchronized cleanup across replicas
-        let jitter_secs = rand::thread_rng().gen_range(0..10);
-        let mut interval =
-            tokio::time::interval(Duration::from_secs(cleanup_interval_secs + jitter_secs));
+        let mut interval = tokio::time::interval(Duration::from_secs(cleanup_interval_secs));
         loop {
             interval.tick().await;
 
