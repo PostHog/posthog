@@ -11,7 +11,6 @@ from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
     HumanMessage,
-    InsightActorsQuery,
     LifecycleQuery,
     TrendsQuery,
     VisualizationArtifactContent,
@@ -434,5 +433,4 @@ class TestArtifactManagerGetInsightWithSource(BaseTest):
         self.assertEqual(result.source, ArtifactSource.INSIGHT)
         self.assertEqual(result.content.name, "Lifecycle Insight")
         self.assertEqual(result.content.description, "Test lifecycle insight")
-        assert isinstance(result.content.query, InsightActorsQuery)
-        assert isinstance(result.content.query.source, LifecycleQuery)
+        assert isinstance(result.content.query, LifecycleQuery)

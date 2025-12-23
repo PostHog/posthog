@@ -26,12 +26,17 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+    openai_api_base_url: str | None = None  # Used for regional endpoints
     gemini_api_key: str | None = None
 
     # Used to send gateway errors to error tracking
     posthog_api_key: str | None = None
 
     metrics_enabled: bool = True
+
+    # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
+    auth_cache_max_size: int = 10000
+    auth_cache_ttl: int = 900  # 15 minutes
 
     model_config = {"env_prefix": "LLM_GATEWAY_"}
 

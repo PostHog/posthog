@@ -230,6 +230,20 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonsBreakGlassSustainedThrottle,
     ]
     lifecycle_class = Lifecycle
+
+    def get_throttles(self):
+        # Delete operations don't touch ClickHouse, so exclude ClickHouse throttle
+        if self.action in ("destroy", "bulk_delete"):
+            return [
+                PersonsBreakGlassBurstThrottle(),
+                PersonsBreakGlassSustainedThrottle(),
+            ]
+        return [
+            ClickHouseBurstRateThrottle(),
+            PersonsBreakGlassBurstThrottle(),
+            PersonsBreakGlassSustainedThrottle(),
+        ]
+
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
