@@ -387,14 +387,12 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
     )
     @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
     @patch("ee.hogai.utils.conversation_summarizer.summarizer.AnthropicConversationSummarizer.summarize")
-    @patch("ee.hogai.core.agent_modes.executables.has_agent_modes_feature_flag")
     async def test_conversation_summarization_includes_mode_reminder_when_feature_flag_enabled(
         self, mock_feature_flag, mock_summarize, mock_calculate_tokens, mock_model
     ):
         """Test that mode reminder is inserted after summary when modes feature flag is enabled"""
         mock_calculate_tokens.return_value = 150_000
         mock_summarize.return_value = "Summary of conversation"
-        mock_feature_flag.return_value = True
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_model.return_value = mock_model_instance

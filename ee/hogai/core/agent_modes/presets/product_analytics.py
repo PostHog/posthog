@@ -4,15 +4,9 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools import (
-    CreateAndQueryInsightTool,
-    CreateDashboardTool,
-    CreateInsightTool,
-    SessionSummarizationTool,
-    UpsertDashboardTool,
-)
+from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag, has_upsert_dashboard_feature_flag
+from ee.hogai.utils.feature_flags import has_upsert_dashboard_feature_flag
 
 from ..factory import AgentModeDefinition
 from ..toolkit import AgentToolkit
@@ -54,16 +48,7 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = []
-
-        if has_agent_modes_feature_flag(self._team, self._user):
-            tools.append(CreateInsightTool)
-        else:
-            # The contextual insights tool overrides the static tool. Only inject if it's injected.
-            if not CreateAndQueryInsightTool.is_editing_mode(self._context_manager):
-                tools.append(CreateAndQueryInsightTool)
-            if self._has_session_summarization_feature_flag():
-                tools.append(SessionSummarizationTool)
+        tools: list[type[MaxTool]] = [CreateInsightTool]
 
         # Add other lower-priority tools
         if has_upsert_dashboard_feature_flag(self._team, self._user):

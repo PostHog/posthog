@@ -122,8 +122,6 @@ class ConversationCompactionManager(ABC):
         summary_message: ContextMessage,
         agent_mode: AgentMode,
         start_id: str | None = None,
-        # TODO: Delete when modes are rolled out
-        is_modes_feature_flag_enabled: bool = False,
     ) -> InsertionResult:
         """Finds the optimal position to insert the summary message in the conversation window."""
         window_start_id_candidate = self.find_window_boundary(messages, max_messages=16, max_tokens=2048)
@@ -136,9 +134,7 @@ class ConversationCompactionManager(ABC):
 
         # The last messages were too large to fit into the window. Copy the last human message to the start of the window.
         if not window_start_id_candidate:
-            return self._handle_no_window_boundary(
-                messages, summary_message, start_message_copy, agent_mode, is_modes_feature_flag_enabled
-            )
+            return self._handle_no_window_boundary(messages, summary_message, start_message_copy, agent_mode)
 
         # Find the updated window
         start_message_idx = find_start_message_idx(messages, window_start_id_candidate)
@@ -153,7 +149,6 @@ class ConversationCompactionManager(ABC):
                 start_id,
                 window_start_id_candidate,
                 agent_mode,
-                is_modes_feature_flag_enabled,
             )
 
         # If the start message is not in the window, insert the summary message and human message at the start of the window.
@@ -163,7 +158,6 @@ class ConversationCompactionManager(ABC):
             start_message_copy,
             window_start_id_candidate,
             agent_mode,
-            is_modes_feature_flag_enabled,
         )
 
     def _handle_no_window_boundary(
@@ -172,12 +166,11 @@ class ConversationCompactionManager(ABC):
         summary_message: ContextMessage,
         start_message_copy: HumanMessage,
         agent_mode: AgentMode,
-        is_modes_feature_flag_enabled: bool,
     ) -> InsertionResult:
         """Handle case where no window boundary was found (messages too large)."""
         result_messages = [*messages, summary_message, start_message_copy]
         # Check if we need to add a mode reminder
-        if is_modes_feature_flag_enabled and (context_message := self._get_mode_message(result_messages, agent_mode)):
+        if context_message := self._get_mode_message(result_messages, agent_mode):
             # Insert mode reminder right after summary message
             result_messages = [*messages, summary_message, context_message, start_message_copy]
         return InsertionResult(
@@ -193,15 +186,12 @@ class ConversationCompactionManager(ABC):
         start_id: str,
         window_start_id_candidate: str,
         agent_mode: AgentMode,
-        is_modes_feature_flag_enabled: bool,
     ) -> InsertionResult:
         """Handle case where start message is within the window boundary."""
         updated_messages = insert_messages_before_start(messages, [summary_message], start_id=start_id)
         if summary_message.id:
             updated_messages = list(
-                self._insert_mode_reminder_after_summary(
-                    updated_messages, summary_message.id, agent_mode, is_modes_feature_flag_enabled
-                )
+                self._insert_mode_reminder_after_summary(updated_messages, summary_message.id, agent_mode)
             )
         return InsertionResult(
             messages=updated_messages,
@@ -216,7 +206,6 @@ class ConversationCompactionManager(ABC):
         start_message_copy: HumanMessage,
         window_start_id_candidate: str,
         agent_mode: AgentMode,
-        is_modes_feature_flag_enabled: bool,
     ) -> InsertionResult:
         """Handle case where start message is outside the window boundary."""
         updated_messages = list(
@@ -226,11 +215,7 @@ class ConversationCompactionManager(ABC):
         )
         summary_id = summary_message.id
         if summary_id:
-            updated_messages = list(
-                self._insert_mode_reminder_after_summary(
-                    updated_messages, summary_id, agent_mode, is_modes_feature_flag_enabled
-                )
-            )
+            updated_messages = list(self._insert_mode_reminder_after_summary(updated_messages, summary_id, agent_mode))
         return InsertionResult(
             messages=updated_messages,
             updated_start_id=start_message_copy.id,
@@ -242,11 +227,8 @@ class ConversationCompactionManager(ABC):
         messages: Sequence[T],
         summary_id: str,
         agent_mode: AgentMode,
-        is_modes_feature_flag_enabled: bool,
     ) -> Sequence[T]:
         """Insert mode reminder right after the summary message if needed."""
-        if not is_modes_feature_flag_enabled:
-            return messages
         context_message = self._get_mode_message(messages, agent_mode)
         if not context_message:
             return messages

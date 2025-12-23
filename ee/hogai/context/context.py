@@ -30,7 +30,6 @@ from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
@@ -347,12 +346,9 @@ class AssistantContextManager(AssistantContextMixin):
         ).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
-        are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
-
         prompts: list[ContextMessage] = []
-        if are_modes_enabled:
-            if mode_prompt := self._get_mode_context_messages(state):
-                prompts.append(mode_prompt)
+        if mode_prompt := self._get_mode_context_messages(state):
+            prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
