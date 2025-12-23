@@ -129,10 +129,9 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
 
     listeners(({ actions, values }) => ({
         toggleHedgehogMode: () => {
-            const enabled = !values.hedgehogConfig.enabled
-
-            actions.patchHedgehogConfig({ enabled })
-            posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
+            const newValue = !values.hedgehogModeEnabled
+            actions.patchHedgehogConfig({ enabled: newValue })
+            posthog.capture(newValue ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
 
         addAccessory: ({ accessory }) => {

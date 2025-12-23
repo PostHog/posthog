@@ -26,6 +26,7 @@ import {
 } from '~/types'
 
 import { OnboardingAIConsent } from './OnboardingAIConsent'
+import { OnboardingHedgehog } from './OnboardingHedgehog'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingProjectData } from './OnboardingProjectData'
@@ -494,6 +495,7 @@ export function Onboarding(): JSX.Element | null {
     return (
         <div className="pt-4 pb-10">
             <OnboardingView />
+            <OnboardingHedgehog />
         </div>
     )
 }
