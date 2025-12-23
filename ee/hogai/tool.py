@@ -169,7 +169,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
         # using sync_to_async because UserAccessControl is fully sync
-        await sync_to_async(self._check_access_control)()
+        await database_sync_to_async(self._check_access_control)()
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
