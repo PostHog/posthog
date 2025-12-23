@@ -335,10 +335,17 @@ export class IngestionConsumer {
 
         const groupStoreForBatch = this.groupStore.forBatch()
 
-        if (this.hub.INGESTION_JOINED_PIPELINE) {
-            await this.runJoinedIngestionPipeline(messages, groupStoreForBatch)
-        } else {
-            await this.runLegacyIngestionPipeline(messages, groupStoreForBatch)
+        switch (this.hub.INGESTION_PIPELINE_IMPLEMENTATION) {
+            case 'joined':
+                await this.runJoinedIngestionPipeline(messages, groupStoreForBatch)
+                break
+            case 'multi-threaded':
+                // TODO: Implement multi-threaded pipeline
+                throw new Error('Multi-threaded pipeline not yet implemented')
+            case 'legacy':
+            default:
+                await this.runLegacyIngestionPipeline(messages, groupStoreForBatch)
+                break
         }
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])

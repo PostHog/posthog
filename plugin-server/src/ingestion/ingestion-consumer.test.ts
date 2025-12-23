@@ -135,9 +135,9 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Prep
 }
 
 describe.each([
-    ['legacy pipeline', false],
-    ['joined pipeline', true],
-] as const)('IngestionConsumer (%s)', (_name, useJoinedPipeline) => {
+    ['legacy pipeline', 'legacy'],
+    ['joined pipeline', 'joined'],
+] as const)('IngestionConsumer (%s)', (_name, pipelineImplementation) => {
     let ingester: IngestionConsumer
     let hub: Hub
     let team: Team
@@ -202,7 +202,7 @@ describe.each([
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
-        hub.INGESTION_JOINED_PIPELINE = useJoinedPipeline
+        hub.INGESTION_PIPELINE_IMPLEMENTATION = pipelineImplementation
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
