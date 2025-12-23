@@ -23,7 +23,6 @@ import { logger } from '../logger'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
-import { Celery } from './celery'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
 
@@ -128,7 +127,6 @@ export async function createHub(
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
         encryptedFields,
-        celery: new Celery(serverConfig),
         cookielessManager,
         pubSub,
         integrationManager,

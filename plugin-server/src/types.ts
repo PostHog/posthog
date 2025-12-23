@@ -14,7 +14,6 @@ import { InternalCaptureService } from './common/services/internal-capture'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
-import { Celery } from './utils/db/celery'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -464,7 +463,6 @@ export interface Hub extends PluginsServerConfig {
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
-    celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService
     // lookups
