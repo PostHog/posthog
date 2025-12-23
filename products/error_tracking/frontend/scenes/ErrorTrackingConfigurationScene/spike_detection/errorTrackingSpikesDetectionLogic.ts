@@ -6,14 +6,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
 
-import type { errorTrackingSpikeDetectionLogicType } from './errorTrackingSpikeDetectionLogicType'
+import type { errorTrackingSpikesDetectionLogicType } from './errorTrackingSpikesDetectionLogicType'
 
 export const DEFAULT_MULTIPLIER = 10
 export const MIN_MULTIPLIER = 2
 export const MAX_MULTIPLIER = 100
 
-export const errorTrackingSpikeDetectionLogic = kea<errorTrackingSpikeDetectionLogicType>([
-    path(['products', 'error_tracking', 'configuration', 'spike_detection', 'errorTrackingSpikeDetectionLogic']),
+export const errorTrackingSpikesDetectionLogic = kea<errorTrackingSpikesDetectionLogicType>([
+    path(['products', 'error_tracking', 'configuration', 'spike_detection', 'errorTrackingSpikesDetectionLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam']],

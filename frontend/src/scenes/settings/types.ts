@@ -99,7 +99,7 @@ export type SettingId =
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
-    | 'error-tracking-spike-detection'
+    | 'error-tracking-spikes-detection'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'

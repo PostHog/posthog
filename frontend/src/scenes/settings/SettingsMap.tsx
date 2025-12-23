@@ -4,7 +4,7 @@ import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
-import { ErrorTrackingSpikeDetection } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/ErrorTrackingSpikeDetection'
+import { ErrorTrackingSpikesDetection } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/ErrorTrackingSpikesDetection'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
@@ -488,9 +488,10 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ErrorTrackingAlerting />,
             },
             {
-                id: 'error-tracking-spike-detection',
-                title: 'Spike detection',
-                component: <ErrorTrackingSpikeDetection />,
+                id: 'error-tracking-spikes-detection',
+                title: 'Spikes detection',
+                component: <ErrorTrackingSpikesDetection />,
+                flag: 'ERROR_TRACKING_SPIKES_DETECTION',
             },
             {
                 id: 'error-tracking-auto-assignment',

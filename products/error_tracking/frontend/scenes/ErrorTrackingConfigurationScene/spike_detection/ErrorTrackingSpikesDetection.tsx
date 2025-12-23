@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { MAX_MULTIPLIER, MIN_MULTIPLIER, errorTrackingSpikeDetectionLogic } from './errorTrackingSpikeDetectionLogic'
+import { MAX_MULTIPLIER, MIN_MULTIPLIER, errorTrackingSpikesDetectionLogic } from './errorTrackingSpikesDetectionLogic'
 
-export function ErrorTrackingSpikeDetection(): JSX.Element {
-    const { multiplier } = useValues(errorTrackingSpikeDetectionLogic)
-    const { setMultiplier } = useActions(errorTrackingSpikeDetectionLogic)
+export function ErrorTrackingSpikesDetection(): JSX.Element {
+    const { multiplier } = useValues(errorTrackingSpikesDetectionLogic)
+    const { setMultiplier } = useActions(errorTrackingSpikesDetectionLogic)
 
     return (
         <div className="flex flex-col gap-y-2">
