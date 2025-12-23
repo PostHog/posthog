@@ -67,7 +67,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
 
 class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
-    ALERTS_ALLOWED_ON_FREE_TIER = 2
+    ALERTS_ALLOWED_ON_FREE_TIER = 5
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
@@ -101,6 +101,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
+
+    # Detector configuration for advanced anomaly detection (alternative to threshold)
+    # Stores DetectorConfig schema (zscore, mad, iqr, isolation_forest, ecod, copod, knn, ensemble)
+    detector_config = models.JSONField(null=True, blank=True)
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
@@ -155,6 +159,12 @@ class AlertCheck(UUIDTModel):
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
+
+    # Anomaly detection results (for detector-based alerts)
+    anomaly_scores = models.JSONField(null=True, blank=True)  # list[float | None] - scores for each point
+    triggered_points = models.JSONField(null=True, blank=True)  # list[int] - indices of anomaly points
+    triggered_dates = models.JSONField(null=True, blank=True)  # list[str] - dates of anomaly points for chart matching
+    interval = models.CharField(max_length=10, null=True, blank=True)  # Insight interval when check was created
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
 
