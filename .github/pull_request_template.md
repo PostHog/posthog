@@ -19,7 +19,13 @@
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
-## Changelog: (features only) Is this feature complete?
+## Publish to changelog?
 
-<!-- Yes if this is okay to go in the changelog. No if it's still hidden behind a feature flag, or part of a feature that's not complete yet, etc.  -->
-<!-- Removing this section does not mean the changelog bot won't pick it up, because *some people* like to not use the template, so we can't rely on it existing. -->
+<!-- For features only -->
+<!-- Check the box if this feature should be published to the website changelog and the #changelog Slack channel -->
+
+<!-- Removing this section or leaving it blank means this feature will probably remain unpublished -->
+
+- [ ] Yes, publish to website changelog and #changelog
+
+<!-- If publishing, please make sure your PR includes a 1-3 sentence description of the feature. Screenshots and screen recordings are optional but very encouraged 🙏 -->
