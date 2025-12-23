@@ -34,7 +34,8 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     children?: JSX.Element
     /** 'relative' shows "Just now", "Today", "Yesterday" when applicable. 'absolute' always shows full date+time. */
     timestampStyle?: 'relative' | 'absolute'
-    /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone. */
+    /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone.
+     * Note: When set, forces timestampStyle to 'absolute' to avoid broken relative date comparisons. */
     displayTimezone?: string
 }
 
