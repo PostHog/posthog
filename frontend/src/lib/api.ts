@@ -4439,6 +4439,29 @@ const api = {
         },
     },
 
+    organizationIntegrations: {
+        async list(organizationId?: string): Promise<PaginatedResponse<IntegrationType>> {
+            const orgId = organizationId || '@current'
+            return await new ApiRequest().organizations().addPathComponent(orgId).addPathComponent('integrations').get()
+        },
+        async get(organizationId: string, integrationId: IntegrationType['id']): Promise<IntegrationType> {
+            return await new ApiRequest()
+                .organizations()
+                .addPathComponent(organizationId)
+                .addPathComponent('integrations')
+                .addPathComponent(integrationId)
+                .get()
+        },
+        async delete(organizationId: string, integrationId: IntegrationType['id']): Promise<void> {
+            return await new ApiRequest()
+                .organizations()
+                .addPathComponent(organizationId)
+                .addPathComponent('integrations')
+                .addPathComponent(integrationId)
+                .delete()
+        },
+    },
+
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })

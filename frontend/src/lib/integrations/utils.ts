@@ -46,6 +46,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
+    vercel: 'https://assets.vercel.com/image/upload/front/favicon/vercel/180x180.png',
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
