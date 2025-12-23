@@ -57,9 +57,19 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
         void copyToClipboard(unixTimestamp.toString(), label)
     }
 
+    const safeTimezone = (tz: string): dayjs.Dayjs => {
+        try {
+            return time.tz(tz)
+        } catch {
+            return time
+        }
+    }
+
     useOnMountEffect(() => {
         reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
     })
+
+    const displayedTime = displayTimezone ? safeTimezone(displayTimezone) : null
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
@@ -68,13 +78,13 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
             </div>
             <div className="flex flex-col gap-1 p-2">
-                {displayTimezone !== undefined && (
+                {displayedTime && (
                     <TZLabelPopoverRow
                         icon={<IconClock />}
                         label="Displayed"
-                        caption={shortTimeZone(displayTimezone, time.toDate()) ?? displayTimezone}
-                        value={time.tz(displayTimezone).format(DATE_OUTPUT_FORMAT)}
-                        onClick={() => copyDateTime(time.tz(displayTimezone), 'displayed timezone date')}
+                        caption={shortTimeZone(displayTimezone!, time.toDate()) ?? displayTimezone!}
+                        value={displayedTime.format(DATE_OUTPUT_FORMAT)}
+                        onClick={() => copyDateTime(displayedTime, 'displayed timezone date')}
                     />
                 )}
 
