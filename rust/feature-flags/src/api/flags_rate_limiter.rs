@@ -255,6 +255,9 @@ impl FlagsRateLimiter {
     }
 
     /// Returns true if no keys are currently tracked.
+    ///
+    /// Note: This is approximate since the underlying state store may have
+    /// concurrent modifications. Use for monitoring, not correctness.
     pub fn is_empty(&self) -> bool {
         self.inner.len() == 0
     }
@@ -521,6 +524,9 @@ impl IpRateLimiter {
     }
 
     /// Returns true if no keys are currently tracked.
+    ///
+    /// Note: This is approximate since the underlying state store may have
+    /// concurrent modifications. Use for monitoring, not correctness.
     pub fn is_empty(&self) -> bool {
         self.inner.len() == 0
     }
