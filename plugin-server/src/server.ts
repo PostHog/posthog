@@ -94,7 +94,7 @@ export class PluginServer {
         this.nodeInstrumentation.setupThreadPerformanceInterval()
 
         const capabilities = getPluginServerCapabilities(this.config)
-        const hub = (this.hub = await createHub(this.config, capabilities))
+        const hub = (this.hub = await createHub(this.config))
 
         try {
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
