@@ -137,6 +137,7 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviews = 'UserInterviews',
+    VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',

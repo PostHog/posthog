@@ -27,6 +27,9 @@ export interface PrecheckResponseType {
     status: 'pending' | 'completed'
 }
 
+// Routes that should be handled by Django, not the React router
+const BACKEND_ONLY_ROUTES = ['/login/vercel/continue']
+
 export function handleLoginRedirect(): void {
     let nextURL = '/'
     try {
@@ -41,6 +44,13 @@ export function handleLoginRedirect(): void {
     } catch {
         // do nothing
     }
+
+    // Check if this is a backend-only route that shouldn't go through the React router
+    if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
     router.actions.replace(nextURL)
 }

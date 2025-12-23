@@ -835,7 +835,20 @@ class VercelIntegration:
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
             if not claims.user_email or request.user.email.lower() != claims.user_email.lower():
-                raise exceptions.PermissionDenied("Email verification failed for SSO")
+                logger.warning(
+                    "Email mismatch in Vercel SSO",
+                    expected_email=claims.user_email,
+                    logged_in_email=request.user.email,
+                    integration="vercel",
+                )
+                VercelIntegration._set_cached_claims(params.code, claims, timeout=300)
+                error_params = {
+                    "expected_email": claims.user_email,
+                    "current_email": request.user.email,
+                    "code": params.code,
+                    "state": params.state,
+                }
+                return f"/integrations/vercel/link-error?{urlencode(error_params)}"
 
             with transaction.atomic():
                 installation = OrganizationIntegration.objects.select_for_update().get(
@@ -924,8 +937,13 @@ class VercelIntegration:
 
     @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
+        claims: VercelUserClaims | None = None
         try:
-            claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
+            # First check for cached claims (from a previous attempt with email mismatch)
+            claims = VercelIntegration._get_cached_claims(params.code)
+            if claims is None:
+                # No cached claims, exchange the code with Vercel
+                claims = VercelIntegration._get_sso_claims_from_code(params.code, params.state)
             if not isinstance(claims, VercelUserClaims):
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
@@ -946,12 +964,18 @@ class VercelIntegration:
             )
             return redirect_url
         except RequiresExistingUserLogin as e:
-            continuation_url = f"/login/vercel/continue/?{urlencode(params.to_dict_no_nulls())}"
-            login_url = f"/login?next={quote(continuation_url)}"
+            # Re-cache the claims so they're available after the user logs in
+            if claims is not None:
+                VercelIntegration._set_cached_claims(params.code, claims, timeout=300)
+
+            continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
+            message = f"Please log in with {e.email} to link your Vercel account"
+            login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
 
             logger.info(
                 "Vercel SSO requires existing user login",
                 installation_id=e.installation_id,
+                email=e.email,
                 method="login_redirect_flow",
                 integration="vercel",
             )
