@@ -71,7 +71,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                     <TZLabelPopoverRow
                         icon={<IconClock />}
                         label="Displayed"
-                        caption={shortTimeZone(displayTimezone, time.toDate())!}
+                        caption={shortTimeZone(displayTimezone, time.toDate()) ?? displayTimezone}
                         value={time.tz(displayTimezone).format(DATE_OUTPUT_FORMAT)}
                         onClick={() => copyDateTime(time.tz(displayTimezone), 'displayed timezone date')}
                     />
