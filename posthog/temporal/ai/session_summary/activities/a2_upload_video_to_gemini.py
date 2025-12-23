@@ -1,4 +1,4 @@
-import time
+import asyncio
 import tempfile
 
 from django.conf import settings
@@ -59,7 +59,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
             )
             # Wait for file to be ready
             while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
-                time.sleep(0.5)  # Gotta do polling sadly
+                await asyncio.sleep(0.5)
                 logger.info(
                     f"Waiting for file to be ready: {uploaded_file.state.name}",
                     session_id=inputs.session_id,
