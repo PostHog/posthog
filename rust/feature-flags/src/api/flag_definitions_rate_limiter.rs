@@ -195,6 +195,8 @@ where
     /// Returns the total number of keys currently tracked across all limiters.
     ///
     /// Note: This may return an approximate value.
+    /// Note: is_empty() intentionally omitted - use len() == 0 if needed.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         let mut total = self.default_limiter.len();
 
@@ -204,20 +206,6 @@ where
         }
 
         total
-    }
-
-    /// Returns true if no keys are currently tracked in any limiter.
-    ///
-    /// Note: This is approximate and shares the same limitations as [`Self::len`].
-    pub fn is_empty(&self) -> bool {
-        // Short-circuit: check default limiter first
-        if !self.default_limiter.is_empty() {
-            return false;
-        }
-
-        // Check custom limiters, returning early if any is non-empty
-        let custom_limiters = self.custom_limiters.read().unwrap();
-        custom_limiters.values().all(|limiter| limiter.is_empty())
     }
 }
 
@@ -419,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_empty_returns_true_for_new_limiter() {
+    fn test_len_returns_zero_for_new_limiter() {
         let limiter = FlagDefinitionsRateLimiter::new(
             600,
             HashMap::new(),
@@ -428,44 +416,6 @@ mod tests {
         )
         .unwrap();
 
-        assert!(limiter.is_empty());
         assert_eq!(limiter.len(), 0);
-    }
-
-    #[test]
-    fn test_is_empty_returns_false_after_request() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
-
-        // Make a request to add an entry
-        drop(limiter.check_rate_limit(123));
-
-        assert!(!limiter.is_empty());
-    }
-
-    #[test]
-    fn test_is_empty_checks_custom_limiters() {
-        let mut custom_rates = HashMap::new();
-        custom_rates.insert(123, "1200/minute".to_string());
-
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
-
-        assert!(limiter.is_empty());
-
-        // Make a request to the custom limiter
-        drop(limiter.check_rate_limit(123));
-
-        assert!(!limiter.is_empty());
     }
 }

@@ -147,13 +147,6 @@ impl KeyedRateLimiter {
     fn len(&self) -> usize {
         self.limiter.len()
     }
-
-    /// Returns true if no keys are currently tracked.
-    ///
-    /// Note: This is approximate and shares the same limitations as `len()`.
-    fn is_empty(&self) -> bool {
-        self.limiter.is_empty()
-    }
 }
 
 /// Token bucket rate limiter for feature flag requests.
@@ -257,15 +250,9 @@ impl FlagsRateLimiter {
     }
 
     /// Returns the approximate number of keys currently tracked.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    /// Returns true if no keys are currently tracked.
-    ///
-    /// Note: This is approximate and shares the same limitations as [`Self::len`].
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
     }
 }
 
@@ -525,15 +512,9 @@ impl IpRateLimiter {
     }
 
     /// Returns the approximate number of keys currently tracked.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    /// Returns true if no keys are currently tracked.
-    ///
-    /// Note: This is approximate and shares the same limitations as [`Self::len`].
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
     }
 }
 
