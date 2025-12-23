@@ -30,6 +30,12 @@ const pluginExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
+const setupPromiseCacheCounter = new Counter({
+    name: 'cdp_plugin_setup_promise_cache_total',
+    help: 'The number of times we have cached a setup promise',
+    labelNames: ['result'],
+})
+
 export type PluginState = {
     setupPromise: Promise<any>
     errored: boolean
@@ -162,7 +168,21 @@ export class LegacyPluginExecutorService {
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
 
+            setupPromiseCacheCounter
+                .labels({
+                    result: 'hit',
+                    template_id: invocation.hogFunction.template_id,
+                })
+                .inc()
+
             if (!state) {
+                setupPromiseCacheCounter
+                    .labels({
+                        result: 'miss',
+                        template_id: invocation.hogFunction.template_id,
+                    })
+                    .inc()
+
                 if (!this.cachedGeoIp) {
                     this.cachedGeoIp = await this.hub.geoipService.get()
                 }
