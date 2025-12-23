@@ -13,12 +13,10 @@ import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { InternalCaptureService } from './common/services/internal-capture'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
-import { ActionManagerCDP } from './utils/action-manager-cdp'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { UUID } from './utils/utils'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
@@ -447,16 +445,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
 }
 
 export interface Hub extends PluginsServerConfig {
-    instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
-    capabilities: PluginServerCapabilities
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
-    cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
     // tools
     teamManager: TeamManager
-    actionManagerCDP: ActionManagerCDP
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
@@ -464,7 +458,6 @@ export interface Hub extends PluginsServerConfig {
     // geoip database, setup in workers
     geoipService: GeoIPService
     // lookups
-    eventsToDropByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub

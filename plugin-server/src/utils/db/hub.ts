@@ -5,23 +5,20 @@ import { IntegrationManagerService } from '~/cdp/services/managers/integration-m
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
-import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
 import { defaultConfig } from '../../config/config'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
-import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
-import { UUIDT } from '../utils'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
 
@@ -51,20 +48,13 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
     return eventsToDropByToken
 }
 
-export async function createHub(
-    config: Partial<PluginsServerConfig> = {},
-    capabilities: PluginServerCapabilities | null = null
-): Promise<Hub> {
+export async function createHub(config: Partial<PluginsServerConfig> = {}): Promise<Hub> {
     logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
     }
-    if (capabilities === null) {
-        capabilities = getPluginServerCapabilities(serverConfig)
-    }
-    const instanceId = new UUIDT()
 
     logger.info('🤔', `Connecting to Kafka...`)
 
@@ -85,7 +75,6 @@ export async function createHub(
     const teamManager = new TeamManager(postgres)
     const pubSub = new PubSub(serverConfig)
     await pubSub.start()
-    const actionManagerCDP = new ActionManagerCDP(postgres)
 
     const groupRepository = new PostgresGroupRepository(postgres)
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
@@ -106,20 +95,15 @@ export async function createHub(
 
     const hub: Hub = {
         ...serverConfig,
-        instanceId,
-        capabilities,
         postgres,
         redisPool,
-        cookielessRedisPool,
         kafkaProducer,
         groupTypeManager,
         teamManager,
         groupRepository,
         clickhouseGroupRepository,
         personRepository,
-        actionManagerCDP,
         geoipService,
-        eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         encryptedFields,
         cookielessManager,
         pubSub,
@@ -137,7 +121,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
-    await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 
