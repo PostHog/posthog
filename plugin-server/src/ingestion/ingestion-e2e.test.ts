@@ -26,7 +26,7 @@ jest.mock('~/utils/token-bucket', () => {
 })
 
 const waitForKafkaMessages = async (hub: Hub) => {
-    await hub.db.kafkaProducer.flush()
+    await hub.kafkaProducer.flush()
 }
 
 class EventBuilder {
@@ -153,7 +153,6 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
     ) => {
         test(name, async () => {
             const hub = await createHub({
-                PLUGINS_DEFAULT_LOG_LEVEL: 0,
                 APP_METRICS_FLUSH_FREQUENCY_MS: 0,
                 ...baseConfig,
                 ...config.pluginServerConfig,
@@ -176,7 +175,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const organizationMembershipId = new UUIDT().toString()
 
             await createUserTeamAndOrganization(
-                hub.db.postgres,
+                hub.postgres,
                 newTeam.id,
                 userId,
                 userUuid,
@@ -1724,7 +1723,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1840,7 +1839,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1957,7 +1956,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -2101,7 +2100,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     )
                     const person1 = persons.find((person) => person.properties.name === 'User 1')!
                     const person2 = persons.find((person) => person.properties.name === 'User 2')!
-                    const distinctIdsPersons1 = await fetchDistinctIds(hub.db.postgres, {
+                    const distinctIdsPersons1 = await fetchDistinctIds(hub.postgres, {
                         id: person1.id,
                         team_id: team.id,
                     } as InternalPerson)
@@ -2110,7 +2109,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
                         expect.arrayContaining([user1DistinctId])
                     )
-                    const distinctIdsPersons2 = await fetchDistinctIds(hub.db.postgres, {
+                    const distinctIdsPersons2 = await fetchDistinctIds(hub.postgres, {
                         id: person2.id,
                         team_id: team.id,
                     } as InternalPerson)

@@ -22,7 +22,7 @@ export async function createPluginActivityLog(
         return
     }
 
-    await hub.db.postgres.query(
+    await hub.postgres.query(
         PostgresUse.COMMON_WRITE,
         `
         INSERT INTO posthog_activitylog (id, team_id, organization_id, activity, item_id, detail, scope, is_system, created_at)

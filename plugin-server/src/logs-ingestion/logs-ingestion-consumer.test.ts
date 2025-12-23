@@ -96,7 +96,7 @@ describe('LogsIngestionConsumer', () => {
         hub = await createHub()
 
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
         consumer = await createLogsIngestionConsumer(hub)

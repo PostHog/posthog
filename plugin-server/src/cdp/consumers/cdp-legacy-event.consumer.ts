@@ -21,7 +21,7 @@ import { createInvocation } from '../utils/invocation-utils'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
-type LightweightPluginConfig = {
+export type LightweightPluginConfig = {
     id: number
     team_id: number
     plugin_id: number
@@ -73,7 +73,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
-        const { rows } = await this.hub.db.postgres.query(
+        const { rows } = await this.hub.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT
                 posthog_pluginconfig.id,
@@ -216,28 +216,16 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                     template_id: result.invocation.hogFunction.template_id,
                 })
                 .inc()
-            if (result.error) {
-                void this.promiseScheduler.schedule(
-                    this.hub.appMetrics.queueError(
-                        {
-                            teamId: event.teamId,
-                            pluginConfigId,
-                            category: 'onEvent',
-                            failures: 1,
-                        },
-                        { error, event }
-                    )
-                )
-            } else {
-                void this.promiseScheduler.schedule(
-                    this.hub.appMetrics.queueMetric({
-                        teamId: event.teamId,
-                        pluginConfigId,
-                        category: 'onEvent',
-                        successes: 1,
-                    })
-                )
-            }
+
+            void this.promiseScheduler.schedule(
+                this.hub.appMetrics.queueMetric({
+                    teamId: event.teamId,
+                    pluginConfigId,
+                    category: 'onEvent',
+                    failures: error ? 1 : 0,
+                    successes: error ? 0 : 1,
+                })
+            )
         }
     }
 

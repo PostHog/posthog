@@ -60,7 +60,7 @@ export class LegacyPluginExecutorService {
         }
 
         const get = async (key: string, defaultValue: unknown): Promise<unknown> => {
-            const result = await this.hub.db.postgres.query(
+            const result = await this.hub.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 `SELECT * FROM posthog_pluginstorage as ps 
                    JOIN posthog_pluginconfig as pc ON ps."plugin_config_id" = pc."id" 
@@ -77,7 +77,7 @@ export class LegacyPluginExecutorService {
 
             if (typeof pluginConfigCheckCache[cacheKey] === 'undefined') {
                 // Check if the plugin config for that team exists
-                const result = await this.hub.db.postgres.query(
+                const result = await this.hub.postgres.query(
                     PostgresUse.COMMON_READ,
                     `SELECT * FROM posthog_pluginconfig as pc 
                    WHERE pc."team_id" = $1 AND pc."id" = $2
@@ -93,7 +93,7 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin config ${pluginConfigId} for team ${teamId} not found`)
             }
 
-            await this.hub.db.postgres.query(
+            await this.hub.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 `
                     INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value")

@@ -193,7 +193,7 @@ describe('EventPipelineRunner', () => {
         }
 
         personsStoreForBatch = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(hub.db.postgres),
+            new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
         )
         groupStoreForBatch = new BatchWritingGroupStoreForBatch(
@@ -329,7 +329,7 @@ describe('EventPipelineRunner', () => {
                 // setup just enough mocks that the right pipeline runs
 
                 const personsStore = new BatchWritingPersonsStore(
-                    new PostgresPersonRepository(hub.db.postgres),
+                    new PostgresPersonRepository(hub.postgres),
                     hub.kafkaProducer
                 )
                 const heatmapGroupStoreForBatch = new BatchWritingGroupStoreForBatch(

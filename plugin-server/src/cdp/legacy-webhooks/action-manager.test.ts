@@ -47,7 +47,7 @@ describe('ActionManager', () => {
             ],
         })
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_action SET slack_message_format='test' WHERE id = $1`,
             [ACTION_ID],
@@ -112,7 +112,7 @@ describe('ActionManager', () => {
             ],
         })
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_action
              SET deleted = TRUE

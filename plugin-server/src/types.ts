@@ -2,19 +2,8 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
-import { VM } from 'vm2'
 
-import {
-    Element,
-    PluginAttachment,
-    PluginConfigSchema,
-    PluginEvent,
-    PluginSettings,
-    PostHogEvent,
-    ProcessedPluginEvent,
-    Properties,
-    Webhook,
-} from '@posthog/plugin-scaffold'
+import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
@@ -26,7 +15,6 @@ import type { CookielessManager } from './ingestion/cookieless/cookieless-manage
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
 import { Celery } from './utils/db/celery'
-import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
@@ -37,9 +25,6 @@ import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
-import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
-import { PluginInstance } from './worker/vm/lazy'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -202,9 +187,6 @@ export type CdpConfig = {
     CDP_FETCH_BACKOFF_MAX_MS: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
 
-    // topic that plugin VM capture events are produced to
-    CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: string
-
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
@@ -340,7 +322,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
-    PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
@@ -471,24 +452,12 @@ export interface Hub extends PluginsServerConfig {
     instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
-    // active connections to Postgres, Redis, Kafka
-    db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
-    // currently enabled plugin status
-    plugins: Map<PluginId, Plugin>
-    pluginConfigs: Map<PluginConfigId, PluginConfig>
-    pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
-    pluginSchedule: Record<string, PluginConfigId[]> | null
-    // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
-    pluginConfigSecrets: Map<PluginConfigId, string>
-    pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
-    pluginsApiKeyManager: PluginsApiKeyManager
-    rootAccessManager: RootAccessManager
     actionManagerCDP: ActionManagerCDP
     appMetrics: AppMetrics
     groupTypeManager: GroupTypeManager
@@ -532,17 +501,6 @@ export interface PluginServerCapabilities {
     evaluationScheduler?: boolean
 }
 
-export interface EnqueuedPluginJob {
-    type: string
-    payload: Record<string, any>
-    timestamp: number
-    pluginConfigId: number
-    pluginConfigTeam: number
-    jobKey?: string
-}
-
-export type PluginId = Plugin['id']
-export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
 /**
  * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
@@ -572,142 +530,11 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
-export interface Plugin {
-    id: number
-    organization_id?: string
-    name: string
-    plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
-    description?: string
-    is_global: boolean
-    is_preinstalled?: boolean
-    url?: string
-    config_schema?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-    tag?: string
-    /** Cached source for plugin.json from a joined PluginSourceFile query */
-    source__plugin_json?: string
-    /** Cached source for index.ts from a joined PluginSourceFile query */
-    source__index_ts?: string
-    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
-    source__frontend_tsx?: string
-    /** Cached source for site.ts from a joined PluginSourceFile query */
-    source__site_ts?: string
-    error?: PluginError
-    from_json?: boolean
-    from_web?: boolean
-    created_at?: string
-    updated_at?: string
-    capabilities?: PluginCapabilities
-    metrics?: StoredPluginMetrics
-    is_stateless?: boolean
-    log_level?: PluginLogLevel
-}
-
-export interface PluginCapabilities {
-    methods?: string[]
-}
-
-export enum PluginMethod {
-    onEvent = 'onEvent',
-    composeWebhook = 'composeWebhook',
-}
-
-export interface PluginConfig {
-    id: number
-    team_id: TeamId
-    plugin?: Plugin
-    plugin_id: PluginId
-    enabled: boolean
-    order: number
-    config: Record<string, unknown>
-    attachments?: Record<string, PluginAttachment>
-    instance?: PluginInstance | null
-    created_at: string
-    updated_at?: string
-    // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
-    // we'll need to know which method this plugin is using to call it the right way
-    // undefined for old plugins with multiple or deprecated methods
-    method?: PluginMethod
-}
-
-export interface PluginJsonConfig {
-    name?: string
-    description?: string
-    url?: string
-    main?: string
-    lib?: string
-    config?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-}
-
-export interface PluginError {
-    message: string
-    time: string
-    name?: string
-    stack?: string
-    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
-}
-
-export interface PluginAttachmentDB {
-    id: number
-    team_id: TeamId | null
-    plugin_config_id: PluginConfigId | null
-    key: string
-    content_type: string
-    file_size: number | null
-    file_name: string
-    contents: Buffer | null
-}
-
-export enum PluginLogEntrySource {
-    System = 'SYSTEM',
-    Plugin = 'PLUGIN',
-    Console = 'CONSOLE',
-}
-
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
-}
-
-export enum PluginLogLevel {
-    Full = 0, // all logs
-    Log = 1, // all except debug
-    Info = 2, // all expect log and debug
-    Warn = 3, // all except log, debug and info
-    Critical = 4, // only error type and system source
-}
-
 export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
     Stateful = 2,
 }
-
-export interface PluginLogEntry {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySource
-    type: PluginLogEntryType
-    message: string
-    instance_id: string
-}
-
-export type PluginMethods = {
-    setupPlugin?: () => Promise<void>
-    teardownPlugin?: () => Promise<void>
-    getSettings?: () => PluginSettings
-    onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    composeWebhook?: (event: PostHogEvent) => Webhook | null
-    processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-}
-
-// Helper when ensuring that a required method is implemented
-export type PluginMethodsConcrete = Required<PluginMethods>
 
 export enum AlertLevel {
     P0 = 0,
@@ -731,12 +558,6 @@ export interface Alert {
     key: string
     description?: string
     trigger_location: Service
-}
-export interface PluginConfigVMResponse {
-    vm: VM
-    methods: PluginMethods
-    vmResponseVariable: string
-    usedImports: Set<string>
 }
 
 export interface EventUsage {
@@ -1251,11 +1072,6 @@ export enum TimestampFormat {
     ISO = 'iso',
 }
 
-export interface PluginScheduleControl {
-    stopSchedule: () => Promise<void>
-    reloadSchedule: () => Promise<void>
-}
-
 export interface JobsConsumerControl {
     stop: () => Promise<void>
     resume: () => Promise<void>
@@ -1324,8 +1140,6 @@ export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
 }
-
-export type StatelessInstanceMap = Record<PluginId, PluginInstance>
 
 export enum OrganizationPluginsAccessLevel {
     NONE = 0,

@@ -23,10 +23,7 @@ import { logger } from '../logger'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
-import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
-import { DB } from './db'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
 
@@ -87,17 +84,7 @@ export async function createHub(
     const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
     logger.info('👍', `Cookieless Redis ready`)
 
-    const db = new DB(
-        postgres,
-        redisPool,
-        cookielessRedisPool,
-        kafkaProducer,
-        serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
-        serverConfig.PERSON_INFO_CACHE_TTL
-    )
     const teamManager = new TeamManager(postgres)
-    const pluginsApiKeyManager = new PluginsApiKeyManager(db)
-    const rootAccessManager = new RootAccessManager(db)
     const pubSub = new PubSub(serverConfig)
     await pubSub.start()
     const actionManagerCDP = new ActionManagerCDP(postgres)
@@ -123,23 +110,12 @@ export async function createHub(
         ...serverConfig,
         instanceId,
         capabilities,
-        db,
         postgres,
         redisPool,
         cookielessRedisPool,
         kafkaProducer,
         groupTypeManager,
-
-        plugins: new Map(),
-        pluginConfigs: new Map(),
-        pluginConfigsPerTeam: new Map(),
-        pluginConfigSecrets: new Map(),
-        pluginConfigSecretLookup: new Map(),
-        pluginSchedule: null,
-
         teamManager,
-        pluginsApiKeyManager,
-        rootAccessManager,
         groupRepository,
         clickhouseGroupRepository,
         personRepository,

@@ -29,7 +29,7 @@ describe('QuotaLimiting', () => {
         redisPool = service['redisPool']
         team = await getFirstTeam(hub)
 
-        const otherTeamId = await createTeam(hub.db.postgres, team!.organization_id)
+        const otherTeamId = await createTeam(hub.postgres, team!.organization_id)
         team2 = (await getTeam(hub, otherTeamId))!
 
         await setupQuotaLimits('events', [])
