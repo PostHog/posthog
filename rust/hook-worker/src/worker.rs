@@ -1283,7 +1283,7 @@ mod tests {
         let headers = collections::HashMap::new();
         // This is double the current hardcoded amount of bytes.
         // TODO: Make this configurable and change it here too.
-        let body = (0..512 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
+        let body = "a".repeat(512 * 1024);
 
         let server = MockServer::start();
         server.mock(|when, then| {
