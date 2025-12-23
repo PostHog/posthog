@@ -3313,9 +3313,22 @@ export interface ProductTourDisplayConditions {
     } | null
 }
 
+export interface ProductTourAppearance {
+    backgroundColor?: string
+    textColor?: string
+    buttonColor?: string
+    borderRadius?: number
+    buttonBorderRadius?: number
+    borderColor?: string
+    fontFamily?: string
+    boxShadow?: string
+    showOverlay?: boolean
+    whiteLabel?: boolean
+}
+
 export interface ProductTourContent {
     steps: ProductTourStep[]
-    appearance?: Record<string, any>
+    appearance?: ProductTourAppearance
     conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
