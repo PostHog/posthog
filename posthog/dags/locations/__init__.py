@@ -50,7 +50,7 @@ resources_by_env = {
             user=dagster.EnvVar("POSTGRES_USER"),
             password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
-        "posthoganalytics": PostHogAnalayticsResource(personal_api_key=""),
+        "posthoganalytics": PostHogAnalayticsResource(personal_api_key=dagster.EnvVar("PERSONAL_API_KEY")),
     },
 }
 
