@@ -7,6 +7,7 @@ import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
+from posthog.models import personal_api_key
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
 
@@ -90,6 +91,11 @@ class PostHogAnalayticsResource(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext):
         context.log.info("Initializing PostHogAnalayticsResource")
+
+        if not personal_api_key.strip():
+            context.log.warning(
+                "Personal API key not set on the PostHogAnalayticsResource. Local feature flag evaluation will not work."
+            )
 
         asyncio.run(initialize_self_capture_api_token())
         posthoganalytics.personal_api_key = self.personal_api_key
