@@ -89,8 +89,8 @@ echo ""
 
 # Generate and send requests
 for i in $(seq 1 $NUM_TOKENS); do
-    # Generate unique token
-    TOKEN="phc_test_token_$(printf '%06d' $i)_$(date +%s%N | md5sum | head -c 8)"
+    # Generate unique token (using openssl for portability across Linux/macOS)
+    TOKEN="phc_test_token_$(printf '%06d' $i)_$(openssl rand -hex 4)"
 
     for j in $(seq 1 $REQUESTS_PER_TOKEN); do
         # Run in background up to CONCURRENCY limit
