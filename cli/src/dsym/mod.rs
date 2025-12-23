@@ -124,11 +124,6 @@ fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
 
-        let _dsym_name = dsym_path
-            .file_name()
-            .ok_or_else(|| anyhow!("Invalid dSYM path"))?
-            .to_string_lossy();
-
         for entry in WalkDir::new(dsym_path) {
             let entry = entry?;
             let path = entry.path();
