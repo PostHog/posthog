@@ -29,6 +29,8 @@ import re
 import sys
 import shutil
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -213,11 +215,76 @@ def _get_previous_migration(app: str, migration_name: str) -> str:
         return "zero"
 
 
+@contextmanager
+def _temporary_migration_file(cache_path: Path, target_path: Path) -> Iterator[None]:
+    """Context manager that copies a cached migration to target and cleans up after."""
+    shutil.copy2(cache_path, target_path)
+    try:
+        yield
+    finally:
+        target_path.unlink(missing_ok=True)
+
+
+@contextmanager
+def _temporary_max_migration(migrations_dir: Path, migration_name: str) -> Iterator[None]:
+    """Context manager that temporarily updates max_migration.txt and restores it after."""
+    max_migration_path = migrations_dir / "max_migration.txt"
+    original_value = None
+
+    if max_migration_path.exists():
+        original_value = max_migration_path.read_text().strip()
+        max_migration_path.write_text(f"{migration_name}\n")
+
+    try:
+        yield
+    finally:
+        if original_value is not None:
+            max_migration_path.write_text(f"{original_value}\n")
+
+
+@contextmanager
+def _hidden_conflicting_migrations(migrations_dir: Path, migration_name: str) -> Iterator[None]:
+    """Context manager that hides conflicting migrations and restores them after.
+
+    Conflicting migrations are those with the same number prefix but different names.
+    For example, 0952_add_feature conflicts with 0952_other_feature.
+    """
+    migration_prefix = migration_name.split("_")[0]
+    hidden: list[tuple[Path, Path]] = []
+
+    for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
+        if migration_file.name != f"{migration_name}.py":
+            hidden_path = migration_file.with_suffix(".py.hidden")
+            migration_file.rename(hidden_path)
+            hidden.append((migration_file, hidden_path))
+
+    try:
+        yield
+    finally:
+        for original, hidden_path in hidden:
+            if hidden_path.exists():
+                hidden_path.rename(original)
+
+
+def _run_django_migrate(app: str, target: str) -> bool:
+    """Run Django migrate command. Returns True on success."""
+    try:
+        subprocess.run(
+            [sys.executable, "manage.py", "migrate", app, target, "--no-input", "--skip-checks"],
+            cwd=REPO_ROOT,
+            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
+            check=True,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
 def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -> bool:
     """Roll back a single migration using its cached file.
 
-    Handles the case where there are conflicting migrations (same number prefix)
-    by temporarily hiding them during the rollback.
+    Uses context managers to ensure proper cleanup of temporary files,
+    hidden migrations, and max_migration.txt regardless of success or failure.
     """
     cache_path = _get_cached_migration(app, name)
     if not cache_path:
@@ -231,15 +298,6 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
     target_path = migrations_dir / f"{name}.py"
     previous = _get_previous_migration(app, name)
 
-    # Handle max_migration.txt for PostHog's migration check
-    max_migration_path = migrations_dir / "max_migration.txt"
-    original_max_migration = None
-
-    # Find conflicting migrations (same number prefix, different name)
-    # e.g., 0952_add_migration_test_field conflicts with 0952_add_sync_test_branch_two
-    migration_prefix = name.split("_")[0]  # e.g., "0952"
-    hidden_migrations: list[tuple[Path, Path]] = []  # (original, hidden) pairs
-
     if dry_run:
         click.echo(f"  [DRY RUN] Copy {cache_path} → {target_path}")
         click.echo(f"  [DRY RUN] python manage.py migrate {app} {previous}")
@@ -247,60 +305,14 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         return True
 
     try:
-        # Find and temporarily hide conflicting migrations
-        for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
-            if migration_file.name != f"{name}.py":
-                hidden_path = migration_file.with_suffix(".py.hidden")
-                migration_file.rename(hidden_path)
-                hidden_migrations.append((migration_file, hidden_path))
-
-        # Copy cached file to migrations directory
-        shutil.copy2(cache_path, target_path)
-
-        # Temporarily update max_migration.txt if it exists
-        if max_migration_path.exists():
-            original_max_migration = max_migration_path.read_text().strip()
-            max_migration_path.write_text(f"{name}\n")
-
-        # Run Django migrate to roll back
-        subprocess.run(
-            [sys.executable, "manage.py", "migrate", app, previous, "--no-input", "--skip-checks"],
-            cwd=REPO_ROOT,
-            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
-            check=True,
-        )
-
-        # Remove the temporary file
-        target_path.unlink(missing_ok=True)
-
-        # Restore max_migration.txt
-        if original_max_migration is not None:
-            max_migration_path.write_text(f"{original_max_migration}\n")
-
-        # Restore hidden migrations
-        for original, hidden in hidden_migrations:
-            hidden.rename(original)
-
-        return True
-    except subprocess.CalledProcessError:
-        # Clean up on failure
-        target_path.unlink(missing_ok=True)
-        if original_max_migration is not None:
-            max_migration_path.write_text(f"{original_max_migration}\n")
-        # Restore hidden migrations
-        for original, hidden in hidden_migrations:
-            if hidden.exists():
-                hidden.rename(original)
-        return False
+        with (
+            _hidden_conflicting_migrations(migrations_dir, name),
+            _temporary_migration_file(cache_path, target_path),
+            _temporary_max_migration(migrations_dir, name),
+        ):
+            return _run_django_migrate(app, previous)
     except Exception as e:
         click.secho(f"  ⚠ Rollback failed for {app}.{name}: {e}", fg="red", err=True)
-        target_path.unlink(missing_ok=True)
-        if original_max_migration is not None:
-            max_migration_path.write_text(f"{original_max_migration}\n")
-        # Restore hidden migrations
-        for original, hidden in hidden_migrations:
-            if hidden.exists():
-                hidden.rename(original)
         return False
 
 
