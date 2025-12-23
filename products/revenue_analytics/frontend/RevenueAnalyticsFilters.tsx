@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconFilter, IconGear, IconGraph, IconLineGraph, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, Popover, Tooltip } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
@@ -16,6 +18,7 @@ import { IconAreaChart, IconWithCount } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import MaxTool from 'scenes/max/MaxTool'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
@@ -99,19 +102,35 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
             }
             right={
                 <>
-                    <Tooltip title="Update revenue analytics settings">
-                        <LemonButton
-                            to={urls.revenueSettings()}
-                            icon={<IconGear />}
-                            type="secondary"
-                            size="small"
-                            className="hidden md:flex"
-                        />
-                    </Tooltip>
+                    <AppShortcut
+                        name="RevenueAnalyticsSettings"
+                        keybind={[keyBinds.settings]}
+                        intent="Open settings"
+                        interaction="click"
+                        scope={Scene.RevenueAnalytics}
+                    >
+                        <Tooltip title="Update revenue analytics settings">
+                            <LemonButton
+                                to={urls.revenueSettings()}
+                                icon={<IconGear />}
+                                type="secondary"
+                                size="small"
+                                className="hidden md:flex"
+                            />
+                        </Tooltip>
+                    </AppShortcut>
 
-                    <Tooltip title="Refresh data">
-                        <ReloadAll iconOnly />
-                    </Tooltip>
+                    <AppShortcut
+                        name="RevenueAnalyticsRefresh"
+                        keybind={[keyBinds.refresh]}
+                        intent="Refresh data"
+                        interaction="click"
+                        scope={Scene.RevenueAnalytics}
+                    >
+                        <Tooltip title="Refresh data">
+                            <ReloadAll iconOnly />
+                        </Tooltip>
+                    </AppShortcut>
 
                     <LemonSelect
                         value={insightsDisplayMode}
@@ -187,19 +206,27 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         </div>
                     }
                 >
-                    <LemonButton
-                        data-attr="show-revenue-analytics-filters"
-                        icon={
-                            <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
-                                <IconFilter />
-                            </IconWithCount>
-                        }
-                        type="secondary"
-                        size="small"
-                        onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                    <AppShortcut
+                        name="RevenueAnalyticsFilters"
+                        keybind={[keyBinds.filter]}
+                        intent="Toggle filters"
+                        interaction="click"
+                        scope={Scene.RevenueAnalytics}
                     >
-                        Filters
-                    </LemonButton>
+                        <LemonButton
+                            data-attr="show-revenue-analytics-filters"
+                            icon={
+                                <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
+                                    <IconFilter />
+                                </IconWithCount>
+                            }
+                            type="secondary"
+                            size="small"
+                            onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                        >
+                            Filters
+                        </LemonButton>
+                    </AppShortcut>
                 </Popover>
             </MaxTool>
 

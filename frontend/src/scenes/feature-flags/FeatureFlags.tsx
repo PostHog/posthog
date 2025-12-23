@@ -7,6 +7,8 @@ import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -29,7 +31,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
@@ -549,14 +551,23 @@ export function FeatureFlags(): JSX.Element {
                             active={true}
                             context={{}}
                         >
-                            <LemonButton
-                                type="primary"
-                                to={urls.featureFlag('new')}
-                                data-attr="new-feature-flag"
-                                size="small"
+                            <AppShortcut
+                                name="NewFeatureFlag"
+                                keybind={[keyBinds.new]}
+                                intent="New feature flag"
+                                interaction="click"
+                                scope={Scene.FeatureFlags}
                             >
-                                <span className="pr-4">New feature flag</span>
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    to={urls.featureFlag('new')}
+                                    data-attr="new-feature-flag"
+                                    size="small"
+                                    tooltip="New feature flag"
+                                >
+                                    <span className="pr-4">New feature flag</span>
+                                </LemonButton>
+                            </AppShortcut>
                         </MaxTool>
                     </AccessControlAction>
                 }

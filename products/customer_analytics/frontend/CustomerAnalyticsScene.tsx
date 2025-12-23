@@ -5,6 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,23 +54,31 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                     }}
                     actions={
-                        <LemonButton
-                            icon={<IconGear />}
-                            size="small"
-                            type="secondary"
-                            to={urls.customerAnalyticsConfiguration()}
-                            onClick={() => {
-                                addProductIntent({
-                                    product_type: ProductKey.CUSTOMER_ANALYTICS,
-                                    intent_context:
-                                        ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
-                                })
-                                reportCustomerAnalyticsDashboardConfigurationButtonClicked()
-                            }}
-                            tooltip="Configure customer analytics"
-                            children="Configure"
-                            data-attr="customer-analytics-config"
-                        />
+                        <AppShortcut
+                            name="CustomerAnalyticsSettings"
+                            keybind={[keyBinds.settings]}
+                            intent="Configure customer analytics"
+                            interaction="click"
+                            scope={Scene.CustomerAnalytics}
+                        >
+                            <LemonButton
+                                icon={<IconGear />}
+                                size="small"
+                                type="secondary"
+                                to={urls.customerAnalyticsConfiguration()}
+                                onClick={() => {
+                                    addProductIntent({
+                                        product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                        intent_context:
+                                            ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
+                                    })
+                                    reportCustomerAnalyticsDashboardConfigurationButtonClicked()
+                                }}
+                                tooltip="Configure customer analytics"
+                                children="Configure"
+                                data-attr="customer-analytics-config"
+                            />
+                        </AppShortcut>
                     }
                 />
                 <FeedbackBanner feedbackButtonId="dashboard" />

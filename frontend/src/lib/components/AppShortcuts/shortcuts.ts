@@ -1,6 +1,6 @@
-export const baseModifier = ['command', 'option']
+export const baseModifier = ['command', 'option'] as const satisfies string[]
 
-export const keyBinds: Record<string, string[]> = {
+export const keyBinds = {
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],
     toggleShortcutMenu: [...baseModifier, 'k'],
@@ -10,4 +10,18 @@ export const keyBinds: Record<string, string[]> = {
     edit: [...baseModifier, 'e'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
-}
+    filter: [...baseModifier, 'f'],
+    refresh: [...baseModifier, 'r'],
+    run: [...baseModifier, 'enter'],
+    settings: [...baseModifier, 'g'],
+    dateFilter: [...baseModifier, 'd'],
+    tab1: [...baseModifier, '1'],
+    tab2: [...baseModifier, '2'],
+    tab3: [...baseModifier, '3'],
+    tab4: [...baseModifier, '4'],
+    tab5: [...baseModifier, '5'],
+    tab6: [...baseModifier, '6'],
+    tab7: [...baseModifier, '7'],
+    tab8: [...baseModifier, '8'],
+    tab9: [...baseModifier, '9'],
+} as const satisfies Record<string, string[]>
