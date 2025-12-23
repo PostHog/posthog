@@ -1,8 +1,12 @@
-//! Offset Tracker - Tracks the latest processed offset per partition
+//! Offset Tracker - Tracks offsets per partition for processing and checkpointing
 //!
-//! This component provides thread-safe offset tracking to ensure we only commit
-//! offsets for batches that have been successfully processed. This is in contrast
-//! to the previous approach of committing offsets immediately after receiving them.
+//! This component provides thread-safe offset tracking for:
+//! - **Processed offsets**: Updated after batch processing succeeds, used for periodic commits
+//! - **Committed offsets**: Updated after consumer.commit() succeeds, used for checkpointing
+//! - **Producer offsets**: Tracks the highest offset written to the output topic, used for checkpointing
+//!
+//! The distinction between processed and committed is critical for disaster recovery:
+//! if we crash between processing and committing, Kafka replays from the last committed offset.
 //!
 //! It also provides sequential batch IDs per partition to ensure ordering.
 
@@ -30,6 +34,12 @@ struct PartitionState {
     processed_offset: i64,
     /// The last batch ID that was processed (for ordering verification)
     last_processed_batch_id: u64,
+    /// The last successfully committed consumer offset (updated after consumer.commit())
+    /// Used for checkpointing - represents the offset Kafka would replay from on restart
+    committed_offset: i64,
+    /// The highest producer offset written to the output topic for this partition
+    /// Used for checkpointing to track output progress
+    producer_offset: i64,
 }
 
 /// Thread-safe tracker for processed offsets per partition
@@ -149,6 +159,8 @@ impl OffsetTracker {
                 PartitionState {
                     processed_offset: next_offset,
                     last_processed_batch_id: batch_id,
+                    committed_offset: 0,
+                    producer_offset: 0,
                 }
             });
     }
@@ -181,6 +193,78 @@ impl OffsetTracker {
         self.partition_state
             .get(partition)
             .map(|r| r.value().processed_offset)
+    }
+
+    /// Mark offsets as successfully committed to Kafka
+    ///
+    /// Called after `consumer.commit()` succeeds. These offsets are used for
+    /// checkpointing as they represent the true recovery point - if we crash,
+    /// Kafka will replay from the last committed offset.
+    ///
+    /// # Arguments
+    /// * `offsets` - Map of partition to committed offset (next offset to consume)
+    pub fn mark_committed(&self, offsets: &HashMap<Partition, i64>) {
+        for (partition, offset) in offsets {
+            self.partition_state
+                .entry(partition.clone())
+                .and_modify(|state| {
+                    if *offset > state.committed_offset {
+                        debug!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            previous_committed = state.committed_offset,
+                            new_committed = offset,
+                            "Advancing committed offset"
+                        );
+                        state.committed_offset = *offset;
+                    }
+                });
+        }
+    }
+
+    /// Get the committed offset for a specific partition
+    ///
+    /// Returns the last successfully committed consumer offset, which represents
+    /// where Kafka would resume consumption after a restart.
+    pub fn get_committed_offset(&self, partition: &Partition) -> Option<i64> {
+        self.partition_state
+            .get(partition)
+            .map(|r| r.value().committed_offset)
+    }
+
+    /// Mark a producer offset for a partition
+    ///
+    /// Called after successfully producing messages to the output topic.
+    /// Tracks the highest offset written so checkpointing knows output progress.
+    ///
+    /// # Arguments
+    /// * `partition` - The input partition this producer write corresponds to
+    /// * `offset` - The producer offset returned from rdkafka
+    pub fn mark_produced(&self, partition: &Partition, offset: i64) {
+        self.partition_state
+            .entry(partition.clone())
+            .and_modify(|state| {
+                if offset > state.producer_offset {
+                    debug!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        previous_producer = state.producer_offset,
+                        new_producer = offset,
+                        "Advancing producer offset"
+                    );
+                    state.producer_offset = offset;
+                }
+            });
+    }
+
+    /// Get the producer offset for a specific partition
+    ///
+    /// Returns the highest offset written to the output topic for messages
+    /// originating from this input partition.
+    pub fn get_producer_offset(&self, partition: &Partition) -> Option<i64> {
+        self.partition_state
+            .get(partition)
+            .map(|r| r.value().producer_offset)
     }
 
     /// Clear offset tracking for a partition (during revocation)
@@ -454,5 +538,129 @@ mod tests {
         let offsets = tracker.get_committable_offsets();
         assert!(offsets.is_ok());
         assert_eq!(offsets.unwrap().get(&partition), Some(&100));
+    }
+
+    #[test]
+    fn test_mark_committed_updates_committed_offset() {
+        let tracker = OffsetTracker::new();
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        // First, mark as processed to create the partition state
+        tracker.mark_processed(&partition, batch_id, 100);
+
+        // Committed offset starts at 0
+        assert_eq!(tracker.get_committed_offset(&partition), Some(0));
+
+        // Mark as committed
+        let mut offsets = HashMap::new();
+        offsets.insert(partition.clone(), 100);
+        tracker.mark_committed(&offsets);
+
+        // Committed offset should now be 100
+        assert_eq!(tracker.get_committed_offset(&partition), Some(100));
+    }
+
+    #[test]
+    fn test_committed_offset_never_goes_backwards() {
+        let tracker = OffsetTracker::new();
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        tracker.mark_processed(&partition, batch_id, 200);
+
+        let mut offsets = HashMap::new();
+        offsets.insert(partition.clone(), 150);
+        tracker.mark_committed(&offsets);
+        assert_eq!(tracker.get_committed_offset(&partition), Some(150));
+
+        // Try to go backwards - should be ignored
+        offsets.insert(partition.clone(), 100);
+        tracker.mark_committed(&offsets);
+        assert_eq!(tracker.get_committed_offset(&partition), Some(150));
+
+        // Advance forward - should work
+        offsets.insert(partition.clone(), 200);
+        tracker.mark_committed(&offsets);
+        assert_eq!(tracker.get_committed_offset(&partition), Some(200));
+    }
+
+    #[test]
+    fn test_mark_produced_updates_producer_offset() {
+        let tracker = OffsetTracker::new();
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        // First, mark as processed to create the partition state
+        tracker.mark_processed(&partition, batch_id, 100);
+
+        // Producer offset starts at 0
+        assert_eq!(tracker.get_producer_offset(&partition), Some(0));
+
+        // Mark producer offset
+        tracker.mark_produced(&partition, 50);
+        assert_eq!(tracker.get_producer_offset(&partition), Some(50));
+
+        // Advance producer offset
+        tracker.mark_produced(&partition, 75);
+        assert_eq!(tracker.get_producer_offset(&partition), Some(75));
+    }
+
+    #[test]
+    fn test_producer_offset_never_goes_backwards() {
+        let tracker = OffsetTracker::new();
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        tracker.mark_processed(&partition, batch_id, 100);
+
+        tracker.mark_produced(&partition, 50);
+        assert_eq!(tracker.get_producer_offset(&partition), Some(50));
+
+        // Try to go backwards - should be ignored
+        tracker.mark_produced(&partition, 25);
+        assert_eq!(tracker.get_producer_offset(&partition), Some(50));
+    }
+
+    #[test]
+    fn test_committed_and_producer_offsets_independent() {
+        let tracker = OffsetTracker::new();
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        tracker.mark_processed(&partition, batch_id, 100);
+
+        // Set committed and producer offsets to different values
+        let mut offsets = HashMap::new();
+        offsets.insert(partition.clone(), 80);
+        tracker.mark_committed(&offsets);
+        tracker.mark_produced(&partition, 50);
+
+        // Verify they're tracked independently
+        assert_eq!(tracker.get_partition_offset(&partition), Some(100));
+        assert_eq!(tracker.get_committed_offset(&partition), Some(80));
+        assert_eq!(tracker.get_producer_offset(&partition), Some(50));
+    }
+
+    #[test]
+    fn test_clear_partition_clears_all_offsets() {
+        let tracker = OffsetTracker::new();
+        let partition = test_partition(0);
+        let batch_id = tracker.assign_batch_id();
+
+        tracker.mark_processed(&partition, batch_id, 100);
+
+        let mut offsets = HashMap::new();
+        offsets.insert(partition.clone(), 80);
+        tracker.mark_committed(&offsets);
+        tracker.mark_produced(&partition, 50);
+
+        // Clear the partition
+        tracker.clear_partition(&partition);
+
+        // All offsets should be None
+        assert_eq!(tracker.get_partition_offset(&partition), None);
+        assert_eq!(tracker.get_committed_offset(&partition), None);
+        assert_eq!(tracker.get_producer_offset(&partition), None);
     }
 }

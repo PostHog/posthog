@@ -305,6 +305,9 @@ where
     ///
     /// Commits are skipped during rebalancing to avoid committing offsets for partitions
     /// that may have been revoked.
+    ///
+    /// After a successful commit, updates the offset tracker's committed offsets which
+    /// are used for checkpointing to track the true recovery point.
     fn commit_tracked_offsets(
         consumer: &StreamConsumer<BatchConsumerContext>,
         offset_tracker: &OffsetTracker,
@@ -334,9 +337,15 @@ where
             );
         }
 
-        match consumer.commit(&list, CommitMode::Async) {
+        // Use synchronous commit so we know exactly when offsets are committed.
+        // This is important for checkpointing - we need to track the committed
+        // offset (not just processed) for disaster recovery.
+        match consumer.commit(&list, CommitMode::Sync) {
             Ok(_) => {
                 info!("Committed offsets for {} partitions", offsets.len());
+                // Update the offset tracker with the committed offsets
+                // These are used for checkpointing to track the true recovery point
+                offset_tracker.mark_committed(&offsets);
             }
             Err(e) => {
                 warn!("Failed to commit tracked offsets: {e}");
