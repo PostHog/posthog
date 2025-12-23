@@ -153,6 +153,48 @@ def _find_migration_branch(app: str, name: str) -> str | None:
     return None
 
 
+def _fetch_and_cache_migration_from_git(app: str, name: str, branch: str) -> bool:
+    """Fetch a migration file from a git branch and cache it.
+
+    This allows rolling back migrations that were applied on other branches
+    without having to manually switch branches.
+
+    Returns True if successful, False otherwise.
+    """
+    all_apps = _get_all_migration_apps()
+    migrations_dir = all_apps.get(app)
+    if not migrations_dir:
+        return False
+
+    # Get relative path from repo root
+    try:
+        rel_path = migrations_dir.relative_to(REPO_ROOT) / f"{name}.py"
+    except ValueError:
+        return False
+
+    # Try fetching from remote first (in case branch isn't checked out locally)
+    for ref in [f"origin/{branch}", branch]:
+        try:
+            result = subprocess.run(
+                ["git", "show", f"{ref}:{rel_path}"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            content = result.stdout
+
+            # Cache the content
+            cache_path = _get_cache_path(app, name)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(content)
+            return True
+        except subprocess.CalledProcessError:
+            continue
+
+    return False
+
+
 def _get_previous_migration(app: str, migration_name: str) -> str:
     """Get the migration that should be active after rolling back the given one.
 
@@ -508,7 +550,29 @@ def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
         click.echo(f"    {m.app}: {m.name} ({cache_status})")
     click.echo()
 
-    # If there are uncached migrations and not forcing, show instructions
+    # Try to fetch uncached migrations from git
+    if uncached and not force:
+        click.echo("Attempting to fetch uncached migrations from git…\n")
+        still_uncached: list[MigrationInfo] = []
+
+        for m in uncached:
+            branch = _find_migration_branch(m.app, m.name)
+            if branch:
+                click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
+                if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
+                    click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
+                    cached.append(m)
+                else:
+                    click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
+                    still_uncached.append(m)
+            else:
+                click.secho(f"  ✗ Could not find branch for {m.app}.{m.name}", fg="red")
+                still_uncached.append(m)
+
+        uncached = still_uncached
+        click.echo()
+
+    # If there are still uncached migrations and not forcing, show instructions
     if uncached and not force:
         click.secho("⚠ Some migrations are not cached and cannot be auto-rolled back:\n", fg="yellow")
 
@@ -649,7 +713,29 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
             click.echo(f"    {m.app}: {m.name}")
         click.echo()
 
-    # If there are uncached migrations and not forcing, show instructions
+    # Try to fetch uncached migrations from git
+    if uncached and not force:
+        click.echo("Attempting to fetch uncached migrations from git…\n")
+        still_uncached: list[MigrationInfo] = []
+
+        for m in uncached:
+            branch = _find_migration_branch(m.app, m.name)
+            if branch:
+                click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
+                if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
+                    click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
+                    cached.append(m)
+                else:
+                    click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
+                    still_uncached.append(m)
+            else:
+                click.secho(f"  ✗ Could not find branch for {m.app}.{m.name}", fg="red")
+                still_uncached.append(m)
+
+        uncached = still_uncached
+        click.echo()
+
+    # If there are still uncached migrations and not forcing, show instructions
     if uncached and not force:
         click.secho("⚠ Some migrations are not cached and cannot be auto-rolled back:\n", fg="yellow")
 
