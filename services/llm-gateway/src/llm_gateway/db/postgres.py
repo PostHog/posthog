@@ -27,8 +27,11 @@ async def acquire_connection(pool: asyncpg.Pool) -> AsyncIterator[asyncpg.Connec
     """Acquire a connection with timeout, tracking exhaustion events."""
     try:
         async with asyncio.timeout(POOL_ACQUIRE_TIMEOUT):
-            async with pool.acquire() as conn:
-                yield conn
+            conn = await pool.acquire()
     except TimeoutError:
         DB_POOL_EXHAUSTED.inc()
         raise
+    try:
+        yield conn
+    finally:
+        await pool.release(conn)
