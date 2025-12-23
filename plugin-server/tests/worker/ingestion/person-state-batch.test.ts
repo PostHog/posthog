@@ -175,7 +175,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             personRepository,
-            customHub ? customhub.kafkaProducer : hub.kafkaProducer
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer
         )
 
         const context = new PersonContext(
@@ -184,7 +184,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customhub.kafkaProducer : hub.kafkaProducer,
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
             personsStore,
             0,
             createDefaultSyncMergeMode()
@@ -213,7 +213,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             personRepository,
-            customHub ? customhub.kafkaProducer : hub.kafkaProducer
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer
         )
 
         const context = new PersonContext(
@@ -222,7 +222,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customhub.kafkaProducer : hub.kafkaProducer,
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
             personsStore,
             0,
             createDefaultSyncMergeMode()
@@ -247,8 +247,8 @@ describe('PersonState.processEvent()', () => {
         }
 
         const personsStore = new BatchWritingPersonsStore(
-            customPersonRepository ?? (customHub ? new PostgresPersonRepository(customhub.postgres) : personRepository),
-            customHub ? customhub.kafkaProducer : hub.kafkaProducer
+            customPersonRepository ?? (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer
         )
 
         const context = new PersonContext(
@@ -257,7 +257,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customhub.kafkaProducer : hub.kafkaProducer,
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
             personsStore,
             0,
             mergeMode
