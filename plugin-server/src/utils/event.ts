@@ -11,8 +11,8 @@ import {
     RawClickHouseEvent,
     RawKafkaEvent,
 } from '../types'
-import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import { chainToElements } from './elements-chain'
 import { parseJSON } from './json-parse'
 import {
     clickHouseTimestampSecondPrecisionToISO,

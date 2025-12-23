@@ -1,7 +1,7 @@
-import { Element } from '../../types'
-import { captureException } from '../posthog'
-import { createTrackedRE2 } from '../tracked-re2'
-import { escapeQuotes } from './utils'
+import { Element } from '../types'
+import { escapeQuotes } from './db/utils'
+import { captureException } from './posthog'
+import { createTrackedRE2 } from './tracked-re2'
 
 // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
 const splitChainRegex = createTrackedRE2(/(?:[^\s;"]|"(?:[^"\\]|\\.)*")+/g, undefined, 'elements-chain:split')
