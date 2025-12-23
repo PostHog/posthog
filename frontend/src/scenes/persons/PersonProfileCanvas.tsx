@@ -8,11 +8,11 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { AnyPropertyFilter, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-type PersonFeedCanvasProps = {
+type PersonProfileCanvasProps = {
     person: PersonType
 }
 
-const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
+const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element => {
     const { reportPersonProfileViewed } = useActions(eventUsageLogic)
     const id = person.id
     const distinctId = person.distinct_ids[0]
@@ -92,4 +92,4 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
     )
 }
 
-export default PersonFeedCanvas
+export default PersonProfileCanvas
