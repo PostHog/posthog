@@ -284,7 +284,6 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
@@ -298,7 +297,6 @@ class AssistantTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
     READ_TAXONOMY = "read_taxonomy"

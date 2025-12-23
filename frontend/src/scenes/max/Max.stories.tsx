@@ -1178,19 +1178,19 @@ export const TaskExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_3',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_4',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
