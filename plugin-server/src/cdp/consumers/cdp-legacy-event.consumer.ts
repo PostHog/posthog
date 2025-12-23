@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { LegacyPluginAppMetrics } from '~/cdp/legacy-plugins/app-metrics'
 import { instrumented } from '~/common/tracing/tracing-utils'
 
 import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
@@ -58,6 +59,8 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
 
+    private appMetrics: LegacyPluginAppMetrics
+
     constructor(hub: Hub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
@@ -70,6 +73,12 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
         })
+
+        this.appMetrics = new LegacyPluginAppMetrics(
+            hub.kafkaProducer,
+            hub.APP_METRICS_FLUSH_FREQUENCY_MS,
+            hub.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+        )
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
@@ -218,7 +227,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 .inc()
 
             void this.promiseScheduler.schedule(
-                this.hub.appMetrics.queueMetric({
+                this.appMetrics.queueMetric({
                     teamId: event.teamId,
                     pluginConfigId,
                     category: 'onEvent',

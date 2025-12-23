@@ -11,7 +11,6 @@ import { defaultConfig } from '../../config/config'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../../types'
-import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -121,11 +120,6 @@ export async function createHub(
         actionManagerCDP,
         geoipService,
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
-        appMetrics: new AppMetrics(
-            kafkaProducer,
-            serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-            serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-        ),
         encryptedFields,
         cookielessManager,
         pubSub,
@@ -139,9 +133,6 @@ export async function createHub(
 
 export const closeHub = async (hub: Hub): Promise<void> => {
     logger.info('💤', 'Closing hub...')
-    if (!isTestEnv()) {
-        await hub.appMetrics?.flush()
-    }
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])

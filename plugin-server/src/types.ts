@@ -19,7 +19,6 @@ import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
-import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
@@ -458,7 +457,6 @@ export interface Hub extends PluginsServerConfig {
     // tools
     teamManager: TeamManager
     actionManagerCDP: ActionManagerCDP
-    appMetrics: AppMetrics
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository

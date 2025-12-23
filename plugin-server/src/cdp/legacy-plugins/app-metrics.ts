@@ -64,7 +64,7 @@ export interface RawAppMetric {
     error_details?: string
 }
 
-export class AppMetrics {
+export class LegacyPluginAppMetrics {
     kafkaProducer: KafkaProducerWrapper
     queuedData: Record<string, QueuedMetric>
 
