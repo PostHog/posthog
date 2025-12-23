@@ -1,21 +1,23 @@
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { AnyPropertyFilter, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { personProfileCanvasLogic } from 'products/customer_analytics/frontend/personProfileCanvasLogic'
+
 type PersonProfileCanvasProps = {
     person: PersonType
 }
 
 const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element => {
-    const { reportPersonProfileViewed } = useActions(eventUsageLogic)
     const id = person.id
     const distinctId = person.distinct_ids[0]
+    const { reportPersonProfileViewed } = useActions(eventUsageLogic)
+    const { content } = useValues(personProfileCanvasLogic({ personId: id, distinctId }))
     const shortId = `canvas-${id}`
     const mode = 'canvas'
 
@@ -40,52 +42,7 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
                 mode={mode}
                 initialContent={{
                     type: 'doc',
-                    content: [
-                        { type: 'ph-usage-metrics', attrs: { personId: id, nodeId: uuid() } },
-                        {
-                            type: 'ph-person-feed',
-                            attrs: {
-                                height: null,
-                                title: null,
-                                nodeId: uuid(),
-                                id,
-                                distinctId,
-                                __init: null,
-                                children: [
-                                    {
-                                        type: 'ph-person',
-                                        attrs: { id, distinctId, nodeId: uuid(), title: 'Info' },
-                                    },
-                                    // FIXME: Map bg image is broken
-                                    // ...(isCloudOrDev
-                                    //     ? [
-                                    //           {
-                                    //               type: 'ph-map',
-                                    //               attrs: { id, distinctId, nodeId: uuid() },
-                                    //           },
-                                    //       ]
-                                    //     : []),
-                                    {
-                                        type: 'ph-person-properties',
-                                        attrs: { id, distinctId, nodeId: uuid() },
-                                    },
-                                    { type: 'ph-related-groups', attrs: { id, nodeId: uuid(), type: 'group' } },
-                                ],
-                            },
-                        },
-                        {
-                            type: 'ph-llm-trace',
-                            attrs: { personId: id, nodeId: uuid() },
-                        },
-                        {
-                            type: 'ph-zendesk-tickets',
-                            attrs: { personId: id, nodeId: uuid() },
-                        },
-                        {
-                            type: 'ph-issues',
-                            attrs: { personId: id, nodeId: uuid() },
-                        },
-                    ],
+                    content,
                 }}
             />
         </BindLogic>
