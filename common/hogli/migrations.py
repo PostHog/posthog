@@ -36,9 +36,11 @@ from urllib.parse import quote
 import click
 from hogli.core.cli import cli
 from hogli.core.manifest import REPO_ROOT
-
-# Cache directory for migration files
-MIGRATION_CACHE_DIR = Path.home() / ".cache" / "posthog-migrations"
+from hogli.migration_utils import (
+    MIGRATION_CACHE_DIR,
+    get_cache_path as _get_cache_path,
+    get_cached_migration as _get_cached_migration,
+)
 
 # Migration directory patterns for PostHog
 MIGRATION_APPS = {
@@ -49,24 +51,6 @@ MIGRATION_APPS = {
 
 # Pattern to match migration files (0001_initial.py, etc.)
 MIGRATION_PATTERN = re.compile(r"^(\d{4})_.+\.py$")
-
-# Pattern to validate migration names (without .py extension)
-# Must start with 4 digits, underscore, then alphanumeric/underscores only
-MIGRATION_NAME_PATTERN = re.compile(r"^(\d{4})_[a-zA-Z0-9_]+$")
-
-# Pattern to validate app names (valid Python package names)
-APP_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
-
-
-def _validate_migration_path_components(app: str, name: str) -> None:
-    """Validate app and migration name to prevent path traversal.
-
-    Raises ValueError if either component contains invalid characters.
-    """
-    if not APP_NAME_PATTERN.match(app):
-        raise ValueError(f"Invalid app name: {app}")
-    if not MIGRATION_NAME_PATTERN.match(name):
-        raise ValueError(f"Invalid migration name: {name}")
 
 
 @dataclass
@@ -111,15 +95,6 @@ def _get_all_migration_apps() -> dict[str, Path]:
     return apps
 
 
-def _get_cache_path(app: str, name: str) -> Path:
-    """Get the cache path for a migration file.
-
-    Validates inputs to prevent path traversal attacks.
-    """
-    _validate_migration_path_components(app, name)
-    return MIGRATION_CACHE_DIR / app / f"{name}.py"
-
-
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     """Cache a migration file for later rollback."""
     cache_path = _get_cache_path(app, name)
@@ -130,14 +105,6 @@ def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     except Exception as e:
         click.secho(f"  ⚠ Could not cache {app}.{name}: {e}", fg="yellow", err=True)
         return False
-
-
-def _get_cached_migration(app: str, name: str) -> Path | None:
-    """Get a cached migration file if it exists."""
-    cache_path = _get_cache_path(app, name)
-    if cache_path.exists():
-        return cache_path
-    return None
 
 
 def _find_migration_branch(app: str, name: str) -> str | None:
