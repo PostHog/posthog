@@ -96,6 +96,8 @@ class UserAdmin(DjangoUserAdmin):
         "email_verification_status",
         "revoke_sessions_link",
         "allow_impersonation",
+        "last_login",
+        "date_joined",
     ]
     ordering = ("email",)
 
