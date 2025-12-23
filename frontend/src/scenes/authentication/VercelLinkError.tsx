@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 export function VercelLinkError(): JSX.Element {
     const { searchParams } = useValues(router)
 
-    const expectedEmail = searchParams.expected_email || 'a different account'
+    const expectedEmail = searchParams.expected_email
     const currentEmail = searchParams.current_email || 'your current account'
     const code = searchParams.code
     const state = searchParams.state
@@ -34,7 +34,7 @@ export function VercelLinkError(): JSX.Element {
             <div className="text-center mb-6">
                 <p className="mb-2">
                     You're currently logged in as <strong>{currentEmail}</strong>, but your Vercel account is linked to{' '}
-                    <strong>{expectedEmail}</strong>.
+                    {expectedEmail ? <strong>{expectedEmail}</strong> : 'a different account'}.
                 </p>
                 <p>To complete Vercel SSO, please log out and sign in with the correct account.</p>
             </div>
@@ -47,7 +47,7 @@ export function VercelLinkError(): JSX.Element {
                         window.location.href = logoutUrl
                     }}
                 >
-                    Log out and continue with {expectedEmail}
+                    {expectedEmail ? `Log out and continue with ${expectedEmail}` : 'Log out and continue'}
                 </LemonButton>
                 <LemonButton fullWidth type="secondary" center to="/">
                     Cancel
