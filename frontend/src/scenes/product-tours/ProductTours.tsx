@@ -39,7 +39,7 @@ function NewTourButton(): JSX.Element {
                     <AuthorizedUrlList
                         type={AuthorizedUrlListType.TOOLBAR_URLS}
                         addText="Add authorized URL"
-                        query="__posthog_product_tour=new"
+                        productTourId="new"
                     />
                 </div>
             </LemonModal>

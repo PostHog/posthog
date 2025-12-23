@@ -265,7 +265,7 @@ jobs:
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/export_recording|^posthog/temporal/import_recording|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
@@ -510,8 +510,13 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Check for changes that affect data modeling temporal worker
+              id: check_changes_data_modeling_temporal_worker
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              if: steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
               with:
                   token: ${{ steps.deployer.outputs.token }}

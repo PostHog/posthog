@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -37,13 +38,6 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
-    return action
 
 
 def get_person_ids_by_cohort_id(

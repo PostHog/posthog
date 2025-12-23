@@ -990,10 +990,14 @@ class VercelIntegration:
     def _find_or_create_user_by_email(
         email: str, name: str | None, organization: Organization, level: OrganizationMembership.Level
     ) -> tuple[User, bool]:
-        user = User.objects.filter(email=email, is_active=True).first()
+        user = User.objects.filter(email=email).first()
         created = False
 
-        if not user:
+        if user:
+            if not user.is_active:
+                user.is_active = True
+                user.save(update_fields=["is_active"])
+        else:
             first_name = ""
             if name:
                 first_name = name.split()[0] if name.split() else name

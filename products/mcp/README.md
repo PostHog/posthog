@@ -248,5 +248,14 @@ Alternatively, you can use the following configuration in the MCP Inspector:
 
 Use transport type `STDIO`.
 
-- **Command**: `npx`
-- **Arguments**: `-y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"`
+**Command:**
+
+```bash
+npx
+```
+
+**Arguments:**
+
+```bash
+-y mcp-remote@latest http://localhost:8787/mcp --header "Authorization: Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}"
+```

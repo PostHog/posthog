@@ -249,7 +249,7 @@ fn poll_for_authorization(
 
 fn complete_login(provider: &HomeDirProvider, command_name: &str) -> Result<(), Error> {
     // Login is the only command that doesn't have a context coming in - because it modifies the context
-    init_context(None, false)?;
+    init_context(None, false, None)?;
     context().capture_command_invoked(command_name);
 
     println!();

@@ -205,6 +205,10 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                     tags={"team_id": team_id, "route": route},
                 )
                 RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
+
+                from posthog.clickhouse.query_tagging import tag_queries
+
+                tag_queries(rate_limit_bypass=1)
                 return True
             else:
                 scope = getattr(self, "scope", None)
@@ -659,3 +663,13 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
     # Prefer making a subclass of this for specific endpoints, and setting a scope
     rate = "75/hour"
+
+
+class SymbolSetUploadBurstRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "symbol_set_upload_burst"
+    rate = "1200/minute"
+
+
+class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "symbol_set_upload_sustained"
+    rate = "12000/hour"

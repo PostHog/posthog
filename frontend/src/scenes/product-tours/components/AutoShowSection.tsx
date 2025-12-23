@@ -162,27 +162,13 @@ function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JS
                 }}
                 excludedEvents={events.map((e) => e.name)}
             />
-
-            <LemonCheckbox
-                label="Show every time event occurs (not just once)"
-                checked={conditions.events?.repeatedActivation || false}
-                onChange={(checked) => {
-                    onChange({
-                        ...conditions,
-                        events: {
-                            ...conditions.events,
-                            values: events,
-                            repeatedActivation: checked,
-                        },
-                    })
-                }}
-            />
         </div>
     )
 }
 
 export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps): JSX.Element {
     // Derive initial trigger type from conditions
+    // this happens again at runtime, so this trigger type is _not_ persisted
     const getInitialTriggerType = (): TourTriggerType => {
         if (conditions.events?.values && conditions.events.values.length > 0) {
             return 'event'
