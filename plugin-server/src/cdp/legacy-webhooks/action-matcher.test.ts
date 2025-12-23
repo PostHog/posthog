@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { commonUserId } from '../../../tests/helpers/plugins'
-import { insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
+import { commonUserId, insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
 import {
     Action,
     ActionStep,
