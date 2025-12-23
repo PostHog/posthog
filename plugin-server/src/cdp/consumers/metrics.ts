@@ -6,12 +6,6 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterQuotaLimited = new Counter({
-    name: 'cdp_function_quota_limited',
-    help: 'A function invocation was quota limited',
-    labelNames: ['team_id'],
-})
-
 export const counterRateLimited = new Counter({
     name: 'cdp_function_rate_limited',
     help: 'A function invocation was rate limited',

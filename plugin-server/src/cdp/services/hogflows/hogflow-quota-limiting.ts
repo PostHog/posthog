@@ -1,5 +1,15 @@
+import { Counter } from 'prom-client'
+
 import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { HogFlow } from '../../../schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '../../types'
+import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+
+export const counterHogFlowQuotaLimited = new Counter({
+    name: 'cdp_hog_flow_quota_limited',
+    help: 'A hog flow invocation was quota limited',
+    labelNames: ['team_id'],
+})
 
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
@@ -38,4 +48,40 @@ export async function checkHogFlowQuotaLimits(
     }
 
     return { isLimited: false }
+}
+
+export interface HogFlowQuotaLimitingContext {
+    hub: {
+        quotaLimiting: QuotaLimiting
+    }
+    hogFunctionMonitoringService: HogFunctionMonitoringService
+}
+
+/**
+ * Checks if a hog flow invocation should be quota limited and handles the appropriate metrics.
+ * Returns true if the invocation should be blocked, false otherwise.
+ */
+export async function shouldBlockHogFlowDueToQuota(
+    item: CyclotronJobInvocationHogFlow,
+    context: HogFlowQuotaLimitingContext
+): Promise<boolean> {
+    const quotaLimitResult = await checkHogFlowQuotaLimits(item.hogFlow, item.teamId, context.hub.quotaLimiting)
+
+    if (quotaLimitResult.isLimited) {
+        counterHogFlowQuotaLimited.labels({ team_id: item.teamId }).inc()
+
+        context.hogFunctionMonitoringService.queueAppMetric(
+            {
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'failure',
+                metric_name: 'quota_limited',
+                count: 1,
+            },
+            'hog_flow'
+        )
+        return true
+    }
+
+    return false
 }

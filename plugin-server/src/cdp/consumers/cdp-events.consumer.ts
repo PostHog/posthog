@@ -9,7 +9,7 @@ import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { checkHogFlowQuotaLimits } from '../services/hogflows/hogflow-quota-limiting'
+import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -22,7 +22,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
-import { counterHogFunctionStateOnEvent, counterParseError, counterQuotaLimited, counterRateLimited } from './metrics'
+import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
 
 export class CdpEventsConsumer extends CdpConsumerBase {
@@ -291,24 +291,12 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
 
                 // Check quota limits for workflow actions
-                const quotaLimitResult = await checkHogFlowQuotaLimits(
-                    item.hogFlow,
-                    item.teamId,
-                    this.hub.quotaLimiting
-                )
+                const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
+                    hub: this.hub,
+                    hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                })
 
-                if (quotaLimitResult.isLimited) {
-                    counterQuotaLimited.labels({ team_id: item.teamId }).inc()
-                    this.hogFunctionMonitoringService.queueAppMetric(
-                        {
-                            team_id: item.teamId,
-                            app_source_id: item.functionId,
-                            metric_kind: 'failure',
-                            metric_name: 'quota_limited',
-                            count: 1,
-                        },
-                        'hog_flow'
-                    )
+                if (isQuotaLimited) {
                     return
                 }
 
