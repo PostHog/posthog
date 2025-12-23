@@ -37,7 +37,9 @@ import {
 
 export const X_FRAMES = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 export const FPS = 24
+
 const GRAVITY_PIXELS = 10
+const REVERSE_GRAVITY_PIXELS = -2
 const MAX_JUMP_COUNT = 2
 
 export type HedgehogBuddyProps = {
@@ -47,6 +49,8 @@ export type HedgehogBuddyProps = {
     onPositionChange?: (actor: HedgehogActor) => void
     hedgehogConfig?: HedgehogConfig
     tooltip?: JSX.Element
+    /** When true, shows the tooltip always instead of only on hover */
+    tooltipAlwaysVisible?: boolean
     static?: boolean
     /** When true, pauses the animation loop without unmounting. Useful for background tabs. */
     paused?: boolean
@@ -112,6 +116,7 @@ export class HedgehogActor {
     // properties synced with the logic
     hedgehogConfig: Partial<HedgehogConfig> = {}
     tooltip?: JSX.Element
+    tooltipAlwaysVisible = false
 
     constructor() {
         this.log('Created new HedgehogActor')
@@ -208,7 +213,7 @@ export class HedgehogActor {
                 ],
                 action: () => {
                     this.setOnFire()
-                    this.gravity = -2
+                    this.gravity = REVERSE_GRAVITY_PIXELS
 
                     lemonToast.info('I must leave. My people need me!')
                     setTimeout(() => {
@@ -818,22 +823,61 @@ export class HedgehogActor {
                         transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                     }}
                 >
-                    {this.tooltip && !this.isDragging && (
-                        <div
-                            className={clsx(
-                                'rounded transition-all absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none',
-                                this.showTooltip ? 'opacity-100' : 'opacity-0  translate-y-10'
-                            )}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
-                                border: '1px solid var(--color-border-primary)',
-                                backgroundColor: 'var(--color-bg-surface-primary)',
-                            }}
-                        >
-                            {this.tooltip}
-                        </div>
-                    )}
+                    {this.tooltip &&
+                        !this.isDragging &&
+                        (() => {
+                            const tooltipWidth = 320
+                            const buffer = 100
+                            const showOnLeft = this.x + SPRITE_SIZE / 2 + tooltipWidth + buffer > window.innerWidth
+
+                            return (
+                                <div
+                                    className={clsx(
+                                        'rounded-lg transition-all absolute',
+                                        this.tooltipAlwaysVisible ? 'pointer-events-auto' : 'pointer-events-none',
+                                        this.showTooltip || this.tooltipAlwaysVisible
+                                            ? 'opacity-100'
+                                            : 'opacity-0 translate-y-4'
+                                    )}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        border: '1px solid var(--color-border-primary)',
+                                        backgroundColor: 'var(--color-bg-surface-primary)',
+                                        bottom: SPRITE_SIZE + 4,
+                                        ...(showOnLeft ? { right: SPRITE_SIZE / 2 } : { left: SPRITE_SIZE / 2 }),
+                                    }}
+                                >
+                                    {this.tooltip}
+                                    {/* Speech bubble triangle */}
+                                    <div
+                                        className="absolute"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            bottom: -8,
+                                            width: 0,
+                                            height: 0,
+                                            borderLeft: '8px solid transparent',
+                                            borderRight: '8px solid transparent',
+                                            borderTop: '8px solid var(--color-border-primary)',
+                                            ...(showOnLeft ? { right: 12 } : { left: 12 }),
+                                        }}
+                                    />
+                                    <div
+                                        className="absolute"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            bottom: -6,
+                                            width: 0,
+                                            height: 0,
+                                            borderLeft: '7px solid transparent',
+                                            borderRight: '7px solid transparent',
+                                            borderTop: '7px solid var(--color-bg-surface-primary)',
+                                            ...(showOnLeft ? { right: 13 } : { left: 13 }),
+                                        }}
+                                    />
+                                </div>
+                            )
+                        })()}
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
@@ -932,7 +976,16 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode, paused },
+    {
+        onActorLoaded,
+        onClick: _onClick,
+        onPositionChange,
+        hedgehogConfig,
+        tooltip,
+        tooltipAlwaysVisible,
+        static: staticMode,
+        paused,
+    },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -967,6 +1020,10 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     useEffect(() => {
         actor.tooltip = tooltip
     }, [tooltip, actor.tooltip])
+
+    useEffect(() => {
+        actor.tooltipAlwaysVisible = tooltipAlwaysVisible ?? false
+    }, [tooltipAlwaysVisible, actor.tooltipAlwaysVisible])
 
     useEffect(() => {
         actor.static = staticMode ?? false
@@ -1075,7 +1132,7 @@ export function MyHedgehogBuddy({
                 onClick={onClick}
                 onPositionChange={onPositionChange}
                 hedgehogConfig={hedgehogConfig}
-                paused={!isPageVisible}
+                paused={!isPageVisible || popoverVisible}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
                         <div className="flex justify-center items-center p-2 whitespace-nowrap">
