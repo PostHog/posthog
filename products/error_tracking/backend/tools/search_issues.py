@@ -1,3 +1,4 @@
+import json
 from datetime import UTC
 from typing import Literal
 
@@ -202,7 +203,9 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
     def _format_issue(self, index: int, issue: ErrorTrackingIssue) -> str:
         """Format a single issue for display."""
+        issue_id = issue.id or ""
         name = issue.name or "Unnamed issue"
+        description = issue.description or self._extract_exception_message(issue)
         status = issue.status or "unknown"
         first_seen = issue.first_seen
         last_seen = issue.last_seen
@@ -221,6 +224,11 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         last_seen_str = self._format_date(last_seen)
 
         lines = [f"{index}. {name}"]
+        if description:
+            # Truncate long descriptions
+            desc_display = description[:100] + "..." if len(description) > 100 else description
+            lines.append(f"   {desc_display}")
+        lines.append(f"   ID: {issue_id}")
         lines.append(f"   Status: {status} | Occurrences: {occurrences:,} | Users: {users:,} | Sessions: {sessions:,}")
 
         if first_seen_str or last_seen_str:
@@ -234,6 +242,29 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         # Empty line between issues for formatting
         lines.append("")
         return "\n".join(lines)
+
+    def _extract_exception_message(self, issue: ErrorTrackingIssue) -> str | None:
+        """Extract exception message from first_event properties."""
+        first_event = issue.first_event
+        if not first_event:
+            return None
+
+        properties = first_event.properties
+        if not properties:
+            return None
+
+        try:
+            props = json.loads(properties)
+            exception_list = props.get("$exception_list", [])
+            if exception_list and len(exception_list) > 0:
+                first_exception = exception_list[0]
+                value = first_exception.get("value")
+                if value:
+                    return value
+        except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
+            pass
+
+        return None
 
     def _format_date(self, date_value) -> str:
         """Format a date value for display in UTC."""
@@ -249,4 +280,4 @@ class SearchErrorTrackingIssuesTool(MaxTool):
                 return dt.strftime("%Y-%m-%d %H:%M UTC")
         except (ValueError, AttributeError):
             return str(date_value) if date_value else ""
-        return ""
+        return str(date_value)

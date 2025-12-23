@@ -295,7 +295,6 @@ class AssistantTool(StrEnum):
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    ERROR_TRACKING_EXPLAIN_ISSUE = "error_tracking_explain_issue"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1243,14 +1242,6 @@ class Population(BaseModel):
     exception_only: float
     neither: float
     success_only: float
-
-
-class ErrorTrackingExplainIssueToolContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    issue_name: str
-    stacktrace: str
 
 
 class FirstEvent(BaseModel):
@@ -2345,6 +2336,15 @@ class MaxBillingContextTrial(BaseModel):
     expires_at: str | None = None
     is_active: bool
     target: str | None = None
+
+
+class MaxErrorTrackingIssueContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str | None = None
+    type: Literal["error_tracking_issue"] = "error_tracking_issue"
 
 
 class MaxEventContext(BaseModel):
@@ -17263,6 +17263,7 @@ class MaxUIContext(BaseModel):
     )
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
+    error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
