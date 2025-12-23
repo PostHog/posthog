@@ -120,9 +120,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             assert_funnel_results_equal(result, step_results)
 
-        def teardown_method(
-            self,
-        ) -> None:
+        def teardown_method(self, method) -> None:
             if getattr(self, "cleanUpDataWarehouse", None):
                 self.cleanUpDataWarehouse()
 
