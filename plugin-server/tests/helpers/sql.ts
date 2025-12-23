@@ -535,8 +535,8 @@ export async function fetchPostgresDistinctIdsForPerson(postgres: PostgresRouter
     )
 }
 
-export async function resetBehavioralCohortsDatabase(db: PostgresRouter): Promise<void> {
-    await db.query(
+export async function resetBehavioralCohortsDatabase(postgres: PostgresRouter): Promise<void> {
+    await postgres.query(
         PostgresUse.BEHAVIORAL_COHORTS_RW,
         'TRUNCATE TABLE cohort_membership',
         undefined,
