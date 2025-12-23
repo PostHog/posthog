@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     port: int = 8080
     debug: bool = False
 
+    # When True, bypasses auth validation (for local development only)
+    auth_bypass: bool = False
+
     database_url: str = "postgres://posthog:posthog@localhost:5432/posthog"
     db_pool_min_size: int = 2
     db_pool_max_size: int = 10
