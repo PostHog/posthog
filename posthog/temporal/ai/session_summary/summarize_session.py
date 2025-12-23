@@ -414,7 +414,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         asset_id = await temporalio.workflow.execute_activity(
             export_session_video_activity,
             video_inputs,
-            start_to_close_timeout=timedelta(minutes=20),
+            start_to_close_timeout=timedelta(minutes=300),
             retry_policy=retry_policy,
         )
 
