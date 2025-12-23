@@ -32,6 +32,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
     """Export full session video and return ExportedAsset ID"""
     try:
         # Check for existing exported asset for this session
+        # TODO: Find a way to attach Gemini Files API id to the asset, with an expiration date, so we can reuse it (instead of re-uploading)
+        # or remove the video from Files API after processing it (so we don't hit Files API limits)
         existing_asset = (
             await ExportedAsset.objects.filter(
                 team_id=inputs.team_id,
