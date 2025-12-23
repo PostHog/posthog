@@ -370,7 +370,6 @@ export type AssistantTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
     | 'read_taxonomy'
