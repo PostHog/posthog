@@ -1,3 +1,4 @@
+import path from 'path'
 import { defineConfig } from 'tsup'
 
 // NPM package build (default)
@@ -34,10 +35,14 @@ const serverConfig = defineConfig({
     treeshake: true,
     platform: 'node',
     target: 'node22',
+    noExternal: [/.*/],
     esbuildOptions(options) {
         options.loader = {
             ...options.loader,
             '.md': 'text',
+        }
+        options.alias = {
+            '@': path.resolve(__dirname, 'src'),
         }
     },
 })

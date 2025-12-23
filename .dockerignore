@@ -44,6 +44,8 @@
 !requirements-dev.txt
 !requirements.txt
 !rust
+!services/mcp/typescript
+!services/mcp/schema
 !share/GeoLite2-City.mmdb
 !staticfiles
 !tailwind.config.js
