@@ -355,8 +355,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 alias="value",
                 expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
-        elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
+        elif breakdownType == "data_warehouse_person_property":
+            assert isinstance(breakdown, str)
             return ast.Field(chain=["person", *breakdown.split(".")])
+        elif breakdownType == "data_warehouse":
+            return get_breakdown_expr(breakdown, None)
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
@@ -367,8 +370,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _get_breakdown_select_prop(self, source_kind: SourceTableKind) -> list[ast.Expr]:
         default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
 
-        breakdown, breakdownAttributionType, funnelsFilter = (
+        breakdown, breakdownType, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
+            self.context.breakdownType,
             self.context.breakdownAttributionType,
             self.context.funnelsFilter,
         )
@@ -378,7 +382,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # breakdown prop
         prop_basic: ast.Expr
-        if source_kind == SourceTableKind.EVENTS:
+        if (source_kind == SourceTableKind.EVENTS and breakdownType != "data_warehouse") or (
+            source_kind == SourceTableKind.DATA_WAREHOUSE and breakdownType == "data_warehouse"
+        ):
             prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
         else:
             prop_basic = parse_expr(f"{default_breakdown_selector} as prop_basic")

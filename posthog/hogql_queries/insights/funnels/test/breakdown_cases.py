@@ -17,6 +17,8 @@ from posthog.test.base import (
 )
 from unittest import skip
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
@@ -2797,15 +2799,28 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 [people["person1"].uuid],
             )
 
+        @parameterized.expand(
+            [
+                ("event_prop", BreakdownType.EVENT, ["$browser"], "Chrome", "Firefox"),
+                ("person_prop", BreakdownType.PERSON, ["some_val"], "val1", "val2"),
+                ("data_warehouse_prop", BreakdownType.DATA_WAREHOUSE, ["event_name"], "payment_succeeded", ""),
+            ]
+        )
         @snapshot_clickhouse_queries
-        def test_funnels_mixed_breakdown(self):
+        def test_funnels_mixed_breakdown(self, _name, breakdown_type, breakdown, first_val, second_val):
             table_name = self.setup_data_warehouse()
             with freeze_time("2025-11-07"):
                 _create_person(
-                    distinct_ids=["person1"], team_id=self.team.pk, uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539"
+                    distinct_ids=["person1"],
+                    team_id=self.team.pk,
+                    uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+                    properties={"some_prop": "val1"},
                 )
                 _create_person(
-                    distinct_ids=["person2"], team_id=self.team.pk, uuid="c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47"
+                    distinct_ids=["person2"],
+                    team_id=self.team.pk,
+                    uuid="c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47",
+                    properties={"some_prop": "val2"},
                 )
                 people = journeys_for(
                     {
@@ -2842,8 +2857,8 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ),
                     ],
                     breakdownFilter=BreakdownFilter(
-                        breakdown_type=BreakdownType.EVENT,
-                        breakdown=["$browser"],
+                        breakdown_type=breakdown_type,
+                        breakdown=breakdown,
                     ),
                     funnelsFilter=FunnelsFilter(funnelOrderType=funnel_order_type),
                 )
@@ -2856,11 +2871,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self._assert_funnel_breakdown_result_is_correct(
                     results[breakdown_index],
                     [
-                        FunnelStepResult(name="$pageview", count=1, breakdown=["Chrome"]),
+                        FunnelStepResult(name="$pageview", count=1, breakdown=[first_val]),
                         FunnelStepResult(
                             name="posthog_test_test_table_1.user_id",
                             count=1,
-                            breakdown=["Chrome"],
+                            breakdown=[first_val],
                             type="data_warehouse",
                             action_id=None,
                             average_conversion_time=259200,
@@ -2870,11 +2885,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 )
 
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 1, "Chrome"),
+                    self._get_actor_ids_at_step(funnels_query, 1, first_val),
                     [people["person1"].uuid],
                 )
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 2, "Chrome"),
+                    self._get_actor_ids_at_step(funnels_query, 2, first_val),
                     [people["person1"].uuid],
                 )
 
@@ -2915,11 +2930,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self._assert_funnel_breakdown_result_is_correct(
                     results[breakdown_index + 1],
                     [
-                        FunnelStepResult(name="$pageview", count=1, breakdown=["Firefox"]),
+                        FunnelStepResult(name="$pageview", count=1, breakdown=[second_val]),
                         FunnelStepResult(
                             name="posthog_test_test_table_1.user_id",
                             count=0,
-                            breakdown=["Firefox"],
+                            breakdown=[second_val],
                             type="data_warehouse",
                             action_id=None,
                             average_conversion_time=None,
@@ -2929,11 +2944,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 )
 
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 1, "Firefox"),
+                    self._get_actor_ids_at_step(funnels_query, 1, second_val),
                     [people["person2"].uuid],
                 )
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 2, "Firefox"),
+                    self._get_actor_ids_at_step(funnels_query, 2, second_val),
                     [],
                 )
 
