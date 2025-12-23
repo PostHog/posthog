@@ -91,6 +91,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         ],
         "default_evaluation_environments_enabled": false,
         "effective_membership_level": 8,
+        "error_tracking_spikes_detection_multiplier": 10,
         "feature_flag_confirmation_enabled": false,
         "feature_flag_confirmation_message": "",
         "flags_persistence_default": false,
