@@ -563,6 +563,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering issues...'
         },
     },
+    search_error_tracking_issues: {
+        name: 'Search issues',
+        description: 'Search issues in error tracking',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Found issues'
+            }
+            return 'Searching issues...'
+        },
+    },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
         description: 'Find impactful issues affecting your conversion, activation, or any other events',
@@ -899,6 +911,12 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
             Scene.ReplayFilePlayback,
             Scene.ReplaySettings,
         ]),
+    },
+    [AgentMode.ErrorTracking]: {
+        name: 'Error tracking',
+        description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
+        icon: iconForType('error_tracking'),
+        scenes: new Set([Scene.ErrorTracking]),
     },
 }
 
