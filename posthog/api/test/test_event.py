@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Action, Element, Organization, Person, PropertyDefinition, User
@@ -1359,23 +1360,28 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         assert second_cache_key != third_cache_key
         assert first_cache_key != third_cache_key
 
+    @parameterized.expand(
+        [
+            ("no_results", 0),
+            ("many_results", 5),
+        ]
+    )
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
-    def test_stops_when_window_not_applied_asc_order(self, patch_query_with_columns, mock_cache):
+    def test_asc_order_skips_window_optimization(self, _name, num_results, patch_query_with_columns, mock_cache):
         """
-        If query_events_list returns None for applied_window_seconds,
-        it means the window couldn't be applied (e.g., ASC order).
-        In this case, we should NOT:
-        - Try more windows
-        - Retry with fallback
-        - Update cache
+        ASC order queries skip window optimization entirely.
+
+        When ASC order is used:
+        - applied_window is None (window not applied)
+        - Loop breaks immediately, no retries
+        - No fallback needed (first query already uses full date range)
+        - No caching (nothing to cache)
         """
         mock_cache.get.return_value = None
-
-        # Return few results (< half_limit)
         patch_query_with_columns.return_value = [
             {
-                "uuid": "event",
+                "uuid": f"event-{i}",
                 "event": "test",
                 "properties": "{}",
                 "timestamp": timezone.now(),
@@ -1383,12 +1389,11 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": "1",
                 "elements_chain": "",
             }
+            for i in range(num_results)
         ]
 
-        # Request with ASC order - window optimization only works for DESC
-        # So window won't be applied, and we should only make 1 call
-        self.client.get(f"/api/projects/{self.team.id}/events/?orderBy={json.dumps(['timestamp'])}")
-        assert patch_query_with_columns.call_count == 1
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?orderBy={json.dumps(['timestamp'])}")
 
-        # Should not cache anything
+        assert patch_query_with_columns.call_count == 1
+        assert len(response.json()["results"]) == num_results
         mock_cache.set.assert_not_called()
