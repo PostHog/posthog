@@ -160,7 +160,7 @@ export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps):
                         <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
                     </span>
                     <span className="hidden min-[660px]:inline">
-                        {activeRecordings === 1 ? 'recendly active recording' : 'recently active recordings'}
+                        {activeRecordings === 1 ? 'recently active recording' : 'recently active recordings'}
                     </span>
                 </div>
             </Tooltip>
