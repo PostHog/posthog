@@ -1,8 +1,11 @@
-from typing import NotRequired, Optional, TypedDict, cast
+from typing import NotRequired, TypedDict, cast
+
+import numpy as np
 
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
+    DetectorType,
     InsightsThresholdBounds,
     InsightThreshold,
     InsightThresholdType,
@@ -59,7 +62,7 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
 
     if not threshold or not threshold.bounds:
-        return AlertEvaluationResult(value=0, breaches=[])
+        return AlertEvaluationResult(value=0, breaches=[], interval=query.interval.value if query.interval else None)
 
     has_breakdown = query.breakdownFilter and (
         (query.breakdownFilter.breakdown and query.breakdownFilter.breakdown_type) or query.breakdownFilter.breakdowns
@@ -125,7 +128,11 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                         )
                         if breaches:
                             # found one breakdown value that breached the threshold
-                            return AlertEvaluationResult(value=current_interval_value, breaches=breaches)
+                            return AlertEvaluationResult(
+                                value=current_interval_value,
+                                breaches=breaches,
+                                interval=interval.value if interval else None,
+                            )
                     else:
                         prev_interval_value = _pick_interval_value_from_trend_result(query, breakdown_result, -1)
                         breaches = _breach_messages(
@@ -138,10 +145,14 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                         )
                         if breaches:
                             # found one breakdown value that breached the threshold
-                            return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
+                            return AlertEvaluationResult(
+                                value=prev_interval_value,
+                                breaches=breaches,
+                                interval=interval.value if interval else None,
+                            )
 
                 # None of the breakdown values breached the threshold
-                return AlertEvaluationResult(value=None, breaches=[])
+                return AlertEvaluationResult(value=None, breaches=[], interval=interval.value if interval else None)
             else:
                 # for non breakdowns, we pick the series (config.series_index) from calculation_result.result
                 selected_series_result = _pick_series_result(config, calculation_result)
@@ -158,7 +169,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                         selected_series_result["label"],
                         is_current_interval=True,
                     )
-                    return AlertEvaluationResult(value=current_interval_value, breaches=breaches)
+                    return AlertEvaluationResult(
+                        value=current_interval_value, breaches=breaches, interval=interval.value if interval else None
+                    )
                 else:
                     prev_interval_value = _pick_interval_value_from_trend_result(query, selected_series_result, -1)
                     breaches = _breach_messages(
@@ -169,7 +182,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
                         interval,
                         selected_series_result["label"],
                     )
-                    return AlertEvaluationResult(value=prev_interval_value, breaches=breaches)
+                    return AlertEvaluationResult(
+                        value=prev_interval_value, breaches=breaches, interval=interval.value if interval else None
+                    )
         case AlertConditionType.RELATIVE_INCREASE:
             if is_non_time_series:
                 raise ValueError(f"Relative alerts not supported for non time series trends")
@@ -245,7 +260,9 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
                     if breaches:
                         # found a breach for one of the results so alert
-                        return AlertEvaluationResult(value=increase, breaches=breaches)
+                        return AlertEvaluationResult(
+                            value=increase, breaches=breaches, interval=query.interval.value if query.interval else None
+                        )
                 else:
                     # fallback to check previous intervals
                     if threshold.type == InsightThresholdType.ABSOLUTE:
@@ -273,9 +290,15 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
                     if breaches:
                         # found a breach for one of the results so alert
-                        return AlertEvaluationResult(value=increase, breaches=breaches)
+                        return AlertEvaluationResult(
+                            value=increase, breaches=breaches, interval=query.interval.value if query.interval else None
+                        )
 
-            return AlertEvaluationResult(value=(increase if not has_breakdown else None), breaches=[])
+            return AlertEvaluationResult(
+                value=(increase if not has_breakdown else None),
+                breaches=[],
+                interval=query.interval.value if query.interval else None,
+            )
 
         case AlertConditionType.RELATIVE_DECREASE:
             if is_non_time_series:
@@ -341,9 +364,15 @@ def check_trends_alert(alert: AlertConfiguration, insight: Insight, query: Trend
 
                 if breaches:
                     # found a breach for one of the results so alert
-                    return AlertEvaluationResult(value=decrease, breaches=breaches)
+                    return AlertEvaluationResult(
+                        value=decrease, breaches=breaches, interval=query.interval.value if query.interval else None
+                    )
 
-            return AlertEvaluationResult(value=(decrease if not has_breakdown else None), breaches=[])
+            return AlertEvaluationResult(
+                value=(decrease if not has_breakdown else None),
+                breaches=[],
+                interval=query.interval.value if query.interval else None,
+            )
 
         case _:
             raise NotImplementedError(f"Unsupported alert condition type: {condition.type}")
@@ -353,7 +382,7 @@ def _is_non_time_series_trend(query: TrendsQuery) -> bool:
     return bool(query.trendsFilter and query.trendsFilter.display in NON_TIME_SERIES_DISPLAY_TYPES)
 
 
-def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> Optional[dict]:
+def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int = 1) -> dict | None:
     """
     Resulting filter overrides don't set 'date_to' so we always get value for current interval.
     last_x_intervals controls how many intervals to look back to
@@ -429,3 +458,122 @@ def _breach_messages(
         ]
 
     return []
+
+
+# Constants for detector lookback windows
+DETECTOR_MIN_SAMPLES = {
+    DetectorType.THRESHOLD: 1,
+    DetectorType.ZSCORE: 31,
+    DetectorType.MAD: 31,
+    DetectorType.IQR: 31,
+    DetectorType.ISOLATION_FOREST: 10,
+    DetectorType.ECOD: 10,
+    DetectorType.COPOD: 10,
+    DetectorType.KNN: 10,
+    DetectorType.ENSEMBLE: 31,  # conservative for ensembles
+}
+
+
+def check_trends_alert_with_detector(
+    alert: AlertConfiguration, insight: Insight, query: TrendsQuery
+) -> AlertEvaluationResult:
+    """
+    Evaluate a trend alert using the detector abstraction.
+
+    Uses the configured detector to check for anomalies in the time series data.
+    """
+    from posthog.tasks.alerts.detectors import get_detector
+
+    detector_config = alert.detector_config
+    if not detector_config:
+        raise ValueError("No detector_config set on alert")
+
+    # Get alert config for series index
+    if "type" in alert.config and alert.config["type"] == "TrendsAlertConfig":
+        config = TrendsAlertConfig.model_validate(alert.config)
+    else:
+        config = TrendsAlertConfig(series_index=0)
+
+    detector_type = DetectorType(detector_config.get("type", DetectorType.THRESHOLD))
+
+    # Determine how many data points we need based on detector type
+    min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
+
+    # For statistical detectors, check if they have a window config
+    window = detector_config.get("window", 30)
+    if detector_type in (DetectorType.ZSCORE, DetectorType.MAD, DetectorType.IQR):
+        min_samples = window + 1
+
+    # Calculate date range to fetch enough data
+    filters_override = _date_range_override_for_detector(query, min_samples)
+
+    is_non_time_series = _is_non_time_series_trend(query)
+    if is_non_time_series:
+        filters_override = None  # full insight for aggregated values
+
+    # Use cache for daily+, but not for hourly
+    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    if query.interval == IntervalType.HOUR:
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=alert.team,
+        execution_mode=execution_mode,
+        user=None,
+        filters_override=filters_override,
+    )
+
+    if not calculation_result.result:
+        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
+    # Pick the series to analyze
+    selected_series_result = _pick_series_result(config, calculation_result)
+
+    # Extract time series data
+    if is_non_time_series:
+        data = np.array([selected_series_result.get("aggregated_value", 0)])
+    else:
+        data = np.array(selected_series_result.get("data", []))
+
+    if len(data) == 0:
+        return AlertEvaluationResult(value=None, breaches=[], interval=query.interval.value if query.interval else None)
+
+    # Create and run detector
+    detector = get_detector(detector_config)
+    result = detector.detect(data)
+
+    # Build breaches message if anomaly detected
+    breaches = []
+    if result.is_anomaly:
+        label = selected_series_result.get("label", "Series")
+        current_value = float(data[-1])
+        score_str = f" (score: {result.score:.2f})" if result.score is not None else ""
+        breaches.append(
+            f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type.value} detector"
+        )
+
+    return AlertEvaluationResult(
+        value=float(data[-1]) if len(data) > 0 else None,
+        breaches=breaches if breaches else [],
+        anomaly_scores=result.all_scores if result.all_scores else None,
+        triggered_points=result.triggered_indices if result.triggered_indices else None,
+        interval=query.interval.value if query.interval else None,
+    )
+
+
+def _date_range_override_for_detector(query: TrendsQuery, min_samples: int) -> dict | None:
+    """
+    Calculate date range needed to get at least min_samples data points.
+    """
+    match query.interval:
+        case IntervalType.DAY:
+            date_from = f"-{min_samples}d"
+        case IntervalType.WEEK:
+            date_from = f"-{min_samples}w"
+        case IntervalType.MONTH:
+            date_from = f"-{min_samples}m"
+        case _:
+            date_from = f"-{min_samples}h"
+
+    return {"date_from": date_from}
