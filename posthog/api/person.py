@@ -429,9 +429,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
         """
 
-        delete_events = request.data.get("delete_events")
-        delete_recordings = request.data.get("delete_recordings")
-        keep_person = request.data.get("keep_person")
+        delete_events = bool(request.data.get("delete_events"))
+        delete_recordings = bool(request.data.get("delete_recordings"))
+        keep_person = bool(request.data.get("keep_person"))
 
         self._bulk_delete_persons(
             request=request,
@@ -489,11 +489,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if delete_events:
             # Once the person is deleted, queue deletion of associated data, if that was requested
-            self._queue_event_deletion(persons)
+            self._queue_event_deletion(list(persons))
 
         if delete_recordings:
             # Once the person is deleted, queue deletion of associated data, if that was requested
-            self._queue_delete_recordings(persons)
+            self._queue_delete_recordings(list(persons))
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:

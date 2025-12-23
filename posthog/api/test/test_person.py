@@ -584,7 +584,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Person should still exist
         self.assertEqual(Person.objects.filter(team=self.team, uuid=person.uuid).count(), 1)
         # But async deletion for events should be scheduled
-        async_deletion = AsyncDeletion.objects.filter(team_id=self.team.id).first()
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
         self.assertIsNotNone(async_deletion)
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
