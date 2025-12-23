@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.permissions import OrganizationAdminWritePermissions
 
 
 class OrganizationIntegrationSerializer(serializers.ModelSerializer):
@@ -44,6 +45,7 @@ class OrganizationIntegrationViewSet(
     """
 
     scope_object = "organization_integration"
+    permission_classes = [OrganizationAdminWritePermissions]
     queryset = OrganizationIntegration.objects.select_related("created_by").all()
     serializer_class = OrganizationIntegrationSerializer
 
