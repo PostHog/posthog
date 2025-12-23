@@ -172,6 +172,8 @@ def _find_migration_branch(app: str, name: str) -> str | None:
                 branch = branch[len("refs/remotes/origin/") :]
             return branch
     except subprocess.CalledProcessError:
+        # If the git command fails (e.g. not a git repo or no history), we
+        # intentionally ignore the error and fall back to returning None.
         pass
     return None
 
