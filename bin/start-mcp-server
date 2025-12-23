@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/../services/mcp/typescript"
+
+pnpm install --frozen-lockfile
+
+export POSTHOG_BASE_URL="${POSTHOG_BASE_URL:-http://localhost:8000}"
+export PORT="${MCP_SERVER_PORT:-3310}"
+
+exec pnpm run dev:server
