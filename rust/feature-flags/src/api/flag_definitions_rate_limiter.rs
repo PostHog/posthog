@@ -164,40 +164,22 @@ where
         self.custom_limiters.read().unwrap().len()
     }
 
-    /// Removes stale entries from all rate limiters to prevent unbounded memory growth.
+    /// Removes stale entries and reclaims memory across all limiters.
     ///
     /// This should be called periodically (e.g., every 60 seconds) by a background task.
     /// Keys that haven't been used within the rate limit window are removed from both
     /// the default limiter and all custom limiters.
-    pub fn retain_recent(&self) {
+    pub fn cleanup(&self) {
         // Clean up the default limiter
         self.default_limiter.retain_recent();
+        self.default_limiter.shrink_to_fit();
 
         // Clean up all custom limiters
         let custom_limiters = self.custom_limiters.read().unwrap();
         for limiter in custom_limiters.values() {
             limiter.retain_recent();
-        }
-    }
-
-    /// Shrinks the capacity of all rate limiter state stores if possible.
-    ///
-    /// Should be called after `retain_recent()` to reclaim memory.
-    pub fn shrink_to_fit(&self) {
-        self.default_limiter.shrink_to_fit();
-
-        let custom_limiters = self.custom_limiters.read().unwrap();
-        for limiter in custom_limiters.values() {
             limiter.shrink_to_fit();
         }
-    }
-
-    /// Removes stale entries and shrinks capacity across all limiters.
-    ///
-    /// Convenience method that calls `retain_recent()` followed by `shrink_to_fit()`.
-    pub fn cleanup(&self) {
-        self.retain_recent();
-        self.shrink_to_fit();
     }
 
     /// Returns the total number of keys currently tracked across all limiters.

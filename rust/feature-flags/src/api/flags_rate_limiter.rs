@@ -234,27 +234,13 @@ impl FlagsRateLimiter {
         self.inner.allow_request(bucket_key)
     }
 
-    /// Removes stale entries from the rate limiter to prevent unbounded memory growth.
+    /// Removes stale entries and reclaims memory.
     ///
     /// This should be called periodically (e.g., every 60 seconds) by a background task.
     /// Keys that haven't been used within the rate limit window are removed.
-    pub fn retain_recent(&self) {
-        self.inner.retain_recent();
-    }
-
-    /// Shrinks the capacity of the rate limiter's state store if possible.
-    ///
-    /// Should be called after `retain_recent()` to reclaim memory.
-    pub fn shrink_to_fit(&self) {
-        self.inner.shrink_to_fit();
-    }
-
-    /// Removes stale entries and shrinks capacity.
-    ///
-    /// Convenience method that calls `retain_recent()` followed by `shrink_to_fit()`.
     pub fn cleanup(&self) {
-        self.retain_recent();
-        self.shrink_to_fit();
+        self.inner.retain_recent();
+        self.inner.shrink_to_fit();
     }
 
     /// Returns the approximate number of keys currently tracked.
@@ -504,27 +490,13 @@ impl IpRateLimiter {
         self.inner.allow_request(ip)
     }
 
-    /// Removes stale entries from the rate limiter to prevent unbounded memory growth.
+    /// Removes stale entries and reclaims memory.
     ///
     /// This should be called periodically (e.g., every 60 seconds) by a background task.
     /// Keys that haven't been used within the rate limit window are removed.
-    pub fn retain_recent(&self) {
-        self.inner.retain_recent();
-    }
-
-    /// Shrinks the capacity of the rate limiter's state store if possible.
-    ///
-    /// Should be called after `retain_recent()` to reclaim memory.
-    pub fn shrink_to_fit(&self) {
-        self.inner.shrink_to_fit();
-    }
-
-    /// Removes stale entries and shrinks capacity.
-    ///
-    /// Convenience method that calls `retain_recent()` followed by `shrink_to_fit()`.
     pub fn cleanup(&self) {
-        self.retain_recent();
-        self.shrink_to_fit();
+        self.inner.retain_recent();
+        self.inner.shrink_to_fit();
     }
 
     /// Returns the approximate number of keys currently tracked.
