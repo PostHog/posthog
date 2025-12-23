@@ -23,6 +23,7 @@ describe('CdpLegacyEventsConsumer', () => {
     let team: Team
     let pluginConfig: PluginConfig
     let invocation: HogFunctionInvocationGlobals
+    let uniquePluginId: number
 
     const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
 
@@ -36,13 +37,17 @@ describe('CdpLegacyEventsConsumer', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
+        // Generate a unique plugin ID to avoid conflicts
+        uniquePluginId = 50000 + Math.floor(Math.random() * 100000)
+
         // Create a plugin in the database with onEvent capability
         const { rows: pluginRows } = await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_plugin (organization_id, name, plugin_type, is_global, url, config_schema, from_json, from_web, created_at, updated_at, is_preinstalled, capabilities)
-             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb)
+            `INSERT INTO posthog_plugin (id, organization_id, name, plugin_type, is_global, url, config_schema, from_json, from_web, created_at, updated_at, is_preinstalled, capabilities)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)
              RETURNING *`,
             [
+                uniquePluginId,
                 team.organization_id,
                 'Customer.io',
                 'custom',
