@@ -11,6 +11,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common import JobOwners
+from posthog.dags.common.resources import PostHogAnalayticsResource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
@@ -29,7 +30,6 @@ PRIORITY_WEB_QUERIES_COUNTER = Counter(
     ["team_id", "normalized_query_hash", "is_cached"],
 )
 
-
 cache_warming_retry_policy = RetryPolicy(
     max_retries=3,
     delay=2,
@@ -38,7 +38,7 @@ cache_warming_retry_policy = RetryPolicy(
 )
 
 
-def _teams_enabled_for_web_analytics_cache_warming(context: dagster.OpExecutionContext) -> list[int]:
+def teams_enabled_for_web_analytics_cache_warming() -> list[int]:
     enabled_team_ids = []
 
     for team_id, organization_id, uuid in Team.objects.values_list(
@@ -71,7 +71,13 @@ def _teams_enabled_for_web_analytics_cache_warming(context: dagster.OpExecutionC
     return enabled_team_ids
 
 
-def _queries_to_keep_fresh(team_id: int, days: int = 7, minimum_query_count: int = 10) -> list[dict]:
+def queries_to_keep_fresh(
+    context: dagster.OpExecutionContext, team_id: int, days: int = 7, minimum_query_count: int = 10
+) -> list[dict]:
+    context.log.info(
+        f"Searching the last {days} for team {team_id}'s queries with at least {minimum_query_count} runs."
+    )
+
     results = sync_execute(
         """
         SELECT
@@ -118,9 +124,11 @@ def _queries_to_keep_fresh(team_id: int, days: int = 7, minimum_query_count: int
     ]
 
 
-@dagster.op
-def get_teams_for_warming_op(context: dagster.OpExecutionContext) -> list[int]:
-    team_ids = _teams_enabled_for_web_analytics_cache_warming(context)
+@dagster.op()
+def get_teams_for_warming_op(
+    context: dagster.OpExecutionContext, posthoganalytics: PostHogAnalayticsResource
+) -> list[int]:
+    team_ids = teams_enabled_for_web_analytics_cache_warming()
 
     context.log.info(f"Found {len(team_ids)} teams for cache warming")
     context.add_output_metadata({"team_count": len(team_ids), "team_ids": str(team_ids)})
@@ -137,9 +145,9 @@ def get_queries_for_teams_op(
 
     all_queries = []
     for team_id in team_ids:
-        queries = _queries_to_keep_fresh(team_id, days=days, minimum_query_count=minimum_query_count)
+        queries = queries_to_keep_fresh(context, team_id, days=days, minimum_query_count=minimum_query_count)
 
-        context.log.info("Frequent web analytics queries", team_id=team_id, query_count=len(queries))
+        context.log.info(f"Loading {len(queries)} frequent web analytics queries for team {team_id}")
 
         STALE_WEB_QUERIES_GAUGE.labels(team_id=team_id).set(len(queries))
         all_queries.extend(queries)
@@ -209,8 +217,6 @@ def warm_queries_op(context: dagster.OpExecutionContext, queries: list[dict]) ->
     },
 )
 def web_analytics_cache_warming_job():
-    posthoganalytics.debug = True
-
     team_ids = get_teams_for_warming_op()
     queries = get_queries_for_teams_op(team_ids)
     warm_queries_op(queries)

@@ -1,10 +1,14 @@
+import asyncio
+
 import dagster
 import psycopg2
 import psycopg2.extras
+import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.redis import get_client, redis
+from posthog.utils import initialize_self_capture_api_token
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -79,3 +83,15 @@ class PostgresResource(dagster.ConfigurableResource):
             password=self.password,
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
+
+
+class PostHogAnalayticsResource(dagster.ConfigurableResource):
+    personal_api_key: str
+
+    def create_resource(self, context: dagster.InitResourceContext):
+        context.log.info("Initializing PostHogAnalayticsResource")
+
+        asyncio.run(initialize_self_capture_api_token())
+        posthoganalytics.personal_api_key = self.personal_api_key
+
+        yield
