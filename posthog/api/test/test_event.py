@@ -1388,10 +1388,6 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Request with ASC order - window optimization only works for DESC
         # So window won't be applied, and we should only make 1 call
         self.client.get(f"/api/projects/{self.team.id}/events/?orderBy={json.dumps(['timestamp'])}")
-
-        # BUG: Currently this makes 7 calls (6 windows + fallback) because
-        # we don't check if window was actually applied
-        # Should only call once - if window wasn't applied, don't retry
         assert patch_query_with_columns.call_count == 1
 
         # Should not cache anything
