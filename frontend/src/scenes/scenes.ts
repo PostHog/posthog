@@ -55,6 +55,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
         iconType: 'annotation',
     },
+    [Scene.Approval]: {
+        projectBased: true,
+        name: 'Approval',
+        description: 'Review and approve a change request',
+    },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
         defaultDocsPath: '/pricing',
@@ -529,6 +534,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'web_analytics',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
+    [Scene.OrganizationDeactivated]: {
+        projectBased: false,
+        organizationBased: true,
+        name: 'Organization Deactivated',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -713,6 +724,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
+    [urls.approval(':id')]: [Scene.Approval, 'approval'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
@@ -793,5 +805,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
+    [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     ...productRoutes,
 }

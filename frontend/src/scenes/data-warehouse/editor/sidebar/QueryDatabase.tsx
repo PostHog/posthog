@@ -45,7 +45,7 @@ export const QueryDatabase = (): JSX.Element => {
         openUnsavedQuery,
         deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
-    const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
     const { deleteDraft } = useActions(draftsLogic)
@@ -241,6 +241,25 @@ export const QueryDatabase = (): JSX.Element => {
                                     >
                                         <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
                                     </DropdownMenuItem>
+                                    {item.record?.view?.is_materialized && (
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                runDataWarehouseSavedQuery(viewId)
+                                            }}
+                                        >
+                                            <ButtonPrimitive
+                                                menuItem
+                                                disabledReasons={{
+                                                    'Materialization is already running':
+                                                        item.record?.view?.status === 'Running',
+                                                }}
+                                            >
+                                                Sync now
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                         asChild
@@ -433,6 +452,14 @@ export const QueryDatabase = (): JSX.Element => {
                         </ButtonPrimitive>
                     )
                 }
+            }}
+            renderItemTooltip={(item) => {
+                // Show tooltip with full name for items that could be truncated
+                const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
+                if (tooltipTypes.includes(item.record?.type)) {
+                    return item.name
+                }
+                return undefined
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {

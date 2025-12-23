@@ -1,14 +1,13 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from django.db.utils import ProgrammingError
-
 from posthog.models import DataWarehouseTable
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.modeling import (
     DataWarehouseModelPath,
+    ModelPathCycleError,
     NodeType,
     get_parents_from_model_query,
 )
@@ -279,6 +278,62 @@ class TestModelPath(BaseTest):
         self.assertIn(("persons", NodeType.POSTHOG), dag.nodes)
         self.assertEqual(len(dag.nodes), 4)
 
+    def test_update_child_when_parent_has_multiple_paths_does_not_crash(self):
+        """Test updating a child model when its parent has multiple paths doesn't crash.
+
+        This tests the fix for CardinalityViolation that occurred when a parent
+        had multiple paths (e.g., from selecting from multiple root tables).
+        The cross join in UPDATE_PATHS_QUERY would produce duplicate IDs,
+        which PostgreSQL rejected. Using DISTINCT ON (id) fixes this.
+
+        The UPDATE_PATHS_QUERY only updates descendant paths (where the child
+        has something after it), so we need a grandchild to trigger the cross join.
+        """
+        parent_query = """\
+          select
+            events.event,
+            persons.properties
+          from events
+          left join persons on events.person_id = persons.id
+        """
+        parent_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="parent",
+            query={"query": parent_query},
+        )
+        child_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="child",
+            query={"query": "select * from parent"},
+        )
+        grandchild_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="grandchild",
+            query={"query": "select * from child"},
+        )
+
+        DataWarehouseModelPath.objects.create_from_saved_query(parent_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(child_saved_query)
+        DataWarehouseModelPath.objects.create_from_saved_query(grandchild_saved_query)
+
+        parent_paths = list(
+            DataWarehouseModelPath.objects.filter(saved_query=parent_saved_query).values_list("path", flat=True)
+        )
+        self.assertEqual(len(parent_paths), 2)
+        child_saved_query.query = {"query": "select event, properties from parent where event = 'login'"}
+        child_saved_query.save()
+
+        # this would raise ProgrammingError with "CardinalityViolation"" before we were using DISTINCT ON (id)
+        DataWarehouseModelPath.objects.update_from_saved_query(child_saved_query)
+        grandchild_paths = list(
+            DataWarehouseModelPath.objects.filter(saved_query=grandchild_saved_query).values_list("path", flat=True)
+        )
+        self.assertGreaterEqual(len(grandchild_paths), 1)
+        # verify the lineage is still correct
+        self.assertEqual(grandchild_paths[0][-1], grandchild_saved_query.id.hex)
+        self.assertEqual(grandchild_paths[0][-2], child_saved_query.id.hex)
+        self.assertEqual(grandchild_paths[0][-3], parent_saved_query.id.hex)
+
     def test_creating_cycles_via_updates_raises_exception(self):
         """Test cycles cannot be created just by updating queries that select from each other."""
         parent_query = """\
@@ -312,5 +367,5 @@ class TestModelPath(BaseTest):
         child_saved_query.query = {"query": "select * from my_model union all select * from my_model_grand_child"}
         child_saved_query.save()
 
-        with pytest.raises(ProgrammingError):
+        with pytest.raises(ModelPathCycleError):
             DataWarehouseModelPath.objects.update_from_saved_query(child_saved_query)

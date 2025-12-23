@@ -13,6 +13,7 @@ export enum Scene {
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Annotations = 'Annotations',
+    Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -168,6 +169,7 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
+    OrganizationDeactivated = 'OrganizationDeactivated',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null

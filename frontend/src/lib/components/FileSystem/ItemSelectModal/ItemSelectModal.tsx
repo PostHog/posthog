@@ -135,7 +135,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                       : undefined
                             }
                         >
-                            Add {selectedItem?.name || selectedItem?.displayName}
+                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName} shortcut
                         </LemonButton>
                     </>
                 }

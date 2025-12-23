@@ -31,6 +31,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.approvals.decorators import approval_gate
+from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import (
     PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
@@ -856,6 +858,7 @@ class FeatureFlagSerializer(
 
         return instance
 
+    @approval_gate(["feature_flag.enable", "feature_flag.disable"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # This is a workaround to ensure update works when called from a scheduled task.
@@ -1359,6 +1362,7 @@ def _evaluate_flags_with_fallback(
 
 
 class FeatureFlagViewSet(
+    ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1529,19 +1533,12 @@ class FeatureFlagViewSet(
                 )
             )
 
-            survey_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, targeting_flag__isnull=False
-            ).values_list("targeting_flag_id", flat=True)
-            survey_internal_targeting_flags = Survey.objects.filter(
-                team__project_id=self.project_id, internal_targeting_flag__isnull=False
-            ).values_list("internal_targeting_flag_id", flat=True)
+            survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
-            queryset = (
-                queryset.exclude(Q(id__in=survey_targeting_flags))
-                .exclude(Q(id__in=survey_internal_targeting_flags))
-                .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(
+                Q(id__in=product_tour_internal_targeting_flags)
             )
 
             # add additional filters provided by the client

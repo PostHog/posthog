@@ -1,4 +1,5 @@
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -18,7 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import AgentMode, HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
@@ -35,10 +36,12 @@ from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
+from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -71,7 +74,13 @@ def is_team_exempt_from_rate_limits(team_id: int) -> bool:
     return isinstance(region_config, list) and team_id in region_config
 
 
-class MessageSerializer(serializers.Serializer):
+class MessageMinimalSerializer(serializers.Serializer):
+    """Serializer for appending a message to an existing conversation without triggering AI processing."""
+
+    content = serializers.CharField(required=True, max_length=10000)
+
+
+class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
         allow_null=True,  # Null content means we're continuing previous generation or resuming streaming
@@ -92,7 +101,11 @@ class MessageSerializer(serializers.Serializer):
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
-                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                    {
+                        "content": data["content"],
+                        "ui_context": data.get("ui_context"),
+                        "trace_id": str(data["trace_id"]) if data.get("trace_id") else None,
+                    }
                 )
             except pydantic.ValidationError:
                 if settings.DEBUG:
@@ -121,7 +134,7 @@ class MessageSerializer(serializers.Serializer):
 
 
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
@@ -158,6 +171,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def get_serializer_class(self):
         if self.action == "create":
             return MessageSerializer
+        if self.action == "append_message":
+            return MessageMinimalSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self):
@@ -289,3 +304,36 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["POST"], url_path="append_message")
+    def append_message(self, request: Request, *args, **kwargs):
+        """
+        Appends a message to an existing conversation without triggering AI processing.
+        This is used for client-side generated messages that need to be persisted
+        (e.g., support ticket confirmation messages).
+        """
+        conversation = self.get_object()
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        content = serializer.validated_data["content"]
+        message = AssistantMessage(content=content, id=str(uuid.uuid4()))
+
+        async def append_to_state():
+            user = cast(User, request.user)
+            graph = AssistantGraph(self.team, user).compile_full_graph()
+            # Empty checkpoint_ns targets the root graph (not subgraphs)
+            config = {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
+            await graph.aupdate_state(
+                config,
+                PartialAssistantState(messages=[message]),
+            )
+
+        try:
+            asgi_async_to_sync(append_to_state)()
+        except Exception as e:
+            logger.exception("Failed to append message to conversation", conversation_id=conversation.id, error=str(e))
+            return Response({"error": "Failed to append message"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        return Response({"id": message.id}, status=status.HTTP_201_CREATED)

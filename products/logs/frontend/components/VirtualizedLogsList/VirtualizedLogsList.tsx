@@ -9,12 +9,12 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { LogRow, LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import {
     LOG_ROW_HEADER_HEIGHT,
-    LogRow,
-    LogRowHeader,
+    RESIZER_HANDLE_WIDTH,
     getMinRowWidth,
-} from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+} from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -23,7 +23,7 @@ interface VirtualizedLogsListProps {
     loading: boolean
     wrapBody: boolean
     prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     showPinnedWithOpacity?: boolean
     fixedHeight?: number
     disableInfiniteScroll?: boolean
@@ -43,13 +43,42 @@ export function VirtualizedLogsList({
     hasMoreLogsToLoad = false,
     onLoadMore,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
-    const { setContainerWidth } = useActions(virtualizedLogsListLogic)
+    const {
+        tabId,
+        pinnedLogs,
+        expandedLogIds,
+        cursorIndex,
+        recomputeRowHeightsRequest,
+        attributeColumns,
+        attributeColumnWidths,
+        selectedLogIds,
+        selectedCount,
+        prettifiedLogIds,
+    } = useValues(logsViewerLogic)
+    const {
+        togglePinLog,
+        toggleExpandLog,
+        userSetCursorIndex,
+        removeAttributeColumn,
+        setAttributeColumnWidth,
+        toggleSelectLog,
+        selectAll,
+        clearSelection,
+        selectLogRange,
+        togglePrettifyLog,
+    } = useActions(logsViewerLogic)
+
+    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
+    const { setContainerWidth } = useActions(virtualizedLogsListLogic({ tabId }))
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
     const autosizerWidthRef = useRef<number>(0)
 
-    const minRowWidth = useMemo(() => getMinRowWidth(), [])
+    const minRowWidth = useMemo(
+        // Add extra width for resize handles in the header
+        () => getMinRowWidth(attributeColumns, attributeColumnWidths) + attributeColumns.length * RESIZER_HANDLE_WIDTH,
+        [attributeColumns, attributeColumnWidths]
+    )
 
     const cache = useMemo(
         () =>
@@ -60,9 +89,6 @@ export function VirtualizedLogsList({
             }),
         []
     )
-
-    const { pinnedLogs, expandedLogIds, cursorIndex, recomputeRowHeightsRequest } = useValues(logsViewerLogic)
-    const { togglePinLog, toggleExpandLog, userSetCursorIndex } = useActions(logsViewerLogic)
 
     // Handle recompute requests from child components (via the logic)
     const lastRecomputeTimestampRef = useRef<number>(0)
@@ -91,7 +117,7 @@ export function VirtualizedLogsList({
             cache.clearAll()
             listRef.current?.recomputeRowHeights()
         }
-    }, [containerWidth, cache, wrapBody, prettifyJson])
+    }, [containerWidth, cache, wrapBody, prettifyJson, attributeColumns, attributeColumnWidths])
 
     // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
@@ -164,6 +190,17 @@ export function VirtualizedLogsList({
                                     onToggleExpand={() => toggleExpandLog(log.uuid)}
                                     onSetCursor={() => userSetCursorIndex(index)}
                                     rowWidth={rowWidth}
+                                    attributeColumns={attributeColumns}
+                                    attributeColumnWidths={attributeColumnWidths}
+                                    isSelected={!!selectedLogIds[log.uuid]}
+                                    onToggleSelect={() => toggleSelectLog(log.uuid)}
+                                    onShiftClick={(clickedIndex) => {
+                                        const anchorIndex = cursorIndex ?? 0
+                                        selectLogRange(anchorIndex, clickedIndex)
+                                        userSetCursorIndex(clickedIndex)
+                                    }}
+                                    isPrettified={prettifiedLogIds.has(log.uuid)}
+                                    onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
                                 />
                             </div>
                         )}
@@ -183,6 +220,13 @@ export function VirtualizedLogsList({
             togglePinLog,
             toggleExpandLog,
             userSetCursorIndex,
+            attributeColumns,
+            attributeColumnWidths,
+            selectedLogIds,
+            toggleSelectLog,
+            selectLogRange,
+            prettifiedLogIds,
+            togglePrettifyLog,
         ]
     )
 
@@ -202,8 +246,18 @@ export function VirtualizedLogsList({
                         }
                         const rowWidth = Math.max(width, minRowWidth)
                         return (
-                            <div className="overflow-x-auto" style={{ width, height: fixedHeight }}>
-                                <LogRowHeader rowWidth={rowWidth} />
+                            <div className="overflow-y-hidden overflow-x-auto" style={{ width, height: fixedHeight }}>
+                                <LogRowHeader
+                                    rowWidth={rowWidth}
+                                    attributeColumns={attributeColumns}
+                                    attributeColumnWidths={attributeColumnWidths}
+                                    onRemoveAttributeColumn={removeAttributeColumn}
+                                    onResizeAttributeColumn={setAttributeColumnWidth}
+                                    selectedCount={selectedCount}
+                                    totalCount={dataSource.length}
+                                    onSelectAll={() => selectAll(dataSource)}
+                                    onClearSelection={clearSelection}
+                                />
                                 <List
                                     ref={listRef}
                                     width={rowWidth}
@@ -235,8 +289,18 @@ export function VirtualizedLogsList({
                     const rowWidth = Math.max(width, minRowWidth)
 
                     return (
-                        <div className="overflow-x-auto" style={{ width, height }}>
-                            <LogRowHeader rowWidth={rowWidth} />
+                        <div className="overflow-y-hidden overflow-x-auto" style={{ width, height }}>
+                            <LogRowHeader
+                                rowWidth={rowWidth}
+                                attributeColumns={attributeColumns}
+                                attributeColumnWidths={attributeColumnWidths}
+                                onRemoveAttributeColumn={removeAttributeColumn}
+                                onResizeAttributeColumn={setAttributeColumnWidth}
+                                selectedCount={selectedCount}
+                                totalCount={dataSource.length}
+                                onSelectAll={() => selectAll(dataSource)}
+                                onClearSelection={clearSelection}
+                            />
                             <List
                                 ref={listRef}
                                 width={rowWidth}

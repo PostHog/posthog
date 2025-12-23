@@ -16,10 +16,10 @@ import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps,
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations', 'data_warehouse'].includes(productType)
+    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails'].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports', 'data_warehouse_historical'].includes(productType)
+    ['mobile_replay', 'batch_exports', 'data_warehouse_historical', 'workflows_destinations'].includes(productType)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free

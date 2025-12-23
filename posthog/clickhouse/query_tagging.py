@@ -11,6 +11,8 @@ from typing import Any, Optional
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
+from posthog.schema import ProductKey
+
 
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
@@ -87,7 +89,7 @@ class QueryTags(BaseModel):
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
-    product: Optional[Product] = None
+    product: Optional[Product | ProductKey] = None
 
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
@@ -104,6 +106,9 @@ class QueryTags(BaseModel):
     query_time_range_days: Optional[int] = None
     query_type: Optional[str] = None
 
+    rate_limit_bypass: Optional[int] = None
+    rate_limit_wait_ms: Optional[int] = None
+
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
@@ -117,6 +122,9 @@ class QueryTags(BaseModel):
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
     http_user_agent: Optional[str] = None
+
+    # frontend UI context (from QueryLogTags)
+    scene: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
     batch_export_id: Optional[uuid.UUID] = None
@@ -162,6 +170,8 @@ class QueryTags(BaseModel):
     usage_report: Optional[str] = None
 
     user_email: Optional[str] = None
+
+    is_impersonated: Optional[bool] = None
 
     # constant query tags
     git_commit: Optional[str] = None

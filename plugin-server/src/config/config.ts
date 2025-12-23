@@ -52,16 +52,6 @@ export function getDefaultConfig(): PluginsServerConfig {
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
               : '',
-        PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -208,6 +198,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        DISABLE_OPENTELEMETRY_TRACING: false, // Disable OpenTelemetry spans for better performance (keeps metrics and timeouts)
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
@@ -226,13 +217,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
 
-        // Heap dump configuration
-        HEAP_DUMP_ENABLED: false,
-        HEAP_DUMP_S3_BUCKET: '',
-        HEAP_DUMP_S3_PREFIX: 'heap-dumps',
-        HEAP_DUMP_S3_ENDPOINT: '',
-        HEAP_DUMP_S3_REGION: '',
-
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
@@ -243,6 +227,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
+        CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-webhooks',
+        CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+
         CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
@@ -263,7 +251,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_CONSUMER_TESTING_TOPIC: '',
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
@@ -288,11 +275,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
-        // in both the PostHog cloud environment and development
-        // we want this metadata switchover to be in blob ingestion v2 mode
-        // hobby installs will set this metadata value to a datetime
-        // since they may be running v1 and being upgraded
-        SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -338,12 +320,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
-        PERSONS_DUAL_WRITE_ENABLED: false,
-        PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
         PERSONS_PREFETCH_ENABLED: false,
-        GROUPS_DUAL_WRITE_ENABLED: false,
-        GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
-        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',

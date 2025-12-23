@@ -9,6 +9,7 @@ import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { getAvailableProductFeatures } from '~/mocks/features'
 import { MockSignature } from '~/mocks/utils'
@@ -95,12 +96,14 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
         pageUrl: urls.replay(),
     },
     decorators: [
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [

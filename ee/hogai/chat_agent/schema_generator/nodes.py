@@ -151,7 +151,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         artifact = await self.context_manager.artifacts.create(
             content=VisualizationArtifactContent(
                 query=result.query,
-                description=generated_plan or None,
+                name=result.name,
+                description=result.description,
+                plan=generated_plan,
             ),
             name=state.visualization_title or "Visualization",
         )
@@ -211,7 +213,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             content = artifact_contents.get(message.id or "")
             if not content:
                 continue
-            plan = content.description or ""
+            plan = content.plan or ""
             query = content.name or ""
             answer = content.query
 

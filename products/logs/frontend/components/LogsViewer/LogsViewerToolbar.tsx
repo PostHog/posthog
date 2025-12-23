@@ -8,6 +8,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { LogsOrderBy } from 'products/logs/frontend/types'
 
+import { TimezoneSelect } from './TimezoneSelect'
 import { logsViewerLogic } from './logsViewerLogic'
 
 export interface LogsViewerToolbarProps {
@@ -21,8 +22,8 @@ export const LogsViewerToolbar = ({
     orderBy,
     onChangeOrderBy,
 }: LogsViewerToolbarProps): JSX.Element => {
-    const { wrapBody, prettifyJson, logsCount } = useValues(logsViewerLogic)
-    const { setWrapBody, setPrettifyJson } = useActions(logsViewerLogic)
+    const { wrapBody, prettifyJson, logsCount, timezone } = useValues(logsViewerLogic)
+    const { setWrapBody, setPrettifyJson, setTimezone } = useActions(logsViewerLogic)
 
     return (
         <div className="flex justify-between flex-wrap gap-2">
@@ -50,6 +51,7 @@ export const LogsViewerToolbar = ({
                     label="Prettify JSON"
                     size="small"
                 />
+                <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
             </div>
             <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (
@@ -67,6 +69,9 @@ export const LogsViewerToolbar = ({
                     <span className="mx-1">·</span>
                     <KeyboardShortcut enter />
                     expand
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut p />
+                    prettify
                     <span className="mx-1">·</span>
                     <KeyboardShortcut r />
                     refresh

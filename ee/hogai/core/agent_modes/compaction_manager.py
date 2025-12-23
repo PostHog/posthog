@@ -104,6 +104,13 @@ class ConversationCompactionManager(ABC):
         """
         # Avoid summarizing the conversation if there is only two human messages.
         human_messages = [message for message in messages if isinstance(message, LangchainHumanMessage)]
+        if tools:
+            # Filter out server-side tools for token counting purposes
+            tools = [
+                tool
+                for tool in tools
+                if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
+            ]
         if len(human_messages) <= 2:
             tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
             return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens

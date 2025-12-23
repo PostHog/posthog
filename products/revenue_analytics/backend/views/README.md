@@ -23,10 +23,11 @@ The system follows a builder pattern where:
 
 ## Core Components
 
-### 1. View Types (5 standardized views)
+### 1. View Types (6 standardized views)
 
 - **Charge**: Individual payment transactions
 - **Customer**: Customer profiles and metadata
+- **MRR**: View on the current MRR for customers
 - **Product**: Product/service definitions
 - **Revenue Item**: Line items from invoices/subscriptions
 - **Subscription**: Recurring subscription data
@@ -76,6 +77,7 @@ sources/chargebee/
 ├── __init__.py
 ├── charge.py
 ├── customer.py
+├── mrr.py
 ├── product.py
 ├── revenue_item.py
 └── subscription.py
@@ -137,6 +139,7 @@ from products.revenue_analytics.backend.views.core import Builder
 
 from .charge import build as charge_builder
 from .customer import build as customer_builder
+from .mrr import build as mrr_builder
 from .product import build as product_builder
 from .revenue_item import build as revenue_item_builder
 from .subscription import build as subscription_builder
@@ -144,6 +147,7 @@ from .subscription import build as subscription_builder
 BUILDER: Builder = {
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE: charge_builder,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER: customer_builder,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR: mrr_builder,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT: product_builder,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM: revenue_item_builder,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION: subscription_builder,
@@ -228,11 +232,12 @@ The testing system follows a structured approach with dedicated test suites for 
 
 ```text
 sources/test/
-├── base.py                          # Core testing infrastructure
-├── events/                          # Event source tests
+├── base.py                         # Core testing infrastructure
+├── events/                         # Event source tests
 │   ├── base.py                     # Events-specific base test class
 │   ├── test_charge.py              # Charge builder tests
 │   ├── test_customer.py            # Customer builder tests
+│   ├── test_mrr.py                 # MRR builder tests
 │   ├── test_product.py             # Product builder tests
 │   ├── test_revenue_item.py        # Revenue item builder tests
 │   ├── test_subscription.py        # Subscription builder tests
@@ -241,6 +246,7 @@ sources/test/
     ├── base.py                     # Stripe-specific base test class
     ├── test_stripe_charge.py       # Stripe charge builder tests
     ├── test_stripe_customer.py     # Stripe customer builder tests
+    ├── test_stripe_mrr.py          # Stripe MRR builder tests
     ├── test_stripe_product.py      # Stripe product builder tests
     ├── test_stripe_revenue_item.py # Stripe revenue item builder tests
     ├── test_stripe_subscription.py # Stripe subscription builder tests

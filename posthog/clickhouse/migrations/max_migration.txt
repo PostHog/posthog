@@ -1,1 +1,1 @@
-0186_events_historical_migration_column
+0193_add_lc_is_impersonated_to_query_log_archive

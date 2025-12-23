@@ -32,11 +32,11 @@ def create_mock_db_pool():
             "id": 1,
             "user_id": 123,
             "current_team_id": 456,
-            "scopes": ["task:write"],
+            "scopes": ["llm_gateway:read"],
         }
     )
-    pool.acquire.return_value.__aenter__ = AsyncMock(return_value=conn)
-    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    pool.acquire = AsyncMock(return_value=conn)
+    pool.release = AsyncMock()
     pool.get_idle_size.return_value = 5
     pool.get_size.return_value = 10
     return pool

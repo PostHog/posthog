@@ -277,6 +277,12 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub db_monitor_interval_secs: u64,
 
+    // How often to report cohort cache metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(default = "30")]
+    pub cohort_cache_monitor_interval_secs: u64,
+
     // Pool utilization percentage that triggers warnings (0.0-1.0)
     // - Lower values (e.g., 0.7) provide earlier warnings
     // - Higher values (e.g., 0.9) reduce alert noise
@@ -557,6 +563,7 @@ impl Config {
             persons_reader_statement_timeout_ms: 5000,
             writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
+            cohort_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
             health_check_interval_secs: 30,

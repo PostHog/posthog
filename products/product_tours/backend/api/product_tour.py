@@ -24,6 +24,7 @@ from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.exceptions import generate_exception_response
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -178,6 +179,9 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         if instance.auto_launch:
             self._create_internal_targeting_flag(instance)
 
+        # Create linked surveys for any survey steps
+        self._sync_survey_steps(instance)
+
         return instance
 
     @transaction.atomic
@@ -194,14 +198,21 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         auto_launch_changed = "auto_launch" in validated_data and validated_data["auto_launch"] != instance.auto_launch
         auto_launch_enabled = validated_data.get("auto_launch", instance.auto_launch)
 
+        # Store previous content for survey step cleanup
+        previous_content = instance.content.copy() if instance.content else None
+
         instance = super().update(instance, validated_data)
 
         # Handle auto_launch changes
         if auto_launch_changed:
-            if auto_launch_enabled and not instance.internal_targeting_flag:
-                # auto_launch turned ON and no flag exists - create one
-                self._create_internal_targeting_flag(instance)
-            elif not auto_launch_enabled and instance.internal_targeting_flag:
+            if auto_launch_enabled:
+                if not instance.internal_targeting_flag:
+                    # auto_launch turned ON and no flag exists - create one
+                    self._create_internal_targeting_flag(instance)
+                else:
+                    # auto_launch turned ON and flag exists - update its state
+                    self._update_internal_targeting_flag_state(instance)
+            elif instance.internal_targeting_flag:
                 # auto_launch turned OFF - deactivate the flag
                 instance.internal_targeting_flag.active = False
                 instance.internal_targeting_flag.save(update_fields=["active"])
@@ -213,6 +224,9 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Update targeting flag filters if explicitly provided (including null to reset)
         if targeting_flag_filters is not _NOT_PROVIDED and instance.internal_targeting_flag:
             self._update_targeting_flag_filters(instance, targeting_flag_filters)
+
+        # Sync linked surveys for any survey steps (create/update/end as needed)
+        self._sync_survey_steps(instance, previous_content)
 
         return instance
 
@@ -343,6 +357,134 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         flag.filters = {"groups": merged_groups}
         flag.save(update_fields=["filters"])
 
+    def _sync_survey_steps(self, instance: ProductTour, previous_content: dict | None = None) -> bool:
+        """Create or update linked surveys for any survey steps in the tour.
+
+        Also ends (sets end_date) any surveys that are no longer referenced by steps.
+
+        Returns True if any changes were made to the tour content.
+        """
+        from django.utils import timezone
+
+        request = self.context["request"]
+        content = instance.content or {}
+        steps = content.get("steps", [])
+        content_changed = False
+
+        # Track which survey IDs are still in use
+        active_survey_ids: set[str] = set()
+
+        for i, step in enumerate(steps):
+            survey_config = step.get("survey")
+            if not survey_config:
+                continue
+
+            linked_survey_id = step.get("linkedSurveyId")
+            question_text = survey_config.get("questionText", "")
+            question_type = survey_config.get("type", "open")
+
+            # Build the survey question
+            survey_question: dict[str, Any] = {
+                "type": question_type,
+                "question": question_text,
+            }
+
+            # Add rating-specific fields
+            if question_type == "rating":
+                survey_question["scale"] = survey_config.get("scale", 5)
+                survey_question["display"] = survey_config.get("display", "emoji")
+                survey_question["skipSubmitButton"] = True  # Auto-submit on selection
+                if survey_config.get("lowerBoundLabel"):
+                    survey_question["lowerBoundLabel"] = survey_config["lowerBoundLabel"]
+                if survey_config.get("upperBoundLabel"):
+                    survey_question["upperBoundLabel"] = survey_config["upperBoundLabel"]
+
+            survey_name = f"{instance.name} - Step {i + 1} Survey"
+
+            if linked_survey_id:
+                # Update existing survey
+                try:
+                    survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
+                    survey.name = survey_name
+                    survey.questions = [survey_question]
+                    # Ensure appearance has hideCancelButton set
+                    survey.appearance = survey.appearance or {}
+                    survey.appearance["hideCancelButton"] = True
+                    survey.appearance["displayThankYouMessage"] = False
+                    survey.appearance["position"] = "middle_center"
+                    # Sync start_date and end_date from the tour
+                    # If tour is archived, end the survey now
+                    survey.start_date = instance.start_date
+                    survey.end_date = (
+                        instance.end_date if not instance.archived else (instance.end_date or timezone.now())
+                    )
+                    survey.enable_partial_responses = False  # Single question, no partial responses
+                    survey.save(
+                        update_fields=[
+                            "name",
+                            "questions",
+                            "appearance",
+                            "start_date",
+                            "end_date",
+                            "enable_partial_responses",
+                            "updated_at",
+                        ]
+                    )
+                    active_survey_ids.add(linked_survey_id)
+                    # Ensure question ID is stored on step (for backwards compatibility)
+                    if not step.get("linkedSurveyQuestionId") and survey.questions:
+                        step["linkedSurveyQuestionId"] = survey.questions[0].get("id")
+                        content_changed = True
+                except Survey.DoesNotExist:
+                    # Survey was deleted, create a new one
+                    linked_survey_id = None
+
+            if not linked_survey_id:
+                # Create new survey
+                # Use appearance with hideCancelButton since tour surveys shouldn't be dismissible
+                survey_appearance = {
+                    "position": "middle_center",
+                    "displayThankYouMessage": False,
+                    "hideCancelButton": True,
+                }
+                survey = Survey.objects.create(
+                    team=instance.team,
+                    name=survey_name,
+                    type="api",  # API type since we'll trigger it programmatically
+                    questions=[survey_question],
+                    appearance=survey_appearance,
+                    start_date=instance.start_date,  # Launch with the tour
+                    end_date=instance.end_date,
+                    created_by=request.user if hasattr(request, "user") else None,
+                    enable_partial_responses=False,  # Single question, no partial responses
+                )
+                step["linkedSurveyId"] = str(survey.id)
+                # Store the question ID for SDK event tracking
+                step["linkedSurveyQuestionId"] = survey.questions[0].get("id") if survey.questions else None
+                active_survey_ids.add(str(survey.id))
+                content_changed = True
+
+        # End any surveys that were previously linked but are no longer in use
+        if previous_content:
+            previous_steps = previous_content.get("steps", [])
+            for prev_step in previous_steps:
+                prev_survey_id = prev_step.get("linkedSurveyId")
+                if prev_survey_id and prev_survey_id not in active_survey_ids:
+                    # This survey is no longer referenced - end it
+                    try:
+                        survey = Survey.objects.get(id=prev_survey_id, team=instance.team)
+                        if not survey.end_date:
+                            survey.end_date = timezone.now()
+                            survey.save(update_fields=["end_date", "updated_at"])
+                    except Survey.DoesNotExist:
+                        pass
+
+        if content_changed:
+            instance.content = content
+            instance.save(update_fields=["content", "updated_at"])
+
+        return content_changed
+
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
@@ -361,10 +503,25 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
 
     def perform_destroy(self, instance: ProductTour) -> None:
         """Soft delete: archive the tour instead of deleting."""
+        from django.utils import timezone
+
         # Delete the internal targeting flag
         if instance.internal_targeting_flag:
             instance.internal_targeting_flag.delete()
             instance.internal_targeting_flag = None
+
+        # End any linked surveys
+        content = instance.content or {}
+        for step in content.get("steps", []):
+            linked_survey_id = step.get("linkedSurveyId")
+            if linked_survey_id:
+                try:
+                    survey = Survey.objects.get(id=linked_survey_id, team=instance.team)
+                    if not survey.end_date:
+                        survey.end_date = timezone.now()
+                        survey.save(update_fields=["end_date", "updated_at"])
+                except Survey.DoesNotExist:
+                    pass
 
         instance.archived = True
         instance.save(update_fields=["archived", "internal_targeting_flag", "updated_at"])

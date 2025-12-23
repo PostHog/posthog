@@ -95,26 +95,54 @@ export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS
     return createRedisClient(url, options)
 }
 
+/**
+ * Sanitizes a Redis URL for safe logging by extracting only the host portion.
+ * This prevents leaking credentials that may be embedded in the URL.
+ *
+ * @param url - Redis URL (e.g., 'rediss://:password@localhost:6379') or plain hostname (e.g., 'posthog-redis')
+ * @param options - Optional Redis options that may include the port
+ * @returns The host portion without credentials (e.g., 'localhost:6379'), or the plain hostname if not a URL
+ */
+function getRedisHost(url: string, options?: RedisOptions): string {
+    try {
+        const parsed = new URL(url)
+        // Return host (hostname:port) if available, excluding any credentials
+        // For URLs without a host (e.g., data:, file:), return a safe placeholder
+        return parsed.host || '[sanitized-redis-host]'
+    } catch {
+        // If URL parsing fails, strip any potential credentials from the string
+        // Use lastIndexOf to handle edge cases with multiple @ symbols
+        const atIndex = url.lastIndexOf('@')
+        const hostname = atIndex >= 0 ? url.substring(atIndex + 1) : url
+        // Append port from options if available and not already in hostname
+        if (options?.port && !hostname.includes(':')) {
+            return `${hostname}:${options.port}`
+        }
+        return hostname
+    }
+}
+
 export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
     const redis = new Redis(url, {
         ...options,
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0
+    const redisHost = getRedisHost(url, options)
     redis
         .on('error', (error) => {
             errorCounter++
             captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                logger.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
+                logger.error('😡', 'Redis error encountered! host:', redisHost, ' Enough of this, I quit!', error)
                 killGracefully()
             } else {
-                logger.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+                logger.error('🔴', 'Redis error encountered! host:', redisHost, ' Trying to reconnect...', error)
             }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                logger.info('✅', 'Connected to Redis!')
+                logger.info('✅', 'Connected to Redis!', redisHost)
             }
         })
     await redis.info()

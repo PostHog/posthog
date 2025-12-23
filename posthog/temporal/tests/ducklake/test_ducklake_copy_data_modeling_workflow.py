@@ -23,7 +23,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     prepare_data_modeling_ducklake_metadata_activity,
     verify_ducklake_copy_activity,
 )
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -184,20 +184,19 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     fake_conn = FakeDuckDBConnection()
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
 
-    configure_args: dict[str, object] = {}
+    configured: dict[str, bool] = {"called": False}
 
-    def fake_configure(conn, config, install_extension):
-        configure_args["install_extension"] = install_extension
-        configure_args["bucket"] = config["DUCKLAKE_BUCKET"]
+    def fake_configure(conn):
+        configured["called"] = True
 
     monkeypatch.setattr(ducklake_module, "configure_connection", fake_configure)
 
     ensured: dict[str, bool] = {"called": False}
 
-    def fake_ensure_bucket(config):
+    def fake_ensure_bucket(storage_config=None, config=None):
         ensured["called"] = True
 
-    monkeypatch.setattr(ducklake_module, "_ensure_ducklake_bucket_exists", fake_ensure_bucket)
+    monkeypatch.setattr(ducklake_module, "ensure_ducklake_bucket_exists", fake_ensure_bucket)
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_a",
@@ -226,8 +225,7 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
         (statement, params) for statement, params in fake_conn_calls if statement.startswith("CREATE OR REPLACE TABLE")
     ]
 
-    assert configure_args["install_extension"] is True
-    assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_BUCKET"]
+    assert configured["called"] is True
     assert ensured["called"] is True
     assert schema_calls and "ducklake.data_modeling_team_1" in schema_calls[0]
     assert table_calls and "ducklake.data_modeling_team_1.model_a" in table_calls[0][0]

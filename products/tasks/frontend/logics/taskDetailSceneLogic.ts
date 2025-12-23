@@ -35,47 +35,59 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task', 'taskLoading']],
-        actions: [taskLogic(props), ['loadTask', 'runTask', 'deleteTask', 'updateTask']],
+        values: [taskLogic(props), ['task']],
+        actions: [
+            taskLogic(props),
+            ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
+        ],
     })),
 
     actions({
-        setSelectedRunId: (runId: TaskRun['id'] | null) => ({ runId }),
+        setSelectedRunId: (runId: TaskRun['id'] | null, taskId: string) => ({ runId, taskId }),
         selectLatestRun: true,
+        clearShouldSelectLatestRun: true,
         startPolling: true,
         stopPolling: true,
         setLogs: (logs: string) => ({ logs }),
+        updateRun: (run: TaskRun) => ({ run }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         selectedRunId: [
             null as TaskRun['id'] | null,
             {
-                setSelectedRunId: (_, { runId }) => runId,
+                setSelectedRunId: (state, { runId, taskId }) => (taskId === props.taskId ? runId : state),
             },
         ],
         shouldSelectLatestRun: [
             false,
             {
                 selectLatestRun: () => true,
-                loadRunsSuccess: () => false,
+                clearShouldSelectLatestRun: () => false,
             },
         ],
         logs: [
             '' as string,
             {
-                setSelectedRunId: () => '',
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? '' : state),
                 setLogs: (_, { logs }) => logs,
             },
         ],
         isInitialLogsLoad: [
             true as boolean,
             {
-                setSelectedRunId: () => true,
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? true : state),
                 setLogs: () => false,
             },
         ],
-    }),
+        runs: [
+            [] as TaskRun[],
+            {
+                updateRun: (state: TaskRun[], { run }: { run: TaskRun }) =>
+                    state.map((r) => (r.id === run.id ? run : r)),
+            },
+        ],
+    })),
 
     loaders(({ props, values, actions }) => ({
         runs: [
@@ -95,9 +107,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                         return null
                     }
                     const run = await api.tasks.runs.get(props.taskId, values.selectedRunId)
-                    if (run.log_url) {
-                        actions.loadLogs({ url: run.log_url })
-                    }
+                    // Use proxy endpoint to avoid CORS issues with direct S3 access
+                    actions.loadLogs({
+                        url: `/api/projects/@current/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
+                    })
                     return run
                 },
             },
@@ -169,31 +182,50 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        setSelectedRunId: () => {
+    listeners(({ actions, values, props }) => ({
+        setSelectedRunId: ({ taskId }) => {
+            if (taskId !== props.taskId) {
+                return
+            }
             actions.stopPolling()
             actions.loadSelectedRun()
         },
-        runTaskSuccess: () => {
-            actions.selectLatestRun()
+        runTaskSuccess: ({ task }) => {
+            if (task?.id !== props.taskId) {
+                return
+            }
+            if (task?.latest_run) {
+                actions.setSelectedRunId(task.latest_run.id, props.taskId)
+            }
             actions.loadRuns()
         },
         loadRunsSuccess: ({ runs }) => {
-            if (values.shouldSelectLatestRun && runs.length > 0) {
-                actions.setSelectedRunId(runs[0].id)
+            const shouldSelect = values.shouldSelectLatestRun
+            if (shouldSelect) {
+                actions.clearShouldSelectLatestRun()
+            }
+            if (shouldSelect && runs.length > 0) {
+                actions.setSelectedRunId(runs[0].id, props.taskId)
             } else if (values.selectedRunId) {
                 actions.loadSelectedRun()
             }
         },
         loadSelectedRunSuccess: ({ selectedRunData }) => {
             if (selectedRunData) {
-                tasksLogic.findMounted()?.actions.updateTaskRun(values.taskId, selectedRunData)
+                actions.updateRun(selectedRunData)
             }
+            actions.loadTask()
             if (values.shouldPoll) {
                 actions.startPolling()
             } else {
                 actions.stopPolling()
             }
+        },
+        loadTaskSuccess: ({ task }) => {
+            if (task?.id !== props.taskId) {
+                return
+            }
+            tasksLogic.findMounted()?.actions.updateTask(task)
         },
         loadLogsSuccess: ({ rawLogs }) => {
             if (rawLogs) {
@@ -233,11 +265,15 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.taskDetail(':taskId')]: (_, searchParams) => {
+    urlToAction(({ actions, values, props }) => ({
+        [urls.taskDetail(':taskId')]: (params, searchParams) => {
+            const { taskId: urlTaskId } = params
+            if (urlTaskId !== props.taskId) {
+                return
+            }
             const runIdFromUrl = searchParams.runId
             if (runIdFromUrl && runIdFromUrl !== values.selectedRunId) {
-                actions.setSelectedRunId(runIdFromUrl)
+                actions.setSelectedRunId(runIdFromUrl, props.taskId)
             }
         },
     })),

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -12,18 +13,20 @@ import {
     LemonTableColumns,
     LemonTag,
     LemonTagType,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
+import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
@@ -77,6 +80,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
         scheduleDateMarker,
         schedulePayload,
         schedulePayloadErrors,
+        isRecurring,
+        recurrenceInterval,
+        endDate,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -84,6 +90,11 @@ export default function FeatureFlagSchedule(): JSX.Element {
         setSchedulePayload,
         setScheduledChangeOperation,
         createScheduledChange,
+        setIsRecurring,
+        setRecurrenceInterval,
+        setEndDate,
+        stopRecurringScheduledChange,
+        resumeRecurringScheduledChange,
     } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -146,35 +157,104 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 return JSON.stringify(payload)
             },
         },
-        atColumn('scheduled_at', 'Scheduled at') as LemonTableColumn<
-            ScheduledChangeType,
-            keyof ScheduledChangeType | undefined
-        >,
+        {
+            title: 'Scheduled at',
+            dataIndex: 'scheduled_at',
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
+                const scheduledAt = dayjs(scheduledChange.scheduled_at)
+                const formattedDate = scheduledAt.format(DAYJS_FORMAT)
+                const timeStr = scheduledAt.format('h:mm A')
+                const isPaused = !scheduledChange.is_recurring && !!scheduledChange.recurrence_interval
+
+                // Build recurring description for both active and paused recurring schedules
+                if (scheduledChange.recurrence_interval) {
+                    let recurringDescription: string
+                    switch (scheduledChange.recurrence_interval) {
+                        case RecurrenceInterval.Daily:
+                            recurringDescription = `Every day at ${timeStr}`
+                            break
+                        case RecurrenceInterval.Weekly:
+                            recurringDescription = `Every ${scheduledAt.format('dddd')} at ${timeStr}`
+                            break
+                        case RecurrenceInterval.Monthly: {
+                            // For days 29-31, show "last day" since months vary in length
+                            const dayOfMonth = scheduledAt.date()
+                            const dayText = dayOfMonth >= 29 ? 'last day' : scheduledAt.format('Do')
+                            recurringDescription = `Monthly on the ${dayText} at ${timeStr}`
+                            break
+                        }
+                        default:
+                            recurringDescription = `Every ${scheduledChange.recurrence_interval}`
+                    }
+
+                    if (isPaused) {
+                        // Paused: show pattern but indicate it won't run
+                        return (
+                            <Tooltip title={`Was: ${recurringDescription}. Resume to continue.`}>
+                                <span className="text-muted">—</span>
+                            </Tooltip>
+                        )
+                    }
+
+                    // Active recurring: show pattern with next run in tooltip
+                    const endDateStr = scheduledChange.end_date
+                        ? `\nEnds: ${dayjs(scheduledChange.end_date).format('MMMM D, YYYY')}`
+                        : ''
+                    return (
+                        <Tooltip title={`Next: ${formattedDate}${endDateStr}`}>
+                            <span>{recurringDescription}</span>
+                        </Tooltip>
+                    )
+                }
+                return formattedDate
+            },
+        },
+        {
+            title: 'End date',
+            dataIndex: 'end_date',
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
+                if (!scheduledChange.is_recurring && !scheduledChange.recurrence_interval) {
+                    // One-time schedule - no end date concept
+                    return <span className="text-muted">—</span>
+                }
+                if (!scheduledChange.end_date) {
+                    return <span className="text-muted">No end date</span>
+                }
+                return dayjs(scheduledChange.end_date).format('MMM D, YYYY')
+            },
+        },
         createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         createdByColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         {
             title: 'Status',
             dataIndex: 'executed_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
-                const { executed_at, failure_reason } = scheduledChange
+                const { executed_at, failure_reason, is_recurring, recurrence_interval } = scheduledChange
+                const isPaused = !is_recurring && !!recurrence_interval
 
-                function getStatus(): { type: LemonTagType; text: string } {
+                function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
                     if (failure_reason) {
-                        return { type: 'danger', text: 'Error' }
+                        return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
                     } else if (executed_at) {
-                        return { type: 'completion', text: 'Complete' }
+                        return {
+                            type: 'completion',
+                            text: 'Complete',
+                            tooltip: `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`,
+                        }
+                    } else if (isPaused) {
+                        return {
+                            type: 'warning',
+                            text: 'Paused',
+                            tooltip: 'Recurring schedule is paused. It will not execute until resumed.',
+                        }
+                    } else if (is_recurring) {
+                        return { type: 'highlight', text: 'Recurring' }
                     }
                     return { type: 'default', text: 'Scheduled' }
                 }
-                const { type, text } = getStatus()
+                const { type, text, tooltip } = getStatus()
                 return (
-                    <Tooltip
-                        title={
-                            failure_reason
-                                ? `Failed: ${failure_reason}`
-                                : executed_at && `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`
-                        }
-                    >
+                    <Tooltip title={tooltip}>
                         <LemonTag type={type}>
                             <b className="uppercase">{text}</b>
                         </LemonTag>
@@ -190,13 +270,31 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     featureFlag.can_edit && (
                         <More
                             overlay={
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => deleteScheduledChange(scheduledChange.id)}
-                                    fullWidth
-                                >
-                                    Delete scheduled change
-                                </LemonButton>
+                                <>
+                                    {scheduledChange.is_recurring && (
+                                        <LemonButton
+                                            onClick={() => stopRecurringScheduledChange(scheduledChange.id)}
+                                            fullWidth
+                                        >
+                                            Pause recurring
+                                        </LemonButton>
+                                    )}
+                                    {!scheduledChange.is_recurring && scheduledChange.recurrence_interval && (
+                                        <LemonButton
+                                            onClick={() => resumeRecurringScheduledChange(scheduledChange.id)}
+                                            fullWidth
+                                        >
+                                            Resume recurring
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => deleteScheduledChange(scheduledChange.id)}
+                                        fullWidth
+                                    >
+                                        Delete scheduled change
+                                    </LemonButton>
+                                </>
                             }
                         />
                     )
@@ -211,7 +309,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 <div>
                     <h3 className="l3">Add a scheduled change</h3>
                     <div className="mb-6">Automatically change flag properties at a future point in time.</div>
-                    <div className="inline-flex gap-10 mb-8">
+                    <div className="flex flex-wrap gap-x-10 gap-y-4 mb-8">
                         <div>
                             <div className="font-semibold leading-6 h-6 mb-1">Change type</div>
                             <LemonSelect<ScheduledChangeOperationType>
@@ -247,22 +345,78 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 granularity="minute"
                             />
                         </div>
+                        {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
+                            <div>
+                                <div className="font-semibold leading-6 h-6 mb-1">Repeat</div>
+                                <div className="flex flex-col gap-2">
+                                    <LemonCheckbox
+                                        id="recurring-checkbox"
+                                        label="Make recurring"
+                                        onChange={(checked) => {
+                                            setIsRecurring(checked)
+                                            if (!checked) {
+                                                setRecurrenceInterval(null)
+                                                setEndDate(null)
+                                            }
+                                        }}
+                                        checked={isRecurring}
+                                    />
+                                    <LemonSelect
+                                        className="w-40"
+                                        placeholder="Select interval"
+                                        value={recurrenceInterval}
+                                        onChange={setRecurrenceInterval}
+                                        disabled={!isRecurring}
+                                        options={[
+                                            { value: RecurrenceInterval.Daily, label: 'Daily' },
+                                            { value: RecurrenceInterval.Weekly, label: 'Weekly' },
+                                            { value: RecurrenceInterval.Monthly, label: 'Monthly' },
+                                        ]}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        {isRecurring && (
+                            <div className="w-50">
+                                <div className="font-semibold leading-6 h-6 mb-1 flex items-center gap-1">
+                                    End date (optional)
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                Schedule will run through end of this day in the{' '}
+                                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                                    project's timezone
+                                                </Link>
+                                            </>
+                                        }
+                                    >
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                </div>
+                                <LemonCalendarSelectInput
+                                    value={endDate}
+                                    onChange={(value) => setEndDate(value)}
+                                    placeholder="No end date"
+                                    selectionPeriod="upcoming"
+                                    granularity="day"
+                                    clearable
+                                />
+                            </div>
+                        )}
                     </div>
 
                     <div className="deprecated-space-y-4">
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
-                            <>
-                                <div className="border rounded p-4">
-                                    <LemonCheckbox
-                                        id="flag-enabled-checkbox"
-                                        label="Enable feature flag"
-                                        onChange={(value) => {
-                                            setSchedulePayload(null, value)
-                                        }}
-                                        checked={schedulePayload.active}
-                                    />
-                                </div>
-                            </>
+                            <div className="border rounded p-4">
+                                <LemonCheckbox
+                                    id="flag-enabled-checkbox"
+                                    label="Enable feature flag"
+                                    onChange={(value) => {
+                                        setSchedulePayload(null, value)
+                                    }}
+                                    checked={schedulePayload.active}
+                                />
+                            </div>
                         )}
                         {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                             <FeatureFlagReleaseConditions
@@ -344,12 +498,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 disabledReason={
                                     !scheduleDateMarker
                                         ? 'Select the scheduled date and time'
-                                        : hasFormErrors(schedulePayloadErrors)
-                                          ? 'Fix release condition errors'
-                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
-                                              variantErrors.some((error) => error.key != null)
-                                            ? 'Fix schedule variant changes errors'
-                                            : undefined
+                                        : isRecurring && !recurrenceInterval
+                                          ? 'Select a repeat interval'
+                                          : hasFormErrors(schedulePayloadErrors)
+                                            ? 'Fix release condition errors'
+                                            : scheduledChangeOperation ===
+                                                    ScheduledChangeOperationType.UpdateVariants &&
+                                                variantErrors.some((error) => error.key != null)
+                                              ? 'Fix schedule variant changes errors'
+                                              : undefined
                                 }
                             >
                                 Schedule
