@@ -88,8 +88,11 @@ class UserAdmin(DjangoUserAdmin):
     search_fields = ("email", "first_name", "last_name")
     readonly_fields = [
         "id",
+        "email",
+        "pending_email",
         "current_team",
         "current_organization",
+        "is_email_verified",
         "email_verification_status",
         "revoke_sessions_link",
         "allow_impersonation",
