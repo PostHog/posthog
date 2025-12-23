@@ -11,6 +11,10 @@ import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
 import { MappingBatchPipeline, MappingFunction } from '../mapping-batch-pipeline'
+import {
+    MultithreadedShardedBatchPipeline,
+    MultithreadedShardedConfig,
+} from '../multithreaded/multithreaded-sharded-batch-pipeline'
 import { Pipeline } from '../pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
@@ -73,6 +77,20 @@ export class GroupingBatchPipelineBuilder<TInput, TOutput, CInput, COutput, TKey
         ) => BatchPipelineBuilder<TInput, U, CInput, COutput>
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         return callback(new GroupProcessingBuilder(this.previousPipeline, this.groupingFn))
+    }
+
+    /**
+     * Process groups using sharded worker threads.
+     * Events are routed to workers by hash(groupKey) % numWorkers.
+     * Each worker maintains internal grouping and processes sequentially per group.
+     * Side effects are handled within workers (workers have own connections).
+     */
+    multithreadedSharded<U>(
+        config: MultithreadedShardedConfig<TOutput, U>
+    ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
+        return new BatchPipelineBuilder(
+            new MultithreadedShardedBatchPipeline(this.groupingFn, this.previousPipeline, config)
+        )
     }
 }
 
