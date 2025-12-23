@@ -168,21 +168,9 @@ export class LegacyPluginExecutorService {
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
 
-            setupPromiseCacheCounter
-                .labels({
-                    result: 'hit',
-                    template_id: invocation.hogFunction.template_id,
-                })
-                .inc()
+            setupPromiseCacheCounter.labels({ result: state ? 'hit' : 'miss' }).inc()
 
             if (!state) {
-                setupPromiseCacheCounter
-                    .labels({
-                        result: 'miss',
-                        template_id: invocation.hogFunction.template_id,
-                    })
-                    .inc()
-
                 if (!this.cachedGeoIp) {
                     this.cachedGeoIp = await this.hub.geoipService.get()
                 }
