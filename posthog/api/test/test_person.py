@@ -574,6 +574,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
         _create_event(event="test", team=self.team, distinct_id="person_1")
+        flush_persons_and_events()
 
         response = self.client.post(
             f"/api/person/bulk_delete/",
