@@ -270,7 +270,7 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
 
 def _get_migrations_in_code(app: str, migrations_dir: Path) -> set[str]:
     """Get migration names that exist in code for an app."""
-    migrations = set()
+    migrations: set[str] = set()
     if not migrations_dir.exists():
         return migrations
 
