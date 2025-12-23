@@ -114,7 +114,6 @@ class InsightsAssistant(BaseAgentRunner):
                 )
                 path = cast(Literal[AssistantEventType.MESSAGE], path)
                 yield (path, legacy_visualization_message)
-                continue
             if isinstance(message, AssistantMessage):
                 last_ai_message = message
             yield stream_event

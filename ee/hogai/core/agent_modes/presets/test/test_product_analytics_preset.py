@@ -55,7 +55,7 @@ class TestProductAnalyticsAgentNode(BaseTest):
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "create_and_query_insight",
+                                "name": "create_insight",
                                 "args": {"query_description": "Foobar", "query_kind": insight_type},
                             }
                         ],
@@ -80,9 +80,10 @@ class TestProductAnalyticsAgentNode(BaseTest):
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = await node.arun(state_1, {})
             assert isinstance(next_state, PartialAssistantState)
-            self.assertEqual(len(next_state.messages), 1)
-            self.assertIsInstance(next_state.messages[0], AssistantMessage)
-            assistant_message = next_state.messages[0]
+            # The state includes context messages + original message + generated message
+            self.assertGreaterEqual(len(next_state.messages), 1)
+            assistant_message = next_state.messages[-1]
+            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, content)
             self.assertIsNotNone(assistant_message.id)
@@ -93,7 +94,7 @@ class TestProductAnalyticsAgentNode(BaseTest):
                 assistant_message.tool_calls[0],
                 AssistantToolCall(
                     id="xyz",
-                    name="create_and_query_insight",
+                    name="create_insight",
                     args={"query_description": "Foobar", "query_kind": insight_type},
                 ),
             )

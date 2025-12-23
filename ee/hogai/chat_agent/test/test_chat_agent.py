@@ -6,9 +6,6 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
-from azure.ai.inference import EmbeddingsClient
-from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
-from azure.core.credentials import AzureKeyCredential
 from langchain_core import messages
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig, RunnableLambda
@@ -81,34 +78,6 @@ query_executor_mock = patch(
 
 
 class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
-    CLASS_DATA_LEVEL_SETUP = False
-    maxDiff = None
-
-    def setUp(self):
-        super().setUp()
-
-        # Azure embeddings mocks
-        self.azure_client_mock = patch(
-            "ee.hogai.chat_agent.rag.nodes.get_azure_embeddings_client",
-            return_value=EmbeddingsClient(
-                endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
-            ),
-        ).start()
-        self.embed_query_mock = patch(
-            "azure.ai.inference.EmbeddingsClient.embed",
-            return_value=EmbeddingsResult(
-                id="test",
-                model="test",
-                usage=EmbeddingsUsage(prompt_tokens=1, total_tokens=1),
-                data=[],
-            ),
-        ).start()
-
-    def tearDown(self):
-        self.azure_client_mock.stop()
-        self.embed_query_mock.stop()
-        super().tearDown()
-
     async def _set_up_onboarding_tests(self):
         await self.core_memory.adelete()
         _create_person(

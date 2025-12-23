@@ -370,11 +370,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # When the window boundary is None (messages too large), we expect:
         # - Original messages preserved
         # - Summary message appended
+        # - Mode reminder appended
         # - Start message copied
         # - Window start should be the summary message
-        self.assertEqual(len(result.messages), 5)
+        self.assertEqual(len(result.messages), 6)
         self.assertEqual(result.messages[0].id, start_id)
-        self.assertEqual(result.messages[-2].id, summary_id)
+        self.assertEqual(result.messages[-3].id, summary_id)
         last_msg = result.messages[-1]
         assert isinstance(last_msg, HumanMessage)  # Type narrowing
         self.assertEqual(last_msg.content, "Initial question")
@@ -462,9 +463,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # The copied start message should have a new ID returned
         self.assertEqual(result.updated_start_id, copied_start.id)
 
-        # Summary and copied start should be at the beginning of the window
+        # Summary, mode reminder, and copied start should be at the beginning of the window
         summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
-        self.assertEqual(result.messages[summary_idx + 1].id, copied_start.id, "Copied start should follow summary")
+        # Mode reminder is injected between summary and copied start
+        self.assertEqual(
+            result.messages[summary_idx + 2].id, copied_start.id, "Copied start should follow mode reminder"
+        )
 
     def test_tool_call_complete_sequence_in_window(self):
         """
@@ -700,9 +704,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
         )
 
-        # When there's no window boundary, the summary and copied start message are appended
-        self.assertEqual(len(result.messages), 4)  # original 2 + summary + copied start
-        self.assertEqual(result.messages[-2].id, summary_id)
+        # When there's no window boundary, the summary, mode reminder, and copied start message are appended
+        self.assertEqual(len(result.messages), 5)  # original 2 + summary + mode reminder + copied start
+        self.assertEqual(result.messages[-3].id, summary_id)
         self.assertEqual(result.updated_window_start_id, summary_id)
         # Updated start ID should be the copied message
         self.assertNotEqual(result.updated_start_id, start_id)
