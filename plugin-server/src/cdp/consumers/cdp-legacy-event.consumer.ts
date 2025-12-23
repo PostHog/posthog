@@ -7,7 +7,6 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '~/config/config'
 import { chainToElements } from '~/utils/db/elements-chain'
 import { pluginActionMsSummary } from '~/worker/metrics'
-import { vmFetchTracker } from '~/worker/vm/tracked-fetch'
 
 import {
     Hub,
@@ -24,7 +23,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { LegacyPluginExecutorService, legacyFetchTracker } from '../services/legacy-plugin-executor.service'
+import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -391,32 +390,6 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
         }
 
-        // Log the object just without bodies
-        if (
-            Object.values(vmFetchTracker.requests).flat().length > 0 ||
-            Object.values(legacyFetchTracker.requests).flat().length > 0
-        ) {
-            logger.info('🔁', 'Legacy plugin executor results', {
-                teams: Array.from(new Set(invocationGlobals.map((x) => x.project.id))).join(', '),
-                vmFetches: Object.entries(vmFetchTracker.requests).map(([key, value]) => ({
-                    key,
-                    value: value?.map((request) => ({
-                        url: request.url,
-                        method: request.method,
-                    })),
-                })),
-                legacyFetches: Object.entries(legacyFetchTracker.requests).map(([key, value]) => ({
-                    key,
-                    value: value?.map((request) => ({
-                        url: request.url,
-                        method: request.method,
-                    })),
-                })),
-            })
-        }
-
-        vmFetchTracker.clearRequests()
-        legacyFetchTracker.clearRequests()
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: this.promiseScheduler.waitForAll(),

@@ -2,8 +2,6 @@ import { Counter, Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
-import { FetchTracker } from '~/worker/vm/tracked-fetch'
-
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { GeoIp } from '../../utils/geoip'
@@ -47,8 +45,6 @@ export type PluginState = {
  */
 
 const pluginConfigCheckCache: Record<string, boolean> = {}
-
-export const legacyFetchTracker = new FetchTracker()
 
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
@@ -227,12 +223,6 @@ export class LegacyPluginExecutorService {
                 // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
                 // Additionally we don't do real fetches for test functions
                 const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
-
-                legacyFetchTracker.trackRequest(invocation.hogFunction.id.toString(), {
-                    url: args[0],
-                    method: method,
-                    body: args[1]?.body,
-                })
 
                 if ((shouldMockFetch || isTestFunction) && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests

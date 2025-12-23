@@ -9,44 +9,11 @@ const vmFetchCounter = new Counter({
     labelNames: ['plugin_id', 'plugin_config', 'status'],
 })
 
-export type MinimalTracked = {
-    url: string
-    method: string
-    body: any
-}
-
-export class FetchTracker {
-    requests: {
-        [id: string]: MinimalTracked[] | undefined
-    }
-    constructor() {
-        this.requests = {}
-    }
-
-    trackRequest(id: string, request: MinimalTracked) {
-        if (!this.requests[id]) {
-            this.requests[id] = []
-        }
-        this.requests[id]!.push(request)
-    }
-
-    clearRequests() {
-        this.requests = {}
-    }
-}
-
-export const vmFetchTracker = new FetchTracker()
-
 export const createVmTrackedFetch = (pluginConfig: PluginConfig) => async (url: string, fetchParams?: FetchOptions) => {
     const pluginId = pluginConfig.id.toString()
     const pluginConfigName = pluginConfig.plugin?.name ?? 'unknown'
 
     try {
-        vmFetchTracker.trackRequest(pluginId, {
-            url,
-            method: fetchParams?.method ?? 'GET',
-            body: fetchParams?.body,
-        })
         const response = await legacyFetch(url, fetchParams)
         vmFetchCounter
             .labels({
