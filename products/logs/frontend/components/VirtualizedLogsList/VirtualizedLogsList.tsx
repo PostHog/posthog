@@ -23,7 +23,7 @@ interface VirtualizedLogsListProps {
     loading: boolean
     wrapBody: boolean
     prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     showPinnedWithOpacity?: boolean
     fixedHeight?: number
     disableInfiniteScroll?: boolean
