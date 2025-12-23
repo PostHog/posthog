@@ -62,7 +62,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrottle, ClickHouseBurstRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
@@ -134,12 +134,12 @@ def get_person_name_helper(
     return str(person_pk)
 
 
-class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "persons_burst"
     rate = "180/minute"
 
 
-class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
+class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "persons_sustained"
     rate = "1200/hour"
 
@@ -226,22 +226,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonLimitOffsetPagination
     throttle_classes = [
         ClickHouseBurstRateThrottle,
-        PersonsBreakGlassBurstThrottle,
-        PersonsBreakGlassSustainedThrottle,
+        PersonsDeleteBurstThrottle,
+        PersonsDeleteSustainedThrottle,
     ]
     lifecycle_class = Lifecycle
 
     def get_throttles(self):
         # Delete operations don't touch ClickHouse, so exclude ClickHouse throttle
-        if self.action in ("destroy", "bulk_delete"):
+        if self.action in ("destroy", "bulk_delete", "delete_events", "delete_recordings"):
             return [
-                PersonsBreakGlassBurstThrottle(),
-                PersonsBreakGlassSustainedThrottle(),
+                PersonsDeleteBurstThrottle(),
+                PersonsDeleteSustainedThrottle(),
             ]
         return [
             ClickHouseBurstRateThrottle(),
-            PersonsBreakGlassBurstThrottle(),
-            PersonsBreakGlassSustainedThrottle(),
+            PersonsDeleteBurstThrottle(),
+            PersonsDeleteSustainedThrottle(),
         ]
 
     stickiness_class = Stickiness
