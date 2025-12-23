@@ -765,7 +765,7 @@ describe('hog flow processing', () => {
                 'workflow_destinations_dispatched'
             )
 
-            // Flush metrics
+            // Flush metrics so we can assert them down below
             await processor['hogFunctionMonitoringService'].flush()
 
             // Should have queued a quota limited metric
