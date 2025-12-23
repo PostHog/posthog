@@ -82,8 +82,27 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             """
         return ""
 
-    def udf_event_array_filter(self):
-        return self.event_array_filter(1, 3, 4)
+    # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
+    # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
+    # arrayRotateRight turns [1,2,3] into [3,1,2]
+    # arrayRotateLeft turns [1,2,3] into [2,3,1]
+    # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
+    def event_array_filter(self):
+        TIMESTAMP_INDEX = 1
+        PROP_VAL_INDEX = 3
+        STEPS_INDEX = 4
+        return f"""arrayFilter(
+                    (x, x_before, x_after) -> not (
+                        length(x.{STEPS_INDEX}) <= 1
+                        and x.{STEPS_INDEX} == x_before.{STEPS_INDEX}
+                        and x.{STEPS_INDEX} == x_after.{STEPS_INDEX}
+                        and x.{PROP_VAL_INDEX} == x_before.{PROP_VAL_INDEX}
+                        and x.{PROP_VAL_INDEX} == x_after.{PROP_VAL_INDEX}
+                        and x.{TIMESTAMP_INDEX} > x_before.{TIMESTAMP_INDEX}
+                        and x.{TIMESTAMP_INDEX} < x_after.{TIMESTAMP_INDEX}),
+                    events_array,
+                    arrayRotateRight(events_array, 1),
+                    arrayRotateLeft(events_array, 1))"""
 
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
@@ -154,7 +173,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_arg},
                     [{optional_steps}],
-                    {self.udf_event_array_filter()}
+                    {self.event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility
