@@ -5,17 +5,19 @@ import { RGBToRGBA, alphabet, hexToRGBA, lightenDarkenColor } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+type SizeVariants = 'xsmall' | 'small' | 'medium'
 interface SeriesGlyphProps {
     className?: string
     children?: React.ReactNode
     style?: React.CSSProperties
     variant?: 'funnel-step-glyph' // Built-in styling defaults
+    size?: SizeVariants
 }
 
-export function SeriesGlyph({ className, style, children, variant }: SeriesGlyphProps): JSX.Element {
+export function SeriesGlyph({ className, style, children, variant, size }: SeriesGlyphProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
+        <div className={`graph-series-glyph ${variant || ''} ${className} graph-series-glyph--${size}`} style={style}>
             {children}
         </div>
     )
@@ -25,15 +27,23 @@ interface SeriesLetterProps {
     hasBreakdown: boolean
     seriesIndex: number
     seriesColor?: string
+    size?: SizeVariants
 }
 
-export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor }: SeriesLetterProps): JSX.Element {
+export function SeriesLetter({
+    className,
+    hasBreakdown,
+    seriesIndex,
+    seriesColor,
+    size = 'medium',
+}: SeriesLetterProps): JSX.Element {
     const color = seriesColor || getSeriesColor(seriesIndex)
     const { isDarkModeOn } = useValues(themeLogic)
 
     return (
         <SeriesGlyph
             className={className}
+            size={size}
             style={
                 !hasBreakdown
                     ? {
