@@ -128,3 +128,67 @@ def cache_migration_file(app: str, name: str, source_path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+# Core PostHog apps that have migrations we manage
+# These are always included; product apps are discovered dynamically
+CORE_MANAGED_APPS = frozenset({"posthog", "ee", "rbac"})
+
+
+def discover_product_apps(base_dir: Path) -> set[str]:
+    """Discover product apps with migrations in products/*/backend/migrations/.
+
+    Args:
+        base_dir: The repository root directory
+
+    Returns:
+        Set of product app names that have migration directories
+    """
+    apps: set[str] = set()
+    products_dir = base_dir / "products"
+    if products_dir.exists():
+        for product_dir in products_dir.iterdir():
+            if product_dir.is_dir():
+                migrations_dir = product_dir / "backend" / "migrations"
+                if migrations_dir.exists():
+                    apps.add(product_dir.name)
+    return apps
+
+
+def get_managed_app_names(base_dir: Path) -> set[str]:
+    """Get all managed app names (core + product apps).
+
+    Args:
+        base_dir: The repository root directory
+
+    Returns:
+        Set of app names we manage migrations for
+    """
+    return set(CORE_MANAGED_APPS) | discover_product_apps(base_dir)
+
+
+def get_managed_app_paths(base_dir: Path) -> dict[str, Path]:
+    """Get all managed apps with their migration directory paths.
+
+    Args:
+        base_dir: The repository root directory
+
+    Returns:
+        Dict mapping app names to their migration directories
+    """
+    apps = {
+        "posthog": base_dir / "posthog" / "migrations",
+        "ee": base_dir / "ee" / "migrations",
+        "rbac": base_dir / "posthog" / "rbac" / "migrations",
+    }
+
+    # Add product apps
+    products_dir = base_dir / "products"
+    if products_dir.exists():
+        for product_dir in products_dir.iterdir():
+            if product_dir.is_dir():
+                migrations_dir = product_dir / "backend" / "migrations"
+                if migrations_dir.exists():
+                    apps[product_dir.name] = migrations_dir
+
+    return apps

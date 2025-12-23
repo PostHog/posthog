@@ -26,27 +26,18 @@ from django.db.migrations.recorder import MigrationRecorder
 from hogli.migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cached_migration,
+    get_managed_app_names,
     is_valid_migration_path as validate_migration_path_components,
 )
 
 
 def get_managed_apps() -> set[str]:
     """Get apps we manage migrations for (PostHog apps, not third-party)."""
-    managed = {"posthog", "ee", "rbac"}
-
-    # Also include product apps from products/*/backend/
     try:
-        products_dir = Path(settings.BASE_DIR) / "products"
-        if products_dir.exists():
-            for product_dir in products_dir.iterdir():
-                if product_dir.is_dir():
-                    migrations_dir = product_dir / "backend" / "migrations"
-                    if migrations_dir.exists():
-                        managed.add(product_dir.name)
+        return get_managed_app_names(Path(settings.BASE_DIR))
     except Exception as e:
         warnings.warn(f"Could not scan product apps for migrations: {e}", stacklevel=2)
-
-    return managed
+        return {"posthog", "ee", "rbac"}
 
 
 def get_app_migrations_dir(app_label: str) -> Path | None:

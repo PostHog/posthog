@@ -42,14 +42,8 @@ from hogli.migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cache_path as _get_cache_path,
     get_cached_migration as _get_cached_migration,
+    get_managed_app_paths,
 )
-
-# Migration directory patterns for PostHog
-MIGRATION_APPS = {
-    "posthog": REPO_ROOT / "posthog" / "migrations",
-    "ee": REPO_ROOT / "ee" / "migrations",
-    "rbac": REPO_ROOT / "posthog" / "rbac" / "migrations",
-}
 
 # Pattern to match migration files (0001_initial.py, etc.)
 MIGRATION_PATTERN = re.compile(r"^(\d{4})_.+\.py$")
@@ -77,24 +71,9 @@ class MigrationDiff:
     synced: list[MigrationInfo] = field(default_factory=list)
 
 
-def _get_product_migration_apps() -> dict[str, Path]:
-    """Discover migration directories in products/*/backend/migrations/."""
-    apps = {}
-    products_dir = REPO_ROOT / "products"
-    if products_dir.exists():
-        for product_dir in products_dir.iterdir():
-            if product_dir.is_dir():
-                migrations_dir = product_dir / "backend" / "migrations"
-                if migrations_dir.exists():
-                    apps[product_dir.name] = migrations_dir
-    return apps
-
-
 def _get_all_migration_apps() -> dict[str, Path]:
     """Get all migration app directories."""
-    apps = dict(MIGRATION_APPS)
-    apps.update(_get_product_migration_apps())
-    return apps
+    return get_managed_app_paths(REPO_ROOT)
 
 
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
