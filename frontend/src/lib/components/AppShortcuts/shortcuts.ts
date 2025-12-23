@@ -1,4 +1,4 @@
-export const baseModifier = ['command', 'option'] as const satisfies string[]
+export const baseModifier: string[] = ['command', 'option']
 
 export const keyBinds: Record<string, string[]> = {
     newTab: [...baseModifier, 't'],

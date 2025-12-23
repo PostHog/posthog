@@ -219,7 +219,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
     // Device toggle shortcuts (Web Analytics-specific)
     useAppShortcut({
         name: 'WebAnalyticsDesktop',
-        keybind: [...baseModifier, 'p'],
+        keybind: [[...baseModifier, 'p']],
         intent: 'Filter desktop devices',
         interaction: 'function',
         callback: () => setDeviceTypeFilter(deviceTypeFilter === 'Desktop' ? null : 'Desktop'),
@@ -227,7 +227,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
     })
     useAppShortcut({
         name: 'WebAnalyticsMobile',
-        keybind: [...baseModifier, 'm'],
+        keybind: [[...baseModifier, 'm']],
         intent: 'Filter mobile devices',
         interaction: 'function',
         callback: () => setDeviceTypeFilter(deviceTypeFilter === 'Mobile' ? null : 'Mobile'),
@@ -353,7 +353,7 @@ function FiltersPopover(): JSX.Element {
     // Toggle filters shortcut
     useAppShortcut({
         name: 'WebAnalyticsFilters',
-        keybind: [...baseModifier, 'f'],
+        keybind: [[...baseModifier, 'f']],
         intent: 'Toggle filters',
         interaction: 'function',
         callback: () => setDisplayFilters((prev) => !prev),
