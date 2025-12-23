@@ -33,39 +33,27 @@ if (not empty(inputs.eventSourceUrl)) {
     body.data.1.event_source_url := inputs.eventSourceUrl
 }
 
+// Helper function to parse JSON arrays from string values
+fn parseValueIfArray(value) {
+    if (typeof(value) == 'string' and startsWith(value, '[')) {
+        try {
+            return jsonParse(value)
+        } catch {
+            return value
+        }
+    }
+    return value
+}
+
 for (let key, value in inputs.userData) {
     if (not empty(value)) {
-        // Handle array values passed as JSON strings
-        if (typeof(value) == 'string' and startsWith(value, '[')) {
-            // Try to parse as JSON array
-            try {
-                let parsed := jsonParse(value)
-                body.data.1.user_data[key] := parsed
-            } catch (e) {
-                // If parsing fails, keep as string
-                body.data.1.user_data[key] := value
-            }
-        } else {
-            body.data.1.user_data[key] := value
-        }
+        body.data.1.user_data[key] := parseValueIfArray(value)
     }
 }
 
 for (let key, value in inputs.customData) {
     if (not empty(value)) {
-        // Handle array values passed as JSON strings
-        if (typeof(value) == 'string' and startsWith(value, '[')) {
-            // Try to parse as JSON array
-            try {
-                let parsed := jsonParse(value)
-                body.data.1.custom_data[key] := parsed
-            } catch (e) {
-                // If parsing fails, keep as string
-                body.data.1.custom_data[key] := value
-            }
-        } else {
-            body.data.1.custom_data[key] := value
-        }
+        body.data.1.custom_data[key] := parseValueIfArray(value)
     }
 }
 
