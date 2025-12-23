@@ -10,7 +10,7 @@ class TOTPDeviceInline(admin.TabularInline):
     fields = ("name", "confirmed", "throttling_failure_timestamp", "throttling_failure_count", "last_used_at")
     readonly_fields = ("name", "confirmed", "throttling_failure_timestamp", "throttling_failure_count", "last_used_at")
     can_delete = False
-    show_change_link = True
+    show_change_link = False
 
     def has_add_permission(self, request, obj=None):
         # Prevent adding TOTP devices through the admin (they should be created via API)
