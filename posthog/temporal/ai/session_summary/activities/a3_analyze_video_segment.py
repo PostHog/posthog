@@ -295,6 +295,7 @@ def _format_events_for_prompt(
                     event_info[col] = value
         formatted_events.append(event_info)
 
+    # TODO: Use CSV format instead of JSON for fewer tokens
     return json.dumps(formatted_events, indent=2, default=str)
 
 
