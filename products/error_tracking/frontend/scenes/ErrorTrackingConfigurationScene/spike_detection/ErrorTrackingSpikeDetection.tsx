@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { errorTrackingSpikeDetectionLogic } from './errorTrackingSpikeDetectionLogic'
+import { MAX_MULTIPLIER, MIN_MULTIPLIER, errorTrackingSpikeDetectionLogic } from './errorTrackingSpikeDetectionLogic'
 
 function HighlightedValue({ children }: { children: React.ReactNode }): JSX.Element {
     return <span className="font-semibold text-primary whitespace-nowrap">{children}</span>
 }
 
 export function ErrorTrackingSpikeDetection(): JSX.Element {
-    const { multiplier, multiplierConfig } = useValues(errorTrackingSpikeDetectionLogic)
+    const { multiplier } = useValues(errorTrackingSpikeDetectionLogic)
     const { setMultiplier } = useActions(errorTrackingSpikeDetectionLogic)
 
     return (
@@ -27,10 +27,9 @@ export function ErrorTrackingSpikeDetection(): JSX.Element {
                     <div className="text-sm text-muted mb-1">Multiplier</div>
                     <LemonInput
                         type="number"
-                        min={multiplierConfig.min}
-                        max={multiplierConfig.max}
+                        min={MIN_MULTIPLIER}
+                        max={MAX_MULTIPLIER}
                         value={multiplier}
-                        suffix="x"
                         onChange={(value) => {
                             setMultiplier(Number(value))
                         }}

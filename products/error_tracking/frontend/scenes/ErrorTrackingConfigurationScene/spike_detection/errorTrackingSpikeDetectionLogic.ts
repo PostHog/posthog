@@ -1,27 +1,15 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 
+import { clamp } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TeamType } from '~/types'
+import type { errorTrackingSpikeDetectionLogicType } from './errorTrackingSpikeDetectionLogicType'
 
-const DEFAULT_MULTIPLIER = 10
-const MIN_MULTIPLIER = 2
-const MAX_MULTIPLIER = 100
+export const DEFAULT_MULTIPLIER = 10
+export const MIN_MULTIPLIER = 2
+export const MAX_MULTIPLIER = 100
 
-function clampInt(value: unknown, min: number, max: number, fallback: number): number {
-    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
-    if (!Number.isFinite(parsed)) {
-        return fallback
-    }
-    const rounded = Math.round(parsed)
-    return Math.min(max, Math.max(min, rounded))
-}
-
-function getMultiplierFromTeam(currentTeam: TeamType | null): number {
-    return clampInt(currentTeam?.error_tracking_spike_detection_multiplier, MIN_MULTIPLIER, MAX_MULTIPLIER, DEFAULT_MULTIPLIER)
-}
-
-export const errorTrackingSpikeDetectionLogic = kea([
+export const errorTrackingSpikeDetectionLogic = kea<errorTrackingSpikeDetectionLogicType>([
     path(['products', 'error_tracking', 'configuration', 'spike_detection', 'errorTrackingSpikeDetectionLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -29,43 +17,13 @@ export const errorTrackingSpikeDetectionLogic = kea([
     })),
     actions({
         setMultiplier: (multiplier: number) => ({ multiplier }),
-        syncFromTeam: (multiplier: number) => ({ multiplier }),
-        persistSettings: true,
     }),
     reducers(() => ({
         multiplier: [
             DEFAULT_MULTIPLIER,
             {
-                setMultiplier: (_, { multiplier }) =>
-                    clampInt(multiplier, MIN_MULTIPLIER, MAX_MULTIPLIER, DEFAULT_MULTIPLIER),
-                syncFromTeam: (_, { multiplier }) => multiplier,
+                setMultiplier: (_, { multiplier }) => clamp(Math.round(multiplier), MIN_MULTIPLIER, MAX_MULTIPLIER),
             },
         ],
-    })),
-    selectors({
-        multiplierConfig: [
-            () => [],
-            () => ({
-                min: MIN_MULTIPLIER,
-                max: MAX_MULTIPLIER,
-            }),
-        ],
-    }),
-    afterMount(({ actions, values }) => {
-        actions.syncFromTeam(getMultiplierFromTeam(values.currentTeam))
-    }),
-    listeners(({ actions }) => ({
-        loadCurrentTeamSuccess: ({ currentTeam }: { currentTeam: TeamType }) => {
-            actions.syncFromTeam(getMultiplierFromTeam(currentTeam))
-        },
-        setMultiplier: () => actions.persistSettings(),
-    })),
-    listeners(({ actions, values }) => ({
-        persistSettings: async (_, breakpoint) => {
-            await breakpoint(1000)
-            actions.updateCurrentTeam({
-                error_tracking_spike_detection_multiplier: values.multiplier,
-            })
-        },
     })),
 ])
