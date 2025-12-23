@@ -21,11 +21,10 @@
 
 ## Publish to changelog?
 
-<!-- For features only -->
-<!-- Check the box if this feature should be published to the website changelog and the #changelog Slack channel -->
+<!-- For features only. -->
 
-<!-- Removing this section or leaving it blank means this feature will probably remain unpublished -->
+- [ ] 🚀 Yes, publish to #changelog and website changelog
 
-- [ ] Yes, publish to website changelog and #changelog
+<!-- Removing this section or leaving it blank means this feature will probably remain unpublished. -->
 
-<!-- If publishing, please make sure your PR includes a 1-3 sentence description of the feature. Screenshots and screen recordings are optional but very encouraged 🙏 -->
+<!-- If publishing, please make sure your PR includes a 1-3 sentence description of the feature. Screenshots and screen recordings are optional but very encouraged! 🙏 -->
