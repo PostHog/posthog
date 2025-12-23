@@ -104,7 +104,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                                     loading={isExperimentSubmitting}
                                     disabledReason={
                                         !canSubmitExperiment
-                                            ? experiment.name.length === 0
+                                            ? experiment.name.trim().length === 0
                                                 ? 'Experiment name is required'
                                                 : 'Experiment is not valid'
                                             : undefined
@@ -267,7 +267,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                             loading={isExperimentSubmitting}
                             disabledReason={
                                 !canSubmitExperiment
-                                    ? experiment.name.length === 0
+                                    ? experiment.name.trim().length === 0
                                         ? 'Experiment name is required'
                                         : 'Experiment is not valid'
                                     : undefined
