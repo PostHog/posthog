@@ -744,7 +744,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify full message list structure: original messages + summary + mode reminder + copied start
@@ -782,7 +781,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.SQL,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Find where summary and mode reminder were inserted
@@ -826,7 +824,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.SESSION_REPLAY,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify structure: summary at start, then mode reminder, then copied start, then window messages
@@ -858,40 +855,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         self.assertIsInstance(result.messages[copied_start_idx], HumanMessage)
         self.assertNotEqual(copied_start.id, start_id)
 
-    def test_no_mode_message_injection_when_feature_flag_disabled(self):
-        """Test that mode reminder is not injected when feature flag is disabled"""
-        start_id = str(uuid4())
-        summary_id = str(uuid4())
-
-        messages: list[AssistantMessageUnion] = [
-            HumanMessage(content="Question", id=start_id),
-            AssistantMessage(content="Response"),
-        ]
-
-        summary_message = ContextMessage(content="Summary", id=summary_id)
-
-        result = self.window_manager.update_window(
-            messages,
-            summary_message,
-            AgentMode.PRODUCT_ANALYTICS,
-            start_id=start_id,
-            is_modes_feature_flag_enabled=False,
-        )
-
-        # Should only have summary, not mode reminder
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertEqual(len(context_messages), 1, "Should only have summary context message")
-        summary_ctx_msg = context_messages[0]
-        self.assertEqual(summary_ctx_msg.id, summary_id)
-        assert isinstance(summary_ctx_msg, ContextMessage)
-        self.assertIn("Summary", summary_ctx_msg.content)
-        # Verify no mode reminder
-        mode_reminder = next(
-            (msg for msg in result.messages if isinstance(msg, ContextMessage) and "product_analytics" in msg.content),
-            None,
-        )
-        self.assertIsNone(mode_reminder, "Mode reminder should not be present when feature flag is disabled")
-
     def test_no_mode_message_injection_when_mode_evident_in_window(self):
         """Test that mode reminder is not injected when mode is already evident from switch_mode tool call"""
 
@@ -920,7 +883,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify only summary context message exists (no mode reminder)
@@ -961,7 +923,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Should have initial mode message and summary, but no mode reminder
@@ -1014,7 +975,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 summary_message,
                 mode,
                 start_id=start_id,
-                is_modes_feature_flag_enabled=True,
             )
 
             # Verify two context messages: summary and mode reminder
