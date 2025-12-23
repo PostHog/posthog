@@ -834,7 +834,10 @@ class VercelIntegration:
             if not isinstance(claims, VercelUserClaims):
                 raise NotImplementedError("SSO is only supported for user claims, not system claims")
 
-            if not claims.user_email or request.user.email.lower() != claims.user_email.lower():
+            if not claims.user_email:
+                raise exceptions.AuthenticationFailed("Vercel SSO claims missing user email")
+
+            if request.user.email.lower() != claims.user_email.lower():
                 logger.warning(
                     "Email mismatch in Vercel SSO",
                     expected_email=claims.user_email,
@@ -937,7 +940,7 @@ class VercelIntegration:
 
     @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
-        claims: VercelUserClaims | None = None
+        claims: VercelClaims | None = None
         try:
             # First check for cached claims (from a previous attempt with email mismatch)
             claims = VercelIntegration._get_cached_claims(params.code)
