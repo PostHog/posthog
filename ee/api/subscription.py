@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -122,6 +123,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
+@extend_schema(tags=["core"])
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()

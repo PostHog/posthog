@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -97,6 +98,7 @@ class CommentPagination(pagination.CursorPagination):
     page_size = 100
 
 
+@extend_schema(tags=["core"])
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
