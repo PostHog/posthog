@@ -74,7 +74,7 @@ impl<T: Send + 'static> PartitionWorker<T> {
     }
 
     /// Send a batch to this worker for processing
-    /// Returns error if the channel is full (backpressure) or closed
+    /// Awaits until channel has capacity. Returns error only if channel is closed (receiver dropped)
     pub async fn send(
         &self,
         batch: PartitionBatch<T>,

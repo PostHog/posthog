@@ -318,8 +318,8 @@ impl BatchDeduplicationProcessor {
         metrics::histogram!(PARTITION_BATCH_PROCESSING_DURATION_MS)
             .record(batch_duration.as_millis() as f64);
 
-        // Warn on slow partition batches (> 2 seconds indicates potential issues)
-        if batch_duration.as_secs() > 2 {
+        // Warn on slow partition batches (>= 2 seconds indicates potential issues)
+        if batch_duration >= Duration::from_secs(2) {
             warn!(
                 topic = partition.topic(),
                 partition = partition.partition_number(),
