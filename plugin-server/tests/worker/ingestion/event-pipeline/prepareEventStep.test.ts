@@ -93,7 +93,7 @@ describe('prepareEventStep()', () => {
             hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
         )
         groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
+            hub.kafkaProducer,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )

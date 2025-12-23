@@ -111,7 +111,7 @@ describe('processEvent', () => {
             hub.kafkaProducer
         )
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
+            hub.kafkaProducer,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
@@ -261,7 +261,7 @@ describe('processEvent', () => {
             hub.kafkaProducer
         )
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
+            hub.kafkaProducer,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )

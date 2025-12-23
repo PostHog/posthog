@@ -407,7 +407,7 @@ describe('postgres parity', () => {
         expect(moveDistinctIdsResult.success).toEqual(true)
 
         if (moveDistinctIdsResult.success) {
-            await hub.db!.kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
+            await hub.kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
         }
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(anotherPerson), 2)
 
@@ -453,7 +453,7 @@ describe('postgres parity', () => {
         // delete person
         await hub.postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
             const deletePersonMessage = await personRepository.deletePerson(person, client)
-            await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
+            await hub.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })
 
         await clickhouse.delayUntilEventIngested(async () =>

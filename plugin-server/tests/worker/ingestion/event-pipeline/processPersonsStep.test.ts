@@ -86,7 +86,7 @@ describe('processPersonsStep()', () => {
             await kafkaAck
 
             // Check PG state
-            const persons = await fetchPostgresPersons(hub.db, teamId)
+            const persons = await fetchPostgresPersons(hub.postgres, teamId)
             expect(persons).toEqual([resPerson])
         }
     })
@@ -152,7 +152,7 @@ describe('processPersonsStep()', () => {
             await kafkaAck
 
             // Check PG state
-            const persons = await fetchPostgresPersons(hub.db, teamId)
+            const persons = await fetchPostgresPersons(hub.postgres, teamId)
             expect(persons).toEqual([resPerson])
         }
     })

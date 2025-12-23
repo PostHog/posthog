@@ -197,7 +197,7 @@ describe('EventPipelineRunner', () => {
             hub.kafkaProducer
         )
         groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
+            hub.kafkaProducer,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
@@ -333,7 +333,7 @@ describe('EventPipelineRunner', () => {
                     hub.kafkaProducer
                 )
                 const heatmapGroupStoreForBatch = new BatchWritingGroupStoreForBatch(
-                    hub.db,
+                    hub.kafkaProducer,
                     hub.groupRepository,
                     hub.clickhouseGroupRepository
                 )
