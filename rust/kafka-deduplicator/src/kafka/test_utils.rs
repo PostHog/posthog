@@ -22,25 +22,29 @@ pub struct TestRebalanceHandler {
 
 #[async_trait]
 impl RebalanceHandler for TestRebalanceHandler {
-    async fn on_partitions_assigned(&self, partitions: &TopicPartitionList) -> Result<()> {
+    fn setup_assigned_partitions(&self, partitions: &TopicPartitionList) {
         self.assigned_count.fetch_add(1, Ordering::SeqCst);
 
         let mut assigned = self.assigned_partitions.lock().unwrap();
         for elem in partitions.elements() {
             assigned.push(Partition::from(elem));
         }
-
-        Ok(())
     }
 
-    async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()> {
+    fn setup_revoked_partitions(&self, partitions: &TopicPartitionList) {
         self.revoked_count.fetch_add(1, Ordering::SeqCst);
 
         let mut revoked = self.revoked_partitions.lock().unwrap();
         for elem in partitions.elements() {
             revoked.push(Partition::from(elem));
         }
+    }
 
+    async fn cleanup_assigned_partitions(&self, _partitions: &TopicPartitionList) -> Result<()> {
+        Ok(())
+    }
+
+    async fn cleanup_revoked_partitions(&self, _partitions: &TopicPartitionList) -> Result<()> {
         Ok(())
     }
 
