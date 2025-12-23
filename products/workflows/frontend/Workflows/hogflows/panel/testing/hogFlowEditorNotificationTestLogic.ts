@@ -17,45 +17,11 @@ import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
 import type { hogFlowEditorNotificationTestLogicType } from './hogFlowEditorNotificationTestLogicType'
-import { HogflowTestInvocation, hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
+import { createExampleEvent, createGlobalsFromResponse } from './hogFlowEditorTestLogic'
+import type { HogflowTestInvocation } from './hogFlowEditorTestLogic'
 
 // Time range constants for event search
 const STANDARD_SEARCH_RANGE = `-7d`
-
-const createGlobalsFromResponse = (
-    event: any,
-    person: any,
-    teamId: number,
-    workflowName?: string | null
-): CyclotronJobInvocationGlobals => ({
-    event: {
-        uuid: event.uuid,
-        distinct_id: event.distinct_id,
-        timestamp: event.timestamp,
-        elements_chain: event.elements_chain || '',
-        url: event.url || '',
-        event: event.event,
-        properties: event.properties,
-    },
-    person: person
-        ? {
-              id: person.id,
-              properties: person.properties,
-              name: person.name || 'Unknown person',
-              url: `${window.location.origin}/person/${person.id}`,
-          }
-        : undefined,
-    groups: {},
-    project: {
-        id: teamId,
-        name: 'Default project',
-        url: `${window.location.origin}/project/${teamId}`,
-    },
-    source: {
-        name: workflowName ?? 'Unnamed',
-        url: window.location.href.split('#')[0],
-    },
-})
 
 export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationTestLogicType>([
     path((key) => [
@@ -72,20 +38,8 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
     props({} as WorkflowLogicProps),
     key((props) => `${props.id}`),
     connect((props: WorkflowLogicProps) => ({
-        values: [
-            workflowLogic(props),
-            ['workflow', 'workflowSanitized'],
-            hogFlowEditorLogic,
-            ['selectedNodeId'],
-            hogFlowEditorTestLogic(props),
-            ['sampleGlobalsError'],
-        ],
-        actions: [
-            hogFlowEditorTestLogic(props),
-            ['setSampleGlobalsError', 'setSampleGlobals'],
-            hogFlowEditorLogic,
-            ['setSelectedNodeId'],
-        ],
+        values: [workflowLogic(props), ['workflow', 'workflowSanitized'], hogFlowEditorLogic, ['selectedNodeId']],
+        actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
     })),
     actions({
         setPersonSelectorOpen: (open: boolean) => ({ open }),
@@ -102,6 +56,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         loadSamplePersonByDistinctIdFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
         setEmailAddressOverride: (email: string) => ({ email }),
         setSampleGlobals: (globals?: string | null) => ({ globals: globals ?? null }),
+        setSampleGlobalsError: (error: string | null) => ({ error }),
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
     }),
@@ -163,6 +118,13 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 loadSamplePersonByDistinctIdFailure: () => false,
             },
         ],
+        sampleGlobalsError: [
+            null as string | null,
+            {
+                setSampleGlobalsError: (_, { error }) => error,
+                loadSamplePersonByDistinctIdSuccess: () => null,
+            },
+        ],
     }),
     loaders(() => ({
         samplePersons: [
@@ -203,7 +165,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             errors: (data: HogflowTestInvocation) => {
                 const errors: Record<string, string> = {}
                 try {
-                    JSON.parse(JSON.stringify(data.globals))
+                    JSON.parse(data.globals)
                 } catch {
                     errors.globals = 'Invalid JSON'
                 }
@@ -353,39 +315,12 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         loadSamplePersonsFailure: () => {
             // Only create example person if loading fails
             if (!values.sampleGlobals) {
-                const exampleGlobals = {
-                    event: {
-                        uuid: uuid(),
-                        distinct_id: uuid(),
-                        timestamp: dayjs().toISOString(),
-                        elements_chain: '',
-                        url: `${window.location.origin}/project/${values.workflow.team_id}/events/`,
-                        event: '$pageview',
-                        properties: {
-                            $current_url: window.location.href.split('#')[0],
-                            $browser: 'Chrome',
-                            this_is_an_example_event: true,
-                        },
-                    },
-                    person: {
-                        id: uuid(),
-                        properties: {
-                            email: '',
-                        },
-                        name: 'Example person',
-                        url: `${window.location.origin}/person/${uuid()}`,
-                    },
-                    groups: {},
-                    project: {
-                        id: values.workflow.team_id,
-                        name: 'Default project',
-                        url: `${window.location.origin}/project/${values.workflow.team_id}`,
-                    },
-                    source: {
-                        name: values.workflow.name ?? 'Unnamed',
-                        url: window.location.href.split('#')[0],
-                    },
-                }
+                const exampleGlobals = createExampleEvent(
+                    values.workflow.team_id,
+                    values.workflow.name,
+                    '$pageview',
+                    ''
+                )
                 actions.setSampleGlobals(JSON.stringify(exampleGlobals, null, 2))
             }
         },
