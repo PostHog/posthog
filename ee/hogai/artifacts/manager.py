@@ -18,8 +18,8 @@ from posthog.schema import (
 from posthog.models import Insight, User
 from posthog.models.team import Team
 
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
 
@@ -112,43 +112,67 @@ class ArtifactManager(AssistantContextMixin):
             raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
         return content
 
-    async def aget_insight_with_source(
-        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
-    ) -> (
+    InsightWithSourceResult = (
         StateArtifactResult[VisualizationArtifactContent]
         | DatabaseArtifactResult[VisualizationArtifactContent]
         | ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight]
-        | None
-    ):
+    )
+
+    async def aget_insights_with_source(
+        self, state_messages: Sequence[AssistantMessageUnion], artifact_ids: list[str]
+    ) -> list[InsightWithSourceResult | None]:
+        """
+        Retrieve artifact content for multiple IDs along with their sources.
+        Checks state first, then artifacts, then insights.
+        Returns ordered list matching input artifact_ids (None for missing IDs).
+        """
+        if not artifact_ids:
+            return []
+
+        remaining_artifact_ids = set(artifact_ids)
+        results_map: dict[str, ArtifactManager.InsightWithSourceResult] = {}
+
+        # Try state first if messages provided
+        for artifact_id in artifact_ids:
+            content = self._content_from_state(artifact_id, state_messages)
+            if content is None:
+                continue
+            results_map[artifact_id] = StateArtifactResult(content=content)
+            remaining_artifact_ids.remove(artifact_id)
+
+        # Find IDs still not resolved in state
+        if remaining_artifact_ids:
+            # Batch fetch artifacts
+            artifact_contents = await self._afetch_artifact_contents(list(remaining_artifact_ids))
+            for artifact_id, content in artifact_contents.items():
+                results_map[artifact_id] = DatabaseArtifactResult(content=content)
+                remaining_artifact_ids.remove(artifact_id)
+
+        # Find IDs still not resolved
+        if remaining_artifact_ids:
+            # Batch fetch insights
+            insight_results = await self._afetch_insights_with_models(list(remaining_artifact_ids))
+            for artifact_id, (content, insight) in insight_results.items():
+                results_map[artifact_id] = ModelArtifactResult(
+                    source=ArtifactSource.INSIGHT,
+                    content=content,
+                    model=insight,
+                )
+                remaining_artifact_ids.remove(artifact_id)
+
+        # Return ordered list matching input
+        return [results_map.get(artifact_id) for artifact_id in artifact_ids]
+
+    async def aget_insight_with_source(
+        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
+    ) -> InsightWithSourceResult | None:
         """
         Retrieve artifact content by ID along with its source.
         Checks state first, then artifacts, then insights.
         Returns content or None if not found.
         """
-        # Try state first if messages provided
-        if state_messages is not None:
-            content = self._content_from_state(artifact_id, state_messages)
-            if content is not None:
-                return StateArtifactResult(content=content)
-
-        # Fall back to database (artifact, then insight)
-        artifact_contents = await self._afetch_artifact_contents([artifact_id])
-        if content := artifact_contents.get(artifact_id):
-            return DatabaseArtifactResult(content=content)
-
-        try:
-            insight = await Insight.objects.aget(short_id=artifact_id, team=self._team, deleted=False, saved=True)
-            return ModelArtifactResult(
-                source=ArtifactSource.INSIGHT,
-                content=VisualizationArtifactContent(
-                    query=insight.query, name=insight.name or insight.derived_name, description=insight.description
-                ),
-                model=insight,
-            )
-        except Insight.DoesNotExist:
-            pass
-
-        return None
+        results = await self.aget_insights_with_source(state_messages, [artifact_id])
+        return results[0] if results else None
 
     async def aget_enriched_message(
         self,
@@ -303,28 +327,26 @@ class ArtifactManager(AssistantContextMixin):
 
     async def _afetch_insight_contents(self, insight_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
         """Batch fetch insight contents from the database."""
+        results = await self._afetch_insights_with_models(insight_ids)
+        return {short_id: content for short_id, (content, _) in results.items()}
+
+    async def _afetch_insights_with_models(
+        self, insight_ids: list[str]
+    ) -> dict[str, tuple[VisualizationArtifactContent, Insight]]:
+        """Batch fetch insight contents and models from the database."""
         if not insight_ids:
             return {}
         insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team, deleted=False, saved=True)
-        result: dict[str, VisualizationArtifactContent] = {}
+        result: dict[str, tuple[VisualizationArtifactContent, Insight]] = {}
         async for insight in insights:
-            query = insight.query
-            if not query:
-                continue
-            # Insights store queries wrapped in InsightVizNode, extract the inner query
-            if isinstance(query, dict) and query.get("source"):
-                query = query.get("source")
-            if not query:
-                continue
             # Validate and convert dict to model
-            try:
-                query_obj = validate_assistant_query(query)
-                result[insight.short_id] = VisualizationArtifactContent(
-                    query=query_obj,
-                    name=insight.name or insight.derived_name,
-                    description=insight.description,
-                )
-            except Exception as e:
-                capture_exception(e)
+            query_obj = InsightContext.extract_query(insight)
+            if query_obj is None:
                 continue
+            content = VisualizationArtifactContent(
+                query=query_obj,
+                name=insight.name or insight.derived_name,
+                description=insight.description,
+            )
+            result[insight.short_id] = (content, insight)
         return result

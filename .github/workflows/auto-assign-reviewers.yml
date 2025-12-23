@@ -34,20 +34,15 @@ jobs:
             - name: Checkout master branch
               uses: actions/checkout@v6
               with:
-                  ref: master
                   token: ${{ steps.app-token.outputs.token }}
-
-            # We're always running against master branch, but the PR might not be against master
-            # so we need to fetch both the head and base branches.
-            - name: Fetch head and base branches
-              run: |
-                  git fetch origin ${{ github.event.pull_request.head.sha }}
-                  git fetch origin ${{ github.event.pull_request.base.sha }}
+                  # this value MUST be set to `master` to avoid executing untrusted code.
+                  # we execute assign-reviewers.js below from whatever branch is checked out
+                  ref: master
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: '20'
+                  node-version: '24'
 
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script

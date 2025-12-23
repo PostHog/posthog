@@ -18,7 +18,19 @@ export type OAuthAuthorizationFormValues = {
     access_type: 'all' | 'organizations' | 'teams'
 }
 
-const oauthAuthorize = async (values: OAuthAuthorizationFormValues & { allow: boolean }): Promise<void> => {
+const isNativeProtocol = (url: string): boolean => {
+    try {
+        const parsed = new URL(url)
+        return !['http:', 'https:'].includes(parsed.protocol)
+    } catch {
+        return false
+    }
+}
+
+const oauthAuthorize = async (
+    values: OAuthAuthorizationFormValues & { allow: boolean },
+    onNativeRedirectComplete?: () => void
+): Promise<void> => {
     try {
         const response = await api.create('/oauth/authorize/', {
             client_id: router.values.searchParams['client_id'],
@@ -38,7 +50,13 @@ const oauthAuthorize = async (values: OAuthAuthorizationFormValues & { allow: bo
         })
 
         if (response.redirect_to) {
+            const isNative = isNativeProtocol(response.redirect_to)
             location.href = response.redirect_to
+
+            if (isNative && onNativeRedirectComplete) {
+                // Small delay to ensure redirect is initiated before showing success
+                setTimeout(() => onNativeRedirectComplete(), 100)
+            }
         }
     } catch (error: any) {
         lemonToast.error('Something went wrong while authorizing the application')
@@ -58,6 +76,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
+        setAuthorizationComplete: (complete: boolean) => ({ complete }),
     }),
     loaders({
         allTeams: [
@@ -113,6 +132,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setCanceling: (_, { canceling }) => canceling,
             },
         ],
+        authorizationComplete: [
+            false,
+            {
+                setAuthorizationComplete: (_, { complete }) => complete,
+            },
+        ],
     }),
     listeners(({ actions }) => ({
         setRequiredAccessLevel: ({ requiredAccessLevel }) => {
@@ -123,7 +148,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
         },
     })),
-    forms(() => ({
+    forms(({ actions }) => ({
         oauthAuthorization: {
             defaults: {
                 scoped_organizations: [],
@@ -142,10 +167,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                await oauthAuthorize({
-                    ...values,
-                    allow: true,
-                })
+                await oauthAuthorize(
+                    {
+                        ...values,
+                        allow: true,
+                    },
+                    () => actions.setAuthorizationComplete(true)
+                )
             },
         },
     })),

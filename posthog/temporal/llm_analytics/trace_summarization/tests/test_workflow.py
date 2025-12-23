@@ -194,7 +194,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",  # window_end
                 "minimal",
                 "test_batch_run_id",
-                None,
+                "openai",
             )
 
             assert result.success is True
@@ -253,7 +253,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",
                 "minimal",
                 "batch_123",
-                None,
+                "openai",
             )
 
             assert result.embedding_requested is True
@@ -307,7 +307,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",
                 "minimal",
                 "batch_123",
-                None,
+                "openai",
             )
 
             assert result.success is True  # Summary saved successfully

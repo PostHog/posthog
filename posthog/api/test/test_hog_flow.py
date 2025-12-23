@@ -500,4 +500,147 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json() == {"users_affected": 4, "total_users": 10}
-        mock_get_user_blast_radius.assert_called_once_with(self.team, {"properties": []})
+
+    def test_billable_action_types_computed_correctly(self):
+        """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        actions = [
+            trigger_action,
+            {
+                "id": "a1",
+                "name": "webhook1",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+            },
+            {
+                "id": "delay1",
+                "name": "delay_action",
+                "type": "delay",
+                "config": {"duration": 60},
+            },  # Non-billable action type
+            {
+                "id": "a2",
+                "name": "webhook2",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example2.com"}}},
+            },  # Duplicate function type
+        ]
+
+        # Try to set billable_action_types manually (should be ignored)
+        hog_flow = {
+            "name": "Test Billable Types",
+            "actions": actions,
+            "billable_action_types": ["fake_type", "another_fake"],  # Client tries to override
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        # Should have only unique billable types (deduped), client override ignored
+        # The delay action should NOT be included in billable_action_types
+        assert response.json()["billable_action_types"] == ["function"]
+
+        # Verify it's stored correctly in database
+        flow = HogFlow.objects.get(pk=response.json()["id"])
+        assert flow.billable_action_types == ["function"]
+
+        # Verify that we have both function actions and the delay action in the flow
+        assert len(flow.actions) == 4  # trigger + 2 functions + 1 delay
+        action_types = [action["type"] for action in flow.actions]
+        assert "delay" in action_types  # Delay is present
+        assert action_types.count("function") == 2  # Two function actions
+
+    def test_billable_action_types_recomputed_on_update(self):
+        """Test that billable_action_types is recomputed when HogFlow is updated"""
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        # Create flow with just one function action
+        initial_actions = [
+            trigger_action,
+            {
+                "id": "a1",
+                "name": "webhook",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+            },
+        ]
+
+        hog_flow = {"name": "Test Update Billable Types", "actions": initial_actions}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["billable_action_types"] == ["function"]
+
+        # Update to remove function action (no billable actions left)
+        updated_actions = [trigger_action]
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": updated_actions}
+        )
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["billable_action_types"] == []
+
+        # Update again to add multiple webhook actions (same billable type) and a delay (non-billable)
+        complex_actions = [
+            trigger_action,
+            {
+                "id": "a1",
+                "name": "webhook",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+            },
+            {
+                "id": "delay1",
+                "name": "delay_action",
+                "type": "delay",
+                "config": {"duration": 30},
+            },  # Non-billable action
+            {
+                "id": "a2",
+                "name": "webhook2",
+                "type": "function",
+                "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example2.com"}}},
+            },
+        ]
+
+        # Try to override billable_action_types in update - should be ignored and recomputed
+        override_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": complex_actions,
+                "billable_action_types": ["fake_type"],  # Try to override
+            },
+        )
+        assert override_response.status_code == 200, override_response.json()
+        # Should be recomputed based on actual actions, not the override attempt
+        # Delay action should NOT be in billable_action_types
+        assert override_response.json()["billable_action_types"] == ["function"]
+
+        # Verify database is consistent
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.billable_action_types == ["function"]
+
+        # Verify that the delay action is present but not counted as billable
+        assert len(flow.actions) == 4  # trigger + 2 functions + 1 delay
+        action_types = [action["type"] for action in flow.actions]
+        assert "delay" in action_types  # Delay is present
+        assert action_types.count("function") == 2  # Two function actions

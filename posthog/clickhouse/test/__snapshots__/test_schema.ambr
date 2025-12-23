@@ -2707,6 +2707,7 @@
       lc_org_id String,
       team_id Int64, -- renamed from lc_team_id, no longer an alias
       lc_user_id Int64,
+      lc_is_impersonated Bool,
       lc_session_id String,
   
       lc_dashboard_id Int64,
@@ -2820,6 +2821,7 @@
       JSONExtractString(log_comment, 'org_id') as lc_org_id,
       JSONExtractInt(log_comment, 'team_id') as team_id,
       JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+      JSONExtractBool(log_comment, 'is_impersonated') as lc_is_impersonated,
       JSONExtractString(log_comment, 'session_id') as lc_session_id,
   
       JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
@@ -6325,6 +6327,7 @@
       lc_org_id String,
       team_id Int64, -- renamed from lc_team_id, no longer an alias
       lc_user_id Int64,
+      lc_is_impersonated Bool,
       lc_session_id String,
   
       lc_dashboard_id Int64,

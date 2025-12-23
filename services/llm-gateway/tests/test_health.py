@@ -17,8 +17,8 @@ class TestHealthEndpoints:
     def client_with_unhealthy_db(self) -> TestClient:
         app = create_app()
         pool = MagicMock()
-        pool.acquire.return_value.__aenter__ = AsyncMock(side_effect=Exception("Connection failed"))
-        pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+        pool.acquire = AsyncMock(side_effect=Exception("Connection failed"))
+        pool.release = AsyncMock()
         app.state.db_pool = pool
         return TestClient(app)
 

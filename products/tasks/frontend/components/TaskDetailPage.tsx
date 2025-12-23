@@ -113,7 +113,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconExternal />}
-                            onClick={() => window.open(`posthog-array://task/${task.id}`, '_blank')}
+                            onClick={() => window.open(`array://task/${task.id}`, '_blank')}
                         >
                             Open in Array
                         </LemonButton>

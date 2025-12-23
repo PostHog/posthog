@@ -175,6 +175,27 @@ export function OnboardingInstallStep({
                                 <strong>{sdk.name}</strong>
                             </LemonCard>
                         ))}
+
+                        {/* This will open a survey to collect feedback on the SDKs we don't support yet */}
+                        {/* https://us.posthog.com/project/2/surveys/019b47ab-5f19-0000-7f31-4f9681cde589 */}
+                        {searchTerm && (
+                            <LemonCard className="p-4 cursor-pointer flex flex-col items-start justify-center col-span-1 sm:col-span-2">
+                                <div className="flex flex-col items-start gap-2">
+                                    <span className="mb-2 text-muted">
+                                        Don&apos;t see your SDK listed? We are always looking to expand our list of
+                                        supported SDKs.
+                                    </span>
+                                    <LemonButton
+                                        data-attr="onboarding-reach-out-to-us-button"
+                                        type="secondary"
+                                        size="small"
+                                        targetBlank
+                                    >
+                                        Reach out to us
+                                    </LemonButton>
+                                </div>
+                            </LemonCard>
+                        )}
                     </div>
                 </div>
             </div>

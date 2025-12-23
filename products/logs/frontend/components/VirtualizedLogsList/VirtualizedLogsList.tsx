@@ -9,13 +9,12 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { LogRow, LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import {
     LOG_ROW_HEADER_HEIGHT,
-    LogRow,
-    LogRowHeader,
     RESIZER_HANDLE_WIDTH,
     getMinRowWidth,
-} from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+} from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -24,7 +23,7 @@ interface VirtualizedLogsListProps {
     loading: boolean
     wrapBody: boolean
     prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     showPinnedWithOpacity?: boolean
     fixedHeight?: number
     disableInfiniteScroll?: boolean
@@ -54,6 +53,7 @@ export function VirtualizedLogsList({
         attributeColumnWidths,
         selectedLogIds,
         selectedCount,
+        prettifiedLogIds,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
@@ -65,6 +65,7 @@ export function VirtualizedLogsList({
         selectAll,
         clearSelection,
         selectLogRange,
+        togglePrettifyLog,
     } = useActions(logsViewerLogic)
 
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
@@ -198,6 +199,8 @@ export function VirtualizedLogsList({
                                         selectLogRange(anchorIndex, clickedIndex)
                                         userSetCursorIndex(clickedIndex)
                                     }}
+                                    isPrettified={prettifiedLogIds.has(log.uuid)}
+                                    onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
                                 />
                             </div>
                         )}
@@ -222,6 +225,8 @@ export function VirtualizedLogsList({
             selectedLogIds,
             toggleSelectLog,
             selectLogRange,
+            prettifiedLogIds,
+            togglePrettifyLog,
         ]
     )
 

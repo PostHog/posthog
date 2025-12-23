@@ -18,7 +18,7 @@ from ee.hogai.chat_agent.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.insight.query_executor import execute_and_format_query
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -87,8 +87,16 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             content_type=ArtifactContentType.VISUALIZATION,
         )
 
+        insight_context = InsightContext(
+            team=self._team,
+            query=parsed_query.query,
+            name=parsed_query.name,
+            description=parsed_query.description,
+            insight_id=artifact_message.artifact_id,
+        )
+
         try:
-            result = await execute_and_format_query(self._team, parsed_query.query)
+            result = await insight_context.execute_and_format()
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
         except Exception:

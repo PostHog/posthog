@@ -431,6 +431,64 @@ describe('WebAnalyticsExport adapters', () => {
             expect(result[0][24]).toBe('23')
             expect(result[0][25]).toBe('All')
         })
+
+        it('correctly converts ClickHouse day indices (1=Mon, 7=Sun) to standard format (0=Sun, 6=Sat)', () => {
+            const response: TrendsQueryResponse = {
+                results: [
+                    {
+                        calendar_heatmap_data: {
+                            data: [
+                                { row: 7, column: 0, value: 100 }, // Sunday
+                                { row: 7, column: 1, value: 110 },
+                                { row: 1, column: 0, value: 200 }, // Monday
+                                { row: 1, column: 1, value: 210 },
+                                { row: 6, column: 0, value: 600 }, // Saturday
+                                { row: 6, column: 1, value: 610 },
+                            ],
+                            rowAggregations: [
+                                { row: 7, value: 210 },
+                                { row: 1, value: 410 },
+                                { row: 6, value: 1210 },
+                            ],
+                            columnAggregations: [
+                                { column: 0, value: 900 },
+                                { column: 1, value: 930 },
+                            ],
+                            allAggregations: 1830,
+                        },
+                    },
+                ],
+            }
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
+            }
+
+            const adapter = new CalendarHeatmapAdapter(response, query)
+            const result = adapter.toTableData()
+
+            expect(result[1][0]).toBe('Sun')
+            expect(result[1][1]).toBe('100')
+            expect(result[1][2]).toBe('110')
+            expect(result[1][25]).toBe('210')
+
+            expect(result[2][0]).toBe('Mon')
+            expect(result[2][1]).toBe('200')
+            expect(result[2][2]).toBe('210')
+            expect(result[2][25]).toBe('410')
+
+            expect(result[7][0]).toBe('Sat')
+            expect(result[7][1]).toBe('600')
+            expect(result[7][2]).toBe('610')
+            expect(result[7][25]).toBe('1210')
+
+            expect(result[8][1]).toBe('900')
+            expect(result[8][2]).toBe('930')
+            expect(result[8][25]).toBe('1830')
+        })
     })
 
     describe('WebAnalyticsTableAdapter', () => {

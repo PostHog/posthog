@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug, iter, thread::sleep, time::Duration};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -106,21 +106,20 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
             .collect(),
     };
 
-    let res = client
-        .send_post(
+    let res = retry(retry_policy(500, 2, 3), |_| {
+        client.send_post(
             client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
             |req| req.json(&request),
         )
-        .context("Failed to start upload")?;
+    })
+    .context("Failed to start upload")?;
 
     Ok(res.json()?)
 }
 
 fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
     let client = &context().build_http_client()?;
-    let mut last_err = None;
-    let mut delay = std::time::Duration::from_millis(500);
-    for attempt in 1..=3 {
+    retry(retry_policy(500, 2, 3), |_| -> Result<()> {
         let mut form = Form::new();
         for (key, value) in &presigned_url.fields {
             form = form.text(key.clone(), value.clone());
@@ -128,38 +127,27 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
         let part = Part::bytes(data.to_vec());
         form = form.part("file", part);
 
-        let res = client.post(&presigned_url.url).multipart(form).send();
+        let response = client.post(&presigned_url.url).multipart(form).send()?;
+        raise_for_err(response)?;
 
-        match res {
-            Result::Ok(resp) => {
-                last_err = raise_for_err(resp).err();
-                if last_err.is_none() {
-                    return Ok(());
-                }
-            }
-            Result::Err(e) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {e:?}"));
-            }
-        }
-        if attempt < 3 {
-            warn!("Upload attempt {attempt} failed, retrying in {delay:?}...",);
-            std::thread::sleep(delay);
-            delay *= 2;
-        }
-    }
-    Err(last_err.unwrap_or_else(|| anyhow!("Unknown error during upload")))
+        Ok(())
+    })
+    .context("Failed to upload chunk")?;
+
+    Ok(())
 }
 
 fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
     let client = &context().client;
     let request = BulkUploadFinishRequest { content_hashes };
 
-    client
-        .send_post(
+    retry(retry_policy(500, 2, 3), |_| {
+        client.send_post(
             client.project_url("error_tracking/symbol_sets/bulk_finish_upload")?,
             |req| req.json(&request),
         )
-        .context("Failed to finish upload")?;
+    })
+    .context("Failed to finish upload")?;
 
     Ok(())
 }
@@ -189,4 +177,35 @@ impl CreateSymbolSetRequest {
             content_hash: content_hash([&inner.data]),
         }
     }
+}
+
+fn retry_policy(duration: u64, factor: u64, max_attempts: usize) -> impl Iterator<Item = Duration> {
+    iter::once((duration, factor))
+        .cycle()
+        .enumerate()
+        .map(|(i, (duration, factor))| Duration::from_millis(duration * factor.pow(i as u32)))
+        .take(max_attempts)
+}
+
+fn retry<I, F, E, R>(iterable: I, mut func: F) -> Result<R, E>
+where
+    I: Iterator<Item = Duration>,
+    F: FnMut(usize) -> Result<R, E>,
+    E: Debug,
+{
+    let mut attempt = 0;
+    let mut last_error: Option<E> = None;
+    for delay in iterable {
+        match func(attempt) {
+            Ok(res) => return Ok(res),
+            Err(e) => {
+                last_error = Some(e);
+                attempt += 1;
+                warn!("Operation failed: {last_error:?}");
+                warn!("Retrying in {delay:?}, attempt {attempt}");
+                sleep(delay);
+            }
+        }
+    }
+    Err(last_error.expect("retry called with empty iterator - max_attempts must be > 0"))
 }

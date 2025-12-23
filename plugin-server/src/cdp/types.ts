@@ -232,6 +232,7 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
+        | 'quota_limited'
     count: number
 }
 

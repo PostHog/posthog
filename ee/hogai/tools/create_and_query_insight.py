@@ -157,6 +157,10 @@ class CreateAndQueryInsightTool(MaxTool):
     description: str = INSIGHT_TOOL_PROMPT
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
 
+    def get_required_resource_access(self):
+        """Creating/querying an insight requires editor-level access to insights."""
+        return [("insight", "editor")]
+
     async def _arun_impl(self, query_description: str) -> tuple[str, ToolMessagesArtifact | None]:
         graph = InsightsGraph(self._team, self._user).compile_full_graph()
         new_state = self._state.model_copy(

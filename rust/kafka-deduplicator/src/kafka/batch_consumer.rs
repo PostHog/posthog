@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::kafka::batch_context::BatchConsumerContext;
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
 use crate::kafka::metrics_consts::{
+    BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS, BATCH_CONSUMER_BATCH_FILL_RATIO,
     BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
 };
 use crate::kafka::rebalance_handler::RebalanceHandler;
@@ -111,20 +112,30 @@ where
                 // Poll for messages
                 batch_result = Self::consume_batch(&mut stream, batch_size, batch_timeout) => {
                     match batch_result {
-                        Ok(batch) => {
+                        Ok((batch, collection_duration)) => {
                             // track latest offsets with rdkafka consumer
                             Self::store_offsets(&consumer, &batch);
+
+                            // Record batch collection duration
+                            metrics::histogram!(BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS)
+                                .record(collection_duration.as_millis() as f64);
+
                             // if there are no errors or messages to report, skip sending
                             if batch.is_empty() {
                                 continue;
                             }
                             let message_count = batch.message_count();
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "success")
-                            .increment(message_count as u64);
+                                .increment(message_count as u64);
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "error")
-                            .increment(batch.error_count() as u64);
+                                .increment(batch.error_count() as u64);
                             metrics::histogram!(BATCH_CONSUMER_BATCH_SIZE)
-                            .record(message_count as f64);
+                                .record(message_count as f64);
+
+                            // Record batch fill ratio (how full the batch was)
+                            let fill_ratio = message_count as f64 / batch_size as f64;
+                            metrics::histogram!(BATCH_CONSUMER_BATCH_FILL_RATIO)
+                                .record(fill_ratio);
 
                             let (messages, _errors) = batch.unpack();
                             if let Err(e) = self.processor.process_batch(messages).await {
@@ -333,12 +344,14 @@ where
         }
     }
 
-    /// Consumes a batch of messages based on the configured batch size and timeout
+    /// Consumes a batch of messages based on the configured batch size and timeout.
+    /// Returns the batch and the duration spent collecting it.
     async fn consume_batch(
         stream: &mut MessageStream<'_, BatchConsumerContext>,
         batch_size: usize,
         batch_timeout: Duration,
-    ) -> KafkaResult<Batch<T>> {
+    ) -> KafkaResult<(Batch<T>, Duration)> {
+        let start = Instant::now();
         let mut batch = Batch::new_with_size_hint(batch_size);
         let mut batch_complete = tokio::time::interval(batch_timeout);
         let mut kafka_error_count = 0;
@@ -395,6 +408,6 @@ where
             }
         }
 
-        Ok(batch)
+        Ok((batch, start.elapsed()))
     }
 }

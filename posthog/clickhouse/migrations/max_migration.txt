@@ -1,1 +1,1 @@
-0192_cleanup_old_embeddings_mvs
+0193_add_lc_is_impersonated_to_query_log_archive

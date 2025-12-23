@@ -227,6 +227,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
+        CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-webhooks',
+        CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+
         CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
@@ -317,7 +321,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_PREFETCH_ENABLED: false,
-        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
