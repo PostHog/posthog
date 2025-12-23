@@ -469,7 +469,7 @@ class Team(UUIDTClassicModel):
     extra_settings = models.JSONField(null=True, blank=True)
 
     # Error tracking spike detection settings
-    error_tracking_spike_detection_multiplier = models.IntegerField(null=True, blank=True, default=10)
+    error_tracking_spikes_detection_multiplier = models.IntegerField(null=True, blank=True, default=10)
 
     # Environment-level default HogQL query modifiers
     modifiers = models.JSONField(null=True, blank=True)

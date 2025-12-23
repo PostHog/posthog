@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="team",
-            name="error_tracking_spike_detection_multiplier",
+            name="error_tracking_spikes_detection_multiplier",
             field=models.IntegerField(blank=True, default=10, null=True),
         ),
     ]

@@ -34,18 +34,18 @@ export const errorTrackingSpikesDetectionLogic = kea<errorTrackingSpikesDetectio
     })),
     subscriptions(({ actions }) => ({
         currentTeam: (currentTeam: TeamType) => {
-            actions.syncFromTeam(currentTeam?.error_tracking_spike_detection_multiplier ?? DEFAULT_MULTIPLIER)
+            actions.syncFromTeam(currentTeam?.error_tracking_spikes_detection_multiplier ?? DEFAULT_MULTIPLIER)
         },
     })),
     afterMount(({ actions, values }) => {
-        actions.syncFromTeam(values.currentTeam?.error_tracking_spike_detection_multiplier ?? DEFAULT_MULTIPLIER)
+        actions.syncFromTeam(values.currentTeam?.error_tracking_spikes_detection_multiplier ?? DEFAULT_MULTIPLIER)
     }),
     listeners(({ actions, values }) => ({
         setMultiplier: () => actions.persistSettings(),
         persistSettings: async (_, breakpoint) => {
             await breakpoint(500)
             actions.updateCurrentTeam({
-                error_tracking_spike_detection_multiplier: values.multiplier,
+                error_tracking_spikes_detection_multiplier: values.multiplier,
             })
         },
     })),

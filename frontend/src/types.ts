@@ -670,7 +670,7 @@ export interface TeamType extends TeamBasicType {
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
-    error_tracking_spike_detection_multiplier: number
+    error_tracking_spikes_detection_multiplier: number
 }
 
 export interface ProductIntentType {
