@@ -8,14 +8,11 @@ def CLEANUP_NULL_PERSON_IDS():
     These are rows that existed before the person_id column was added and cannot be used
     for person-based cohort queries.
 
-    Uses ALTER TABLE mutation which:
-    1. Immediately marks matching rows as deleted (fast, non-blocking)
-    2. Actual cleanup happens asynchronously during background merges
-    This will not block the deploy process or table operations.
+    Uses ClickHouse lightweight DELETE syntax.
     """
     return """
-    ALTER TABLE sharded_precalculated_person_properties
-    DELETE WHERE person_id = '00000000-0000-0000-0000-000000000000'
+    DELETE FROM sharded_precalculated_person_properties
+    WHERE person_id = '00000000-0000-0000-0000-000000000000'
     """
 
 
@@ -24,6 +21,5 @@ operations = [
         CLEANUP_NULL_PERSON_IDS(),
         node_roles=[NodeRole.DATA],
         sharded=True,
-        is_alter_on_replicated_table=True,
     ),
 ]
