@@ -112,44 +112,10 @@ class TestAgentToolkit(BaseTest):
             [
                 False,
                 False,
-                False,
-                ["read_taxonomy", "read_data", "search", "todo_write"],
-                ["switch_mode", "create_form", "create_task", "run_task", "list_tasks"],
-            ],
-            [
-                True,
-                False,
-                False,
                 ["read_taxonomy", "read_data", "search", "todo_write", "switch_mode"],
                 ["create_form", "create_task", "run_task", "list_tasks"],
             ],
             [
-                False,
-                True,
-                False,
-                ["read_taxonomy", "read_data", "search", "todo_write", "create_form"],
-                ["switch_mode", "create_task", "run_task", "list_tasks"],
-            ],
-            [
-                False,
-                False,
-                True,
-                [
-                    "read_taxonomy",
-                    "read_data",
-                    "search",
-                    "todo_write",
-                    "create_task",
-                    "run_task",
-                    "get_task_run",
-                    "get_task_run_logs",
-                    "list_tasks",
-                    "list_task_runs",
-                ],
-                ["switch_mode", "create_form"],
-            ],
-            [
-                True,
                 True,
                 True,
                 [
@@ -174,7 +140,6 @@ class TestAgentToolkit(BaseTest):
         self, agent_modes_flag, create_form_flag, tasks_flag, expected_tools, unexpected_tools
     ):
         with (
-            patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=agent_modes_flag),
             patch("ee.hogai.chat_agent.mode_manager.has_create_form_tool_feature_flag", return_value=create_form_flag),
             patch("ee.hogai.chat_agent.mode_manager.has_phai_tasks_feature_flag", return_value=tasks_flag),
         ):

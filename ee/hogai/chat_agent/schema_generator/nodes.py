@@ -18,7 +18,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
@@ -262,9 +261,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         if start_message:
             return start_message.content
         return ""
-
-    def _has_agent_modes_feature_flag(self) -> bool:
-        return has_agent_modes_feature_flag(self._team, self._user)
 
 
 class SchemaGeneratorToolsNode(AssistantNode):
