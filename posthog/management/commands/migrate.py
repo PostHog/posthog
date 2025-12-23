@@ -211,14 +211,23 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
         return True
 
     except Exception as e:
-        # Clean up on failure
-        target_path.unlink(missing_ok=True)
-        if original_max_migration is not None:
-            max_migration_path.write_text(f"{original_max_migration}\n")
+        # Clean up on failure - wrap each cleanup in try/except to ensure all run
+        try:
+            target_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            if original_max_migration is not None:
+                max_migration_path.write_text(f"{original_max_migration}\n")
+        except Exception:
+            pass
         # Restore hidden migrations
         for original, hidden in hidden_migrations:
-            if hidden.exists():
-                hidden.rename(original)
+            try:
+                if hidden.exists():
+                    hidden.rename(original)
+            except Exception:
+                pass
         stdout.write(f"    Error: {e}")
         return False
 
@@ -317,7 +326,7 @@ class Command(DjangoMigrateCommand):
                         # Non-interactive mode: warn but continue
                         self.stdout.write(
                             self.style.WARNING(
-                                "Continuing in non-interactive mode. " "Run 'hogli migrations:sync' after to clean up."
+                                "Continuing in non-interactive mode. Run 'hogli migrations:sync' after to clean up."
                             )
                         )
             except Exception as e:

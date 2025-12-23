@@ -31,6 +31,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 
 import click
 from hogli.core.cli import cli
@@ -228,7 +229,7 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
             max_migration_path.write_text(f"{name}\n")
 
         # Run Django migrate to roll back
-        result = subprocess.run(
+        subprocess.run(
             [sys.executable, "manage.py", "migrate", app, previous, "--no-input", "--skip-checks"],
             cwd=REPO_ROOT,
             env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
@@ -246,7 +247,7 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         for original, hidden in hidden_migrations:
             hidden.rename(original)
 
-        return result.returncode == 0
+        return True
     except subprocess.CalledProcessError:
         # Clean up on failure
         target_path.unlink(missing_ok=True)
@@ -296,7 +297,7 @@ def _get_database_url() -> str:
     password = os.environ.get("PGPASSWORD", "posthog")
     database = os.environ.get("PGDATABASE", "posthog")
 
-    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    return f"postgresql://{user}:{quote(password, safe='')}@{host}:{port}/{database}"
 
 
 def _get_migrations_in_db() -> dict[str, set[str]]:
@@ -423,14 +424,12 @@ def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool 
         return True
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             [sys.executable, "manage.py", "migrate", "--no-input"],
             cwd=REPO_ROOT,
             env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
             check=True,
         )
-        if result.returncode != 0:
-            return False
 
         # Cache the migration files that were just applied
         if pending:
