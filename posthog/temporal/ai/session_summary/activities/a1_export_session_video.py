@@ -59,6 +59,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 f"Found existing video export for session {inputs.session_id}, reusing asset {existing_asset.id}",
                 session_id=inputs.session_id,
                 asset_id=existing_asset.id,
+                signals_type="session-summaries",
             )
             return existing_asset.id
 
@@ -69,16 +70,17 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             team=team,
         )
         if not metadata:
-            raise ValueError(f"No metadata found for session {inputs.session_id}")
+            msg = f"No metadata found for session {inputs.session_id}"
+            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
+            raise ValueError(msg)
         session_duration = metadata["duration"]  # duration is in seconds
 
         # Check if session is too short for summarization - note: this is different from the video duration, but probs close enough
         if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
-            raise ApplicationError(
-                f"Session {inputs.session_id} video is too short for summarization "
-                f"({session_duration * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)",
-                non_retryable=True,
-            )
+            msg = f"Session {inputs.session_id} video is too short for summarization "
+            f"({session_duration * 1000:.0f}ms < {MIN_SESSION_DURATION_FOR_SUMMARY_MS}ms)"
+            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
+            raise ApplicationError(msg, non_retryable=True)
 
         # Create ExportedAsset
         filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
@@ -114,6 +116,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             f"Video exported successfully for session {inputs.session_id}",
             session_id=inputs.session_id,
             asset_id=exported_asset.id,
+            signals_type="session-summaries",
         )
 
         return exported_asset.id
@@ -122,5 +125,6 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         logger.exception(
             f"Failed to export video for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
+            signals_type="session-summaries",
         )
         raise
