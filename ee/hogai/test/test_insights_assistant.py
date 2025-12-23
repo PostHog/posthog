@@ -1,5 +1,6 @@
 from itertools import cycle
 from typing import Any, Optional
+from uuid import uuid4
 
 from unittest.mock import AsyncMock, patch
 
@@ -303,3 +304,51 @@ class TestChatAgent(BaseAssistantTest):
         self.assertEqual(actual_output[0], ("conversation", self.conversation))
         self.assertEqual(actual_output[1][0], "message")
         self.assertIsInstance(actual_output[1][1], VisualizationMessage)
+
+    @query_executor_mock
+    @patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.chat_agent.query_planner.nodes.QueryPlannerNode._get_model")
+    async def test_insights_tool_mode_flow(self, planner_mock, generator_mock, title_generator_mock):
+        """Test that the insights tool mode works correctly."""
+        query = AssistantTrendsQuery(series=[])
+        tool_call_id = str(uuid4())
+        tool_call_state = AssistantState(
+            root_tool_call_id=tool_call_id,
+            root_tool_insight_plan="Foobar",
+            root_tool_insight_type="trends",
+            messages=[],
+        )
+
+        planner_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "name": "final_answer",
+                            "args": {"query_kind": "trends", "plan": "Plan"},
+                        }
+                    ],
+                )
+            ]
+        )
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
+
+        # Run in insights tool mode
+        output, _ = await self._run_assistant_graph(
+            conversation=self.conversation,
+            is_new_conversation=False,
+            message=None,
+            tool_call_partial_state=tool_call_state,
+        )
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(len(output), 2)
+        self.assertEqual(output[0][0], "conversation")
+        self.assertEqual(output[1][0], "message")
+        viz_msg = output[1][1]
+        assert isinstance(viz_msg, VisualizationMessage)
+        self.assertEqual(viz_msg.answer, query)
