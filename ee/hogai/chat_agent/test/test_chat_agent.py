@@ -35,6 +35,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    ContextMessage,
     DashboardFilter,
     EventTaxonomyItem,
     FailureMessage,
@@ -1235,7 +1236,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         )
 
         # Verify output length
-        self.assertEqual(len(output), 8)
+        self.assertEqual(len(output), 6)
 
         # Check conversation output
         self.assertEqual(output[0], ("conversation", self.conversation))
@@ -1687,7 +1688,6 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             ("message", HumanMessage(content="First")),  # Should copy this message
             ("message", AssistantMessage(content="After summary")),
         ]
-
         output, _ = await self._run_assistant_graph(graph, message="First", conversation=self.conversation)
         self.assertConversationEqual(output, expected_output)
 
@@ -1696,8 +1696,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         # should be equal to the copied human message
         new_human_message = cast(HumanMessage, output[3][1])
         self.assertEqual(state.start_id, new_human_message.id)
-        # should be equal to the summary message, minus reasoning message
-        self.assertEqual(state.root_conversation_start_id, state.messages[3].id)
+        # should be equal to the summary message (ContextMessage)
+        self.assertIsInstance(state.messages[4], ContextMessage)
+        self.assertEqual(state.root_conversation_start_id, state.messages[4].id)
 
     @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(
