@@ -32,6 +32,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
@@ -62,7 +63,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrottle, ClickHouseBurstRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
@@ -134,14 +135,24 @@ def get_person_name_helper(
     return str(person_pk)
 
 
-class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+class PersonsWebBurstThrottle(UserOrEmailRateThrottle):
     scope = "persons_burst"
     rate = "180/minute"
 
 
-class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
+class PersonsWebSustainedThrottle(UserOrEmailRateThrottle):
     scope = "persons_sustained"
     rate = "1200/hour"
+
+
+class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "persons_delete_burst"
+    rate = "480/minute"
+
+
+class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "persons_delete_sustained"
+    rate = "4800/hour"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -224,24 +235,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [
-        ClickHouseBurstRateThrottle,
-        PersonsBreakGlassBurstThrottle,
-        PersonsBreakGlassSustainedThrottle,
-    ]
     lifecycle_class = Lifecycle
 
     def get_throttles(self):
-        # Delete operations don't touch ClickHouse, so exclude ClickHouse throttle
-        if self.action in ("destroy", "bulk_delete"):
-            return [
-                PersonsBreakGlassBurstThrottle(),
-                PersonsBreakGlassSustainedThrottle(),
-            ]
+        # API is commonly used for data deletion, so we want to throttle that less aggressively
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if self.action in ("destroy", "bulk_delete", "delete_events", "delete_recordings"):
+                return [PersonsDeleteBurstThrottle(), PersonsDeleteSustainedThrottle()]
+            else:
+                return [ClickHouseBurstRateThrottle()]
+
+        # We have seen issues in the past with the app hammering the API so for app authenticated requests
+        # we still want some throttle protection
         return [
-            ClickHouseBurstRateThrottle(),
-            PersonsBreakGlassBurstThrottle(),
-            PersonsBreakGlassSustainedThrottle(),
+            PersonsWebBurstThrottle(),
+            PersonsWebSustainedThrottle(),
         ]
 
     stickiness_class = Stickiness

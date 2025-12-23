@@ -48,6 +48,8 @@ export type ActivityLogItem = {
     is_staff?: boolean
     /** Whether the activity was initiated by the PostHog backend. Example: an exported image when sharing an insight. */
     is_system?: boolean
+    /** Whether a PostHog team member was impersonating the user when this activity was logged. */
+    was_impersonated?: boolean
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry
@@ -65,6 +67,7 @@ export type HumanizedActivityLogItem = {
     email?: string | null
     name?: string
     isSystem?: boolean
+    wasImpersonated?: boolean
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
@@ -103,10 +106,14 @@ export function humanize(
         const { description, extendedDescription } = describer(logItem, asNotification)
 
         if (description !== null) {
+            const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
-                email: logItem.user?.email,
-                name: logItem.user ? fullName(logItem.user) : undefined,
+                email: logItem.was_impersonated ? undefined : logItem.user?.email,
+                name: logItem.was_impersonated
+                    ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
+                    : impersonatedUserName,
                 isSystem: logItem.is_system,
+                wasImpersonated: logItem.was_impersonated,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
@@ -121,6 +128,10 @@ export function humanize(
 export function userNameForLogItem(logItem: ActivityLogItem): string {
     if (logItem.is_system) {
         return 'PostHog'
+    }
+    if (logItem.was_impersonated) {
+        const impersonatedUserName = logItem.user ? fullName(logItem.user) : 'a user'
+        return `PostHog Support (as ${impersonatedUserName})`
     }
     return logItem.user ? fullName(logItem.user) : 'A user'
 }

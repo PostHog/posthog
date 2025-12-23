@@ -592,4 +592,65 @@ describe('logsViewerLogic', () => {
             })
         })
     })
+
+    describe('per-row prettification', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        it('defaults to empty set', () => {
+            expect(logic.values.prettifiedLogIds).toEqual(new Set())
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(false)
+        })
+
+        it('prettifies a log when not prettified', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePrettifyLog('log-1')
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(true)
+        })
+
+        it('un-prettifies a log when already prettified', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePrettifyLog('log-1')
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(false)
+        })
+
+        it('supports multiple prettified logs', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            logic.actions.togglePrettifyLog('log-3')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.has('log-1')).toBe(true)
+            expect(logic.values.prettifiedLogIds.has('log-2')).toBe(false)
+            expect(logic.values.prettifiedLogIds.has('log-3')).toBe(true)
+        })
+
+        it('triggers recomputeRowHeights when toggling', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.togglePrettifyLog('log-1')
+            }).toDispatchActions(['togglePrettifyLog', 'recomputeRowHeights'])
+        })
+
+        it('clears when setLogs is called', async () => {
+            logic.actions.togglePrettifyLog('log-1')
+            logic.actions.togglePrettifyLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.size).toBe(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.setLogs([createMockParsedLog('new-log')])
+            }).toFinishAllListeners()
+
+            expect(logic.values.prettifiedLogIds.size).toBe(0)
+        })
+    })
 })

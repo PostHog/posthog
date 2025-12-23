@@ -3,6 +3,7 @@ from typing import cast
 from django.db import models
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 
@@ -61,7 +62,7 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             organization_id=None,
             team_id=instance.team_id,
             user=instance.created_by,
-            was_impersonated=None,  # TODO - Find way to determine if the user was impersonated
+            was_impersonated=get_was_impersonated(),
             item_id=item_id,
             scope=scope,
             activity="commented",

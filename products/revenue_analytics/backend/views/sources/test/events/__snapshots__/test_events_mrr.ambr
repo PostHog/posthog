@@ -1,0 +1,35 @@
+# serializer version: 1
+# name: TestMRREventsBuilder.test_build_mrr_query
+  '''
+  SELECT source_label AS source_label,
+         customer_id AS customer_id,
+         subscription_id AS subscription_id,
+         argMax(amount, timestamp) AS mrr
+  FROM
+    (SELECT source_label,
+            customer_id,
+            subscription_id,
+            toStartOfMonth(revenue_item.timestamp) AS timestamp,
+            sum(revenue_item.amount) AS amount
+     FROM `revenue_analytics.events.purchase.revenue_item_events_revenue_view` AS revenue_item
+     WHERE and(equals(is_recurring, true), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
+     GROUP BY source_label,
+              customer_id,
+              subscription_id, timestamp
+     ORDER BY timestamp DESC
+     UNION ALL SELECT source_label,
+                      customer_id,
+                      id AS subscription_id,
+                      ended_at AS timestamp,
+                      toDecimal(0, 10) AS amount
+     FROM `revenue_analytics.events.purchase.subscription_events_revenue_view`
+     WHERE and(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime('2025-05-30 00:00:00.000000'), -60))), lessOrEquals(timestamp, toDateTime('2025-05-30 00:00:00.000000')))
+     ORDER BY timestamp DESC) AS
+  union
+  GROUP BY source_label,
+           customer_id,
+           subscription_id
+  ORDER BY customer_id ASC,
+           subscription_id ASC
+  '''
+# ---

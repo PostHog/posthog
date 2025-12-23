@@ -75,6 +75,34 @@ AUTH_INVALID = Counter(
     labelnames=["auth_type"],
 )
 
+REDIS_FALLBACK = Counter(
+    "llm_gateway_redis_fallback_total",
+    "Redis rate limiter fallback events",
+)
+
+STREAMING_CLIENT_DISCONNECT = Counter(
+    "llm_gateway_streaming_client_disconnect_total",
+    "Client disconnected during streaming",
+    labelnames=["provider"],
+)
+
+TIME_TO_FIRST_CHUNK = Histogram(
+    "llm_gateway_time_to_first_chunk_seconds",
+    "Time to first chunk for streaming requests",
+    labelnames=["provider", "model"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
+)
+
+CONCURRENT_REQUESTS = Gauge(
+    "llm_gateway_concurrent_requests",
+    "Current in-flight requests",
+)
+
+DB_POOL_EXHAUSTED = Counter(
+    "llm_gateway_db_pool_exhausted_total",
+    "Database pool exhaustion events",
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(
