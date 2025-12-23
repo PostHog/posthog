@@ -51,11 +51,6 @@ async def _handle_responses(
     normalized_model = _normalize_model_name(original_model)
     data["model"] = normalized_model
 
-    print(f"[RESPONSES DEBUG] Request data: {data}")
-    print(
-        f"[RESPONSES DEBUG] Original model: {original_model}, Normalized: {normalized_model}, Stream: {request.stream}"
-    )
-
     try:
         result = await handle_llm_request(
             request_data=data,
@@ -65,12 +60,8 @@ async def _handle_responses(
             provider_config=OPENAI_RESPONSES_CONFIG,
             llm_call=litellm.aresponses,
         )
-        print(f"[RESPONSES DEBUG] Result type: {type(result)}")
-        if isinstance(result, dict):
-            print(f"[RESPONSES DEBUG] Result: {result}")
         return result
-    except Exception as e:
-        print(f"[RESPONSES DEBUG] Error: {e}")
+    except Exception:
         raise
 
 
