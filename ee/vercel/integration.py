@@ -968,7 +968,7 @@ class VercelIntegration:
             return redirect_url
         except RequiresExistingUserLogin as e:
             # Re-cache the claims so they're available after the user logs in
-            if claims is not None:
+            if isinstance(claims, VercelUserClaims):
                 VercelIntegration._set_cached_claims(params.code, claims, timeout=300)
 
             continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"

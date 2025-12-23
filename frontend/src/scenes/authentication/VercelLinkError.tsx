@@ -19,7 +19,10 @@ export function VercelLinkError(): JSX.Element {
     const code = searchParams.code
     const state = searchParams.state
 
-    const nextUrl = code && state ? `/login/vercel?mode=sso&code=${code}&state=${state}` : null
+    const nextUrl =
+        code && state
+            ? `/login/vercel?mode=sso&code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`
+            : null
     const logoutUrl = nextUrl ? `/logout?next=${encodeURIComponent(nextUrl)}` : '/logout'
 
     return (
