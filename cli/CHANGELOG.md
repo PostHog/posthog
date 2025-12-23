@@ -1,8 +1,8 @@
 # posthog-cli
 
-# 0.5.20
+# 0.6.0
 
-- chore: add global `--rate-limit` option for Posthog client
+- Add experimental dSYM upload for iOS/macOS crash symbolication
 
 # 0.5.19
 
