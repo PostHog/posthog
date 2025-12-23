@@ -1,7 +1,6 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic } from 'kea'
 
 import { uuid } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
@@ -12,8 +11,6 @@ type PersonFeedCanvasProps = {
 }
 
 const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
-    const { isCloudOrDev } = useValues(preflightLogic)
-
     const id = person.id
     const distinctId = person.distinct_ids[0]
     const shortId = `canvas-${id}`
@@ -52,14 +49,15 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                         type: 'ph-person',
                                         attrs: { id, distinctId, nodeId: uuid(), title: 'Info' },
                                     },
-                                    ...(isCloudOrDev
-                                        ? [
-                                              {
-                                                  type: 'ph-map',
-                                                  attrs: { id, distinctId, nodeId: uuid() },
-                                              },
-                                          ]
-                                        : []),
+                                    // FIXME: Map bg image is broken
+                                    // ...(isCloudOrDev
+                                    //     ? [
+                                    //           {
+                                    //               type: 'ph-map',
+                                    //               attrs: { id, distinctId, nodeId: uuid() },
+                                    //           },
+                                    //       ]
+                                    //     : []),
                                     {
                                         type: 'ph-person-properties',
                                         attrs: { id, distinctId, nodeId: uuid() },
