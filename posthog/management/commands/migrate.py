@@ -179,6 +179,8 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
 
             return True
     except Exception as e:
+        # Log with traceback so cleanup failures don't mask the original error
+        warnings.warn(f"Rollback failed for {app_label}.{migration_name}: {e}", stacklevel=2)
         stdout.write(f"    Error: {e}")
         return False
 
