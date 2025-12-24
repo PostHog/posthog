@@ -40,6 +40,9 @@ outputs:
     digest:
         description: The digest of the image that was built
         value: ${{ steps.build.outputs.digest }}
+    image-url:
+        description: The full image URL with registry and digest
+        value: ${{ steps.emit.outputs.image-url }}
 
 runs:
     using: 'composite'
@@ -84,13 +87,16 @@ runs:
               PR_NUMBER: ${{ inputs.pr-number }}
           run: |
               TAGS="posthog/posthog:$COMMIT_SHA"
+              IMAGE_URL=""
               if [[ -n "$REGISTRY" ]]; then
                 TAGS="$TAGS,$REGISTRY/posthog-cloud:$COMMIT_SHA"
+                IMAGE_URL="$REGISTRY/posthog-cloud:$COMMIT_SHA"
               fi
               if [[ "$PR_NUMBER" != "" ]]; then
                 TAGS="$TAGS,$REGISTRY/posthog-cloud:pr-$PR_NUMBER"
               fi
               echo "tag=$TAGS" >> $GITHUB_OUTPUT
+              echo "image-url=$IMAGE_URL" >> $GITHUB_OUTPUT
 
         - name: Build image
           id: build
