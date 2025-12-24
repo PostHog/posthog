@@ -21,7 +21,10 @@ use crate::{
     checkpoint::s3_uploader::S3Uploader,
     checkpoint_manager::CheckpointManager,
     config::Config,
-    kafka::{batch_consumer::BatchConsumer, ConsumerConfigBuilder},
+    kafka::{
+        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
+        PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
+    },
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
@@ -228,17 +231,44 @@ impl KafkaDeduplicatorService {
         };
 
         // Create a processor with the store manager and both producers
-        let processor = BatchDeduplicationProcessor::new(
-            dedup_config,
-            self.store_manager.clone(),
-            main_producer,
-            duplicate_producer,
-        )
-        .with_context(|| "Failed to create deduplication processor")?;
+        let processor = Arc::new(
+            BatchDeduplicationProcessor::new(
+                dedup_config,
+                self.store_manager.clone(),
+                main_producer,
+                duplicate_producer,
+            )
+            .with_context(|| "Failed to create deduplication processor")?,
+        );
 
-        // Create rebalance handler with the store manager
-        let rebalance_handler =
-            Arc::new(ProcessorRebalanceHandler::new(self.store_manager.clone()));
+        // Create partition router for parallel processing across partitions
+        let router_config = PartitionRouterConfig {
+            worker_config: PartitionWorkerConfig {
+                channel_buffer_size: self.config.partition_worker_channel_buffer_size,
+            },
+        };
+
+        // Create offset tracker for tracking processed offsets
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            router_config,
+        ));
+
+        // Create routing processor that distributes messages to partition workers
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        // Create rebalance handler with the router for partition worker management
+        let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
+            self.store_manager.clone(),
+            router,
+            offset_tracker.clone(),
+        ));
 
         // Create consumer config using the kafka module's builder
         let consumer_config =
@@ -307,11 +337,12 @@ impl KafkaDeduplicatorService {
             self.config.checkpoint_interval(),
         );
 
-        // Create stateful Kafka consumer that sends to the processor pool
+        // Create stateful Kafka consumer that routes to partition workers
         let kafka_consumer = BatchConsumer::new(
             &consumer_config,
             rebalance_handler,
-            Arc::new(processor),
+            routing_processor,
+            offset_tracker,
             shutdown_rx,
             &self.config.kafka_consumer_topic,
             self.config.kafka_consumer_batch_size,

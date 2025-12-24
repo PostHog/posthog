@@ -367,6 +367,12 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                     .first()
                 )
                 self.context["activity_log"] = latest_activity_log
+            if sync_frequency and sync_frequency != "never":
+                try:
+                    view.setup_model_paths()
+                except Exception as e:
+                    posthoganalytics.capture_exception(e)
+                    logger.exception("Failed to update model path when updating view %s", view.name)
 
         if was_sync_frequency_updated:
             view.schedule_materialization(

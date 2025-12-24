@@ -116,15 +116,25 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.extend(
                             property_to_expr(property, self.team) for property in self.query.fixedProperties
                         )
-                if self.query.event:
+                all_events: list[str] = [e for e in [self.query.event, *(self.query.events or [])] if e is not None]
+                if all_events:
                     with self.timings.measure("event"):
-                        where_exprs.append(
-                            parse_expr(
-                                "event = {event}",
-                                {"event": ast.Constant(value=self.query.event)},
-                                timings=self.timings,
+                        if len(all_events) == 1:
+                            where_exprs.append(
+                                parse_expr(
+                                    "event = {event}",
+                                    {"event": ast.Constant(value=all_events[0])},
+                                    timings=self.timings,
+                                )
                             )
-                        )
+                        else:
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.In,
+                                    left=ast.Field(chain=["event"]),
+                                    right=ast.Tuple(exprs=[ast.Constant(value=e) for e in all_events]),
+                                )
+                            )
                 if self.query.actionId:
                     with self.timings.measure("action_id"):
                         try:

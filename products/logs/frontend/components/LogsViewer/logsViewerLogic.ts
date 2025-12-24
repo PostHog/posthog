@@ -95,6 +95,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         copySelectedLogs: true,
         exportSelectedAsJson: true,
         exportSelectedAsCsv: true,
+
+        // Per-row prettify
+        togglePrettifyLog: (logId: string) => ({ logId }),
     }),
 
     reducers(({ props }) => ({
@@ -230,6 +233,22 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setLogs: () => ({}), // Clear selection when logs change
             },
         ],
+
+        prettifiedLogIds: [
+            new Set<string>(),
+            {
+                togglePrettifyLog: (state, { logId }) => {
+                    const next = new Set(state)
+                    if (next.has(logId)) {
+                        next.delete(logId)
+                    } else {
+                        next.add(logId)
+                    }
+                    return next
+                },
+                setLogs: () => new Set<string>(),
+            },
+        ],
     })),
 
     propsChanged(({ actions, props }, oldProps) => {
@@ -319,6 +338,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 }
             }
 
+            actions.recomputeRowHeights([logId])
+        },
+        togglePrettifyLog: ({ logId }) => {
             actions.recomputeRowHeights([logId])
         },
         moveCursorDown: ({ shiftSelect }) => {

@@ -70,6 +70,9 @@ export const LogsViewerToolbar = ({
                     <KeyboardShortcut enter />
                     expand
                     <span className="mx-1">·</span>
+                    <KeyboardShortcut p />
+                    prettify
+                    <span className="mx-1">·</span>
                     <KeyboardShortcut r />
                     refresh
                 </span>

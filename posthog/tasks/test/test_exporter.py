@@ -3,12 +3,31 @@ from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
+from posthog.tasks.exporter import export_asset_direct, is_user_query_error_type
 from posthog.tasks.exports.image_exporter import get_driver
+
+
+class TestIsUserQueryErrorType(TestCase):
+    @parameterized.expand(
+        [
+            ("QueryError", True),
+            ("SyntaxError", True),
+            ("TimeoutError", False),
+            ("ValueError", False),
+            (None, False),
+            ("", False),
+        ]
+    )
+    def test_is_user_query_error_type(self, exception_type: str | None, expected: bool) -> None:
+        assert is_user_query_error_type(exception_type) == expected
 
 
 class MockWebDriver(MagicMock):
@@ -60,3 +79,16 @@ class TestExporterTask(APIBaseTest):
 
         if driver:
             driver.close()
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
+        from posthog.hogql.errors import QueryError
+
+        mock_export.side_effect = QueryError("Unknown table 'foo'")
+
+        asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
+        export_asset_direct(asset)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Unknown table 'foo'"
+        assert asset.exception_type == "QueryError"

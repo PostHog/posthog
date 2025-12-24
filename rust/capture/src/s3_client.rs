@@ -49,11 +49,20 @@ pub struct S3Config {
 
 impl S3Client {
     /// Create a new S3 client from configuration.
+    ///
+    /// Uses the default AWS credential chain (IRSA, env vars, instance profile, etc.)
+    /// unless explicit credentials are provided in the config.
     pub async fn new(config: S3Config) -> Self {
-        let region = Region::new(config.region);
+        let region = Region::new(config.region.clone());
 
-        let mut s3_config_builder = aws_sdk_s3::Config::builder()
-            .behavior_version(BehaviorVersion::latest())
+        // Load default AWS config to get credentials from the default chain
+        // (IRSA web identity, env vars, instance profile, etc.)
+        let aws_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(region.clone())
+            .load()
+            .await;
+
+        let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&aws_config)
             .region(region)
             .force_path_style(true); // Required for MinIO/localstack compatibility
 
@@ -61,6 +70,7 @@ impl S3Client {
             s3_config_builder = s3_config_builder.endpoint_url(endpoint);
         }
 
+        // Override with explicit credentials if provided (e.g., for local dev with MinIO)
         if let (Some(access_key), Some(secret_key)) =
             (&config.access_key_id, &config.secret_access_key)
         {
@@ -68,8 +78,7 @@ impl S3Client {
             s3_config_builder = s3_config_builder.credentials_provider(credentials);
         }
 
-        let s3_config = s3_config_builder.build();
-        let client = Client::from_conf(s3_config);
+        let client = Client::from_conf(s3_config_builder.build());
 
         info!(
             bucket = config.bucket,
