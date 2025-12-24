@@ -183,6 +183,13 @@ services:
             - '19000:19000'
             - '19001:19001'
 
+    objectstorage-azure:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage-azure
+        ports:
+            - '10000:10000'
+
     maildev:
         extends:
             file: docker-compose.base.yml
@@ -300,3 +307,4 @@ volumes:
     postgres-15-data:
     redpanda-data:
     seaweedfs-data:
+    azurite-data:

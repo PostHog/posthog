@@ -30,6 +30,7 @@ class BatchExportDestination(UUIDTModel):
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
         DATABRICKS = "Databricks"
+        AZURE_BLOB = "AzureBlob"
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
@@ -40,8 +41,8 @@ class BatchExportDestination(UUIDTModel):
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        # Databricks does not have any secret fields, as we use integrations to store credentials
-        "Databricks": set(),
+        "Databricks": set(),  # uses Integration model to store credentials
+        "AzureBlob": set(),  # uses Integration model to store credentials
         "HTTP": {"token"},
         "NoOp": set(),
         "Workflows": set(),
