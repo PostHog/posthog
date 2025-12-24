@@ -150,7 +150,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                         <>
                             <LemonButton
                                 onClick={() => {
-                                    router.actions.push(urls.endpointsUsage({ requestNameFilter: [record.name] }))
+                                    router.actions.push(urls.endpointsUsage({ endpointFilter: [record.name] }))
                                 }}
                                 fullWidth
                             >

@@ -14,8 +14,10 @@ from posthog.schema import EndpointLastExecutionTimesRequest, EventsNode, Trends
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 
 from products.endpoints.backend.models import Endpoint
 
@@ -25,6 +27,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        self.api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test API Key",
+            secure_value=hash_key_value(self.api_key),
+        )
         self.sample_hogql_query = {
             "explain": None,
             "filters": None,
@@ -528,11 +536,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        # Execute the endpoints to generate query_log entries
-        response1 = self.client.get(f"/api/environments/{self.team.id}/endpoints/test_query_1/run/")
+        # Execute the endpoints using API key to generate query_log entries with is_personal_api_key_request=true
+        response1 = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/test_query_1/run/",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+        )
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
 
-        response2 = self.client.get(f"/api/environments/{self.team.id}/endpoints/test_query_2/run/")
+        response2 = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/test_query_2/run/",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+        )
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
 
         # wait for the queries to end up in query_log :/

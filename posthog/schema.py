@@ -1154,6 +1154,51 @@ class EndpointLastExecutionTimesRequest(BaseModel):
     names: list[str]
 
 
+class EndpointsUsageBreakdown(StrEnum):
+    ENDPOINT = "Endpoint"
+    MATERIALIZATION_TYPE = "MaterializationType"
+    API_KEY = "ApiKey"
+    STATUS = "Status"
+
+
+class EndpointsUsageOrderByDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class EndpointsUsageOrderByField(StrEnum):
+    REQUESTS = "requests"
+    BYTES_READ = "bytes_read"
+    CPU_SECONDS = "cpu_seconds"
+    AVG_QUERY_DURATION_MS = "avg_query_duration_ms"
+    ERROR_RATE = "error_rate"
+
+
+class EndpointsUsageOverviewItemKey(StrEnum):
+    TOTAL_REQUESTS = "total_requests"
+    TOTAL_BYTES_READ = "total_bytes_read"
+    TOTAL_CPU_SECONDS = "total_cpu_seconds"
+    AVG_QUERY_DURATION_MS = "avg_query_duration_ms"
+    P95_QUERY_DURATION_MS = "p95_query_duration_ms"
+    ERROR_RATE = "error_rate"
+    MATERIALIZED_REQUESTS = "materialized_requests"
+    INLINE_REQUESTS = "inline_requests"
+
+
+class MaterializationType(Enum):
+    MATERIALIZED = "materialized"
+    INLINE = "inline"
+    NONE_TYPE_NONE = None
+
+
+class Metric(StrEnum):
+    BYTES_READ = "bytes_read"
+    CPU_SECONDS = "cpu_seconds"
+    REQUESTS = "requests"
+    QUERY_DURATION = "query_duration"
+    ERROR_RATE = "error_rate"
+
+
 class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
@@ -2492,6 +2537,9 @@ class NodeKind(StrEnum):
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
+    ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
+    ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
+    ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
 
 
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
@@ -2799,6 +2847,9 @@ class QueryLogTags(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    name: str | None = Field(
+        default=None, description="Name of the query, preferably unique. For example web_analytics_vitals"
+    )
     productKey: str | None = Field(
         default=None,
         description=(
@@ -2825,7 +2876,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4483,6 +4534,16 @@ class EmbeddingDistance(BaseModel):
     distance: float
     origin: EmbeddingRecord | None = None
     result: EmbeddingRecord
+
+
+class EndpointsUsageOverviewItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: float | None = None
+    key: EndpointsUsageOverviewItemKey
+    previous: float | None = None
+    value: float | None = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -7022,6 +7083,107 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
     )
 
 
+class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EndpointsUsageOverviewItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedEndpointsUsageTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list | None = None
+
+
+class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9166,6 +9328,33 @@ class Response25(BaseModel):
     )
 
 
+class Response26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list | None = None
+
+
 class DataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9345,6 +9534,77 @@ class EndpointRunRequest(BaseModel):
     )
     version: int | None = Field(
         default=None, description="Specific endpoint version to execute. If not provided, the latest version is used."
+    )
+
+
+class EndpointsUsageOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EndpointsUsageOverviewItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class EndpointsUsageTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list | None = None
+
+
+class EndpointsUsageTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
     )
 
 
@@ -11730,6 +11990,33 @@ class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list | None = None
+
+
+class QueryResponseAlternative65(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11749,7 +12036,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11772,7 +12059,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11794,7 +12081,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11816,7 +12103,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11843,7 +12130,7 @@ class QueryResponseAlternative70(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11870,7 +12157,7 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11893,7 +12180,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11915,7 +12202,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11937,7 +12224,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11959,7 +12246,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11981,7 +12268,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12007,7 +12294,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12029,7 +12316,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -12046,6 +12333,77 @@ class QueryResponseAlternative82(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[UsageMetric]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative84(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EndpointsUsageOverviewItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative85(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    timings: list[QueryTiming] | None = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list | None = None
+
+
+class QueryResponseAlternative86(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -13332,6 +13690,59 @@ class DocumentSimilarityQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class EndpointsUsageOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to previous period")
+    dateRange: DateRange | None = None
+    endpointNames: list[str] | None = Field(default=None, description="Filter to specific endpoints by name")
+    kind: Literal["EndpointsUsageOverviewQuery"] = "EndpointsUsageOverviewQuery"
+    materializationType: MaterializationType | None = Field(default=None, description="Filter by materialization type")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: EndpointsUsageOverviewQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EndpointsUsageTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: EndpointsUsageBreakdown
+    dateRange: DateRange | None = None
+    endpointNames: list[str] | None = Field(default=None, description="Filter to specific endpoints by name")
+    kind: Literal["EndpointsUsageTableQuery"] = "EndpointsUsageTableQuery"
+    limit: int | None = None
+    materializationType: MaterializationType | None = Field(default=None, description="Filter by materialization type")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: list[EndpointsUsageOrderByField | EndpointsUsageOrderByDirection] | None = None
+    response: EndpointsUsageTableQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EndpointsUsageTrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: EndpointsUsageBreakdown | None = Field(
+        default=None, description="Optional breakdown for stacked charts"
+    )
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to previous period")
+    dateRange: DateRange | None = None
+    endpointNames: list[str] | None = Field(default=None, description="Filter to specific endpoints by name")
+    interval: IntervalType | None = Field(default=None, description="Time interval")
+    kind: Literal["EndpointsUsageTrendsQuery"] = "EndpointsUsageTrendsQuery"
+    materializationType: MaterializationType | None = Field(default=None, description="Filter by materialization type")
+    metric: Metric = Field(..., description="Metric to trend")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: EndpointsUsageTrendsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ErrorTrackingBreakdownsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13874,7 +14285,7 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15697,7 +16108,7 @@ class ProductAnalyticsInsightQueryNode(
     root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15780,7 +16191,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative66
         | QueryResponseAlternative67
         | QueryResponseAlternative68
-        | QueryResponseAlternative70
+        | QueryResponseAlternative69
         | QueryResponseAlternative71
         | QueryResponseAlternative72
         | QueryResponseAlternative73
@@ -15790,8 +16201,12 @@ class QueryResponseAlternative(
         | QueryResponseAlternative77
         | QueryResponseAlternative78
         | QueryResponseAlternative79
-        | QueryResponseAlternative81
+        | QueryResponseAlternative80
         | QueryResponseAlternative82
+        | QueryResponseAlternative83
+        | QueryResponseAlternative84
+        | QueryResponseAlternative85
+        | QueryResponseAlternative86
     ]
 ):
     root: (
@@ -15858,7 +16273,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative66
         | QueryResponseAlternative67
         | QueryResponseAlternative68
-        | QueryResponseAlternative70
+        | QueryResponseAlternative69
         | QueryResponseAlternative71
         | QueryResponseAlternative72
         | QueryResponseAlternative73
@@ -15868,8 +16283,12 @@ class QueryResponseAlternative(
         | QueryResponseAlternative77
         | QueryResponseAlternative78
         | QueryResponseAlternative79
-        | QueryResponseAlternative81
+        | QueryResponseAlternative80
         | QueryResponseAlternative82
+        | QueryResponseAlternative83
+        | QueryResponseAlternative84
+        | QueryResponseAlternative85
+        | QueryResponseAlternative86
     )
 
 
@@ -16384,6 +16803,7 @@ class DataTableNode(BaseModel):
         | Response23
         | Response24
         | Response25
+        | Response26
         | None
     ) = None
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -16456,6 +16876,7 @@ class DataTableNode(BaseModel):
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | EndpointsUsageTableQuery
     ) = Field(..., description="Source of the events")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -16535,6 +16956,9 @@ class HogQLAutocomplete(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
         | None
     ) = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -16604,6 +17028,9 @@ class HogQLMetadata(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
         | None
     ) = Field(
         default=None,
@@ -16716,6 +17143,9 @@ class MaxInsightContext(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
@@ -16815,6 +17245,9 @@ class QueryRequest(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     ) = Field(
         ...,
         description=(
@@ -16911,6 +17344,9 @@ class QuerySchemaRoot(
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     ]
 ):
     root: (
@@ -16981,6 +17417,9 @@ class QuerySchemaRoot(
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -17056,6 +17495,9 @@ class QueryUpgradeRequest(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -17131,6 +17573,9 @@ class QueryUpgradeResponse(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     ) = Field(..., discriminator="kind")
 
 
@@ -17329,6 +17774,9 @@ class VisualizationArtifactContent(BaseModel):
         | TraceQuery
         | VectorSearchQuery
         | UsageMetricsQuery
+        | EndpointsUsageOverviewQuery
+        | EndpointsUsageTableQuery
+        | EndpointsUsageTrendsQuery
     )
 
 

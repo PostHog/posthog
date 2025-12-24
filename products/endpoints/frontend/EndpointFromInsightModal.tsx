@@ -15,7 +15,7 @@ import { HogQLQuery, InsightQueryNode } from '~/queries/schema/schema-general'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
-export interface EndpointModalProps {
+export interface EndpointFromInsightModalProps {
     isOpen: boolean
     closeModal: () => void
     tabId: string
@@ -23,13 +23,13 @@ export interface EndpointModalProps {
     insightShortId?: string
 }
 
-export function EndpointModal({
+export function EndpointFromInsightModal({
     isOpen,
     closeModal,
     tabId,
     insightQuery,
     insightShortId,
-}: EndpointModalProps): JSX.Element {
+}: EndpointFromInsightModalProps): JSX.Element {
     const {
         createEndpoint,
         updateEndpoint,
