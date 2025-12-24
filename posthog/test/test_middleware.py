@@ -818,6 +818,31 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.first_name == "Updated"
 
+    def test_impersonation_allows_set_current_organization(self):
+        """Verify impersonation allows PATCH with only set_current_organization."""
+        self.login_as_other_user()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"set_current_organization": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+
+    def test_impersonation_blocks_set_current_organization_with_other_fields(self):
+        """Verify impersonation blocks PATCH with set_current_organization plus other fields."""
+        self.login_as_other_user()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            data={"set_current_organization": str(self.organization.id), "first_name": "Hacked"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_path_blocked"
+
 
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):

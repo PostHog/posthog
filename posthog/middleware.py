@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 from collections.abc import Callable
@@ -956,6 +957,9 @@ class ImpersonationBlockedPathsMiddleware:
         if not self._is_path_blocked(request.path):
             return self.get_response(request)
 
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
         return JsonResponse(
             {
                 "type": "authentication_error",
@@ -967,6 +971,24 @@ class ImpersonationBlockedPathsMiddleware:
 
     def _is_path_blocked(self, path: str) -> bool:
         return any(path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
 
 
 def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
