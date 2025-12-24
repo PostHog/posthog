@@ -96,9 +96,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user
-RUN groupadd -g 1000 posthog 2>/dev/null || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
-    useradd -r -g posthog posthog && \
-    chown posthog:posthog /code
+RUN groupadd -r posthog && useradd -r -g posthog posthog && \
+    chown -R posthog:posthog /code
 USER posthog
 
 # Add the commit hash
