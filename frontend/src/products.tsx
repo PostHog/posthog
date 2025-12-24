@@ -1302,6 +1302,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Comments'],
     },
     {
+        path: 'Core events',
+        category: 'Schema',
+        iconType: 'event_definition' as FileSystemIconType,
+        href: urls.coreEvents(),
+        flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
+        sceneKeys: [],
+    },
+    {
         path: 'Data pipelines',
         category: 'Tools',
         type: 'hog_function',
