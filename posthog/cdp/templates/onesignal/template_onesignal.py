@@ -30,7 +30,7 @@ let res := fetch(f'https://api.onesignal.com/apps/{inputs.appId}/custom_events',
   'headers': {
     'Authorization': f'Key {inputs.apiKey}',
     'Content-Type': 'application/json',
-    'OneSignal-Usage:' 'PostHog | Partner Integration'
+    'OneSignal-Usage': 'PostHog | Partner Integration'
   },
   'body': {'events':[payload]}
 })
