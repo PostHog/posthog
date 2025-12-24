@@ -96,7 +96,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user
-RUN groupadd -g 1000 posthog && useradd -u 1000 -g posthog posthog && \
+RUN groupadd -g 1000 posthog || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
+    useradd -u 1000 -g posthog posthog || usermod -l posthog -d /code -g posthog $(getent passwd 1000 | cut -d: -f1) && \
     chown -R posthog:posthog /code
 USER posthog
 
