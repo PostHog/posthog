@@ -1,5 +1,6 @@
 pub mod authentication;
 pub mod billing;
+pub mod canonical_log;
 pub mod config_response_builder;
 pub mod cookieless;
 pub mod decoding;
@@ -10,6 +11,7 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
+pub use canonical_log::{CanonicalLogGuard, CanonicalLogLine};
 pub use types::*;
 
 use crate::{
@@ -18,7 +20,7 @@ use crate::{
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
 use std::collections::HashMap;
-use tracing::{info, instrument, warn};
+use tracing::{instrument, warn};
 
 #[cfg(test)]
 use crate::handler::test_metrics::{histogram, inc};
@@ -32,16 +34,19 @@ use common_metrics::{histogram, inc};
 /// 2) Fetches the team and feature flags,
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
-/// 5) Returns a [`FlagsResponse`] or an error.
+/// 5) Returns a [`FlagsResponse`] or an error, along with canonical log data.
 #[instrument(skip_all, fields(request_id = %context.request_id))]
-pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
+pub async fn process_request(
+    context: RequestContext,
+    mut canonical_log: CanonicalLogLine,
+) -> (Result<FlagsResponse, FlagError>, CanonicalLogLine) {
     let start_time = std::time::Instant::now();
-    let (result, metrics_data) = process_request_inner(context).await;
+    let (result, metrics_data) = process_request_inner(context, &mut canonical_log).await;
     let total_duration = start_time.elapsed();
 
     record_metrics(&result, metrics_data, total_duration);
 
-    result
+    (result, canonical_log)
 }
 
 struct MetricsData {
@@ -85,6 +90,7 @@ fn record_metrics(
 
 async fn process_request_inner(
     context: RequestContext,
+    canonical_log: &mut CanonicalLogLine,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
     let mut metrics_data = MetricsData {
         team_id: None,
@@ -108,6 +114,9 @@ async fn process_request_inner(
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
+        // Populate canonical log with distinct_id
+        canonical_log.distinct_id = Some(distinct_id_for_logging.clone());
+
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
             distinct_id_for_logging
@@ -120,15 +129,20 @@ async fn process_request_inner(
         metrics_data.team_id = Some(team.id);
         metrics_data.flags_disabled = Some(request.is_flags_disabled());
 
+        // Populate canonical log with team_id
+        canonical_log.team_id = Some(team.id);
+
         tracing::debug!("Team fetched: team_id={}", team.id);
 
         // Early exit if flags are disabled
         let flags_response = if request.is_flags_disabled() {
+            canonical_log.flags_disabled = true;
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
         } else if let Some(quota_limited_response) =
             billing::check_limits(&context, &verified_token).await?
         {
             warn!("Request quota limited");
+            canonical_log.quota_limited = true;
             quota_limited_response
         } else {
             let distinct_id = cookieless::handle_distinct_id(
@@ -186,16 +200,12 @@ async fn process_request_inner(
         let response =
             config_response_builder::build_response(flags_response, &context, &team).await?;
 
-        // Comprehensive request summary
-        info!(
-            request_id = %context.request_id,
-            distinct_id = %distinct_id_for_logging,
-            team_id = team.id,
-            flags_count = response.flags.len(),
-            flags_disabled = request.is_flags_disabled(),
-            quota_limited = response.quota_limited.is_some(),
-            "Request completed"
-        );
+        // Populate canonical log with flag evaluation results
+        canonical_log.flags_evaluated = Some(response.flags.len());
+        canonical_log.flags_enabled = Some(response.flags.values().filter(|f| f.enabled).count());
+        if response.quota_limited.is_some() {
+            canonical_log.quota_limited = true;
+        }
 
         Ok(response)
     }

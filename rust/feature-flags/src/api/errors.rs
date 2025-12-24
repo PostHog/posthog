@@ -108,6 +108,87 @@ pub enum FlagError {
 }
 
 impl FlagError {
+    /// Returns a short error code for canonical logging.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => "bad_request",
+            FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => "unauthorized",
+            FlagError::ClientFacing(ClientFacingError::RateLimited) => "rate_limited",
+            FlagError::ClientFacing(ClientFacingError::BillingLimit) => "billing_limit",
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => "service_unavailable",
+            FlagError::Internal(_) => "internal_error",
+            FlagError::RequestDecodingError(_) => "request_decoding_error",
+            FlagError::RequestParsingError(_) => "request_parsing_error",
+            FlagError::MissingDistinctId => "missing_distinct_id",
+            FlagError::NoTokenError => "missing_token",
+            FlagError::TokenValidationError => "invalid_token",
+            FlagError::PersonalApiKeyInvalid(_) => "personal_api_key_invalid",
+            FlagError::SecretApiTokenInvalid => "secret_api_token_invalid",
+            FlagError::NoAuthenticationProvided => "no_authentication",
+            FlagError::RowNotFound => "row_not_found",
+            FlagError::RedisDataParsingError => "redis_parsing_error",
+            FlagError::DeserializeFiltersError => "deserialize_filters_error",
+            FlagError::CacheUpdateError => "cache_update_error",
+            FlagError::RedisUnavailable => "redis_unavailable",
+            FlagError::DatabaseUnavailable => "database_unavailable",
+            FlagError::DatabaseError(_, _) => "database_error",
+            FlagError::TimeoutError(_) => "timeout",
+            FlagError::NoGroupTypeMappings => "no_group_type_mappings",
+            FlagError::DependencyNotFound(_, _) => "dependency_not_found",
+            FlagError::CohortFiltersParsingError => "cohort_filters_parsing_error",
+            FlagError::DependencyCycle(_, _) => "dependency_cycle",
+            FlagError::PersonNotFound => "person_not_found",
+            FlagError::PropertiesNotInCache => "properties_not_in_cache",
+            FlagError::StaticCohortMatchesNotCached => "static_cohort_not_cached",
+            FlagError::CacheMiss => "cache_miss",
+            FlagError::DataParsingError => "data_parsing_error",
+            FlagError::CookielessError(_) => "cookieless_error",
+        }
+    }
+
+    /// Returns the HTTP status code for this error.
+    pub fn status_code(&self) -> u16 {
+        match self {
+            FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => 400,
+            FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => 401,
+            FlagError::ClientFacing(ClientFacingError::RateLimited) => 429,
+            FlagError::ClientFacing(ClientFacingError::BillingLimit) => 402,
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => 503,
+            FlagError::RequestDecodingError(_)
+            | FlagError::RequestParsingError(_)
+            | FlagError::MissingDistinctId
+            | FlagError::PersonNotFound
+            | FlagError::PropertiesNotInCache
+            | FlagError::StaticCohortMatchesNotCached => 400,
+            FlagError::NoTokenError
+            | FlagError::TokenValidationError
+            | FlagError::PersonalApiKeyInvalid(_)
+            | FlagError::SecretApiTokenInvalid
+            | FlagError::NoAuthenticationProvided => 401,
+            FlagError::RedisDataParsingError
+            | FlagError::RedisUnavailable
+            | FlagError::DatabaseUnavailable
+            | FlagError::TimeoutError(_)
+            | FlagError::CacheMiss => 503,
+            FlagError::Internal(_)
+            | FlagError::CacheUpdateError
+            | FlagError::DeserializeFiltersError
+            | FlagError::DatabaseError(_, _)
+            | FlagError::NoGroupTypeMappings
+            | FlagError::RowNotFound
+            | FlagError::DependencyNotFound(_, _)
+            | FlagError::CohortFiltersParsingError
+            | FlagError::DependencyCycle(_, _)
+            | FlagError::DataParsingError => 500,
+            FlagError::CookielessError(err) => match err {
+                CookielessManagerError::MissingProperty(_)
+                | CookielessManagerError::UrlParseError(_)
+                | CookielessManagerError::InvalidTimestamp(_) => 400,
+                _ => 500,
+            },
+        }
+    }
+
     pub fn is_5xx(&self) -> bool {
         let status = match self {
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
@@ -122,12 +203,14 @@ impl FlagError {
             | FlagError::RowNotFound
             | FlagError::DependencyNotFound(_, _)
             | FlagError::CohortFiltersParsingError
-            | FlagError::DependencyCycle(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+            | FlagError::DependencyCycle(_, _)
+            | FlagError::DataParsingError => StatusCode::INTERNAL_SERVER_ERROR,
 
             FlagError::RedisDataParsingError
             | FlagError::RedisUnavailable
             | FlagError::DatabaseUnavailable
-            | FlagError::TimeoutError(_) => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::TimeoutError(_)
+            | FlagError::CacheMiss => StatusCode::SERVICE_UNAVAILABLE,
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -493,6 +576,195 @@ mod tests {
         let redis_timeout: FlagError = CustomRedisError::Timeout.into();
         assert!(
             matches!(redis_timeout, FlagError::TimeoutError(Some(ref timeout_type)) if timeout_type == "Redis timeout")
+        );
+    }
+
+    #[test]
+    fn test_error_codes_are_non_empty() {
+        // Verify all error codes are non-empty strings
+        let errors: Vec<FlagError> = vec![
+            FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())),
+            FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())),
+            FlagError::ClientFacing(ClientFacingError::RateLimited),
+            FlagError::ClientFacing(ClientFacingError::BillingLimit),
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
+            FlagError::Internal("test".to_string()),
+            FlagError::RequestDecodingError("test".to_string()),
+            serde_json::from_str::<String>("invalid json")
+                .unwrap_err()
+                .into(), // RequestParsingError
+            FlagError::MissingDistinctId,
+            FlagError::NoTokenError,
+            FlagError::TokenValidationError,
+            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::SecretApiTokenInvalid,
+            FlagError::NoAuthenticationProvided,
+            FlagError::RowNotFound,
+            FlagError::RedisDataParsingError,
+            FlagError::DeserializeFiltersError,
+            FlagError::CacheUpdateError,
+            FlagError::RedisUnavailable,
+            FlagError::DatabaseUnavailable,
+            FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
+            FlagError::TimeoutError(None),
+            FlagError::NoGroupTypeMappings,
+            FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            FlagError::DependencyCycle(DependencyType::Cohort, 2),
+            FlagError::CohortFiltersParsingError,
+            FlagError::PersonNotFound,
+            FlagError::PropertiesNotInCache,
+            FlagError::StaticCohortMatchesNotCached,
+            FlagError::CacheMiss,
+            FlagError::DataParsingError,
+            CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
+        ];
+
+        for error in errors {
+            let code = error.error_code();
+            assert!(
+                !code.is_empty(),
+                "Error code should not be empty for {error:?}"
+            );
+            assert!(
+                !code.contains(' '),
+                "Error code should not contain spaces: {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_status_codes_match_http_semantics() {
+        // 4xx errors (client errors)
+        assert_eq!(
+            FlagError::ClientFacing(ClientFacingError::BadRequest("".into())).status_code(),
+            400
+        );
+        assert_eq!(
+            FlagError::ClientFacing(ClientFacingError::Unauthorized("".into())).status_code(),
+            401
+        );
+        assert_eq!(
+            FlagError::ClientFacing(ClientFacingError::BillingLimit).status_code(),
+            402
+        );
+        assert_eq!(
+            FlagError::ClientFacing(ClientFacingError::RateLimited).status_code(),
+            429
+        );
+        assert_eq!(FlagError::MissingDistinctId.status_code(), 400);
+        assert_eq!(FlagError::NoTokenError.status_code(), 401);
+        assert_eq!(FlagError::TokenValidationError.status_code(), 401);
+        assert_eq!(FlagError::PersonNotFound.status_code(), 400);
+
+        // 5xx errors (server errors)
+        assert_eq!(FlagError::Internal("".into()).status_code(), 500);
+        assert_eq!(FlagError::DatabaseUnavailable.status_code(), 503);
+        assert_eq!(FlagError::RedisUnavailable.status_code(), 503);
+        assert_eq!(FlagError::TimeoutError(None).status_code(), 503);
+        assert_eq!(
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).status_code(),
+            503
+        );
+        assert_eq!(FlagError::CacheUpdateError.status_code(), 500);
+        assert_eq!(FlagError::RowNotFound.status_code(), 500);
+    }
+
+    #[test]
+    fn test_status_code_ranges() {
+        // All client-facing errors except ServiceUnavailable should be 4xx
+        let client_4xx_errors = vec![
+            FlagError::ClientFacing(ClientFacingError::BadRequest("".into())),
+            FlagError::ClientFacing(ClientFacingError::Unauthorized("".into())),
+            FlagError::ClientFacing(ClientFacingError::RateLimited),
+            FlagError::ClientFacing(ClientFacingError::BillingLimit),
+        ];
+        for error in client_4xx_errors {
+            let status = error.status_code();
+            assert!(
+                (400..500).contains(&status),
+                "Expected 4xx for {error:?}, got {status}"
+            );
+        }
+
+        // Server errors should be 5xx
+        let server_errors = vec![
+            FlagError::Internal("".into()),
+            FlagError::CacheUpdateError,
+            FlagError::DeserializeFiltersError,
+            FlagError::NoGroupTypeMappings,
+            FlagError::RowNotFound,
+            FlagError::CohortFiltersParsingError,
+            FlagError::DataParsingError,
+        ];
+        for error in server_errors {
+            let status = error.status_code();
+            assert!(status >= 500, "Expected 5xx for {error:?}, got {status}");
+        }
+    }
+
+    #[test]
+    fn test_error_code_consistency_with_is_5xx() {
+        // Verify that status_code() >= 500 matches is_5xx() for ALL 5xx errors
+        let errors_5xx = vec![
+            FlagError::Internal("test".to_string()),
+            FlagError::CacheUpdateError,
+            FlagError::DeserializeFiltersError,
+            FlagError::DatabaseError(sqlx::Error::RowNotFound, None),
+            FlagError::NoGroupTypeMappings,
+            FlagError::RowNotFound,
+            FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            FlagError::CohortFiltersParsingError,
+            FlagError::DependencyCycle(DependencyType::Cohort, 2),
+            FlagError::DataParsingError,
+            FlagError::RedisDataParsingError,
+            FlagError::RedisUnavailable,
+            FlagError::DatabaseUnavailable,
+            FlagError::TimeoutError(None),
+            FlagError::CacheMiss,
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
+        ];
+
+        for error in errors_5xx {
+            let is_5xx = error.is_5xx();
+            let status = error.status_code();
+            assert!(
+                is_5xx,
+                "is_5xx() should be true for {error:?} (status={status})"
+            );
+            assert!(
+                status >= 500,
+                "status_code() should be >= 500 for {error:?}, got {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_specific_error_codes() {
+        // Verify specific error codes match expected values
+        assert_eq!(
+            FlagError::ClientFacing(ClientFacingError::RateLimited).error_code(),
+            "rate_limited"
+        );
+        assert_eq!(FlagError::NoTokenError.error_code(), "missing_token");
+        assert_eq!(
+            FlagError::TokenValidationError.error_code(),
+            "invalid_token"
+        );
+        assert_eq!(
+            FlagError::MissingDistinctId.error_code(),
+            "missing_distinct_id"
+        );
+        assert_eq!(
+            FlagError::TimeoutError(Some("pool".to_string())).error_code(),
+            "timeout"
+        );
+        assert_eq!(
+            FlagError::DatabaseUnavailable.error_code(),
+            "database_unavailable"
+        );
+        assert_eq!(
+            FlagError::RedisUnavailable.error_code(),
+            "redis_unavailable"
         );
     }
 }
