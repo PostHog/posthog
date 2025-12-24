@@ -248,9 +248,6 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 pk__in=[entity.id for entity in filter.actions], team__project_id=team.project_id
             )
 
-        if filter.formula:
-            return handle_compare(filter, self._run_formula_query, team)
-
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
                 try:
