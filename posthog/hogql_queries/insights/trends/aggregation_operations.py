@@ -181,6 +181,26 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return ast.Call(name="avg", args=[field])
         return ast.Call(name="sum", args=[field])
 
+    def get_array_fold_merge_operation(self) -> str:
+        """
+        Returns the ClickHouse expression for combining two values in an arrayFold operation
+        when rolling up "Other" breakdown values.
+
+        Used in arrayFold like: arrayMap(i -> {operation}, range(...))
+        where acc[i] and x[i] are the two values to combine.
+        """
+        if self.series.math == "max":
+            return "greatest(acc[i], x[i])"
+        elif self.series.math == "min":
+            return "least(acc[i], x[i])"
+        elif self.series.math == "avg":
+            # For avg, we'd need to track counts separately, so we fall back to sum for now
+            # This is a known limitation - averaging averages is not statistically sound anyway
+            return "acc[i] + x[i]"
+        else:
+            # Default to sum for count, total, sum, etc.
+            return "acc[i] + x[i]"
+
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
@@ -216,9 +236,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             event_currency = (
                 ast.Constant(value=self.series.math_property_revenue_currency.static.value)
                 if self.series.math_property_revenue_currency.static is not None
-                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
-                if self.series.math_property_revenue_currency.property is not None
-                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                else (
+                    ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                    if self.series.math_property_revenue_currency.property is not None
+                    else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                )
             )
             base_currency = (
                 ast.Constant(value=self.team.base_currency)
