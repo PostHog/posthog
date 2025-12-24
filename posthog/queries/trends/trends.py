@@ -25,13 +25,12 @@ from posthog.models.team import Team
 from posthog.queries.base import handle_compare
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.trends.breakdown import TrendsBreakdown
-from posthog.queries.trends.formula import TrendsFormula
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.total_volume import TrendsTotalVolume
 from posthog.utils import generate_cache_key, get_safe_cache
 
 
-class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
+class Trends(TrendsTotalVolume, Lifecycle):
     def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> tuple[str, str, dict, Callable]:
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
