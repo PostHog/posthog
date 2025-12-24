@@ -18,6 +18,7 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentTrendsQuery,
+    InsightVizNode,
     NodeKind,
     TrendsQuery,
     isExperimentFunnelMetric,
@@ -40,6 +41,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     type QueryBasedInsightModel,
+    StepOrderValue,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -919,4 +921,78 @@ export function getOrderedMetricsWithResults(
             error: errorsMap.get(metric.uuid),
             displayIndex: index,
         }))
+}
+
+function getFunnelWindowDetails(
+    experiment: Experiment,
+    metric: ExperimentMetric
+): {
+    interval: number
+    unit: FunnelConversionWindowTimeUnit
+} | null {
+    if (metric.conversion_window == null || metric.conversion_window_unit == null) {
+        const startDate = experiment.start_date != null ? dayjs(experiment.start_date) : null
+        const endDate = experiment.end_date != null ? dayjs(experiment.end_date) : dayjs()
+        if (startDate == null) {
+            return null
+        }
+        // If diff is 0 we should set it to at least 1
+        const interval = endDate.diff(startDate, 'day') > 0 ? endDate.diff(startDate, 'day') : 1
+        return {
+            interval: interval,
+            unit: FunnelConversionWindowTimeUnit.Day,
+        }
+    }
+
+    return {
+        interval: metric.conversion_window,
+        unit: metric.conversion_window_unit,
+    }
+}
+
+export function getInsightVizNodeQuery(
+    experiment: Experiment,
+    metric: ExperimentMetric,
+    variantKey: string
+): InsightVizNode | null {
+    const exposureEventNode: EventsNode = {
+        kind: NodeKind.EventsNode,
+        event: '$feature_flag_called',
+        properties: [
+            {
+                type: PropertyFilterType.Event,
+                key: `$feature/${experiment.feature_flag_key}`,
+                operator: PropertyOperator.Exact,
+                value: [variantKey],
+            },
+        ],
+    }
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig != null) {
+        if (exposureConfig.kind === NodeKind.ExperimentEventExposureConfig) {
+            exposureEventNode.event = exposureConfig.event
+        }
+    }
+    switch (metric.metric_type) {
+        case ExperimentMetricType.FUNNEL:
+            const funnelWindowDetails = getFunnelWindowDetails(experiment, metric)
+            return {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [exposureEventNode, ...metric.series],
+                    breakdownFilter: metric.breakdownFilter,
+                    funnelsFilter: {
+                        funnelOrderType: metric.funnel_order_type ?? StepOrderValue.ORDERED,
+                        funnelWindowInterval: funnelWindowDetails?.interval,
+                        funnelWindowIntervalUnit: funnelWindowDetails?.unit,
+                    },
+                    dateRange: {
+                        date_from: experiment.start_date,
+                        date_to: experiment.end_date,
+                    },
+                },
+            }
+    }
+    return null
 }

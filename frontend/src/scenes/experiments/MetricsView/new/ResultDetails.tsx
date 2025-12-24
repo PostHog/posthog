@@ -9,6 +9,7 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { ExperimentMetricExploreInsightButton } from 'scenes/experiments/Metrics/ExperimentMetricExploreInsightButton'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
@@ -262,20 +263,27 @@ export function ResultDetails({
                 }
 
                 return (
-                    <ViewRecordingsPlaylistButton
-                        filters={filterGroup}
-                        size="xsmall"
-                        type="secondary"
-                        tooltip="Watch recordings of people who were exposed to this variant."
-                        disabled={filters.length === 0}
-                        disabledReason={
-                            filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined
-                        }
-                        data-attr="experiment-metrics-view-recordings"
-                        onClick={() => {
-                            posthog.capture('viewed recordings from experiment', { variant: variantKey })
-                        }}
-                    />
+                    <div className="flex items-center gap-2">
+                        <ViewRecordingsPlaylistButton
+                            filters={filterGroup}
+                            size="xsmall"
+                            type="secondary"
+                            tooltip="Watch recordings of people who were exposed to this variant."
+                            disabled={filters.length === 0}
+                            disabledReason={
+                                filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined
+                            }
+                            data-attr="experiment-metrics-view-recordings"
+                            onClick={() => {
+                                posthog.capture('viewed recordings from experiment', { variant: variantKey })
+                            }}
+                        />
+                        <ExperimentMetricExploreInsightButton
+                            experiment={experiment}
+                            metric={metric}
+                            variantKey={variantKey}
+                        />
+                    </div>
                 )
             },
         },
