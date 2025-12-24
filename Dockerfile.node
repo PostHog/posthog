@@ -92,8 +92,12 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl3=3.0.17-1~deb12u2" \
+    "curl" \
+    "gettext-base" \
     && \
     rm -rf /var/lib/apt/lists/*
+# curl: Required by bin/plugin-server startup script to fetch EC2 metadata when INJECT_EC2_CLIENT_RACK is set
+# gettext-base: Provides envsubst command used by bin/plugin-server to substitute environment variables in Kafka client IDs
 
 # Install and use a non-root user
 RUN groupadd -g 1000 posthog || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
