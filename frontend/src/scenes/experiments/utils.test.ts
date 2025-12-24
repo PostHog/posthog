@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
@@ -1349,6 +1351,75 @@ describe('getInsightVizNodeQuery', () => {
                     dateRange: {
                         date_from: '2025-12-30T00:00:00Z',
                         date_to: '2025-12-31T00:00:00Z',
+                    },
+                },
+            }
+            expect(query).toEqual(expected)
+        })
+        it('experiment that has not ended and is using experiment duration for conversion window limit', () => {
+            const metric: ExperimentMetric = {
+                goal: ExperimentMetricGoal.Increase,
+                kind: NodeKind.ExperimentMetric,
+                name: 'metric name',
+                uuid: '05a751c8-ff4c-48d8-8832-c1e7b1797f0f',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                fingerprint: '28d2a48d5c214e0ff9e523c184811a6111eb179c7dfc62063bf277d454f5a5a5',
+                metric_type: ExperimentMetricType.FUNNEL,
+            }
+            const experiment = {
+                ...experimentJson,
+                metrics: [metric],
+                start_date: '2025-12-20T00:00:00Z',
+                metrics_secondary: [],
+                saved_metrics: [],
+                exposure_criteria: {
+                    exposure_config: {
+                        event: '$opt_in',
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment
+
+            const query = getInsightVizNodeQuery(experiment, metric, 'control')
+            const interval = dayjs().diff(dayjs(experiment.start_date), 'day')
+            const expected = {
+                kind: 'InsightVizNode',
+                source: {
+                    kind: 'FunnelsQuery',
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            event: '$opt_in',
+                            properties: [
+                                {
+                                    type: 'event',
+                                    key: '$feature/jan-16-running',
+                                    operator: 'exact',
+                                    value: ['control'],
+                                },
+                            ],
+                        },
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnelOrderType: 'ordered',
+                        funnelWindowInterval: interval,
+                        funnelWindowIntervalUnit: 'day',
+                    },
+                    dateRange: {
+                        date_from: '2025-12-20T00:00:00Z',
+                        date_to: null,
                     },
                 },
             }
