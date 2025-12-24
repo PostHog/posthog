@@ -27,7 +27,10 @@ from hogli.migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cached_migration,
     get_managed_app_names,
+    hidden_conflicting_migrations,
     is_valid_migration_path as validate_migration_path_components,
+    temporary_max_migration,
+    temporary_migration_file,
 )
 
 
@@ -132,8 +135,8 @@ def get_previous_migration(app_label: str, migration_name: str, connection) -> s
 def rollback_orphaned_migration(app_label: str, migration_name: str, previous: str, stdout) -> bool:
     """Roll back a single orphaned migration using its cached file.
 
-    Handles the case where there are conflicting migrations (same number prefix)
-    by temporarily hiding them during the rollback.
+    Uses context managers to ensure proper cleanup of temporary files,
+    hidden migrations, and max_migration.txt regardless of success or failure.
 
     Returns True on success, False on failure.
     """
@@ -147,95 +150,35 @@ def rollback_orphaned_migration(app_label: str, migration_name: str, previous: s
 
     target_path = migrations_dir / f"{migration_name}.py"
 
-    # Handle max_migration.txt for PostHog's migration check
-    max_migration_path = migrations_dir / "max_migration.txt"
-    original_max_migration = None
-
-    # Find conflicting migrations (same number prefix, different name)
-    # e.g., 0952_add_migration_test_field conflicts with 0952_add_sync_test_branch_two
-    migration_prefix = migration_name.split("_")[0]  # e.g., "0952"
-    hidden_migrations: list[tuple[Path, Path]] = []  # (original, hidden) pairs
-
     try:
-        # Find and temporarily hide conflicting migrations
-        for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
-            if migration_file.name != f"{migration_name}.py":
-                hidden_path = migration_file.with_suffix(".py.hidden")
-                migration_file.rename(hidden_path)
-                hidden_migrations.append((migration_file, hidden_path))
+        with (
+            hidden_conflicting_migrations(migrations_dir, migration_name),
+            temporary_migration_file(cache_path, target_path),
+            temporary_max_migration(migrations_dir, migration_name),
+        ):
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "manage.py",
+                    "migrate",
+                    app_label,
+                    previous,
+                    "--no-input",
+                    "--skip-orphan-check",
+                    "--skip-checks",
+                ],
+                cwd=settings.BASE_DIR,
+                env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
+                capture_output=True,
+                text=True,
+            )
 
-        # Copy cached file to migrations directory temporarily
-        shutil.copy2(cache_path, target_path)
+            if result.returncode != 0:
+                stdout.write(f"    Error: {result.stderr.strip()}")
+                return False
 
-        # Temporarily update max_migration.txt if it exists
-        if max_migration_path.exists():
-            original_max_migration = max_migration_path.read_text().strip()
-            max_migration_path.write_text(f"{migration_name}\n")
-
-        # Run Django migrate to roll back
-        result = subprocess.run(
-            [
-                sys.executable,
-                "manage.py",
-                "migrate",
-                app_label,
-                previous,
-                "--no-input",
-                "--skip-orphan-check",
-                "--skip-checks",
-            ],
-            cwd=settings.BASE_DIR,
-            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
-            capture_output=True,
-            text=True,
-        )
-
-        # Clean up the temporary file
-        target_path.unlink(missing_ok=True)
-
-        # Restore max_migration.txt
-        if original_max_migration is not None:
-            max_migration_path.write_text(f"{original_max_migration}\n")
-
-        # Restore hidden migrations
-        for original, hidden in hidden_migrations:
-            hidden.rename(original)
-
-        if result.returncode != 0:
-            stdout.write(f"    Error: {result.stderr.strip()}")
-            return False
-
-        return True
-
+            return True
     except Exception as e:
-        # Clean up on failure - wrap each cleanup in try/except to ensure all run.
-        # Log cleanup failures so they can be debugged if the filesystem ends up
-        # in an unexpected state (e.g., hidden migrations not restored).
-        try:
-            target_path.unlink(missing_ok=True)
-        except Exception as cleanup_err:
-            warnings.warn(
-                f"Cleanup failed: could not remove temporary file {target_path}: {cleanup_err}",
-                stacklevel=2,
-            )
-        try:
-            if original_max_migration is not None:
-                max_migration_path.write_text(f"{original_max_migration}\n")
-        except Exception as cleanup_err:
-            warnings.warn(
-                f"Cleanup failed: could not restore max_migration.txt: {cleanup_err}",
-                stacklevel=2,
-            )
-        # Restore hidden migrations
-        for original, hidden in hidden_migrations:
-            try:
-                if hidden.exists():
-                    hidden.rename(original)
-            except Exception as cleanup_err:
-                warnings.warn(
-                    f"Cleanup failed: could not restore hidden migration {original}: {cleanup_err}",
-                    stacklevel=2,
-                )
         stdout.write(f"    Error: {e}")
         return False
 
