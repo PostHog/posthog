@@ -15,12 +15,15 @@ import {
 import {
     AccessControlLevel,
     Experiment,
+    ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
+    FunnelConversionWindowTimeUnit,
     PropertyFilterType,
     PropertyOperator,
+    StepOrderValue,
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/shared/utils'
@@ -29,6 +32,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getInsightVizNodeQuery,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
     isLegacyExperiment,
@@ -1073,5 +1077,282 @@ describe('hasLegacyMetrics', () => {
         } as unknown as Experiment
 
         expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+})
+
+describe('getInsightVizNodeQuery', () => {
+    describe('funnel metric', () => {
+        it('default exposure criteria', () => {
+            const metric: ExperimentMetric = {
+                goal: ExperimentMetricGoal.Increase,
+                kind: NodeKind.ExperimentMetric,
+                name: 'metric name',
+                uuid: '05a751c8-ff4c-48d8-8832-c1e7b1797f0f',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                fingerprint: '28d2a48d5c214e0ff9e523c184811a6111eb179c7dfc62063bf277d454f5a5a5',
+                metric_type: ExperimentMetricType.FUNNEL,
+            }
+            const experiment = {
+                ...experimentJson,
+                metrics: [metric],
+                start_date: '2025-12-30T00:00:00Z',
+                end_date: '2025-12-31T00:00:00Z',
+                metrics_secondary: [],
+                saved_metrics: [],
+            } as unknown as Experiment
+
+            const query = getInsightVizNodeQuery(experiment, metric, 'control')
+            const expected = {
+                kind: 'InsightVizNode',
+                source: {
+                    kind: 'FunnelsQuery',
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            event: '$feature_flag_called',
+                            properties: [
+                                {
+                                    type: 'event',
+                                    key: '$feature/jan-16-running',
+                                    operator: 'exact',
+                                    value: ['control'],
+                                },
+                            ],
+                        },
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnelOrderType: 'ordered',
+                        funnelWindowInterval: 1,
+                        funnelWindowIntervalUnit: 'day',
+                    },
+                    dateRange: {
+                        date_from: '2025-12-30T00:00:00Z',
+                        date_to: '2025-12-31T00:00:00Z',
+                    },
+                },
+            }
+            expect(query).toEqual(expected)
+        })
+        it('custom event exposure criteria', () => {
+            const metric: ExperimentMetric = {
+                goal: ExperimentMetricGoal.Increase,
+                kind: NodeKind.ExperimentMetric,
+                name: 'metric name',
+                uuid: '05a751c8-ff4c-48d8-8832-c1e7b1797f0f',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                fingerprint: '28d2a48d5c214e0ff9e523c184811a6111eb179c7dfc62063bf277d454f5a5a5',
+                metric_type: ExperimentMetricType.FUNNEL,
+            }
+            const experiment = {
+                ...experimentJson,
+                metrics: [metric],
+                start_date: '2025-12-30T00:00:00Z',
+                end_date: '2025-12-31T00:00:00Z',
+                metrics_secondary: [],
+                saved_metrics: [],
+                exposure_criteria: {
+                    exposure_config: {
+                        event: '$opt_in',
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment
+
+            const query = getInsightVizNodeQuery(experiment, metric, 'control')
+            const expected = {
+                kind: 'InsightVizNode',
+                source: {
+                    kind: 'FunnelsQuery',
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            event: '$opt_in',
+                            properties: [
+                                {
+                                    type: 'event',
+                                    key: '$feature/jan-16-running',
+                                    operator: 'exact',
+                                    value: ['control'],
+                                },
+                            ],
+                        },
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnelOrderType: 'ordered',
+                        funnelWindowInterval: 1,
+                        funnelWindowIntervalUnit: 'day',
+                    },
+                    dateRange: {
+                        date_from: '2025-12-30T00:00:00Z',
+                        date_to: '2025-12-31T00:00:00Z',
+                    },
+                },
+            }
+            expect(query).toEqual(expected)
+        })
+        it('time window for conversion window limit', () => {
+            const metric: ExperimentMetric = {
+                goal: ExperimentMetricGoal.Increase,
+                kind: NodeKind.ExperimentMetric,
+                name: 'metric name',
+                uuid: '05a751c8-ff4c-48d8-8832-c1e7b1797f0f',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                fingerprint: '28d2a48d5c214e0ff9e523c184811a6111eb179c7dfc62063bf277d454f5a5a5',
+                metric_type: ExperimentMetricType.FUNNEL,
+                conversion_window: 12,
+                conversion_window_unit: FunnelConversionWindowTimeUnit.Hour,
+            }
+            const experiment = {
+                ...experimentJson,
+                metrics: [metric],
+                start_date: '2025-12-30T00:00:00Z',
+                end_date: '2025-12-31T00:00:00Z',
+                metrics_secondary: [],
+                saved_metrics: [],
+                exposure_criteria: {
+                    exposure_config: {
+                        event: '$opt_in',
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment
+
+            const query = getInsightVizNodeQuery(experiment, metric, 'control')
+            const expected = {
+                kind: 'InsightVizNode',
+                source: {
+                    kind: 'FunnelsQuery',
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            event: '$opt_in',
+                            properties: [
+                                {
+                                    type: 'event',
+                                    key: '$feature/jan-16-running',
+                                    operator: 'exact',
+                                    value: ['control'],
+                                },
+                            ],
+                        },
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnelOrderType: 'ordered',
+                        funnelWindowInterval: 12,
+                        funnelWindowIntervalUnit: 'hour',
+                    },
+                    dateRange: {
+                        date_from: '2025-12-30T00:00:00Z',
+                        date_to: '2025-12-31T00:00:00Z',
+                    },
+                },
+            }
+            expect(query).toEqual(expected)
+        })
+        it('any order for step order', () => {
+            const metric: ExperimentMetric = {
+                goal: ExperimentMetricGoal.Increase,
+                kind: NodeKind.ExperimentMetric,
+                name: 'metric name',
+                uuid: '05a751c8-ff4c-48d8-8832-c1e7b1797f0f',
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                fingerprint: '28d2a48d5c214e0ff9e523c184811a6111eb179c7dfc62063bf277d454f5a5a5',
+                metric_type: ExperimentMetricType.FUNNEL,
+                funnel_order_type: StepOrderValue.UNORDERED,
+            }
+            const experiment = {
+                ...experimentJson,
+                metrics: [metric],
+                start_date: '2025-12-30T00:00:00Z',
+                end_date: '2025-12-31T00:00:00Z',
+                metrics_secondary: [],
+                saved_metrics: [],
+                exposure_criteria: {
+                    exposure_config: {
+                        event: '$opt_in',
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment
+
+            const query = getInsightVizNodeQuery(experiment, metric, 'control')
+            const expected = {
+                kind: 'InsightVizNode',
+                source: {
+                    kind: 'FunnelsQuery',
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            event: '$opt_in',
+                            properties: [
+                                {
+                                    type: 'event',
+                                    key: '$feature/jan-16-running',
+                                    operator: 'exact',
+                                    value: ['control'],
+                                },
+                            ],
+                        },
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnelOrderType: StepOrderValue.UNORDERED,
+                        funnelWindowInterval: 1,
+                        funnelWindowIntervalUnit: 'day',
+                    },
+                    dateRange: {
+                        date_from: '2025-12-30T00:00:00Z',
+                        date_to: '2025-12-31T00:00:00Z',
+                    },
+                },
+            }
+            expect(query).toEqual(expected)
+        })
     })
 })
