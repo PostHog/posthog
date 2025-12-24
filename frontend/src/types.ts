@@ -41,7 +41,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
-    ConversionGoal,
+    CoreEvent,
     CurrencyCode,
     CustomerAnalyticsConfig,
     DashboardFilter,
@@ -565,10 +565,6 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
-export interface TeamExtraSettings extends Record<string, unknown> {
-    conversion_goals?: ConversionGoal[]
-}
-
 export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
@@ -658,7 +654,7 @@ export interface TeamType extends TeamBasicType {
      */
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
-    extra_settings?: TeamExtraSettings
+    extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
@@ -669,6 +665,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
+    core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null

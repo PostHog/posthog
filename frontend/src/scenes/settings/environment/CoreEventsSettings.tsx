@@ -19,7 +19,7 @@ import {
     EventsNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { ActionFilter, BaseMathType, FilterType, GroupMathType, PropertyMathType } from '~/types'
+import { ActionFilter, BaseMathType, DataWarehouseFilter, FilterType, GroupMathType, PropertyMathType } from '~/types'
 
 import { coreEventsLogic } from './coreEventsLogic'
 
@@ -76,9 +76,9 @@ function getFilterSummary(filter: EventsNode | ActionsNode | DataWarehouseNode):
 function actionFilterToNode(filters: FilterType): EventsNode | ActionsNode | DataWarehouseNode | null {
     const series = actionsAndEventsToSeries(
         {
-            actions: filters.actions,
-            events: filters.events,
-            data_warehouse: filters.data_warehouse,
+            actions: filters.actions as ActionFilter[] | undefined,
+            events: filters.events as ActionFilter[] | undefined,
+            data_warehouse: filters.data_warehouse as DataWarehouseFilter[] | undefined,
         },
         true,
         MathAvailability.All

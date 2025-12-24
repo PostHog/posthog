@@ -27,6 +27,7 @@ import {
 } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
+import { coreEventsConfigurationDescriber } from './core_events_config/coreEventsConfigurationDescriber'
 import { customerAnalyticsConfigurationDescriber } from './customer_analytics_config/customerAnalyticsConfigurationDescriber'
 import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
 import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
@@ -717,6 +718,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     customer_analytics_config: customerAnalyticsConfigurationDescriber,
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
+    core_events_config: coreEventsConfigurationDescriber,
 
     // should never come from the backend
     created_at: () => null,
