@@ -399,6 +399,15 @@ impl Client for RedisClient {
         let result = conn.scard(k).await?;
         Ok(result)
     }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<Option<i64>> = conn.mget(&keys).await?;
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
