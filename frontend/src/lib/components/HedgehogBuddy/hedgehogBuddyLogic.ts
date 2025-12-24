@@ -26,7 +26,7 @@ export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
 export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
     path(['hedgehog', 'hedgehogBuddyLogic']),
     actions({
-        setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
+        toggleHedgehogMode: true,
         addAccessory: (accessory: string) => ({ accessory }),
         removeAccessory: (accessory: string) => ({ accessory }),
         patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
@@ -128,12 +128,13 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setHedgehogModeEnabled: ({ enabled }) => {
-            actions.patchHedgehogConfig({
-                enabled,
-            })
+        toggleHedgehogMode: () => {
+            const newValue = !values.hedgehogModeEnabled
 
-            posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
+            actions.patchHedgehogConfig({
+                enabled: newValue,
+            })
+            posthog.capture(newValue ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
 
         addAccessory: ({ accessory }) => {
