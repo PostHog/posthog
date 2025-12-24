@@ -114,6 +114,13 @@ jobs:
             - name: Container image digest
               run: |
                   echo "Image digest: ${{ steps.build.outputs.digest }}"
+                  echo "Full image reference: ${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                  echo "## Container Image Built :rocket:" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
             - name: Report failure
               if: failure()
