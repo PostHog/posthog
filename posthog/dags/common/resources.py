@@ -101,4 +101,4 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
         asyncio.run(initialize_self_capture_api_token())
         posthoganalytics.personal_api_key = self.personal_api_key
 
-        yield
+        return None
