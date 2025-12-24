@@ -6017,11 +6017,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """
         Test that the "Other" breakdown correctly sums values across all breakdown values
         that didn't make the top list, rather than taking the maximum.
-
-        Related to bug report: https://posthog.slack.com/archives/...
-        When breaking down by a property with property value sum aggregation,
-        the "Other" bucket should sum all values from breakdown values that fall into "Other",
-        not take the maximum value.
         """
         PropertyDefinition.objects.create(team=self.team, name="category", property_type="String")
         PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
@@ -6254,12 +6249,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """
         Test that the "Other" breakdown with histogram bins correctly sums values,
         not takes the maximum.
-
-        This is related to the follow-up bug report where "Other" during breakdown with
-        histogram bins shows incorrect (likely max) aggregation instead of sum.
-
-        The original bug was that histogram bins themselves were taking max instead of sum.
-        The follow-up bug is that "Other" also has the same issue when combined with histogram bins.
         """
         PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
         PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
