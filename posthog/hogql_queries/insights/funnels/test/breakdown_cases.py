@@ -17,8 +17,6 @@ from posthog.test.base import (
 )
 from unittest import skip
 
-from parameterized import parameterized
-
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
@@ -2799,34 +2797,18 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 [people["person1"].uuid],
             )
 
-        @parameterized.expand(
-            [
-                ("event_prop", BreakdownType.EVENT, ["$browser"], "Chrome", "Firefox"),
-                ("person_prop", BreakdownType.PERSON, ["some_prop"], "val1", "val2"),
-                (
-                    "data_warehouse_prop",
-                    BreakdownType.DATA_WAREHOUSE,
-                    ["event_name"],
-                    "payment_succeeded",
-                    "payment_failed",
-                ),
-            ]
-        )
-        @snapshot_clickhouse_queries
-        def test_funnels_mixed_breakdown(self, _name, breakdown_type, breakdown, first_val, second_val):
+        def test_funnels_mixed_event_breakdown(self):
             table_name = self.setup_data_warehouse()
             with freeze_time("2025-11-07"):
                 _create_person(
                     distinct_ids=["person1"],
                     team_id=self.team.pk,
                     uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
-                    properties={"some_prop": "val1"},
                 )
                 _create_person(
                     distinct_ids=["person2"],
                     team_id=self.team.pk,
                     uuid="c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47",
-                    properties={"some_prop": "val2"},
                 )
                 people = journeys_for(
                     {
@@ -2863,8 +2845,8 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ),
                     ],
                     breakdownFilter=BreakdownFilter(
-                        breakdown_type=breakdown_type,
-                        breakdown=breakdown,
+                        breakdown_type=BreakdownType.EVENT,
+                        breakdown=["$browser"],
                     ),
                     funnelsFilter=FunnelsFilter(funnelOrderType=funnel_order_type),
                 )
@@ -2877,11 +2859,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self._assert_funnel_breakdown_result_is_correct(
                     results[breakdown_index],
                     [
-                        FunnelStepResult(name="$pageview", count=1, breakdown=[first_val]),
+                        FunnelStepResult(name="$pageview", count=1, breakdown=["Chrome"]),
                         FunnelStepResult(
                             name="posthog_test_test_table_1.user_id",
                             count=1,
-                            breakdown=[first_val],
+                            breakdown=["Chrome"],
                             type="data_warehouse",
                             action_id=None,
                             average_conversion_time=259200,
@@ -2891,11 +2873,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 )
 
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 1, first_val),
+                    self._get_actor_ids_at_step(funnels_query, 1, "Chrome"),
                     [people["person1"].uuid],
                 )
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 2, first_val),
+                    self._get_actor_ids_at_step(funnels_query, 2, "Chrome"),
                     [people["person1"].uuid],
                 )
 
@@ -2919,24 +2901,14 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ],
                     )
 
-                    if breakdown_type == "data_warehouse":
-                        expected_actor_ids = [
-                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
-                            UUID("c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47"),
-                        ]
-                    else:
-                        expected_actor_ids = [
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, ""),
+                        [
                             UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
                             UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
                             UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
                             UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
-                        ]
-
-                    self.assertCountEqual(
-                        self._get_actor_ids_at_step(funnels_query, 1, ""),
-                        expected_actor_ids,
+                        ],
                     )
                     self.assertCountEqual(
                         self._get_actor_ids_at_step(funnels_query, 2, ""),
@@ -2946,11 +2918,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self._assert_funnel_breakdown_result_is_correct(
                     results[breakdown_index + 1],
                     [
-                        FunnelStepResult(name="$pageview", count=1, breakdown=[second_val]),
+                        FunnelStepResult(name="$pageview", count=1, breakdown=["Firefox"]),
                         FunnelStepResult(
                             name="posthog_test_test_table_1.user_id",
                             count=0,
-                            breakdown=[second_val],
+                            breakdown=["Firefox"],
                             type="data_warehouse",
                             action_id=None,
                             average_conversion_time=None,
@@ -2959,19 +2931,284 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                if breakdown_type == "data_warehouse":
-                    self.assertCountEqual(
-                        self._get_actor_ids_at_step(funnels_query, 1, second_val),
-                        [UUID("8cadb28f-1825-f158-73fa-3f228865b540")],
-                    )
-                else:
-                    self.assertCountEqual(
-                        self._get_actor_ids_at_step(funnels_query, 1, second_val),
-                        [people["person2"].uuid],
-                    )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, "Firefox"),
+                    [people["person2"].uuid],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "Firefox"),
+                    [],
+                )
+
+        def test_funnels_mixed_person_breakdown(self):
+            table_name = self.setup_data_warehouse()
+            with freeze_time("2025-11-07"):
+                _create_person(
+                    distinct_ids=["person1"],
+                    team_id=self.team.pk,
+                    uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+                    properties={"some_prop": "val1"},
+                )
+                _create_person(
+                    distinct_ids=["person2"],
+                    team_id=self.team.pk,
+                    uuid="c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47",
+                    properties={"some_prop": "val2"},
+                )
+                people = journeys_for(
+                    {
+                        "person1": [
+                            {
+                                "event": "$pageview",
+                                "timestamp": datetime(2025, 11, 1, 0, 0, 0),
+                            },
+                        ],
+                        "person2": [
+                            {
+                                "event": "$pageview",
+                                "timestamp": datetime(2025, 11, 2, 0, 0, 0),
+                            },
+                        ],
+                    },
+                    self.team,
+                    create_people=False,
+                )
+
+                funnels_query = FunnelsQuery(
+                    kind="FunnelsQuery",
+                    dateRange=DateRange(date_from="2025-11-01"),
+                    series=[
+                        EventsNode(event="$pageview"),
+                        DataWarehouseNode(
+                            id=table_name,
+                            table_name=table_name,
+                            id_field="id",
+                            distinct_id_field="user_id",
+                            timestamp_field="created",
+                        ),
+                    ],
+                    breakdownFilter=BreakdownFilter(
+                        breakdown_type=BreakdownType.PERSON,
+                        breakdown=["some_prop"],
+                    ),
+                    funnelsFilter=FunnelsFilter(funnelOrderType=funnel_order_type),
+                )
+
+                runner = FunnelsQueryRunner(query=funnels_query, team=self.team)
+                response = runner.calculate()
+                results = response.results
+
+                breakdown_index = 0
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[breakdown_index],
+                    [
+                        FunnelStepResult(name="$pageview", count=1, breakdown=["val1"]),
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=1,
+                            breakdown=["val1"],
+                            type="data_warehouse",
+                            action_id=None,
+                            average_conversion_time=259200,
+                            median_conversion_time=259200,
+                        ),
+                    ],
+                )
 
                 self.assertCountEqual(
-                    self._get_actor_ids_at_step(funnels_query, 2, second_val),
+                    self._get_actor_ids_at_step(funnels_query, 1, "val1"),
+                    [people["person1"].uuid],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "val1"),
+                    [people["person1"].uuid],
+                )
+
+                # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
+                if funnel_order_type == FunnelOrderType.UNORDERED:
+                    breakdown_index = breakdown_index + 1
+                    self._assert_funnel_breakdown_result_is_correct(
+                        results[breakdown_index],
+                        [
+                            FunnelStepResult(
+                                name="",
+                                count=4,
+                                breakdown=[""],
+                            ),
+                            FunnelStepResult(
+                                name="",
+                                count=0,
+                                breakdown=[""],
+                                type="data_warehouse",
+                            ),
+                        ],
+                    )
+
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, ""),
+                        [
+                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
+                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                        ],
+                    )
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 2, ""),
+                        [],
+                    )
+
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[breakdown_index + 1],
+                    [
+                        FunnelStepResult(name="$pageview", count=1, breakdown=["val2"]),
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=0,
+                            breakdown=["val2"],
+                            type="data_warehouse",
+                            action_id=None,
+                            average_conversion_time=None,
+                            median_conversion_time=None,
+                        ),
+                    ],
+                )
+
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, "val2"),
+                    [people["person2"].uuid],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "val2"),
+                    [],
+                )
+
+        def test_funnels_mixed_data_warehouse_breakdown(self):
+            table_name = self.setup_data_warehouse()
+            with freeze_time("2025-11-07"):
+                _create_person(
+                    distinct_ids=["person1"],
+                    team_id=self.team.pk,
+                    uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+                )
+                people = journeys_for(
+                    {
+                        "person1": [
+                            {
+                                "event": "$pageview",
+                                "timestamp": datetime(2025, 11, 6, 0, 0, 0),
+                            },
+                        ],
+                    },
+                    self.team,
+                    create_people=False,
+                )
+
+                funnels_query = FunnelsQuery(
+                    kind="FunnelsQuery",
+                    dateRange=DateRange(date_from="2025-11-01"),
+                    series=[
+                        DataWarehouseNode(
+                            id=table_name,
+                            table_name=table_name,
+                            id_field="id",
+                            distinct_id_field="user_id",
+                            timestamp_field="created",
+                        ),
+                        EventsNode(event="$pageview"),
+                    ],
+                    breakdownFilter=BreakdownFilter(
+                        breakdown_type=BreakdownType.DATA_WAREHOUSE,
+                        breakdown=["event_name"],
+                    ),
+                    funnelsFilter=FunnelsFilter(funnelOrderType=funnel_order_type),
+                )
+
+                runner = FunnelsQueryRunner(query=funnels_query, team=self.team)
+                response = runner.calculate()
+                results = response.results
+
+                # 'payment_succeeded' breakdown
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[0],
+                    [
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=1,
+                            breakdown=["payment_succeeded"],
+                            type="data_warehouse",
+                            action_id=None,
+                        ),
+                        FunnelStepResult(
+                            name="$pageview",
+                            count=1,
+                            breakdown=["payment_succeeded"],
+                            average_conversion_time=172800,
+                            median_conversion_time=172800,
+                        ),
+                    ],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, "payment_succeeded"),
+                    [people["person1"].uuid],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "payment_succeeded"),
+                    [people["person1"].uuid],
+                )
+
+                # '' breakdown
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[1],
+                    [
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=3,
+                            breakdown=[""],
+                            type="data_warehouse",
+                            action_id=None,
+                        ),
+                        FunnelStepResult(
+                            name="$pageview",
+                            count=0,
+                            breakdown=[""],
+                        ),
+                    ],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, ""),
+                    [
+                        UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                        UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                        UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                    ],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, ""),
+                    [],
+                )
+
+                # 'payment_failed' breakdown
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[2],
+                    [
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=1,
+                            breakdown=["payment_failed"],
+                            type="data_warehouse",
+                            action_id=None,
+                        ),
+                        FunnelStepResult(name="$pageview", count=0, breakdown=["payment_failed"]),
+                    ],
+                )
+
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, "payment_failed"),
+                    [UUID("8cadb28f-1825-f158-73fa-3f228865b540")],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "payment_failed"),
                     [],
                 )
 
