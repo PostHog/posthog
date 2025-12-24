@@ -195,13 +195,24 @@ def _get_previous_migration(app: str, migration_name: str) -> str:
         return "zero"
 
 
+def _get_subprocess_env() -> dict[str, str]:
+    """Get environment for subprocess calls that need hogli module access."""
+    env = dict(os.environ)
+    env["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
+    # Ensure common/ is in PYTHONPATH so hogli module is importable
+    common_path = str(REPO_ROOT / "common")
+    existing_path = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{common_path}:{existing_path}" if existing_path else common_path
+    return env
+
+
 def _run_django_migrate(app: str, target: str) -> bool:
     """Run Django migrate command. Returns True on success."""
     try:
         subprocess.run(
             [sys.executable, "manage.py", "migrate", app, target, "--no-input", "--skip-checks"],
             cwd=REPO_ROOT,
-            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
+            env=_get_subprocess_env(),
             check=True,
         )
         return True
@@ -403,7 +414,7 @@ def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool 
         subprocess.run(
             [sys.executable, "manage.py", "migrate", "--no-input"],
             cwd=REPO_ROOT,
-            env={**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings"},
+            env=_get_subprocess_env(),
             check=True,
         )
 
