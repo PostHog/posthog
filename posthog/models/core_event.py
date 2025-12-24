@@ -47,7 +47,7 @@ class TeamCoreEventsConfig(models.Model):
         return self._core_events or []
 
     @core_events.setter
-    def core_events(self, value: list[dict]) -> None:
+    def core_events(self, value: list[dict] | None) -> None:
         """Set and validate the list of core events."""
         if value is None:
             self._core_events = []
