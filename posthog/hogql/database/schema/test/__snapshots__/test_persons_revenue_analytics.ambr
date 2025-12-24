@@ -2062,8 +2062,7 @@
                              ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
-              GROUP BY breakdown_value,
-                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+              GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
@@ -2388,8 +2387,7 @@
                              ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
-              GROUP BY breakdown_value,
-                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+              GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
@@ -2770,8 +2768,7 @@
                              ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
-              GROUP BY breakdown_value,
-                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+              GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
@@ -3180,8 +3177,7 @@
                              ORDER BY day_start ASC, breakdown_value ASC)) AS breakdown_series
                        GROUP BY breakdown_series.breakdown_value) AS totals_per_breakdown) AS ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)) AS ranked_breakdown_values
               WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
-              GROUP BY breakdown_value,
-                       ranked_breakdown_values.day_start) AS other_breakdown_values)
+              GROUP BY ranked_breakdown_values.day_start) AS other_breakdown_values)
         ORDER BY day_start ASC, value ASC) AS top_n_and_other_breakdown_values
      GROUP BY top_n_and_other_breakdown_values.breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
