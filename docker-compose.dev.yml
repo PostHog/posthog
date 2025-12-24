@@ -307,4 +307,3 @@ volumes:
     postgres-15-data:
     redpanda-data:
     seaweedfs-data:
-    azurite-data:
