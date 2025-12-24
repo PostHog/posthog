@@ -294,6 +294,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         return value
 
+    def validate_data_color_theme_id(self, value: int | None) -> int | None:
+        # Convert 0 to None since 0 is not a valid foreign key and JavaScript may send 0 for unset values
+        if value == 0:
+            return None
+        return value
+
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]

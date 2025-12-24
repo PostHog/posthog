@@ -1217,6 +1217,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.data_color_theme_id, color_theme.id)
 
+    def test_dashboard_data_color_theme_id_zero_converted_to_null(self):
+        """Test that data_color_theme_id=0 is converted to None to prevent foreign key violations"""
+        # Create a dashboard with data_color_theme_id=0
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "Dashboard with zero theme", "data_color_theme_id": 0}
+        )
+
+        # Verify that 0 was converted to None
+        self.assertIsNone(response["data_color_theme_id"])
+
+        created_dashboard = Dashboard.objects.get(id=response["id"])
+        self.assertIsNone(created_dashboard.data_color_theme_id)
+
+        # Test updating with 0 as well
+        _, update_response = self.dashboard_api.update_dashboard(
+            created_dashboard.pk, {"data_color_theme_id": 0}
+        )
+
+        self.assertIsNone(update_response["data_color_theme_id"])
+
+        updated_dashboard = Dashboard.objects.get(id=created_dashboard.id)
+        self.assertIsNone(updated_dashboard.data_color_theme_id)
+
     def test_return_cached_results_dashboard_has_filters(self):
         # create a dashboard with no filters
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
