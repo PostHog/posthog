@@ -124,7 +124,7 @@ jobs:
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
     deploy:
-        name: Deploy node
+        name: Deploy node services
         runs-on: ubuntu-24.04
         needs: build
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'

@@ -80,6 +80,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Add Confluent's client repository for librdkafka runtime
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    "ca-certificates" \
     "wget" \
     "gnupg" \
     && \
@@ -87,7 +88,7 @@ RUN apt-get update && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl3=3.0.17-1~deb12u2" \
@@ -95,7 +96,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user
-RUN groupadd -g 1000 posthog && \
+RUN groupadd -g 1000 posthog 2>/dev/null || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
     useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
