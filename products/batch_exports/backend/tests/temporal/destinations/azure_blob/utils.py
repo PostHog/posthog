@@ -159,6 +159,7 @@ def _assert_persons_match(exported_records: list[dict], generated_data: list[dic
 def _assert_sessions_match(exported_records: list[dict], generated_events: list[dict]):
     assert len(exported_records) >= 1
     expected_session_ids = {e["properties"]["$session_id"] for e in generated_events if e.get("properties")}
+    assert len(expected_session_ids) >= 1, "Test data must include events with $session_id"
     exported_session_ids = {r["session_id"] for r in exported_records}
     assert exported_session_ids.issubset(expected_session_ids) or expected_session_ids.issubset(exported_session_ids)
 

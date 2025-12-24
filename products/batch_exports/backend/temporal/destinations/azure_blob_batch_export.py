@@ -45,6 +45,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "UnsupportedFileFormatError",
+    "UnsupportedCompressionError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -70,6 +71,11 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 class UnsupportedFileFormatError(Exception):
     def __init__(self, file_format: str):
         super().__init__(f"'{file_format}' is not a supported format for Azure Blob batch exports.")
+
+
+class UnsupportedCompressionError(Exception):
+    def __init__(self, compression: str):
+        super().__init__(f"'{compression}' is not a supported compression for Azure Blob batch exports.")
 
 
 class AzureBlobIntegrationNotFoundError(Exception):
@@ -142,7 +148,11 @@ def get_blob_key(
         base_file_name = f"{base_file_name}-{file_number}"
 
     if compression is not None:
-        file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
+        try:
+            compression_extension = COMPRESSION_EXTENSIONS[compression]
+        except KeyError:
+            raise UnsupportedCompressionError(compression)
+        file_name = base_file_name + f".{file_extension}.{compression_extension}"
     else:
         file_name = base_file_name + f".{file_extension}"
 

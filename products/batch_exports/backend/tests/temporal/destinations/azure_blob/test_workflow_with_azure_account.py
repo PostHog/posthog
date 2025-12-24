@@ -64,11 +64,13 @@ async def azure_container(container_name: str, blob_prefix: str):
     client = BlobServiceClient.from_connection_string(connection_string)
     container_client = client.get_container_client(container_name)
 
-    yield container_client
+    try:
+        yield container_client
 
-    async for blob in container_client.list_blobs(name_starts_with=blob_prefix):
-        await container_client.delete_blob(blob.name)
-    await client.close()
+        async for blob in container_client.list_blobs(name_starts_with=blob_prefix):
+            await container_client.delete_blob(blob.name)
+    finally:
+        await client.close()
 
 
 @pytest_asyncio.fixture
