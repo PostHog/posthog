@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
@@ -19,6 +20,7 @@ where
 {
     store_manager: Arc<StoreManager>,
     router: Option<Arc<PartitionRouter<T, P>>>,
+    offset_tracker: Arc<OffsetTracker>,
     /// Partitions pending cleanup - added on revoke, removed on assign
     /// This tracks which partitions should be cleaned up vs which were re-assigned
     pending_cleanup: DashSet<Partition>,
@@ -29,10 +31,11 @@ where
     T: Send + 'static,
     P: BatchConsumerProcessor<T> + 'static,
 {
-    pub fn new(store_manager: Arc<StoreManager>) -> Self {
+    pub fn new(store_manager: Arc<StoreManager>, offset_tracker: Arc<OffsetTracker>) -> Self {
         Self {
             store_manager,
             router: None,
+            offset_tracker,
             pending_cleanup: DashSet::new(),
         }
     }
@@ -40,10 +43,12 @@ where
     pub fn with_router(
         store_manager: Arc<StoreManager>,
         router: Arc<PartitionRouter<T, P>>,
+        offset_tracker: Arc<OffsetTracker>,
     ) -> Self {
         Self {
             store_manager,
             router: Some(router),
+            offset_tracker,
             pending_cleanup: DashSet::new(),
         }
     }
@@ -227,6 +232,17 @@ where
             );
         }
 
+        // Clear offset tracking state for revoked partitions
+        // This prevents stale offsets from being committed after rebalance
+        for partition in &partitions_to_cleanup {
+            self.offset_tracker.clear_partition(partition);
+            info!(
+                "Cleared offset tracker state for partition {}:{}",
+                partition.topic(),
+                partition.partition_number()
+            );
+        }
+
         // Now safe to delete files - workers are shut down (Step 2 of two-step cleanup)
         for partition in &partitions_to_cleanup {
             if let Err(e) = self
@@ -253,11 +269,18 @@ where
 
     async fn on_pre_rebalance(&self) -> Result<()> {
         info!("Pre-rebalance: Preparing for partition changes");
+
+        // Set rebalancing flag to prevent offset commits during rebalance
+        self.offset_tracker.set_rebalancing(true);
+
         Ok(())
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
         info!("Post-rebalance: Partition changes complete");
+
+        // Clear rebalancing flag to allow offset commits again
+        self.offset_tracker.set_rebalancing(false);
 
         // Log current stats
         let store_count = self.store_manager.stores().len();
@@ -275,6 +298,7 @@ where
 mod tests {
     use super::*;
     use crate::kafka::batch_message::KafkaMessage;
+    use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
     use crate::store::DeduplicationStoreConfig;
     use rdkafka::Offset;
@@ -297,20 +321,22 @@ mod tests {
             max_capacity: 1000,
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
+        let offset_tracker = Arc::new(OffsetTracker::new());
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone());
+            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone());
         assert!(handler.router.is_none());
 
         // Test handler with router
         let processor = Arc::new(TestProcessor);
         let router = Arc::new(PartitionRouter::new(
             processor,
+            offset_tracker.clone(),
             PartitionRouterConfig::default(),
         ));
         let handler_with_router =
-            ProcessorRebalanceHandler::with_router(store_manager, router.clone());
+            ProcessorRebalanceHandler::with_router(store_manager, router.clone(), offset_tracker);
         assert!(handler_with_router.router.is_some());
     }
 
@@ -323,12 +349,15 @@ mod tests {
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
         let processor = Arc::new(TestProcessor);
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let router = Arc::new(PartitionRouter::new(
             processor,
+            offset_tracker.clone(),
             PartitionRouterConfig::default(),
         ));
 
-        let handler = ProcessorRebalanceHandler::with_router(store_manager, router.clone());
+        let handler =
+            ProcessorRebalanceHandler::with_router(store_manager, router.clone(), offset_tracker);
 
         // Initially no workers
         assert_eq!(router.worker_count(), 0);
@@ -378,12 +407,18 @@ mod tests {
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
         let processor = Arc::new(TestProcessor);
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let router = Arc::new(PartitionRouter::new(
             processor,
+            offset_tracker.clone(),
             PartitionRouterConfig::default(),
         ));
 
-        let handler = ProcessorRebalanceHandler::with_router(store_manager.clone(), router.clone());
+        let handler = ProcessorRebalanceHandler::with_router(
+            store_manager.clone(),
+            router.clone(),
+            offset_tracker,
+        );
 
         // Assign partition and create a store
         let mut partitions = rdkafka::TopicPartitionList::new();
@@ -471,12 +506,18 @@ mod tests {
         };
         let store_manager = Arc::new(StoreManager::new(store_config));
         let processor = Arc::new(TestProcessor);
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let router = Arc::new(PartitionRouter::new(
             processor,
+            offset_tracker.clone(),
             PartitionRouterConfig::default(),
         ));
 
-        let handler = ProcessorRebalanceHandler::with_router(store_manager.clone(), router.clone());
+        let handler = ProcessorRebalanceHandler::with_router(
+            store_manager.clone(),
+            router.clone(),
+            offset_tracker,
+        );
 
         // Step 1: Initial assignment
         let mut partitions = rdkafka::TopicPartitionList::new();

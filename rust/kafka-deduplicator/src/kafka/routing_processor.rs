@@ -14,6 +14,7 @@ use tracing::warn;
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_router::PartitionRouter;
 use crate::kafka::types::Partition;
 
@@ -28,6 +29,7 @@ where
     P: BatchConsumerProcessor<T> + 'static,
 {
     router: Arc<PartitionRouter<T, P>>,
+    offset_tracker: Arc<OffsetTracker>,
 }
 
 impl<T, P> RoutingProcessor<T, P>
@@ -35,13 +37,21 @@ where
     T: Send + 'static,
     P: BatchConsumerProcessor<T> + 'static,
 {
-    pub fn new(router: Arc<PartitionRouter<T, P>>) -> Self {
-        Self { router }
+    pub fn new(router: Arc<PartitionRouter<T, P>>, offset_tracker: Arc<OffsetTracker>) -> Self {
+        Self {
+            router,
+            offset_tracker,
+        }
     }
 
     /// Get a reference to the underlying router
     pub fn router(&self) -> &Arc<PartitionRouter<T, P>> {
         &self.router
+    }
+
+    /// Get a reference to the offset tracker
+    pub fn offset_tracker(&self) -> &Arc<OffsetTracker> {
+        &self.offset_tracker
     }
 }
 
@@ -58,6 +68,7 @@ where
 
         // Group messages by partition
         let mut messages_by_partition: HashMap<Partition, Vec<KafkaMessage<T>>> = HashMap::new();
+
         for message in messages {
             let partition = message.get_topic_partition();
             messages_by_partition
@@ -72,9 +83,12 @@ where
             .into_iter()
             .map(|(partition, partition_messages)| {
                 let router = self.router.clone();
+                // Assign a batch ID for ordering verification
+                let batch_id = self.offset_tracker.assign_batch_id();
+
                 async move {
                     let result = router
-                        .route_batch(partition.clone(), partition_messages)
+                        .route_batch(partition.clone(), partition_messages, batch_id)
                         .await;
                     (partition, result)
                 }
@@ -134,8 +148,13 @@ mod tests {
     #[tokio::test]
     async fn test_routing_processor_groups_by_partition() {
         let processor = Arc::new(CountingProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = Arc::new(PartitionRouter::new(processor.clone(), config));
+        let router = Arc::new(PartitionRouter::new(
+            processor.clone(),
+            offset_tracker.clone(),
+            config,
+        ));
 
         // Add workers for two partitions
         let p0 = Partition::new("test-topic".to_string(), 0);
@@ -143,7 +162,7 @@ mod tests {
         router.add_partition(p0.clone());
         router.add_partition(p1.clone());
 
-        let routing_processor = RoutingProcessor::new(router.clone());
+        let routing_processor = RoutingProcessor::new(router.clone(), offset_tracker);
 
         // Create messages for different partitions
         let messages = vec![
@@ -169,14 +188,19 @@ mod tests {
     #[tokio::test]
     async fn test_routing_processor_handles_missing_worker() {
         let processor = Arc::new(CountingProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = Arc::new(PartitionRouter::new(processor.clone(), config));
+        let router = Arc::new(PartitionRouter::new(
+            processor.clone(),
+            offset_tracker.clone(),
+            config,
+        ));
 
         // Only add worker for partition 0
         let p0 = Partition::new("test-topic".to_string(), 0);
         router.add_partition(p0.clone());
 
-        let routing_processor = RoutingProcessor::new(router.clone());
+        let routing_processor = RoutingProcessor::new(router.clone(), offset_tracker);
 
         // Create messages including one for a partition without a worker
         let p1 = Partition::new("test-topic".to_string(), 1);
