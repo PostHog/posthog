@@ -103,8 +103,8 @@ class TestPathTraversalValidation:
             validate_migration_path_components(app, name)
 
 
-class TestMigratePyValidation:
-    """Test the migrate.py validation function (returns bool instead of raising)."""
+class TestIsValidMigrationPath:
+    """Test the bool-returning validation function."""
 
     @parameterized.expand(
         [
@@ -124,11 +124,11 @@ class TestMigratePyValidation:
             ("posthog", "001_test", False),
         ]
     )
-    def test_validate_migration_path_components(self, app: str, name: str, expected: bool) -> None:
-        """Test the bool-returning validation function in migrate.py."""
-        from posthog.management.commands.migrate import validate_migration_path_components
+    def test_is_valid_migration_path(self, app: str, name: str, expected: bool) -> None:
+        """Test the bool-returning validation function."""
+        from hogli.migration_utils import is_valid_migration_path
 
-        result = validate_migration_path_components(app, name)
+        result = is_valid_migration_path(app, name)
         assert result is expected
 
 

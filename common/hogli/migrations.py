@@ -27,7 +27,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,26 +71,19 @@ class MigrationDiff:
     synced: list[MigrationInfo] = field(default_factory=list)
 
 
-def _get_all_migration_apps() -> dict[str, Path]:
-    """Get all migration app directories."""
-    return get_managed_app_paths(REPO_ROOT)
-
-
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
-    """Cache a migration file for later rollback."""
-    cache_path = _get_cache_path(app, name)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copy2(source_path, cache_path)
-        return True
-    except Exception as e:
-        click.secho(f"  ⚠ Could not cache {app}.{name}: {e}", fg="yellow", err=True)
+    """Cache a migration file for later rollback with CLI feedback."""
+    from hogli.migration_utils import cache_migration_file
+
+    if not cache_migration_file(app, name, source_path):
+        click.secho(f"  ⚠ Could not cache {app}.{name}", fg="yellow", err=True)
         return False
+    return True
 
 
 def _find_migration_branch(app: str, name: str) -> str | None:
     """Search git history to find which branch has this migration file."""
-    all_apps = _get_all_migration_apps()
+    all_apps = get_managed_app_paths(REPO_ROOT)
     migrations_dir = all_apps.get(app)
     if not migrations_dir:
         return None
@@ -135,7 +127,7 @@ def _fetch_and_cache_migration_from_git(app: str, name: str, branch: str) -> boo
 
     Returns True if successful, False otherwise.
     """
-    all_apps = _get_all_migration_apps()
+    all_apps = get_managed_app_paths(REPO_ROOT)
     migrations_dir = all_apps.get(app)
     if not migrations_dir:
         return False
@@ -230,7 +222,7 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
     if not cache_path:
         return False
 
-    all_apps = _get_all_migration_apps()
+    all_apps = get_managed_app_paths(REPO_ROOT)
     migrations_dir = all_apps.get(app)
     if not migrations_dir:
         return False
@@ -329,7 +321,7 @@ def _compute_migration_diff() -> MigrationDiff:
     diff = MigrationDiff()
 
     # Get all migration apps we manage
-    all_apps = _get_all_migration_apps()
+    all_apps = get_managed_app_paths(REPO_ROOT)
     managed_app_names = set(all_apps.keys())
 
     # Get migrations in code
@@ -420,7 +412,7 @@ def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool 
 
         # Cache the migration files that were just applied
         if pending:
-            all_apps = _get_all_migration_apps()
+            all_apps = get_managed_app_paths(REPO_ROOT)
             for m in pending:
                 migrations_dir = all_apps.get(m.app)
                 if migrations_dir:
@@ -767,7 +759,7 @@ def migrations_cache_sync() -> None:
     click.echo("\nCaching applied migrations…\n")
 
     diff = _compute_migration_diff()
-    all_apps = _get_all_migration_apps()
+    all_apps = get_managed_app_paths(REPO_ROOT)
 
     cached_count = 0
     already_cached = 0
