@@ -249,6 +249,64 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         return False
 
 
+def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[MigrationInfo]) -> list[MigrationInfo]:
+    """Try to fetch uncached migrations from git history.
+
+    Moves successfully fetched migrations from uncached to cached list.
+    Returns the list of migrations that are still uncached.
+    """
+    if not uncached:
+        return []
+
+    click.echo("Attempting to fetch uncached migrations from git…\n")
+    still_uncached: list[MigrationInfo] = []
+
+    for m in uncached:
+        branch = _find_migration_branch(m.app, m.name)
+        if branch:
+            click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
+            if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
+                click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
+                cached.append(m)
+            else:
+                click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
+                still_uncached.append(m)
+        else:
+            click.secho(f"  ✗ Could not find branch for {m.app}.{m.name}", fg="red")
+            still_uncached.append(m)
+
+    click.echo()
+    return still_uncached
+
+
+def _show_manual_rollback_instructions(uncached: list[MigrationInfo], command_name: str) -> None:
+    """Show manual rollback instructions for uncached migrations and exit."""
+    click.secho("⚠ Some migrations are not cached and cannot be auto-rolled back:\n", fg="yellow")
+
+    for m in uncached:
+        branch = _find_migration_branch(m.app, m.name)
+        previous = _get_previous_migration(m.app, m.name)
+
+        click.echo(f"  {m.app}.{m.name}:")
+        if branch:
+            click.echo(f"    Found on branch: {branch}")
+            click.echo("    To roll back properly:")
+            click.echo("      1. git stash  # if you have changes")
+            click.echo(f"      2. git checkout {branch}")
+            click.echo(f"      3. python manage.py migrate {m.app} {previous}")
+            click.echo("      4. git checkout -")
+            click.echo("      5. git stash pop  # if you stashed")
+        else:
+            click.echo("    Could not find branch containing this migration.")
+            click.echo(f"    Target migration for rollback: {m.app} {previous}")
+        click.echo()
+
+    click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
+    click.echo("Or use --force to skip schema rollback (just removes DB records):")
+    click.secho(f"  hogli {command_name} --force\n", fg="yellow")
+    raise SystemExit(1)
+
+
 def _get_migrations_in_code(app: str, migrations_dir: Path) -> set[str]:
     """Get migration names that exist in code for an app."""
     migrations: set[str] = set()
@@ -490,52 +548,11 @@ def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
 
     # Try to fetch uncached migrations from git
     if uncached and not force:
-        click.echo("Attempting to fetch uncached migrations from git…\n")
-        still_uncached: list[MigrationInfo] = []
-
-        for m in uncached:
-            branch = _find_migration_branch(m.app, m.name)
-            if branch:
-                click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
-                if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
-                    click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
-                    cached.append(m)
-                else:
-                    click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
-                    still_uncached.append(m)
-            else:
-                click.secho(f"  ✗ Could not find branch for {m.app}.{m.name}", fg="red")
-                still_uncached.append(m)
-
-        uncached = still_uncached
-        click.echo()
+        uncached = _fetch_uncached_from_git(uncached, cached)
 
     # If there are still uncached migrations and not forcing, show instructions
     if uncached and not force:
-        click.secho("⚠ Some migrations are not cached and cannot be auto-rolled back:\n", fg="yellow")
-
-        for m in uncached:
-            branch = _find_migration_branch(m.app, m.name)
-            previous = _get_previous_migration(m.app, m.name)
-
-            click.echo(f"  {m.app}.{m.name}:")
-            if branch:
-                click.echo(f"    Found on branch: {branch}")
-                click.echo(f"    To roll back properly:")
-                click.echo(f"      1. git stash  # if you have changes")
-                click.echo(f"      2. git checkout {branch}")
-                click.echo(f"      3. python manage.py migrate {m.app} {previous}")
-                click.echo(f"      4. git checkout -")
-                click.echo(f"      5. git stash pop  # if you stashed")
-            else:
-                click.echo("    Could not find branch containing this migration.")
-                click.echo(f"    Target migration for rollback: {m.app} {previous}")
-            click.echo()
-
-        click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
-        click.echo("Or use --force to skip schema rollback (just removes DB records):")
-        click.secho("  hogli migrations:down --force\n", fg="yellow")
-        raise SystemExit(1)
+        _show_manual_rollback_instructions(uncached, "migrations:down")
 
     # Proceed with rollback
     if not yes and not dry_run:
@@ -653,52 +670,11 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
 
     # Try to fetch uncached migrations from git
     if uncached and not force:
-        click.echo("Attempting to fetch uncached migrations from git…\n")
-        still_uncached: list[MigrationInfo] = []
-
-        for m in uncached:
-            branch = _find_migration_branch(m.app, m.name)
-            if branch:
-                click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
-                if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
-                    click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
-                    cached.append(m)
-                else:
-                    click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
-                    still_uncached.append(m)
-            else:
-                click.secho(f"  ✗ Could not find branch for {m.app}.{m.name}", fg="red")
-                still_uncached.append(m)
-
-        uncached = still_uncached
-        click.echo()
+        uncached = _fetch_uncached_from_git(uncached, cached)
 
     # If there are still uncached migrations and not forcing, show instructions
     if uncached and not force:
-        click.secho("⚠ Some migrations are not cached and cannot be auto-rolled back:\n", fg="yellow")
-
-        for m in uncached:
-            branch = _find_migration_branch(m.app, m.name)
-            previous = _get_previous_migration(m.app, m.name)
-
-            click.echo(f"  {m.app}.{m.name}:")
-            if branch:
-                click.echo(f"    Found on branch: {branch}")
-                click.echo(f"    To roll back properly:")
-                click.echo(f"      1. git stash  # if you have changes")
-                click.echo(f"      2. git checkout {branch}")
-                click.echo(f"      3. python manage.py migrate {m.app} {previous}")
-                click.echo(f"      4. git checkout -")
-                click.echo(f"      5. git stash pop  # if you stashed")
-            else:
-                click.echo("    Could not find branch containing this migration.")
-                click.echo(f"    Target migration for rollback: {m.app} {previous}")
-            click.echo()
-
-        click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
-        click.echo("Or use --force to skip schema rollback (just removes DB records):")
-        click.secho("  hogli migrations:sync --force\n", fg="yellow")
-        raise SystemExit(1)
+        _show_manual_rollback_instructions(uncached, "migrations:sync")
 
     if not yes and not dry_run:
         if force and uncached:
