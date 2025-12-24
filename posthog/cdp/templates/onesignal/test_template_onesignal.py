@@ -27,6 +27,7 @@ class TestTemplateOneSignal(BaseHogFunctionTemplateTest):
                 "headers": {
                     "Content-Type": "application/json",
                     "Authorization": "Key my_secret_key",
+                    "OneSignal-Usage": "PostHog | Partner Integration",
                 },
                 "body": {
                     "events": [
