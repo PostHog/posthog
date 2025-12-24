@@ -60,6 +60,16 @@ class MigrationInfo:
 
 
 @dataclass
+class MigrationResult:
+    """Result from applying migrations."""
+
+    success: bool
+    error_type: str | None = None  # "duplicate_column", "duplicate_table", "other"
+    error_message: str | None = None
+    failed_migration: tuple[str, str] | None = None  # (app, name)
+
+
+@dataclass
 class MigrationDiff:
     """Diff between database and code migration states."""
 
@@ -197,6 +207,71 @@ def _get_subprocess_env() -> dict[str, str]:
     # Use os.pathsep for cross-platform compatibility (: on Unix, ; on Windows)
     env["PYTHONPATH"] = f"{common_path}{os.pathsep}{existing_path}" if existing_path else common_path
     return env
+
+
+# Pattern to extract migration being applied from Django output
+# Matches lines like "Applying posthog.0952_add_billable_action..."
+_APPLYING_PATTERN = re.compile(r"Applying (\w+)\.(\d{4}_[^.]+)\.\.\.")
+
+
+def _parse_migration_error(stderr: str, stdout: str) -> MigrationResult:
+    """Parse migration error output to detect recoverable situations.
+
+    Detects DuplicateColumn and DuplicateTable errors from PostgreSQL,
+    which indicate the schema already exists (likely applied on another branch).
+    """
+    combined = f"{stdout}\n{stderr}"
+
+    # Find which migration was being applied when error occurred
+    failed_migration: tuple[str, str] | None = None
+    for match in _APPLYING_PATTERN.finditer(combined):
+        # Keep the last match (the one being applied when it failed)
+        failed_migration = (match.group(1), match.group(2))
+
+    # Check for duplicate column error
+    if "DuplicateColumn" in stderr or 'column "' in stderr and "already exists" in stderr:
+        return MigrationResult(
+            success=False,
+            error_type="duplicate_column",
+            error_message=stderr.strip(),
+            failed_migration=failed_migration,
+        )
+
+    # Check for duplicate table/relation error
+    if "DuplicateTable" in stderr or 'relation "' in stderr and "already exists" in stderr:
+        return MigrationResult(
+            success=False,
+            error_type="duplicate_table",
+            error_message=stderr.strip(),
+            failed_migration=failed_migration,
+        )
+
+    # Generic error
+    return MigrationResult(
+        success=False,
+        error_type="other",
+        error_message=stderr.strip() if stderr.strip() else "Unknown error",
+        failed_migration=failed_migration,
+    )
+
+
+def _fake_migration(app: str, name: str) -> bool:
+    """Mark a migration as applied without running the SQL.
+
+    Uses Django's --fake flag to record the migration in django_migrations
+    without executing any database operations.
+    """
+    try:
+        subprocess.run(
+            [sys.executable, "manage.py", "migrate", app, name, "--fake", "--no-input"],
+            cwd=REPO_ROOT,
+            env=_get_subprocess_env(),
+            check=True,
+            capture_output=True,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
 
 def _run_django_migrate(app: str, target: str) -> bool:
@@ -455,33 +530,37 @@ def _remove_orphaned_migrations(orphaned: list[MigrationInfo], dry_run: bool = F
         return False
 
 
-def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool = False) -> bool:
-    """Apply all pending migrations and cache them for later rollback."""
+def _apply_migrations(pending: list[MigrationInfo] | None = None, dry_run: bool = False) -> MigrationResult:
+    """Apply all pending migrations and cache them for later rollback.
+
+    Returns a MigrationResult with structured error information if the migration fails.
+    """
     if dry_run:
         click.echo("  [DRY RUN] python manage.py migrate --no-input")
-        return True
+        return MigrationResult(success=True)
 
-    try:
-        subprocess.run(
-            [sys.executable, "manage.py", "migrate", "--no-input"],
-            cwd=REPO_ROOT,
-            env=_get_subprocess_env(),
-            check=True,
-        )
+    result = subprocess.run(
+        [sys.executable, "manage.py", "migrate", "--no-input"],
+        cwd=REPO_ROOT,
+        env=_get_subprocess_env(),
+        capture_output=True,
+        text=True,
+    )
 
-        # Cache the migration files that were just applied
-        if pending:
-            all_apps = get_managed_app_paths(REPO_ROOT)
-            for m in pending:
-                migrations_dir = all_apps.get(m.app)
-                if migrations_dir:
-                    source_path = migrations_dir / f"{m.name}.py"
-                    if source_path.exists():
-                        _cache_migration(m.app, m.name, source_path)
+    if result.returncode != 0:
+        return _parse_migration_error(result.stderr, result.stdout)
 
-        return True
-    except subprocess.CalledProcessError:
-        return False
+    # Cache the migration files that were just applied
+    if pending:
+        all_apps = get_managed_app_paths(REPO_ROOT)
+        for m in pending:
+            migrations_dir = all_apps.get(m.app)
+            if migrations_dir:
+                source_path = migrations_dir / f"{m.name}.py"
+                if source_path.exists():
+                    _cache_migration(m.app, m.name, source_path)
+
+    return MigrationResult(success=True)
 
 
 @cli.command(name="migrations:status", help="Show migration diff between database and code")
@@ -588,9 +667,52 @@ def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
     click.secho("✓ Orphaned migrations handled", fg="green", bold=True)
 
 
+def _handle_duplicate_error(result: MigrationResult, pending: list[MigrationInfo], dry_run: bool, yes: bool) -> bool:
+    """Handle duplicate column/table errors by offering to fake the migration.
+
+    Returns True if the user chose to fake and we should retry migrations.
+    Returns False if the user declined or faking failed.
+    """
+    if not result.failed_migration:
+        click.secho("Could not determine which migration failed.", fg="red")
+        click.echo(f"\nError: {result.error_message}")
+        return False
+
+    app, name = result.failed_migration
+    error_desc = "column" if result.error_type == "duplicate_column" else "table/relation"
+
+    click.secho(f"\n⚠ Schema {error_desc} already exists for {app}.{name}", fg="yellow")
+    click.echo("This migration was likely applied on another branch without syncing.\n")
+
+    if dry_run:
+        click.echo(f"[DRY RUN] Would offer to fake {app}.{name}")
+        return False
+
+    # Ask user if they want to fake the migration
+    if yes or click.confirm(f"Fake this migration (mark as applied without running SQL)?", default=True):
+        click.echo(f"  Faking {app}.{name}…")
+        if _fake_migration(app, name):
+            click.secho(f"  ✓ Faked {app}.{name}", fg="green")
+
+            # Remove this migration from pending list so we don't try to cache it
+            for m in pending[:]:
+                if m.app == app and m.name == name:
+                    pending.remove(m)
+                    break
+
+            return True  # Signal to retry remaining migrations
+        else:
+            click.secho(f"  ✗ Failed to fake {app}.{name}", fg="red")
+            return False
+    else:
+        click.echo(f"\nTo fix manually: python manage.py migrate {app} {name} --fake")
+        return False
+
+
 @cli.command(name="migrations:up", help="Apply pending migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
-def migrations_up(dry_run: bool) -> None:
+@click.option("--yes", "-y", is_flag=True, help="Auto-confirm faking migrations with duplicate schema")
+def migrations_up(dry_run: bool, yes: bool) -> None:
     """Apply migrations that exist in code but aren't applied."""
     click.echo("\nApplying pending migrations…\n")
 
@@ -608,9 +730,28 @@ def migrations_up(dry_run: bool) -> None:
         click.echo(f"    {m.app}: {m.name}")
     click.echo()
 
-    if not _apply_migrations(pending=diff.pending, dry_run=dry_run):
-        click.secho("Failed to apply migrations", fg="red")
-        raise SystemExit(1)
+    pending = list(diff.pending)  # Make a mutable copy
+
+    while True:
+        result = _apply_migrations(pending=pending, dry_run=dry_run)
+
+        if result.success:
+            break
+
+        # Check for recoverable duplicate schema errors
+        if result.error_type in ("duplicate_column", "duplicate_table"):
+            if _handle_duplicate_error(result, pending, dry_run, yes):
+                # User chose to fake, retry remaining migrations
+                click.echo("\nRetrying remaining migrations…\n")
+                continue
+            else:
+                raise SystemExit(1)
+        else:
+            # Non-recoverable error
+            click.secho("Failed to apply migrations", fg="red")
+            if result.error_message:
+                click.echo(f"\n{result.error_message}")
+            raise SystemExit(1)
 
     if not dry_run:
         click.secho("✓ Migrations applied and cached", fg="green", bold=True)
@@ -715,9 +856,28 @@ def migrations_sync(dry_run: bool, yes: bool, force: bool) -> None:
         click.secho("Step 2: Applying pending migrations", fg="blue", bold=True)
         click.echo()
 
-        if not _apply_migrations(pending=diff.pending, dry_run=dry_run):
-            click.secho("Failed to apply migrations", fg="red")
-            raise SystemExit(1)
+        pending = list(diff.pending)  # Make a mutable copy
+
+        while True:
+            result = _apply_migrations(pending=pending, dry_run=dry_run)
+
+            if result.success:
+                break
+
+            # Check for recoverable duplicate schema errors
+            if result.error_type in ("duplicate_column", "duplicate_table"):
+                if _handle_duplicate_error(result, pending, dry_run, yes):
+                    # User chose to fake, retry remaining migrations
+                    click.echo("\nRetrying remaining migrations…\n")
+                    continue
+                else:
+                    raise SystemExit(1)
+            else:
+                # Non-recoverable error
+                click.secho("Failed to apply migrations", fg="red")
+                if result.error_message:
+                    click.echo(f"\n{result.error_message}")
+                raise SystemExit(1)
 
         if not dry_run:
             click.secho("  ✓ Migrations applied and cached", fg="green")
