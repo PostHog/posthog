@@ -378,6 +378,52 @@ describe('featureFlagConditionWarningLogic', () => {
         })
     })
 
+    describe('client runtime - is_not_set operator', () => {
+        it('detects is_not_set operator', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.IsNotSet,
+                    value: '',
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning:
+                    'This flag cannot be evaluated in client environments. It uses: is_not_set operator.',
+            })
+        })
+    })
+
+    describe('client runtime - static cohorts', () => {
+        it('does not warn when cohort is not loaded yet', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 1,
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.CLIENT,
+            })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                warning: undefined,
+            })
+        })
+    })
+
     describe('edge cases', () => {
         it('handles regex patterns that look like but are not unsupported features', () => {
             const properties: AnyPropertyFilter[] = [
