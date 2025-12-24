@@ -43,7 +43,7 @@ export function eventRowActionsContent(event: EventType): JSX.Element {
             {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
             <ViewRecordingButton
                 fullWidth
-                openPlayerIn={RecordingPlayerType.Modal}
+                openPlayerIn={RecordingPlayerType.NewTab}
                 sessionId={event.properties.$session_id}
                 recordingStatus={event.properties.$recording_status}
                 timestamp={event.timestamp}

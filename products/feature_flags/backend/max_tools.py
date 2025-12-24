@@ -614,6 +614,13 @@ The tool will automatically:
     context_prompt_template: str = "Creates a new feature flag in the project with optional property-based targeting and multivariate variants for A/B testing"
     args_schema: type[BaseModel] = CreateFeatureFlagArgs
 
+    def get_required_resource_access(self):
+        """
+        Creating a feature flag requires editor-level access to feature flags.
+        This check runs before the tool executes.
+        """
+        return [("feature_flag", "editor")]
+
     async def _create_flag_from_instructions(self, instructions: str) -> FeatureFlagCreationSchema:
         """Use TaxonomyAgent graph to generate structured flag configuration."""
         graph = FeatureFlagGeneratorGraph(team=self._team, user=self._user)

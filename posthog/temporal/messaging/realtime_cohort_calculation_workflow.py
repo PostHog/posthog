@@ -144,10 +144,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                     final_query = f"""
                         SELECT
-                            %(team_id)s as team_id,
-                            %(cohort_id)s as cohort_id,
                             COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                            now64() as last_updated,
                             CASE
                                 WHEN previous_members.person_id IS NULL THEN 'entered'
                                 WHEN current_matches.id IS NULL THEN 'left'
@@ -182,10 +179,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
                                 status = row["status"]
                                 payload = {
-                                    "team_id": row["team_id"],
-                                    "cohort_id": row["cohort_id"],
+                                    "team_id": cohort.team_id,
+                                    "cohort_id": cohort.id,
                                     "person_id": str(row["person_id"]),
-                                    "last_updated": str(row["last_updated"]),
+                                    "last_updated": dt.datetime.now(dt.UTC).isoformat(),
                                     "status": status,
                                 }
                                 await asyncio.to_thread(

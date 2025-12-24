@@ -27,10 +27,10 @@ frontend/src/products.tsx
 frontend/src/products.json
 frontend/src/layout.html
 **/fixtures/**
-products/mcp/schema/**/*
-products/mcp/python/**/*
-products/mcp/**/generated.ts
-products/mcp/typescript/worker-configuration.d.ts
+services/mcp/schema/**/*
+services/mcp/python/**/*
+services/mcp/**/generated.ts
+services/mcp/typescript/worker-configuration.d.ts
 frontend/src/taxonomy/core-filter-definitions-by-group.json
 frontend/dist/
 frontend/**/*LogicType.ts

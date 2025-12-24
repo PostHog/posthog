@@ -61,6 +61,12 @@ export function exportTableData(tableData: string[][], format: ExporterFormat): 
     }
 }
 
+function convertClickHouseDayToStandard(clickHouseDay: number): number {
+    // ClickHouse toDayOfWeek: 1=Mon, 2=Tue, ..., 7=Sun
+    // Standard array indices: 0=Sun, 1=Mon, ..., 6=Sat
+    return clickHouseDay % 7
+}
+
 class CalendarHeatmapAdapter implements ExportAdapter {
     constructor(
         private response: TrendsQueryResponse,
@@ -87,14 +93,16 @@ class CalendarHeatmapAdapter implements ExportAdapter {
             .fill(0)
             .map(() => Array(numCols).fill(0))
         data.forEach((item: EventsHeatMapDataResult) => {
-            if (item.row < numRows && item.column < numCols) {
-                matrix[item.row][item.column] = item.value
+            const standardDay = convertClickHouseDayToStandard(item.row)
+            if (standardDay < numRows && item.column < numCols) {
+                matrix[standardDay][item.column] = item.value
             }
         })
 
         const rowAggMap: Record<number, number> = {}
         rowAggregations.forEach((item: EventsHeatMapRowAggregationResult) => {
-            rowAggMap[item.row] = item.value
+            const standardDay = convertClickHouseDayToStandard(item.row)
+            rowAggMap[standardDay] = item.value
         })
 
         const colAggArray: number[] = Array(numCols).fill(0)
