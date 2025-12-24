@@ -7,6 +7,8 @@ import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } f
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -25,7 +27,7 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
@@ -99,12 +101,20 @@ const ExperimentsTableFilters = ({
     return (
         <div className="flex justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-6">
-                <LemonInput
-                    type="search"
-                    placeholder="Search experiments"
-                    onChange={(search) => onFiltersChange({ search, page: 1 })}
-                    value={filters.search || ''}
-                />
+                <AppShortcut
+                    name="SearchExperiments"
+                    keybind={[keyBinds.filter]}
+                    intent="Search experiments"
+                    interaction="click"
+                    scope={Scene.Experiments}
+                >
+                    <LemonInput
+                        type="search"
+                        placeholder="Search experiments"
+                        onChange={(search) => onFiltersChange({ search, page: 1 })}
+                        value={filters.search || ''}
+                    />
+                </AppShortcut>
                 <div className="flex items-center gap-2">
                     {ExperimentsTabs.Archived !== tab && (
                         <>
@@ -532,14 +542,23 @@ export function Experiments(): JSX.Element {
                                 active={true}
                                 context={{}}
                             >
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    data-attr="create-experiment"
-                                    to={urls.experiment('new')}
+                                <AppShortcut
+                                    name="NewExperiment"
+                                    keybind={[keyBinds.new]}
+                                    intent="New experiment"
+                                    interaction="click"
+                                    scope={Scene.Experiments}
                                 >
-                                    <span className="pr-3">New experiment</span>
-                                </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        data-attr="create-experiment"
+                                        to={urls.experiment('new')}
+                                        tooltip="New experiment"
+                                    >
+                                        <span className="pr-3">New experiment</span>
+                                    </LemonButton>
+                                </AppShortcut>
                             </MaxTool>
                         </AccessControlAction>
                     ) : undefined

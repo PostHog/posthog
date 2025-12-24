@@ -5,6 +5,8 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
@@ -177,15 +179,24 @@ export function Cohorts(): JSX.Element {
 
     const filtersSection = (
         <div className="flex justify-between gap-2 flex-wrap">
-            <LemonInput
-                className="w-60"
-                type="search"
-                placeholder="Search for cohorts"
-                onChange={(search) => {
-                    setCohortFilters({ search: search || undefined, page: 1 })
-                }}
-                value={cohortFilters.search}
-            />
+            <AppShortcut
+                name="SearchCohorts"
+                keybind={[keyBinds.filter]}
+                intent="Search cohorts"
+                interaction="click"
+                scope={Scene.Cohorts}
+            >
+                <LemonInput
+                    className="w-60"
+                    type="search"
+                    placeholder="Search for cohorts"
+                    onChange={(search) => {
+                        setCohortFilters({ search: search || undefined, page: 1 })
+                    }}
+                    value={cohortFilters.search}
+                />
+            </AppShortcut>
+
             <div className="flex items-center gap-2">
                 <span>
                     <b>Type</b>
@@ -243,14 +254,23 @@ export function Cohorts(): JSX.Element {
                     type: sceneConfigurations[Scene.Cohorts].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        data-attr="new-cohort"
-                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    <AppShortcut
+                        name="NewCohort"
+                        keybind={[keyBinds.new]}
+                        intent="New cohort"
+                        interaction="click"
+                        scope={Scene.Cohorts}
                     >
-                        New cohort
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr="new-cohort"
+                            onClick={() => router.actions.push(urls.cohort('new'))}
+                            tooltip="New cohort"
+                        >
+                            New cohort
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
 
