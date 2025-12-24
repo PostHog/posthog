@@ -2,26 +2,49 @@ name: Build and deploy node container image
 
 on:
     workflow_dispatch:
+    pull_request:
+    merge_group:
     push:
-        paths:
-            - 'plugin-server/**'
-            - 'common/hogvm/typescript/**'
-            - 'common/plugin_transpiler/**'
-            - 'common/esbuilder/**'
-            - 'rust/cyclotron-node/**'
-            - 'Dockerfile.node'
-            - '.github/workflows/plugin-server-docker-build.yml'
-            - 'turbo.json'
-            - 'package.json'
-            - 'pnpm-lock.yaml'
-            - 'pnpm-workspace.yaml'
         branches:
             - 'master'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        name: Determine need to run node Docker build
+        outputs:
+            node_files: ${{ steps.filter.outputs.node_files }}
+        steps:
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              with:
+                  filters: |
+                      node_files:
+                        - 'plugin-server/**'
+                        - 'common/hogvm/typescript/**'
+                        - 'common/plugin_transpiler/**'
+                        - 'common/esbuilder/**'
+                        - 'rust/cyclotron-node/**'
+                        - 'Dockerfile.node'
+                        - '.github/workflows/ci-nodejs-container.yml'
+                        - 'turbo.json'
+                        - 'package.json'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+
     build:
+        needs: changes
         name: Build and push node image
-        if: github.repository == 'PostHog/posthog'
+        if: |
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
+            github.event_name == 'merge_group' ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/master')
         runs-on: depot-ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -70,6 +93,7 @@ jobs:
                       ghcr.io/posthog/posthog/node
                       ${{ steps.aws-ecr.outputs.registry }}/node
                   tags: |
+                      type=ref,event=pr
                       type=ref,event=branch
                       type=sha
                       type=raw,value=latest,enable={{is_default_branch}}
@@ -103,7 +127,7 @@ jobs:
         name: Deploy node
         runs-on: ubuntu-24.04
         needs: build
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         steps:
             - name: Get deployer token
               id: deployer
@@ -111,6 +135,12 @@ jobs:
               with:
                   app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+
+            - name: Get PR labels
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Trigger node deployment
               uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
@@ -128,6 +158,26 @@ jobs:
                         "release": "node",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
-                        "labels": [],
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Ingestion Cloud deployment
+              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ needs.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "ingestion",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
