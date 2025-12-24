@@ -29,8 +29,6 @@ import re
 import sys
 import shutil
 import subprocess
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -43,6 +41,9 @@ from hogli.migration_utils import (
     get_cache_path as _get_cache_path,
     get_cached_migration as _get_cached_migration,
     get_managed_app_paths,
+    hidden_conflicting_migrations,
+    temporary_max_migration,
+    temporary_migration_file,
 )
 
 # Pattern to match migration files (0001_initial.py, etc.)
@@ -194,57 +195,6 @@ def _get_previous_migration(app: str, migration_name: str) -> str:
         return "zero"
 
 
-@contextmanager
-def _temporary_migration_file(cache_path: Path, target_path: Path) -> Iterator[None]:
-    """Context manager that copies a cached migration to target and cleans up after."""
-    shutil.copy2(cache_path, target_path)
-    try:
-        yield
-    finally:
-        target_path.unlink(missing_ok=True)
-
-
-@contextmanager
-def _temporary_max_migration(migrations_dir: Path, migration_name: str) -> Iterator[None]:
-    """Context manager that temporarily updates max_migration.txt and restores it after."""
-    max_migration_path = migrations_dir / "max_migration.txt"
-    original_value = None
-
-    if max_migration_path.exists():
-        original_value = max_migration_path.read_text().strip()
-        max_migration_path.write_text(f"{migration_name}\n")
-
-    try:
-        yield
-    finally:
-        if original_value is not None:
-            max_migration_path.write_text(f"{original_value}\n")
-
-
-@contextmanager
-def _hidden_conflicting_migrations(migrations_dir: Path, migration_name: str) -> Iterator[None]:
-    """Context manager that hides conflicting migrations and restores them after.
-
-    Conflicting migrations are those with the same number prefix but different names.
-    For example, 0952_add_feature conflicts with 0952_other_feature.
-    """
-    migration_prefix = migration_name.split("_")[0]
-    hidden: list[tuple[Path, Path]] = []
-
-    for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
-        if migration_file.name != f"{migration_name}.py":
-            hidden_path = migration_file.with_suffix(".py.hidden")
-            migration_file.rename(hidden_path)
-            hidden.append((migration_file, hidden_path))
-
-    try:
-        yield
-    finally:
-        for original, hidden_path in hidden:
-            if hidden_path.exists():
-                hidden_path.rename(original)
-
-
 def _run_django_migrate(app: str, target: str) -> bool:
     """Run Django migrate command. Returns True on success."""
     try:
@@ -285,9 +235,9 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
 
     try:
         with (
-            _hidden_conflicting_migrations(migrations_dir, name),
-            _temporary_migration_file(cache_path, target_path),
-            _temporary_max_migration(migrations_dir, name),
+            hidden_conflicting_migrations(migrations_dir, name),
+            temporary_migration_file(cache_path, target_path),
+            temporary_max_migration(migrations_dir, name),
         ):
             return _run_django_migrate(app, previous)
     except Exception as e:
