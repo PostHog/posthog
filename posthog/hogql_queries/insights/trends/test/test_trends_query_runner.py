@@ -6228,6 +6228,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 break
 
         self.assertIsNotNone(other_result, "Should have an 'Other' breakdown")
+        assert other_result is not None  # for mypy
 
         # The critical assertion: "Other" should take MAX of all bins that didn't make top 2
         # Bin with vcpu=5 has max=3000
@@ -6350,6 +6351,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 break
 
         self.assertIsNotNone(other_result, "Should have an 'Other' breakdown")
+        assert other_result is not None  # for mypy
 
         # The critical assertion: "Other" should sum all bins that didn't make top 2
         # This should be: 4500 (vcpu=5) + 2000 (vcpu=7) = 6500
