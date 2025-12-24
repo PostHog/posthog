@@ -469,7 +469,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
-
+        # TODO: Update this block when Azure batch export frontend is ready
+        if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
+            raise serializers.ValidationError("Azure Blob Storage batch exports are not yet available. Coming soon!")
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             config = destination_attrs["config"]
             view = self.context.get("view")

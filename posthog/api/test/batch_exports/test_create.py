@@ -1073,6 +1073,36 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     assert response.json()["detail"] == "Integration is not a Databricks integration."
 
 
+def test_cannot_create_azure_blob_batch_export_yet(
+    client: HttpClient,
+    team,
+    user,
+):
+    """Test Azure Blob Storage exports is blocked until frontend is ready."""
+    destination_data = {
+        "type": "AzureBlob",
+        "config": {
+            "container_name": "test-container",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-azure-blob-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "not yet available" in response.json()["detail"].lower()
+
+
 @pytest.mark.parametrize(
     "model,expected_status,expected_error",
     [
