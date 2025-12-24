@@ -266,11 +266,15 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     const shouldReset = currentLocation.initial || values.experimentId !== 'new'
 
                     if (shouldReset) {
-                        actions.resetExperimentState({
+                        const newExperiment = {
                             ...NEW_EXPERIMENT,
                             metrics: query.metric ? [query.metric] : [],
                             name: query.name ?? '',
-                        })
+                        }
+                        if (query.metric != null) {
+                            newExperiment.primary_metrics_ordered_uuids = [query.metric.uuid]
+                        }
+                        actions.resetExperimentState(newExperiment)
                     }
                 }
             }
