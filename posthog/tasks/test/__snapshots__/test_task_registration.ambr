@@ -5,8 +5,6 @@
     'posthog.approvals.tasks.validate_pending_change_requests',
     'posthog.caching.warming.schedule_warming_for_teams_task',
     'posthog.caching.warming.warm_insight_cache_task',
-    'posthog.caching.web_analytics_warming.schedule_web_analytics_warming_for_teams_task',
-    'posthog.caching.web_analytics_warming.warm_web_analytics_cache_task',
     'posthog.email._send_email',
     'posthog.models.product_intent.product_intent.calculate_product_activation',
     'posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters',
