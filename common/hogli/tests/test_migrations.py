@@ -161,7 +161,9 @@ class TestCachePathSecurity:
         resolved = path.resolve()
         cache_resolved = MIGRATION_CACHE_DIR.resolve()
 
-        assert str(resolved).startswith(str(cache_resolved))
+        # Use is_relative_to() for proper path boundary checks
+        # (startswith can have false positives like /tmp/cacheevil matching /tmp/cache)
+        assert resolved.is_relative_to(cache_resolved)
 
 
 class TestSharedMigrationUtils:

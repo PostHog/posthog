@@ -194,7 +194,8 @@ def _get_subprocess_env() -> dict[str, str]:
     # Ensure common/ is in PYTHONPATH so hogli module is importable
     common_path = str(REPO_ROOT / "common")
     existing_path = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = f"{common_path}:{existing_path}" if existing_path else common_path
+    # Use os.pathsep for cross-platform compatibility (: on Unix, ; on Windows)
+    env["PYTHONPATH"] = f"{common_path}{os.pathsep}{existing_path}" if existing_path else common_path
     return env
 
 

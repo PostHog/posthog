@@ -231,13 +231,15 @@ def hidden_conflicting_migrations(migrations_dir: Path, migration_name: str) -> 
     migration_prefix = migration_name.split("_")[0]
     hidden: list[tuple[Path, Path]] = []
 
-    for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
-        if migration_file.name != f"{migration_name}.py":
-            hidden_path = migration_file.with_suffix(".py.hidden")
-            migration_file.rename(hidden_path)
-            hidden.append((migration_file, hidden_path))
-
     try:
+        # Hide conflicting migrations inside try block so partial failures
+        # still trigger cleanup of already-hidden files
+        for migration_file in migrations_dir.glob(f"{migration_prefix}_*.py"):
+            if migration_file.name != f"{migration_name}.py":
+                hidden_path = migration_file.with_suffix(".py.hidden")
+                migration_file.rename(hidden_path)
+                hidden.append((migration_file, hidden_path))
+
         yield
     finally:
         for original, hidden_path in hidden:
