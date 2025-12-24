@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+console.log("HELLO WORLD!");
+
 const fs = require('fs')
 
 function parseCodeowners(codeownersPath) {
