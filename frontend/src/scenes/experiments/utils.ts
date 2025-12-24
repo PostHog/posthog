@@ -971,6 +971,10 @@ export function getInsightVizNodeQuery(
     if (exposureConfig != null) {
         if (exposureConfig.kind === NodeKind.ExperimentEventExposureConfig) {
             exposureEventNode.event = exposureConfig.event
+            if (exposureConfig.properties && exposureConfig.properties.length > 0) {
+                const exposureEventNodeProperties = exposureEventNode.properties ?? []
+                exposureEventNode.properties = [...exposureConfig.properties, ...exposureEventNodeProperties]
+            }
         }
     }
     switch (metric.metric_type) {
