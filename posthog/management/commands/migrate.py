@@ -28,7 +28,7 @@ from hogli.migration_utils import (
     get_cached_migration,
     get_managed_app_names,
     hidden_conflicting_migrations,
-    is_valid_migration_path as validate_migration_path_components,
+    is_valid_migration_path,
     temporary_max_migration,
     temporary_migration_file,
 )
@@ -60,7 +60,7 @@ def cache_migration(app_label: str, migration_name: str) -> bool:
     Validates inputs to prevent path traversal attacks.
     """
     # Validate inputs to prevent path traversal
-    if not validate_migration_path_components(app_label, migration_name):
+    if not is_valid_migration_path(app_label, migration_name):
         return False
 
     migrations_dir = get_app_migrations_dir(app_label)

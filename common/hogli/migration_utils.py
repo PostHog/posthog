@@ -184,14 +184,9 @@ def get_managed_app_paths(base_dir: Path) -> dict[str, Path]:
         "rbac": base_dir / "posthog" / "rbac" / "migrations",
     }
 
-    # Add product apps
-    products_dir = base_dir / "products"
-    if products_dir.exists():
-        for product_dir in products_dir.iterdir():
-            if product_dir.is_dir():
-                migrations_dir = product_dir / "backend" / "migrations"
-                if migrations_dir.exists():
-                    apps[product_dir.name] = migrations_dir
+    # Add product apps using the shared discovery function
+    for product_name in discover_product_apps(base_dir):
+        apps[product_name] = base_dir / "products" / product_name / "backend" / "migrations"
 
     return apps
 
