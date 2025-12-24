@@ -89,6 +89,8 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
     personal_api_key: str | None
 
     def create_resource(self, context: dagster.InitResourceContext):
+        assert context.log is not None
+
         context.log.info("Initializing PostHogAnalyticsResource")
 
         if not (self.personal_api_key or "").strip() and not (posthoganalytics.personal_api_key or "").strip():
