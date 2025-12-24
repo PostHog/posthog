@@ -271,7 +271,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                             metrics: query.metric ? [query.metric] : [],
                             name: query.name ?? '',
                         }
-                        if (query.metric != null) {
+                        if (query.metric != null && query.metric.uuid != null) {
                             newExperiment.primary_metrics_ordered_uuids = [query.metric.uuid]
                         }
                         actions.resetExperimentState(newExperiment)
