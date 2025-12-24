@@ -98,8 +98,8 @@ class TestServiceFlagsCache(BaseTest):
         assert len(flags) == 1
         assert flags[0]["key"] == "active-flag"
 
-    def test_get_feature_flags_for_service_includes_inactive(self):
-        """Test that inactive flags are included in cache."""
+    def test_get_feature_flags_for_service_excludes_inactive_without_dependencies(self):
+        """Test that inactive flags without dependencies are excluded from cache."""
         # Create active flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -108,7 +108,7 @@ class TestServiceFlagsCache(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        # Create inactive flag
+        # Create inactive flag (not used by any active flag)
         FeatureFlag.objects.create(
             team=self.team,
             key="inactive-flag",
@@ -120,10 +120,116 @@ class TestServiceFlagsCache(BaseTest):
         result = _get_feature_flags_for_service(self.team)
         flags = result["flags"]
 
+        assert len(flags) == 1
+        assert flags[0]["key"] == "active-flag"
+
+    def test_get_feature_flags_for_service_includes_inactive_dependencies(self):
+        """Test that inactive flags used by active flags are included in cache."""
+        # Create inactive flag
+        inactive_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-base-flag",
+            created_by=self.user,
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create active flag that depends on inactive flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="active-dependent-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(inactive_flag.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flags = result["flags"]
+
         assert len(flags) == 2
         flag_keys = [f["key"] for f in flags]
-        assert "active-flag" in flag_keys
-        assert "inactive-flag" in flag_keys
+        assert "active-dependent-flag" in flag_keys
+        assert "inactive-base-flag" in flag_keys
+
+    def test_get_feature_flags_for_service_includes_transitive_dependencies(self):
+        """Test that transitive dependencies are included (A depends on B depends on C)."""
+        # Create C (inactive, no dependencies)
+        flag_c = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-c",
+            created_by=self.user,
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create B (inactive, depends on C)
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            created_by=self.user,
+            active=False,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(flag_c.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Create A (active, depends on B)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(flag_b.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flags = result["flags"]
+
+        # Should include all three flags (A, B, and C)
+        assert len(flags) == 3
+        flag_keys = [f["key"] for f in flags]
+        assert "flag-a" in flag_keys
+        assert "flag-b" in flag_keys
+        assert "flag-c" in flag_keys
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""

@@ -543,12 +543,61 @@ class FeatureFlagOverride(models.Model):
         ]
 
 
+def _get_flag_dependencies(
+    flags: list[FeatureFlag],
+    all_flags_by_id: dict[int, FeatureFlag],
+    visited: Optional[set[int]] = None,
+) -> set[int]:
+    """
+    Recursively find all flag IDs that the given flags depend on.
+
+    Args:
+        flags: List of flags to find dependencies for
+        all_flags_by_id: Dictionary mapping flag IDs to FeatureFlag instances
+        visited: Set of flag IDs already visited (to prevent infinite loops)
+
+    Returns:
+        Set of flag IDs that are dependencies
+    """
+    if visited is None:
+        visited = set()
+
+    dependency_ids = set()
+
+    for flag in flags:
+        if flag.id in visited:
+            continue
+        visited.add(flag.id)
+
+        # Look for flag dependencies in conditions
+        for condition in flag.conditions:
+            properties = condition.get("properties", [])
+            for prop in properties:
+                if prop.get("type") == "flag":
+                    try:
+                        dep_flag_id = int(prop.get("key"))
+                        if dep_flag_id in all_flags_by_id:
+                            dependency_ids.add(dep_flag_id)
+                            # Recursively find transitive dependencies
+                            dep_flag = all_flags_by_id[dep_flag_id]
+                            transitive_deps = _get_flag_dependencies([dep_flag], all_flags_by_id, visited)
+                            dependency_ids.update(transitive_deps)
+                    except (ValueError, TypeError):
+                        continue
+
+    return dependency_ids
+
+
 def get_feature_flags(
     team: Optional["Team"] = None,
     project_id: Optional[int] = None,
 ) -> list[FeatureFlag]:
     """
     Fetch FeatureFlag objects for a team or project.
+
+    Returns all active flags plus any inactive flags that are used by active flags
+    (as dependencies). This ensures that flag evaluation can work correctly when
+    active flags reference inactive flags.
 
     Evaluation tags are always aggregated using ArrayAgg for performance.
     This avoids N+1 queries when serializing flags with evaluation tags.
@@ -571,13 +620,29 @@ def get_feature_flags(
 
     filter_kwargs.update({"deleted": False})
 
+    # First, get all non-deleted flags to build a complete dependency graph
+    # We need all flags to properly resolve dependencies
+    all_flags_qs = FeatureFlag.objects.filter(**filter_kwargs)
+    all_flags = list(all_flags_qs)
+    all_flags_by_id = {flag.id: flag for flag in all_flags}
+
+    # Get all active flags
+    active_flags = [flag for flag in all_flags if flag.active]
+
+    # Find all flags that active flags depend on (recursively)
+    dependency_ids = _get_flag_dependencies(active_flags, all_flags_by_id)
+
+    # Combine active flags and their dependencies
+    flag_ids_to_return = {flag.id for flag in active_flags} | dependency_ids
+    flags_to_return = [flag for flag in all_flags if flag.id in flag_ids_to_return]
+
     # Build queryset with evaluation tags aggregated
     # Single-shot query: flags plus evaluation tag names aggregated to a string array.
     # We use ArrayAgg to fetch all evaluation tag names in one query instead of
     # doing a separate query per flag. This is crucial for performance when we have
     # many flags. The evaluation tags are stored as a many-to-many relationship
     # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
-    qs = FeatureFlag.objects.filter(**filter_kwargs)
+    qs = FeatureFlag.objects.filter(id__in=[flag.id for flag in flags_to_return])
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
             "evaluation_tags__tag__name",
