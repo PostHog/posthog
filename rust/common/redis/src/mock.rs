@@ -16,6 +16,7 @@ pub struct MockRedisClient {
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
+    mget_ret: HashMap<String, Option<i64>>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -32,6 +33,7 @@ impl Default for MockRedisClient {
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
+            mget_ret: HashMap::new(),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -102,6 +104,11 @@ impl MockRedisClient {
 
     pub fn batch_incr_by_expire_nx_ret(&mut self, ret: Result<(), CustomRedisError>) -> Self {
         self.batch_incr_by_expire_nx_ret = Some(ret);
+        self.clone()
+    }
+
+    pub fn mget_ret(&mut self, key: &str, ret: Option<i64>) -> Self {
+        self.mget_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 }
@@ -365,5 +372,19 @@ impl Client for MockRedisClient {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }
+    }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "mget".to_string(),
+            key: format!("keys={}", keys.len()),
+            value: MockRedisValue::VecString(keys.clone()),
+        });
+
+        let results: Vec<Option<i64>> = keys
+            .iter()
+            .map(|k| self.mget_ret.get(k).copied().flatten())
+            .collect();
+        Ok(results)
     }
 }

@@ -405,6 +405,21 @@ impl Client for ReadWriteClient {
     ) -> Result<(), CustomRedisError> {
         self.writer.hincrby(k, v, count).await
     }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+        match self.reader.mget(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica mget failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.mget(keys).await
+            }
+            Err(err) => Err(err),
+        }
+    }
 }
 
 #[cfg(test)]
