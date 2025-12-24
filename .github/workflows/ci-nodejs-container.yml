@@ -114,7 +114,7 @@ jobs:
             - name: Container image digest
               run: |
                   echo "Image digest: ${{ steps.build.outputs.digest }}"
-                  echo "Full image reference: ${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                  echo "Full image reference: $${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
