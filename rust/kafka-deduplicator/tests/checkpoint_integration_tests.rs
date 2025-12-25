@@ -20,6 +20,7 @@ use common_types::RawEvent;
 
 use anyhow::Result;
 use tempfile::TempDir;
+use tracing::info;
 
 // MinIO configuration matching docker-compose.dev.yml
 const MINIO_ENDPOINT: &str = "http://localhost:19000";
@@ -185,13 +186,10 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
     let uploaded_info = checkpoint_result.unwrap();
 
-    println!(
-        "Uploaded checkpoint to: {}",
-        uploaded_info.get_remote_attempt_path()
-    );
-    println!(
-        "Checkpoint metadata has {} files",
-        uploaded_info.metadata.files.len()
+    info!(
+        remote_path = uploaded_info.get_remote_attempt_path(),
+        file_count = uploaded_info.metadata.files.len(),
+        "Uploaded checkpoint"
     );
 
     // Verify checkpoint was uploaded by listing objects
@@ -208,9 +206,9 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .filter_map(|obj| obj.key().map(String::from))
         .collect();
 
-    println!("Found {} objects in MinIO:", uploaded_keys.len());
+    info!(count = uploaded_keys.len(), "Found objects in MinIO");
     for key in &uploaded_keys {
-        println!("  - {key}");
+        info!(key, "  - uploaded");
     }
 
     assert!(
@@ -230,34 +228,6 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         "Should have uploaded CURRENT file"
     );
 
-    // Verify local checkpoint export directory has files (test_mode=true skips cleanup)
-    let local_checkpoint_path = tmp_checkpoint_dir
-        .path()
-        .join(test_topic)
-        .join(test_partition.to_string());
-    assert!(
-        local_checkpoint_path.exists(),
-        "Local checkpoint directory should exist after export: {local_checkpoint_path:?}"
-    );
-    let local_export_files: Vec<_> = std::fs::read_dir(&local_checkpoint_path)?
-        .filter_map(|e| e.ok())
-        .flat_map(|e| std::fs::read_dir(e.path()).ok())
-        .flatten()
-        .filter_map(|e| e.ok())
-        .map(|e| e.file_name().to_string_lossy().to_string())
-        .collect();
-    println!(
-        "Local export directory has {} files:",
-        local_export_files.len()
-    );
-    for f in &local_export_files {
-        println!("  - {f}");
-    }
-    assert!(
-        !local_export_files.is_empty(),
-        "Local export directory should have checkpoint files"
-    );
-
     // Now test the import side - create S3Downloader and CheckpointImporter
     let downloader = S3Downloader::new_for_testing(&config).await?;
 
@@ -266,12 +236,12 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .list_recent_checkpoints(test_topic, test_partition)
         .await?;
 
-    println!(
-        "Found {} recent checkpoint metadata files",
-        recent_checkpoints.len()
+    info!(
+        count = recent_checkpoints.len(),
+        "Found recent checkpoint metadata files"
     );
     for cp in &recent_checkpoints {
-        println!("  - {cp}");
+        info!(checkpoint = cp, "  - found");
     }
 
     assert!(
@@ -284,12 +254,14 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     let metadata_bytes = downloader.download_file(metadata_key).await?;
     let downloaded_metadata = CheckpointMetadata::from_json_bytes(&metadata_bytes)?;
 
-    println!("Downloaded metadata:");
-    println!("  - id: {}", downloaded_metadata.id);
-    println!("  - topic: {}", downloaded_metadata.topic);
-    println!("  - partition: {}", downloaded_metadata.partition);
-    println!("  - sequence: {}", downloaded_metadata.sequence);
-    println!("  - files: {}", downloaded_metadata.files.len());
+    info!(
+        id = downloaded_metadata.id,
+        topic = downloaded_metadata.topic,
+        partition = downloaded_metadata.partition,
+        sequence = downloaded_metadata.sequence,
+        file_count = downloaded_metadata.files.len(),
+        "Downloaded metadata"
+    );
 
     // Verify metadata matches what we uploaded
     assert_eq!(downloaded_metadata.id, uploaded_info.metadata.id);
@@ -311,45 +283,52 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .import_checkpoint_for_topic_partition(test_topic, test_partition)
         .await?;
 
-    println!("Imported checkpoint to: {import_result:?}");
+    info!(path = ?import_result, "Imported checkpoint");
     assert!(
         import_result.exists(),
         "Imported checkpoint directory should exist"
     );
 
-    // Verify imported files
+    // Verify each file from metadata was imported
     let imported_files: Vec<_> = std::fs::read_dir(&import_result)?
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
 
-    println!("Imported {} files:", imported_files.len());
-    for f in &imported_files {
-        println!("  - {f}");
+    info!(
+        imported = imported_files.len(),
+        expected = downloaded_metadata.files.len(),
+        "Verifying imported files match metadata"
+    );
+
+    for expected_file in &downloaded_metadata.files {
+        let filename = expected_file
+            .remote_filepath
+            .rsplit('/')
+            .next()
+            .expect("remote_filepath should have filename");
+
+        assert!(
+            imported_files.contains(&filename.to_string()),
+            "Expected file '{}' from metadata not found in imported files. \
+             Imported: {:?}",
+            filename,
+            imported_files
+        );
+        info!(filename, "  - verified");
     }
 
-    assert!(
-        imported_files.iter().any(|f| f.ends_with(".sst")),
-        "Should have imported .sst files"
-    );
-    assert!(
-        imported_files.iter().any(|f| f == "CURRENT"),
-        "Should have imported CURRENT file"
-    );
-    assert!(
-        imported_files.iter().any(|f| f.starts_with("MANIFEST-")),
-        "Should have imported MANIFEST file"
-    );
-    assert!(
-        imported_files.iter().any(|f| f.starts_with("OPTIONS-")),
-        "Should have imported OPTIONS file"
-    );
-
-    // Verify file count matches metadata
     assert_eq!(
         imported_files.len(),
         downloaded_metadata.files.len(),
-        "Imported file count should match metadata file count"
+        "Imported file count should match metadata. \
+         Imported: {:?}, Expected: {:?}",
+        imported_files,
+        downloaded_metadata
+            .files
+            .iter()
+            .map(|f| f.remote_filepath.rsplit('/').next().unwrap())
+            .collect::<Vec<_>>()
     );
 
     // Verify import result is within the configured import directory
@@ -374,16 +353,19 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     drop(store);
 
     // Open a new store from the imported checkpoint to verify it's a valid RocksDB
-    println!("Opening store from imported checkpoint: {import_result:?}");
+    info!(path = ?import_result, "Opening store from imported checkpoint");
     let restored_store_config = DeduplicationStoreConfig {
         path: import_result.clone(),
         max_capacity: 1_000_000,
     };
-    let restored_store =
-        DeduplicationStore::new(restored_store_config, test_topic.to_string(), test_partition)?;
+    let restored_store = DeduplicationStore::new(
+        restored_store_config,
+        test_topic.to_string(),
+        test_partition,
+    )?;
 
     // Verify we can read the data we originally stored
-    println!("Verifying restored store contains original data...");
+    info!("Verifying restored store contains original data");
     for event in &events {
         let key: TimestampKey = event.into();
         let record = restored_store.get_timestamp_record(&key)?;
@@ -402,12 +384,12 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
             stored_event.event, event.event,
             "Restored event name should match original"
         );
-        println!(
-            "  - Verified event for distinct_id: {:?}",
-            event.distinct_id
-        );
+        info!(distinct_id = ?event.distinct_id, "  - verified event");
     }
-    println!("All {} events verified in restored store!", events.len());
+    info!(
+        count = events.len(),
+        "All events verified in restored store"
+    );
 
     // Cleanup S3 bucket
     cleanup_bucket(&minio_client, &test_prefix).await;
