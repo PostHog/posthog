@@ -127,6 +127,10 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
 
+/// Record outcomes for attempts to restore checkpoints
+/// when local store is missing after Kafka rebalances
+pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
+
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)
 pub const STORE_CREATION_DURATION_MS: &str = "store_creation_duration_ms";
