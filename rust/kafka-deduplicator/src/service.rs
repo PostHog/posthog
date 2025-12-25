@@ -116,6 +116,7 @@ impl KafkaDeduplicatorService {
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
             checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            test_s3_endpoint: None,
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
