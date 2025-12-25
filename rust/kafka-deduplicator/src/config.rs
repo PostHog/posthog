@@ -159,7 +159,7 @@ pub struct Config {
 
     pub s3_bucket: Option<String>,
 
-    #[envconfig(default = "v1")]
+    #[envconfig(default = "checkpoints_v1")]
     pub s3_key_prefix: String,
 
     // how often to perform a full checkpoint vs. incremental
