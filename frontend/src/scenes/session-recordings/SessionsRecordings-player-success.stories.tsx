@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
@@ -103,6 +103,17 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        ...MOCK_DEFAULT_USER,
+                        has_seen_product_intro_for: { [ProductKey.SESSION_REPLAY]: true },
+                        organization: {
+                            ...MOCK_DEFAULT_ORGANIZATION,
+                            available_product_features: getAvailableProductFeatures(),
+                        },
+                    },
+                ],
                 '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
@@ -244,6 +255,43 @@ export const RecentRecordingsEmpty: Story = {
     ],
 }
 
+export const RecentRecordingsEmptyWithInviteBanner: Story = {
+    parameters: {
+        pageUrl: sceneUrl(urls.replay()),
+        waitForSelector: undefined,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        ...MOCK_DEFAULT_USER,
+                        has_seen_product_intro_for: { [ProductKey.SESSION_REPLAY]: true },
+                        organization: {
+                            ...MOCK_DEFAULT_ORGANIZATION,
+                            member_count: 1,
+                        },
+                    },
+                ],
+                '/api/organizations/@current/members': () => [
+                    200,
+                    { results: [MOCK_DEFAULT_ORGANIZATION_MEMBER], next: null },
+                ],
+                '/api/environments/:team_id/session_recordings': () => [
+                    200,
+                    { has_next: false, results: [], version: '1' },
+                ],
+                '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
+                'api/projects/:team/notebooks': { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                '/api/environments/:team_id/query': () => [200, { results: [] }],
+            },
+        }),
+    ],
+}
+
 export const RecentRecordingsWide: Story = {
     parameters: {
         pageUrl: sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }),
@@ -311,5 +359,43 @@ FiltersExpandedLotsOfResultsNarrow.parameters = {
     waitForSelector: '[data-attr="session-recordings-filters-tab"]',
     testOptions: {
         viewport: { width: 568, height: 1024 },
+    },
+}
+
+const userNotSeenReplayIntroMock = (): MockSignature => [
+    200,
+    {
+        ...MOCK_DEFAULT_USER,
+        has_seen_product_intro_for: {},
+        organization: { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
+    },
+]
+
+export const WithProductIntro: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/users/@me/': userNotSeenReplayIntroMock,
+        },
+    })
+    router.actions.push(sceneUrl(urls.replay()))
+    return <App />
+}
+WithProductIntro.parameters = {
+    waitForSelector: '[data-attr="start-watching-recordings"]',
+}
+
+export const WithProductIntroVerticalLayout: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/users/@me/': userNotSeenReplayIntroMock,
+        },
+    })
+    router.actions.push(sceneUrl(urls.replay()))
+    return <App />
+}
+WithProductIntroVerticalLayout.parameters = {
+    waitForSelector: '[data-attr="start-watching-recordings"]',
+    testOptions: {
+        viewport: { width: 1000, height: 800 },
     },
 }

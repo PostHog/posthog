@@ -34,6 +34,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -182,6 +183,7 @@ export function PersonScene(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const { projectNoticeVariant } = useValues(navigationLogic)
 
     if (personError) {
         throw new Error(personError)
@@ -308,7 +310,9 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <div className="SessionRecordingPlaylistHeightWrapper">
+                                <div
+                                    className={`SessionRecordingPlaylistHeightWrapper${projectNoticeVariant ? ' SessionRecordingPlaylistHeightWrapper--with-project-notice' : ''}`}
+                                >
                                     <SessionRecordingsPlaylist
                                         logicKey={`person-scene-${person.uuid}`}
                                         personUUID={person.uuid}

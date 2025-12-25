@@ -427,6 +427,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
         layout: 'app-full-scene-height',
+        hideProjectNotice: true,
         iconType: 'session_replay',
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',

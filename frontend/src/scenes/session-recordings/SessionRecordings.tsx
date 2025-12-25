@@ -6,9 +6,8 @@ import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -20,8 +19,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProjectNotice } from '~/layout/navigation/ProjectNotice'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
@@ -80,7 +79,7 @@ function Header(): JSX.Element {
     )
 }
 
-function Warnings(): JSX.Element {
+function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
@@ -92,7 +91,7 @@ function Warnings(): JSX.Element {
         <>
             <VersionCheckerBanner />
 
-            {recordingsDisabled ? (
+            {recordingsDisabled && (
                 <LemonBanner type="info" hideIcon={true}>
                     <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
                         <div className="flex justify-center items-center w-full md:w-50">
@@ -147,15 +146,6 @@ function Warnings(): JSX.Element {
                         </div>
                     </div>
                 </LemonBanner>
-            ) : (
-                <ProductIntroduction
-                    productName="session replay"
-                    productKey={ProductKey.SESSION_REPLAY}
-                    thingName="playlist"
-                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
-                    docsURL="https://posthog.com/docs/session-replay/manual"
-                    customHog={FilmCameraHog}
-                />
             )}
         </>
     )
@@ -165,13 +155,13 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <SceneContent>
+        <>
             <Warnings />
 
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                <div className="SessionRecordingPlaylistHeightWrapper">
+                <div className="flex-1 min-h-0">
                     <SessionRecordingsPlaylist updateSearchParams />
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
@@ -179,7 +169,7 @@ function MainPanel(): JSX.Element {
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />
             ) : null}
-        </SceneContent>
+        </>
     )
 }
 
@@ -253,10 +243,13 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
     }
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
-            <SceneContent className="h-full">
-                <SessionRecordingsPageTabs />
-                <MainPanel />
-            </SceneContent>
+            <div className="flex flex-col h-full">
+                <ProjectNotice />
+                <SceneContent className="flex-1 min-h-0">
+                    <SessionRecordingsPageTabs />
+                    <MainPanel />
+                </SceneContent>
+            </div>
         </BindLogic>
     )
 }

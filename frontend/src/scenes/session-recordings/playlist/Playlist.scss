@@ -22,6 +22,10 @@
     // NOTE: Replay scene height is very tightly controlled to make sure controls are always on-screen
     height: calc(100vh - 7rem);
     min-height: 25rem;
+
+    &--with-project-notice {
+        height: calc(100vh - 9rem);
+    }
 }
 
 .SessionRecordingPreview {

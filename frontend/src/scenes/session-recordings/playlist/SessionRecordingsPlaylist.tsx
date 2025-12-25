@@ -2,11 +2,18 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
+import { userLogic } from 'scenes/userLogic'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
@@ -166,6 +173,10 @@ function PlayerWrapper({
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
+    const { user } = useValues(userLogic)
+    const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const hasSeenProductIntro = user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY]
+
     const onPlayNextRecording = useCallback(() => {
         if (nextSessionRecording?.id) {
             setSelectedRecordingId(nextSessionRecording.id)
@@ -192,6 +203,24 @@ function PlayerWrapper({
                         allowReplayHogQLFilters={allowHogQLFilters}
                     />
                 </div>
+            ) : !hasSeenProductIntro ? (
+                <ProductIntroduction
+                    productName="session replay"
+                    productKey={ProductKey.SESSION_REPLAY}
+                    thingName="recording"
+                    description="Watch real users interact with your product. Understand user behavior, identify issues, and improve your product experience."
+                    docsURL="https://posthog.com/docs/session-replay"
+                    customHog={FilmCameraHog}
+                    actionElementOverride={
+                        <LemonButton
+                            type="primary"
+                            onClick={() => updateHasSeenProductIntroFor(ProductKey.SESSION_REPLAY, true)}
+                            data-attr="start-watching-recordings"
+                        >
+                            Start watching
+                        </LemonButton>
+                    }
+                />
             ) : showContent && activeSessionRecording ? (
                 <SessionRecordingPlayer
                     playerKey={props.logicKey ?? 'playlist'}

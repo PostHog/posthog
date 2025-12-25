@@ -24,6 +24,7 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -69,6 +70,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { projectNoticeVariant } = useValues(navigationLogic)
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
@@ -174,7 +176,9 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                         </LemonBanner>
                                     </div>
                                 ) : (
-                                    <div className="SessionRecordingPlaylistHeightWrapper">
+                                    <div
+                                        className={`SessionRecordingPlaylistHeightWrapper${projectNoticeVariant ? ' SessionRecordingPlaylistHeightWrapper--with-project-notice' : ''}`}
+                                    >
                                         <SessionRecordingsPlaylist
                                             logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams

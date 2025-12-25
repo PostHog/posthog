@@ -16,6 +16,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -74,6 +75,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
+
+    const { projectNoticeVariant } = useValues(navigationLogic)
 
     const isNewPlaylist = useMemo(() => {
         if (!playlist || playlistLoading) {
@@ -143,7 +146,9 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 )}
             </ScenePanel>
 
-            <SceneContent className="SessionRecordingPlaylistHeightWrapper">
+            <SceneContent
+                className={`SessionRecordingPlaylistHeightWrapper${projectNoticeVariant ? ' SessionRecordingPlaylistHeightWrapper--with-project-notice' : ''}`}
+            >
                 <SceneTitleSection
                     name={playlist.name || ''}
                     description={playlist.description || ''}
