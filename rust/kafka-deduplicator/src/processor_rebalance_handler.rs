@@ -1,10 +1,13 @@
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashSet;
 use rdkafka::TopicPartitionList;
-use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
+use crate::checkpoint::import::CheckpointImporter;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
@@ -24,6 +27,7 @@ where
     /// Partitions pending cleanup - added on revoke, removed on assign
     /// This tracks which partitions should be cleaned up vs which were re-assigned
     pending_cleanup: DashSet<Partition>,
+    checkpoint_importer: Option<Arc<CheckpointImporter>>,
 }
 
 impl<T, P> ProcessorRebalanceHandler<T, P>
@@ -31,12 +35,17 @@ where
     T: Send + 'static,
     P: BatchConsumerProcessor<T> + 'static,
 {
-    pub fn new(store_manager: Arc<StoreManager>, offset_tracker: Arc<OffsetTracker>) -> Self {
+    pub fn new(
+        store_manager: Arc<StoreManager>,
+        offset_tracker: Arc<OffsetTracker>,
+        checkpoint_importer: Option<Arc<CheckpointImporter>>,
+    ) -> Self {
         Self {
             store_manager,
             router: None,
             offset_tracker,
             pending_cleanup: DashSet::new(),
+            checkpoint_importer,
         }
     }
 
@@ -44,13 +53,129 @@ where
         store_manager: Arc<StoreManager>,
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
+        checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
             router: Some(router),
             offset_tracker,
             pending_cleanup: DashSet::new(),
+            checkpoint_importer,
         }
+    }
+
+    async fn import_checkpoint_for_topic_partition(
+        &self,
+        topic: &str,
+        partition_number: i32,
+        store_base_path: &Path,
+    ) -> Result<Option<PathBuf>> {
+        if self.checkpoint_importer.is_none() {
+            return Ok(None);
+        }
+
+        let tmp_path = match self
+            .checkpoint_importer
+            .as_ref()
+            .unwrap()
+            .import_checkpoint_for_topic_partition(topic, partition_number)
+            .await
+        {
+            Ok(path) => path,
+            Err(e) => {
+                // instrumented internally
+                return Err(e);
+            }
+        };
+
+        let store_full_path = store_base_path
+            .join(topic)
+            .join(partition_number.to_string());
+        if let Err(e) = std::fs::create_dir_all(&store_full_path) {
+            error!(
+                store_full_path = %store_full_path.display()    ,
+                error = e.to_string(),
+                "Failed to create store directory for checkpoint import"
+            );
+            return Err(anyhow::anyhow!(
+                "Failed to create store directory for checkpoint import: {e}"
+            ));
+        };
+
+        // Copy files from tmp_path to store_full_path
+        let mut entries = match tokio::fs::read_dir(&tmp_path).await {
+            Ok(entries) => entries,
+            Err(e) => {
+                error!(
+                    tmp_path = %tmp_path.display(),
+                    error = %e,
+                    "Failed to read checkpoint temp directory"
+                );
+                let _ = tokio::fs::remove_dir_all(&tmp_path).await;
+                let _ = tokio::fs::remove_dir_all(&store_full_path).await;
+                return Err(anyhow::anyhow!(
+                    "Failed to read checkpoint temp directory: {e}"
+                ));
+            }
+        };
+
+        let mut files_copied = 0u64;
+        while let Some(entry) = entries.next_entry().await.transpose() {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    error!(
+                        tmp_path = %tmp_path.display(),
+                        store_full_path = %store_full_path.display(),
+                        files_copied,
+                        error = %e,
+                        "Failed to read directory entry during checkpoint import"
+                    );
+                    let _ = tokio::fs::remove_dir_all(&tmp_path).await;
+                    let _ = tokio::fs::remove_dir_all(&store_full_path).await;
+                    return Err(anyhow::anyhow!(
+                        "Failed to read directory entry during checkpoint import: {e}"
+                    ));
+                }
+            };
+
+            let file_name = entry.file_name();
+            let dest = store_full_path.join(&file_name);
+
+            if let Err(e) = tokio::fs::copy(entry.path(), &dest).await {
+                error!(
+                    src = %entry.path().display(),
+                    dest = %dest.display(),
+                    files_copied,
+                    error = %e,
+                    "Failed to copy checkpoint file"
+                );
+                let _ = tokio::fs::remove_dir_all(&tmp_path).await;
+                let _ = tokio::fs::remove_dir_all(&store_full_path).await;
+                return Err(anyhow::anyhow!("Failed to copy checkpoint file: {e}"));
+            }
+            files_copied += 1;
+        }
+
+        // Clean up temp directory on success
+        if let Err(e) = tokio::fs::remove_dir_all(&tmp_path).await {
+            error!(
+                tmp_path = %tmp_path.display(),
+                error = %e,
+                "Failed to clean up checkpoint temp directory after successful import"
+            );
+            // Non-fatal - files are already copied
+        }
+
+        info!(
+            topic,
+            partition_number,
+            store_full_path = %store_full_path.display(),
+            files_copied,
+            "Imported checkpoint files"
+        );
+
+        Ok(Some(store_full_path))
     }
 }
 
@@ -160,6 +285,37 @@ where
         // If messages arrive before this completes, get_or_create in the processor
         // will handle it and emit a warning (indicating pre-creation didn't complete in time)
         for partition in &partition_infos {
+            // TODO(eli): finish wiring this up and handle errors/observability
+            match self
+                .import_checkpoint_for_topic_partition(
+                    partition.topic(),
+                    partition.partition_number(),
+                    self.store_manager.base_path(),
+                )
+                .await
+            {
+                Ok(Some(path)) => {
+                    info!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        path = %path.display(),
+                        "Imported checkpoint for partition"
+                    );
+                }
+                Ok(None) => {
+                    // No checkpoint importer configured, skip
+                }
+                Err(e) => {
+                    warn!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        error = %e,
+                        "Failed to import checkpoint for partition"
+                    );
+                    // Non-fatal - store will be created fresh
+                }
+            }
+
             match self
                 .store_manager
                 .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
@@ -325,7 +481,7 @@ mod tests {
 
         // Test handler without router
         let handler: ProcessorRebalanceHandler<String, TestProcessor> =
-            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone());
+            ProcessorRebalanceHandler::new(store_manager.clone(), offset_tracker.clone(), None);
         assert!(handler.router.is_none());
 
         // Test handler with router
@@ -335,8 +491,12 @@ mod tests {
             offset_tracker.clone(),
             PartitionRouterConfig::default(),
         ));
-        let handler_with_router =
-            ProcessorRebalanceHandler::with_router(store_manager, router.clone(), offset_tracker);
+        let handler_with_router = ProcessorRebalanceHandler::with_router(
+            store_manager,
+            router.clone(),
+            offset_tracker,
+            None,
+        );
         assert!(handler_with_router.router.is_some());
     }
 
@@ -356,8 +516,12 @@ mod tests {
             PartitionRouterConfig::default(),
         ));
 
-        let handler =
-            ProcessorRebalanceHandler::with_router(store_manager, router.clone(), offset_tracker);
+        let handler = ProcessorRebalanceHandler::with_router(
+            store_manager,
+            router.clone(),
+            offset_tracker,
+            None,
+        );
 
         // Initially no workers
         assert_eq!(router.worker_count(), 0);
@@ -418,6 +582,7 @@ mod tests {
             store_manager.clone(),
             router.clone(),
             offset_tracker,
+            None,
         );
 
         // Assign partition and create a store
@@ -517,6 +682,7 @@ mod tests {
             store_manager.clone(),
             router.clone(),
             offset_tracker,
+            None,
         );
 
         // Step 1: Initial assignment

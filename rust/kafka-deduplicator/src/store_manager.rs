@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -388,6 +388,11 @@ impl StoreManager {
 
     pub fn get_active_store_count(&self) -> usize {
         self.stores.len()
+    }
+
+    /// Get the base path where stores are created
+    pub fn base_path(&self) -> &Path {
+        &self.store_config.path
     }
 
     /// Cleanup old entries across all stores to maintain global capacity

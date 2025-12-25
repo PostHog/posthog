@@ -268,6 +268,7 @@ impl KafkaDeduplicatorService {
             self.store_manager.clone(),
             router,
             offset_tracker.clone(),
+            None, // TODO(eli): bootstrap importer if cfg enabled
         ));
 
         // Create consumer config using the kafka module's builder

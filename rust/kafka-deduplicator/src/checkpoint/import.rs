@@ -8,11 +8,25 @@ use tracing::{error, info};
 #[derive(Debug)]
 pub struct CheckpointImporter {
     downloader: Box<dyn CheckpointDownloader>,
+    // temporary local base path for checkpoint import attempts.
+    // NOTE: if successful, caller will copy the files from here
+    // into the RocksDB store mamager's expected path structure
+    local_base_import_path: PathBuf,
+    // number of historical checkpoint attempts to import as fallbacks
+    import_attempt_depth: usize,
 }
 
 impl CheckpointImporter {
-    pub fn new(downloader: Box<dyn CheckpointDownloader>) -> Self {
-        Self { downloader }
+    pub fn new(
+        downloader: Box<dyn CheckpointDownloader>,
+        local_base_import_path: PathBuf,
+        import_attempt_depth: usize,
+    ) -> Self {
+        Self {
+            downloader,
+            local_base_import_path,
+            import_attempt_depth,
+        }
     }
 
     /// This is the one-stop entry point for DR checkpoint import.
@@ -30,10 +44,8 @@ impl CheckpointImporter {
     /// 4. If successful, return the final local path to the most recent successful checkpoint was imported to
     pub async fn import_checkpoint_for_topic_partition(
         &self,
-        local_base_path: &Path,
         topic: &str,
         partition_number: i32,
-        import_limit: usize,
     ) -> Result<PathBuf> {
         let mut checkpoint_metadata = self
             .fetch_checkpoint_metadata(topic, partition_number)
@@ -48,13 +60,16 @@ impl CheckpointImporter {
 
         // Slice to at most the most-recent N checkpoints
         // we'll attempt to import according to import_limit
-        checkpoint_metadata.truncate(import_limit);
+        checkpoint_metadata.truncate(self.import_attempt_depth);
         info!("Attempting recovery from the most recent {} checkpoints for topic:{topic} partition:{partition_number}",
             checkpoint_metadata.len());
 
         // checkpoints iterated in order of recency; we keep the first good one we fetch
         for attempt in checkpoint_metadata {
-            let local_attempt_path = local_base_path.join(attempt.get_attempt_path());
+            let local_attempt_path = self
+                .local_base_import_path
+                .clone()
+                .join(attempt.get_attempt_path());
             let attempt_tag = attempt
                 .to_json()
                 .unwrap_or(local_attempt_path.to_string_lossy().to_string());
