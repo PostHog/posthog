@@ -64,7 +64,7 @@ describe('prepareEventStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        const personRepository = new PostgresPersonRepository(hub.db.postgres)
+        const personRepository = new PostgresPersonRepository(hub.postgres)
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
         await personRepository.createPerson(
@@ -80,7 +80,7 @@ describe('prepareEventStep()', () => {
         )
 
         // @ts-expect-error TODO: Check existence of queueMessage
-        hub.db.kafkaProducer!.queueMessage = jest.fn()
+        hub.kafkaProducer!.queueMessage = jest.fn()
 
         // eslint-disable-next-line @typescript-eslint/require-await
         hub.teamManager.getTeam = jest.fn(async (teamId) => {
@@ -93,7 +93,7 @@ describe('prepareEventStep()', () => {
             hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
         )
         groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
+            hub.kafkaProducer,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
@@ -126,7 +126,7 @@ describe('prepareEventStep()', () => {
         })
 
         // @ts-expect-error TODO: Check existence of queueMessage
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+        expect(hub.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
@@ -155,7 +155,7 @@ describe('prepareEventStep()', () => {
         })
 
         // @ts-expect-error TODO: Check existence of queueMessage
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+        expect(hub.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     // Tests combo of prepareEvent + createEvent

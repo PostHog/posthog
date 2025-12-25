@@ -140,7 +140,7 @@ export class IngestionConsumer {
         )
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,

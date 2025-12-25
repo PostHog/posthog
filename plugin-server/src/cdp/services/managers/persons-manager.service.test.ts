@@ -18,7 +18,7 @@ describe('PersonsManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        personRepository = new PostgresPersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.postgres)
         await resetTestDatabase()
         manager = new PersonsManagerService(hub.personRepository)
         team = await getFirstTeam(hub)

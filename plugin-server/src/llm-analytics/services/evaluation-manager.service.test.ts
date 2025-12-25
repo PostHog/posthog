@@ -24,8 +24,8 @@ describe('EvaluationManagerService', () => {
 
         const team = await getTeam(hub, 2)
 
-        teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId1 = await createTeam(hub.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.postgres, team!.organization_id)
 
         evaluations = []
 
@@ -101,7 +101,7 @@ describe('EvaluationManagerService', () => {
 
     it('filters out deleted evaluations', async () => {
         // Mark first evaluation as deleted
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE llm_analytics_evaluation SET deleted=true, updated_at = NOW() WHERE id = $1`,
             [evaluations[0].id],
@@ -122,7 +122,7 @@ describe('EvaluationManagerService', () => {
         expect(items1).toHaveLength(1)
 
         // Update the database without triggering reload
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE llm_analytics_evaluation SET name='Updated Name', updated_at = NOW() WHERE id = $1`,
             [evaluations[0].id],
@@ -139,7 +139,7 @@ describe('EvaluationManagerService', () => {
         const itemsBefore = await manager.getEvaluationsForTeam(teamId1)
         expect(itemsBefore).toHaveLength(1)
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE llm_analytics_evaluation SET name='Updated Evaluation', updated_at = NOW() WHERE id = $1`,
             [evaluations[0].id],
@@ -162,7 +162,7 @@ describe('EvaluationManagerService', () => {
         const itemsBefore = await manager.getEvaluationsForTeam(teamId1)
         expect(itemsBefore).toHaveLength(1)
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE llm_analytics_evaluation SET enabled=false, updated_at = NOW() WHERE id = $1`,
             [evaluations[0].id],
