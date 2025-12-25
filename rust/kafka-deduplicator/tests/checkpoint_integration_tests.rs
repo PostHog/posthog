@@ -310,8 +310,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
 
         assert!(
             imported_files.contains(&filename.to_string()),
-            "Expected file '{}' from metadata not found in imported files. \
-             Imported: {:?}",
+            "Expected file '{}' from metadata not found in imported files. Imported: {:?}",
             filename,
             imported_files
         );
@@ -321,8 +320,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     assert_eq!(
         imported_files.len(),
         downloaded_metadata.files.len(),
-        "Imported file count should match metadata. \
-         Imported: {:?}, Expected: {:?}",
+        "Imported file count should match metadata. Imported: {:?}, Expected: {:?}",
         imported_files,
         downloaded_metadata
             .files
