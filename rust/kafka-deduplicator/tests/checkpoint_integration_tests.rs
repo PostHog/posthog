@@ -310,9 +310,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
 
         assert!(
             imported_files.contains(&filename.to_string()),
-            "Expected file '{}' from metadata not found in imported files. Imported: {:?}",
-            filename,
-            imported_files
+            "Expected file '{filename}' from metadata not found in imported files. Imported: {imported_files:?}",
         );
         info!(filename, "  - verified");
     }
@@ -320,8 +318,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     assert_eq!(
         imported_files.len(),
         downloaded_metadata.files.len(),
-        "Imported file count should match metadata. Imported: {:?}, Expected: {:?}",
-        imported_files,
+        "Imported file count should match metadata. Imported: {imported_files:?}, Expected: {:?}",
         downloaded_metadata
             .files
             .iter()
@@ -332,8 +329,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     // Verify import result is within the configured import directory
     assert!(
         import_result.starts_with(tmp_import_dir.path()),
-        "Imported checkpoint should be within tmp_import_dir: {:?} not in {:?}",
-        import_result,
+        "Imported checkpoint should be within tmp_import_dir: {import_result:?} not in {:?}",
         tmp_import_dir.path()
     );
 
