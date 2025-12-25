@@ -2,9 +2,10 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { LegacyPluginAppMetrics } from '~/cdp/legacy-plugins/app-metrics'
-import { instrumented } from '~/common/tracing/tracing-utils'
+import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
-import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
+import { KafkaConsumer } from '../../kafka/consumer'
+import { HealthCheckResult, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
@@ -19,7 +20,7 @@ import {
 } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
-import { CdpEventsConsumer } from './cdp-events.consumer'
+import { CdpConsumerBase } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 export type LightweightPluginConfig = {
@@ -52,9 +53,10 @@ const legacyPluginExecutionResultCounter = new Counter({
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
  * We can then use this to gradually move over to the new hog functions
  */
-export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
+export class CdpLegacyEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
+    protected kafkaConsumer: KafkaConsumer
 
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
@@ -62,7 +64,12 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     private appMetrics: LegacyPluginAppMetrics
 
     constructor(hub: Hub) {
-        super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
+        super(hub)
+
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID,
+            topic: hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC,
+        })
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(hub)
 
@@ -256,36 +263,34 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        return await this.runWithHeartbeat(async () => {
-            const events: HogFunctionInvocationGlobals[] = []
+        const events: HogFunctionInvocationGlobals[] = []
 
-            await Promise.all(
-                messages.map(async (message) => {
-                    try {
-                        const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                        const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
+                    const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
 
-                        if (!team) {
-                            return
-                        }
-
-                        const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
-
-                        if (!pluginConfigHogFunctions?.length) {
-                            return
-                        }
-
-                        events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
-                    } catch (e) {
-                        logger.error('Error parsing message', e)
-                        counterParseError.labels({ error: e.message }).inc()
+                    if (!team) {
+                        return
                     }
-                })
-            )
 
-            return events
-        })
+                    const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
+
+                    if (!pluginConfigHogFunctions?.length) {
+                        return
+                    }
+
+                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
     }
 
     private async getLegacyPluginHogFunctionInvocations(
@@ -315,5 +320,36 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                 hogFunction
             )
         })
+    }
+
+    public async start(): Promise<void> {
+        await super.start()
+        // Start consuming messages
+        await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling batch`, {
+                size: messages.length,
+            })
+
+            return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
+                const invocationGlobals = await this._parseKafkaBatch(messages)
+                const { backgroundTask } = await this.processBatch(invocationGlobals)
+
+                return { backgroundTask }
+            })
+        })
+    }
+
+    public async stop(): Promise<void> {
+        logger.info('💤', 'Stopping consumer...')
+        await this.kafkaConsumer.disconnect()
+        logger.info('💤', 'Flushing app metrics before stopping...')
+        await this.appMetrics.flush()
+        // IMPORTANT: super always comes last
+        await super.stop()
+        logger.info('💤', 'Consumer stopped!')
+    }
+
+    public isHealthy(): HealthCheckResult {
+        return this.kafkaConsumer.isHealthy()
     }
 }
