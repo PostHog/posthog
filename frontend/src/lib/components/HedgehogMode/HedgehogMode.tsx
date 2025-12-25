@@ -47,7 +47,7 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
             selector:
                 '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',
             viewportPadding: {
-                top: 50,
+                top: 100,
             },
         },
         onQuit: (game) => {
