@@ -63,7 +63,7 @@ jobs:
                   echo "Image digest: ${{ steps.build.outputs.digest }}"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`${{ steps.build.outputs.image-url }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`${{ steps.build.outputs.registry }}/posthog-cloud@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
