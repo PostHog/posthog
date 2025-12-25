@@ -46,7 +46,13 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
+from posthog.models.integration import (
+    AzureBlobIntegration,
+    AzureBlobIntegrationError,
+    DatabricksIntegration,
+    DatabricksIntegrationError,
+    Integration,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -506,6 +512,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 send_feature_flag_events=False,
             ):
                 raise PermissionDenied("Azure Blob Storage batch exports are not enabled for this team.")
+
+            # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
+            integration: Integration | None = destination_attrs.get("integration")
+            if integration is None:
+                raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.AZURE_BLOB:
+                raise serializers.ValidationError("Integration is not an Azure Blob integration.")
+            # try instantiate the integration to check if it's valid
+            try:
+                AzureBlobIntegration(integration)
+            except AzureBlobIntegrationError as e:
+                raise serializers.ValidationError(str(e))
         if destination_type == BatchExportDestination.Destination.REDSHIFT:
             mode = merged_config.get("mode")
 

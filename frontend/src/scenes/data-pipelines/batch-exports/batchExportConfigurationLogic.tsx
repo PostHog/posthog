@@ -53,22 +53,44 @@ function validateBucketName(bucketName: string): string | undefined {
     return undefined
 }
 
+// For Azure container naming rules see:
+// https://learn.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata#container-names
+function validateAzureContainerName(name: string): string | undefined {
+    if (name.length < 3 || name.length > 63) {
+        return 'Container name must be 3-63 characters'
+    }
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(name) && name.length > 1) {
+        return 'Must be lowercase letters, numbers, and hyphens; start and end with letter or number'
+    }
+    if (name.length === 1 && !/^[a-z0-9]$/.test(name)) {
+        return 'Must be a lowercase letter or number'
+    }
+    if (/--/.test(name)) {
+        return 'Cannot contain consecutive hyphens'
+    }
+    return undefined
+}
+
 export interface BatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    const config = {
+    const destinationType = batchExportConfig.destination.type
+
+    const config: Record<string, any> = {
         name: batchExportConfig.name,
-        destination: batchExportConfig.destination.type,
+        destination: destinationType,
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
-        integration_id:
-            batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
+    }
+
+    if (destinationType === 'Databricks' || destinationType === 'AzureBlob') {
+        config.integration_id = batchExportConfig.destination.integration
     }
 
     let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
@@ -127,6 +149,10 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
             use_variant_type: true,
             // prefill prefix for http path
             http_path: '/sql/1.0/warehouses/',
+        }),
+        ...(service === 'AzureBlob' && {
+            file_format: 'Parquet',
+            compression: 'zstd',
         }),
     }
 }
@@ -985,6 +1011,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         'table_name',
                         'use_variant_type',
                     ]
+                } else if (service === 'AzureBlob') {
+                    return [...generalRequiredFields, 'integration_id', 'container_name']
                 }
                 return generalRequiredFields
             },
@@ -1105,12 +1133,18 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                           ? validateBucketName(formdata.redshift_s3_bucket)
                           : undefined
 
+                const containerNameError =
+                    values.service === 'AzureBlob' && formdata.container_name
+                        ? validateAzureContainerName(formdata.container_name as string)
+                        : undefined
+
                 return {
                     ...requiredFieldErrors,
                     ...(values.service === 'S3' && bucketNameError ? { bucket_name: bucketNameError } : {}),
                     ...(values.service === 'Redshift' && formdata.mode === 'COPY' && bucketNameError
                         ? { redshift_s3_bucket: bucketNameError }
                         : {}),
+                    ...(containerNameError && { container_name: containerNameError }),
                 }
             },
             submit: async (formdata) => {
