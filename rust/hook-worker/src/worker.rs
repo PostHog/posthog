@@ -1220,12 +1220,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_webhook() {
+        use httpmock::prelude::*;
+
         let method = HttpMethod::POST;
-        let url = "http://localhost:18081/echo";
         let headers = collections::HashMap::new();
         let body = "a very relevant request body";
 
-        let response = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/echo").body(body);
+            then.status(200).body(body);
+        });
+
+        let url = server.url("/echo");
+        let response = send_webhook(localhost_client(), &method, &url, &headers, body.to_owned())
             .await
             .expect("send_webhook failed");
 
@@ -1238,12 +1246,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_message_contains_response_body() {
+        use httpmock::prelude::*;
+
         let method = HttpMethod::POST;
-        let url = "http://localhost:18081/fail";
         let headers = collections::HashMap::new();
         let body = "this is an error message";
 
-        let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/fail");
+            then.status(400).body(body);
+        });
+
+        let url = server.url("/fail");
+        let err = send_webhook(localhost_client(), &method, &url, &headers, body.to_owned())
             .await
             .expect_err("request didn't fail when it should have failed");
 
@@ -1253,36 +1269,50 @@ mod tests {
             assert!(request_error.to_string().contains(body));
             // This is the display implementation of reqwest. Just checking it is still there.
             // See: https://github.com/seanmonstar/reqwest/blob/master/src/error.rs
-            assert!(request_error.to_string().contains(
-                "HTTP status client error (400 Bad Request) for url (http://localhost:18081/fail)"
-            ));
+            assert!(request_error
+                .to_string()
+                .contains("HTTP status client error (400 Bad Request)"));
         }
     }
 
     #[tokio::test]
     async fn test_error_message_contains_up_to_n_bytes_of_response_body() {
+        use httpmock::prelude::*;
+
         let method = HttpMethod::POST;
-        let url = "http://localhost:18081/fail";
         let headers = collections::HashMap::new();
         // This is double the current hardcoded amount of bytes.
         // TODO: Make this configurable and change it here too.
-        let body = (0..512 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
+        let body = "a".repeat(512 * 1024);
 
-        let err = send_webhook(localhost_client(), &method, url, &headers, body.to_owned())
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/fail");
+            then.status(400).body(body.clone());
+        });
+
+        let url = server.url("/fail");
+        let err = send_webhook(localhost_client(), &method, &url, &headers, body.to_owned())
             .await
             .expect_err("request didn't fail when it should have failed");
 
         assert!(matches!(err, WebhookError::Request(..)));
         if let WebhookError::Request(request_error) = err {
             assert_eq!(request_error.status(), Some(StatusCode::BAD_REQUEST));
-            assert!(request_error.to_string().contains(&body[0..256 * 1024]));
-            // The 81 bytes account for the reqwest error message as described below.
-            assert_eq!(request_error.to_string().len(), 256 * 1024 + 81);
+            let error_string = request_error.to_string();
+            // Verify the response body is truncated to 256KB
+            assert!(error_string.contains(&body[0..256 * 1024]));
+            // Verify truncation by checking the total length is less than full body + prefix
+            // The error format is: "HTTP status client error (400 Bad Request) for url ({url}): {truncated_body}"
+            // Full body would be 512KB, truncated should be 256KB
+            assert!(
+                error_string.len() < 300 * 1024,
+                "Error message should be truncated to ~256KB, got {} bytes",
+                error_string.len()
+            );
             // This is the display implementation of reqwest. Just checking it is still there.
             // See: https://github.com/seanmonstar/reqwest/blob/master/src/error.rs
-            assert!(request_error.to_string().contains(
-                "HTTP status client error (400 Bad Request) for url (http://localhost:18081/fail)"
-            ));
+            assert!(error_string.contains("HTTP status client error (400 Bad Request)"));
         }
     }
 

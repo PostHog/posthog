@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { PostHogFeature } from 'posthog-js/react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -15,12 +14,12 @@ import {
     IconLaptop,
     IconPlusSmall,
     IconRewind,
-    IconRewindPlay,
     IconServer,
     IconTrash,
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -30,6 +29,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -51,6 +51,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
+import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -94,11 +96,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
-    ReplayTabs,
 } from '~/types'
 
-import { AnalysisTab } from './FeatureFlagAnalysisTab'
-import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
@@ -110,7 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -153,6 +152,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
 
     // whether the key for an existing flag is being changed
@@ -246,10 +246,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <SceneSection title="Insights that use this feature flag">
                                     <RecentFeatureFlagInsights />
                                 </SceneSection>
-
-                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                    <FeatureFlagAutoRollback readOnly />
-                                )}
                             </>
                         )}
 
@@ -278,26 +274,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Schedule',
             key: FeatureFlagsTab.SCHEDULE,
             content: <FeatureFlagSchedule />,
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Analysis</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="warning">
-                        {' '}
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.Analysis,
-            content: (
-                <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                    <AnalysisTab featureFlag={featureFlag} />
-                </PostHogFeature>
-            ),
         })
     }
 
@@ -381,6 +357,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         />
 
                         <SceneContent>
+                            {!isNewFeatureFlag && featureFlag.id && (
+                                <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
+                            )}
+
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
                                     This feature flag is linked to{' '}
@@ -459,22 +439,37 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             )}
                             <LemonField name="active">
-                                {({ value, onChange }) => (
-                                    <div className="border rounded p-4">
-                                        <LemonCheckbox
-                                            id="flag-enabled-checkbox"
-                                            label="Enable feature flag"
-                                            onChange={() => onChange(!value)}
-                                            checked={value}
-                                            data-attr="feature-flag-enabled-checkbox"
-                                        />
-                                        <div className="text-secondary text-sm pl-7">
-                                            When enabled, this flag evaluates according to your release conditions. When
-                                            disabled, this flag will not be evaluated and PostHog SDKs default to
-                                            returning <code>false</code>.
+                                {({ value, onChange }) => {
+                                    const requiresApprovalToEnable =
+                                        isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
+
+                                    // If approval is required and value is still true, set it to false
+                                    if (requiresApprovalToEnable && value) {
+                                        queueMicrotask(() => onChange(false))
+                                    }
+
+                                    return (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="flag-enabled-checkbox"
+                                                label="Enable feature flag"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                                disabledReason={
+                                                    requiresApprovalToEnable
+                                                        ? 'Enabling feature flags requires approval. Create the flag first, then enable it.'
+                                                        : undefined
+                                                }
+                                                data-attr="feature-flag-enabled-checkbox"
+                                            />
+                                            <div className="text-secondary text-sm pl-7">
+                                                When enabled, this flag evaluates according to your release conditions.
+                                                When disabled, this flag will not be evaluated and PostHog SDKs default
+                                                to returning <code>false</code>.
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )
+                                }}
                             </LemonField>
                             {isNewFeatureFlag && (
                                 <LemonField name="_should_create_usage_dashboard">
@@ -674,9 +669,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </div>
                                     {advancedSettingsExpanded && (
                                         <>
-                                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                                <FeatureFlagAutoRollback />
-                                            )}
                                             <div className="border rounded bg-surface-primary">
                                                 <h3 className="p-2 mb-0">Permissions</h3>
                                                 <LemonDivider className="my-0" />
@@ -846,6 +838,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             </ScenePanelActionsSection>
                         </ScenePanel>
                         <SceneContent>
+                            {featureFlag.id && (
+                                <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
+                            )}
+
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                                 <LemonBanner type="info">
                                     This feature flag is assigned to an early access feature in the{' '}
@@ -1236,18 +1232,10 @@ function FeatureFlagRollout({
                                     variants={variants}
                                     payloads={featureFlag.filters?.payloads}
                                     readOnly={true}
+                                    flagKey={featureFlag.key}
+                                    hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
                                     onViewRecordings={(variantKey) => {
                                         reportViewRecordingsClicked(variantKey)
-                                        router.actions.push(
-                                            urls.replay(
-                                                ReplayTabs.Home,
-                                                getRecordingFilterForFlagVariant(
-                                                    featureFlag.key,
-                                                    variantKey,
-                                                    featureFlag.has_enriched_analytics
-                                                )
-                                            )
-                                        )
                                         addProductIntentForCrossSell({
                                             from: ProductKey.FEATURE_FLAGS,
                                             to: ProductKey.SESSION_REPLAY,
@@ -1510,27 +1498,21 @@ function FeatureFlagRollout({
                                             title="Recordings"
                                             description="Watch recordings of people who have been exposed to the feature flag."
                                         >
-                                            <div className="inline-block">
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        reportViewRecordingsClicked()
-                                                        router.actions.push(
-                                                            urls.replay(ReplayTabs.Home, recordingFilterForFlag)
-                                                        )
-                                                        addProductIntentForCrossSell({
-                                                            from: ProductKey.FEATURE_FLAGS,
-                                                            to: ProductKey.SESSION_REPLAY,
-                                                            intent_context:
-                                                                ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                                        })
-                                                    }}
-                                                    icon={<IconRewindPlay />}
-                                                    type="secondary"
-                                                    size="small"
-                                                >
-                                                    View recordings
-                                                </LemonButton>
-                                            </div>
+                                            <ViewRecordingsPlaylistButton
+                                                filters={recordingFilterForFlag}
+                                                type="secondary"
+                                                size="small"
+                                                data-attr="feature-flag-view-recordings"
+                                                onClick={() => {
+                                                    reportViewRecordingsClicked()
+                                                    addProductIntentForCrossSell({
+                                                        from: ProductKey.FEATURE_FLAGS,
+                                                        to: ProductKey.SESSION_REPLAY,
+                                                        intent_context:
+                                                            ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                                    })
+                                                }}
+                                            />
                                         </SceneSection>
 
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
@@ -1730,23 +1712,21 @@ function FeatureFlagRollout({
                                     title="Recordings"
                                     description="Watch recordings of people who have been exposed to the feature flag."
                                 >
-                                    <LemonButton
+                                    <ViewRecordingsPlaylistButton
+                                        filters={recordingFilterForFlag}
+                                        type="secondary"
+                                        size="small"
+                                        className="w-fit"
+                                        data-attr="feature-flag-view-recordings"
                                         onClick={() => {
                                             reportViewRecordingsClicked()
-                                            router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
                                             addProductIntentForCrossSell({
                                                 from: ProductKey.FEATURE_FLAGS,
                                                 to: ProductKey.SESSION_REPLAY,
                                                 intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                             })
                                         }}
-                                        icon={<IconRewindPlay />}
-                                        type="secondary"
-                                        size="small"
-                                        className="w-fit"
-                                    >
-                                        View recordings
-                                    </LemonButton>
+                                    />
                                 </SceneSection>
                                 {onGetFeedback && (
                                     <>

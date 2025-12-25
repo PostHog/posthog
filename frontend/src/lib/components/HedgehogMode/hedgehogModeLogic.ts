@@ -23,6 +23,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     actions({
         setHedgehogMode: (hedgeHogMode: HedgehogModeInterface) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
+        toggleHedgehogMode: true,
         loadRemoteConfig: true,
         updateRemoteConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         syncGame: true,
@@ -120,6 +121,9 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             })
 
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
+        },
+        toggleHedgehogMode: () => {
+            actions.setHedgehogModeEnabled(!values.hedgehogModeEnabled)
         },
 
         updateRemoteConfigSuccess: ({ remoteConfig }) => {

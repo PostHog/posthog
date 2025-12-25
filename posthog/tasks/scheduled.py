@@ -7,6 +7,7 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
+from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
@@ -16,7 +17,10 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
-from posthog.tasks.hypercache_verification import verify_and_fix_hypercaches_task
+from posthog.tasks.hypercache_verification import (
+    verify_and_fix_flags_cache_task,
+    verify_and_fix_team_metadata_cache_task,
+)
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -60,6 +64,8 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
+
+from products.endpoints.backend.tasks import deactivate_stale_materializations
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -191,14 +197,25 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flags cache expiry tracking cleanup",
     )
 
-    # HyperCache verification - hourly at minute 30
-    # Verifies all teams for both team_metadata and flags caches,
-    # automatically fixing any cache misses, mismatches, or expiry tracking issues
+    # HyperCache verification - split into separate tasks for independent time budgets
+    # Tasks have 1-hour time limits, so expiry must match
+    # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="*", minute="30"),
-        verify_and_fix_hypercaches_task.s(),
-        name="verify and fix hypercaches",
+        crontab(hour="*", minute="20"),
+        verify_and_fix_team_metadata_cache_task.s(),
+        name="verify and fix team metadata cache",
+        expires_seconds=60 * 60,
+    )
+
+    # Flags cache verification - every 30 minutes
+    # Task takes ~8-10 minutes with 250-team batch size
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/30"),
+        verify_and_fix_flags_cache_task.s(),
+        name="verify and fix flags cache",
+        expires_seconds=30 * 60,
     )
 
     # Update events table partitions twice a week
@@ -470,4 +487,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        validate_pending_change_requests.s(),
+        name="validate pending change requests",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="5"),
+        expire_old_change_requests.s(),
+        name="expire old change requests",
+    )
+
+    # Deactivate endpoint materializations that haven't been used in 30+ days
+    sender.add_periodic_task(
+        crontab(hour="5", minute="0"),
+        deactivate_stale_materializations.s(),
+        name="deactivate stale endpoint materializations",
     )

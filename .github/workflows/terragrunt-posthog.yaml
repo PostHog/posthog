@@ -32,20 +32,29 @@ jobs:
               with:
                   fetch-depth: 0
 
-            - name: Find all team folders
+            - name: Find all terraform modules
               id: changes
               run: |
-                  # Find all team directories (starting with `team-*`) and return them so that we can run plan on all of them
+                  # Find all directories containing .tf files within team-* folders.
+                  # This discovers both team-level modules and subdirectory modules.
                   # Terraform plan is idempotent - no changes = no comment
-                  # In the future we might want to make this smarter, but for now it gets the job done.
-                  MATRIX_DATA=$(find terraform -mindepth 2 -maxdepth 4 -type d -name 'team-*' | sort | jq -R -s -c '
-                    split("\n") |
-                    map(select(length > 0)) |
-                    map({
-                      working_dir: .,
-                      service_name: (. | split("/") | .[-1])
-                    })
-                  ')
+                  MATRIX_DATA=$(find terraform -mindepth 2 -maxdepth 5 -type f -name '*.tf' | \
+                    xargs -I {} dirname {} | \
+                    sort -u | \
+                    grep '/team-' | \
+                    jq -R -s -c '
+                      split("\n") |
+                      map(select(length > 0)) |
+                      map({
+                        working_dir: .,
+                        team_name: (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown"),
+                        folder_name: (. | split("/") | .[-1]),
+                        service_name: (
+                          (. | split("/") | map(select(startswith("team-"))) | .[0] // "unknown") + " [" +
+                          (. | split("/") | .[-1]) + "]"
+                        )
+                      })
+                    ')
                   echo "matrix_data=$MATRIX_DATA" >> $GITHUB_OUTPUT
 
             - name: Delete old PR comments

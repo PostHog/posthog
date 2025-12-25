@@ -22,7 +22,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -415,7 +415,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             },
                         ]}
                         type="secondary"
-                        inModal={true}
+                        openPlayerIn={RecordingPlayerType.Modal}
                     />
                 ) : null}
             </div>
@@ -462,7 +462,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                                                   ]}
                                                                   label={`View recording ${i + 1}`}
                                                                   checkIfViewed={true}
-                                                                  inModal={true}
+                                                                  openPlayerIn={RecordingPlayerType.Modal}
                                                                   fullWidth={true}
                                                               />
                                                           </li>

@@ -5,6 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -24,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -81,9 +84,23 @@ function NewSurveyButton(): JSX.Element {
                 resourceType={AccessControlResourceType.Survey}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-                    <span className="pr-3">New survey</span>
-                </LemonButton>
+                <AppShortcut
+                    name="NewSurvey"
+                    keybind={[keyBinds.new]}
+                    intent="New survey"
+                    interaction="click"
+                    scope={Scene.Surveys}
+                >
+                    <LemonButton
+                        size="small"
+                        to={urls.surveyTemplates()}
+                        type="primary"
+                        data-attr="new-survey"
+                        tooltip="New survey"
+                    >
+                        <span className="pr-3">New survey</span>
+                    </LemonButton>
+                </AppShortcut>
             </AccessControlAction>
         </MaxTool>
     )
@@ -138,6 +155,7 @@ function Surveys(): JSX.Element {
                     <SurveysTable />
                 </>
             )}
+            <DuplicateToProjectModal />
         </SceneContent>
     )
 }

@@ -6,6 +6,7 @@ import { inStorybook } from 'lib/utils'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
+import { useAppShortcut } from '../AppShortcuts/useAppShortcut'
 import { hedgehogModeLogic } from './hedgehogModeLogic'
 import { HedgehogModeConfig } from './types'
 
@@ -35,7 +36,7 @@ export type HedgehogModeProps = {
 
 export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Element | null {
     const { hedgehogModeEnabled } = useValues(hedgehogModeLogic)
-    const { setHedgehogMode, setHedgehogModeEnabled } = useActions(hedgehogModeLogic)
+    const { setHedgehogMode, setHedgehogModeEnabled, toggleHedgehogMode } = useActions(hedgehogModeLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const enabled = enabledOverride ?? hedgehogModeEnabled
@@ -62,6 +63,14 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
             }, 1000)
         },
     }
+
+    useAppShortcut({
+        name: 'ToggleHedgehogMode',
+        keybind: [],
+        intent: 'Toggle hedgehog mode',
+        interaction: 'function',
+        callback: toggleHedgehogMode,
+    })
 
     return typeof window !== 'undefined' && enabled ? (
         <Suspense fallback={<span>Loading...</span>}>

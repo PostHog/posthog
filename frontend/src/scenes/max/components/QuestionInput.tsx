@@ -85,7 +85,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         setShowAutocomplete(isSlashCommand)
     }, [question, showAutocomplete])
 
-    let disabledReason = threadLoading && !dataProcessingAccepted ? 'Pending approval' : submissionDisabledReason
+    let disabledReason = !threadLoading
+        ? !dataProcessingAccepted
+            ? 'Pending approval'
+            : submissionDisabledReason
+        : undefined
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
@@ -103,8 +107,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             <div
                 className={clsx(
                     'flex flex-col items-center',
-                    isSticky &&
-                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                    isSticky && 'mb-2 border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
                 )}
             >
                 {/* Have to increase z-index to overlay ToolsDisplay */}
@@ -113,14 +116,62 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <label
                         htmlFor="question-input"
                         className={clsx(
-                            'input-like flex flex-col',
-                            'border border-[var(--color-border-primary)]',
+                            'input-like flex flex-col cursor-text',
+                            'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
                             isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg'
                         )}
                     >
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
+                            <div className="relative w-full">
+                                {!question && (
+                                    <div id="textarea-hint" className="text-secondary absolute top-4 left-4 text-sm">
+                                        {conversation && isSharedThread ? (
+                                            `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        ) : threadLoading ? (
+                                            'Thinking…'
+                                        ) : isThreadVisible ? (
+                                            placeholder || (
+                                                <>
+                                                    Ask follow-up{' '}
+                                                    <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                        / for commands
+                                                    </span>
+                                                </>
+                                            )
+                                        ) : (
+                                            <>
+                                                Ask a question{' '}
+                                                <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                    / for commands
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                <LemonTextArea
+                                    aria-describedby={!question ? 'textarea-hint' : undefined}
+                                    id="question-input"
+                                    ref={textAreaRef}
+                                    value={isSharedThread ? '' : question}
+                                    onChange={(value) => setQuestion(value)}
+                                    onPressEnter={() => {
+                                        if (question && !submissionDisabledReason && !threadLoading) {
+                                            onSubmit?.()
+                                            askMax(question)
+                                        }
+                                    }}
+                                    disabled={inputDisabled}
+                                    minRows={1}
+                                    maxRows={10}
+                                    className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none"
+                                    hideFocus
+                                />
+                            </div>
+                        </SlashCommandAutocomplete>
+
                         {!isSharedThread && (
-                            <div className="pt-2">
+                            <div className="pb-2">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
@@ -131,35 +182,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 )}
                             </div>
                         )}
-
-                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
-                            <LemonTextArea
-                                id="question-input"
-                                ref={textAreaRef}
-                                value={isSharedThread ? '' : question}
-                                onChange={(value) => setQuestion(value)}
-                                placeholder={
-                                    conversation && isSharedThread
-                                        ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                        : threadLoading
-                                          ? 'Thinking…'
-                                          : isThreadVisible
-                                            ? placeholder || 'Ask follow-up (/ for commands)'
-                                            : 'Ask away (/ for commands)'
-                                }
-                                onPressEnter={() => {
-                                    if (question && !submissionDisabledReason && !threadLoading) {
-                                        onSubmit?.()
-                                        askMax(question)
-                                    }
-                                }}
-                                disabled={inputDisabled}
-                                minRows={1}
-                                maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
-                                hideFocus
-                            />
-                        </SlashCommandAutocomplete>
                     </label>
                     <div
                         className={clsx(
@@ -183,15 +205,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <LemonButton
                                 type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
                                 onClick={() => {
+                                    if (threadLoading) {
+                                        stopGeneration()
+                                        return
+                                    }
                                     if (submissionDisabledReason) {
                                         textAreaRef?.current?.focus()
                                         return
                                     }
-                                    if (threadLoading) {
-                                        stopGeneration()
-                                    } else {
-                                        askMax(question)
-                                    }
+                                    askMax(question)
                                 }}
                                 tooltip={
                                     disabledReason ? (
@@ -207,8 +229,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     )
                                 }
                                 loading={threadLoading && !dataProcessingAccepted}
-                                // disabledReason={disabledReason}
-                                className={disabledReason || threadLoading ? 'opacity-[0.5]' : ''}
+                                disabledReason={disabledReason}
+                                className={disabledReason ? 'opacity-[0.5]' : ''}
                                 size="small"
                                 icon={
                                     threadLoading ? (

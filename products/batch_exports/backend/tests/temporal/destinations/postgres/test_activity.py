@@ -69,7 +69,7 @@ async def _run_activity(
 
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
     assert insert_inputs.batch_export_id is not None
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -85,7 +85,7 @@ async def _run_activity(
             destination_default_fields=postgres_default_fields(),
         ),
     )
-
+    insert_inputs.stage_folder = stage_folder
     result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_postgres(
@@ -468,7 +468,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         # First run the internal stage activity
         assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -484,6 +484,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
                 destination_default_fields=postgres_default_fields(),
             ),
         )
+        insert_inputs.stage_folder = stage_folder
         result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
         assert result.error is not None

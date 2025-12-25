@@ -122,6 +122,11 @@ type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+
+    /**
+     * Additional class name for the title section
+     */
+    className?: string
 }
 
 export function SceneTitleSection({
@@ -139,6 +144,7 @@ export function SceneTitleSection({
     noBorder = false,
     actions,
     forceBackTo,
+    className,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
@@ -182,7 +188,8 @@ export function SceneTitleSection({
                 className={cn(
                     'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    className
                 )}
             >
                 <div

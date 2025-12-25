@@ -66,9 +66,8 @@ import {
     NotebookUpdateMessage,
     PlanningStep,
     PlanningStepStatus,
-    VisualizationItem,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
@@ -76,20 +75,22 @@ import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { TicketPrompt } from './TicketPrompt'
-import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
+import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
+import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
-    castAssistantQuery,
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -98,14 +99,21 @@ import {
     isHumanMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
+    isNotebookArtifactContent,
     isNotebookUpdateMessage,
     isVisualizationArtifactContent,
+    visualizationTypeToQuery,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
+// Helper function to check if a message is an error or failure
+function isErrorMessage(message: ThreadMessage): boolean {
+    return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -125,7 +133,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading ? (
+            {conversationLoading && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -137,51 +145,96 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 </>
             ) : threadGrouped.length > 0 ? (
                 <>
-                    {threadGrouped.map((message, index) => {
-                        const nextMessage = threadGrouped[index + 1]
-                        const isLastInGroup =
-                            !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+                    {(() => {
+                        // Track the current trace_id as we iterate forward through messages
+                        let currentTraceId: string | undefined
 
-                        // Hiding rating buttons after /feedback and /ticket command outputs
-                        const prevMessage = threadGrouped[index - 1]
-                        const isSlashCommandResponse =
-                            message.type !== 'human' &&
-                            prevMessage?.type === 'human' &&
-                            'content' in prevMessage &&
-                            (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
-                                prevMessage.content.startsWith(SlashCommandName.SlashTicket))
+                        return threadGrouped.map((message, index) => {
+                            // Update trace_id when we encounter a human message
+                            if (message.type === 'human' && 'trace_id' in message && message.trace_id) {
+                                currentTraceId = message.trace_id
+                            }
 
-                        // Also hide for ticket confirmation messages
-                        const isTicketConfirmation = isTicketConfirmationMessage(message)
+                            // Hide failed AI messages when retrying
+                            if (threadLoading && isErrorMessage(message)) {
+                                return null
+                            }
 
-                        // Check if this message is a ticket summary that needs the ticket creation button
-                        const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
+                            // Hide old failed attempts - only show the most recent error
+                            if (isErrorMessage(message)) {
+                                const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                                if (hasNewerError) {
+                                    return null
+                                }
+                            }
 
-                        return (
-                            <React.Fragment key={`${conversationId}-${index}`}>
-                                <Message
-                                    message={message}
-                                    nextMessage={nextMessage}
-                                    isLastInGroup={isLastInGroup}
-                                    isFinal={index === threadGrouped.length - 1}
-                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
-                                />
-                                {conversationId &&
-                                    isTicketSummaryMessage &&
-                                    (ticketSummaryData.discarded ? (
-                                        <p className="m-0 ml-1 mt-1 text-xs text-muted italic">
-                                            Ticket creation discarded
-                                        </p>
-                                    ) : (
-                                        <TicketPrompt
-                                            conversationId={conversationId}
-                                            traceId={traceId}
-                                            summary={ticketSummaryData.summary}
+                            // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
+                            // This specific pattern only occurs when "Try again" is clicked after a failure
+                            if (message.type === 'human' && 'content' in message && index >= 2) {
+                                const prevMessage = threadGrouped[index - 1]
+                                const prevPrevMessage = threadGrouped[index - 2]
+
+                                const isRetryPattern =
+                                    isErrorMessage(prevMessage) &&
+                                    prevPrevMessage.type === 'human' &&
+                                    'content' in prevPrevMessage &&
+                                    prevPrevMessage.content === message.content
+
+                                if (isRetryPattern) {
+                                    return null
+                                }
+                            }
+
+                            const nextMessage = threadGrouped[index + 1]
+                            const isLastInGroup =
+                                !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+
+                            // Hiding rating buttons after /feedback and /ticket command outputs
+                            const prevMessage = threadGrouped[index - 1]
+                            const isSlashCommandResponse =
+                                message.type !== 'human' &&
+                                prevMessage?.type === 'human' &&
+                                'content' in prevMessage &&
+                                (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
+                                    prevMessage.content.startsWith(SlashCommandName.SlashTicket))
+
+                            // Also hide for ticket confirmation messages
+                            const isTicketConfirmation = isTicketConfirmationMessage(message)
+
+                            // Check if this message is a ticket summary that needs the ticket creation button
+                            const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
+
+                            // For AI messages, use the current trace_id from the preceding human message
+                            const messageTraceId = message.type !== 'human' ? currentTraceId : undefined
+
+                            return (
+                                <React.Fragment key={`${conversationId}-${index}`}>
+                                    <TraceIdProvider value={messageTraceId}>
+                                        <Message
+                                            message={message}
+                                            nextMessage={nextMessage}
+                                            isLastInGroup={isLastInGroup}
+                                            isFinal={index === threadGrouped.length - 1}
+                                            isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                         />
-                                    ))}
-                            </React.Fragment>
-                        )
-                    })}
+                                    </TraceIdProvider>
+                                    {conversationId &&
+                                        isTicketSummaryMessage &&
+                                        (ticketSummaryData.discarded ? (
+                                            <p className="m-0 ml-1 mt-1 text-xs text-muted italic">
+                                                Ticket creation discarded
+                                            </p>
+                                        ) : (
+                                            <TicketPrompt
+                                                conversationId={conversationId}
+                                                traceId={traceId}
+                                                summary={ticketSummaryData.summary}
+                                            />
+                                        ))}
+                                </React.Fragment>
+                            )
+                        })
+                    })()}
                     {conversationId && isPromptVisible && !streamingActive && (
                         <MessageTemplate type="ai">
                             <div className="flex flex-col gap-2">
@@ -482,21 +535,24 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                             />
                         )
                     } else if (isArtifactMessage(message)) {
-                        if (!isVisualizationArtifactContent(message.content)) {
-                            return null
+                        if (isVisualizationArtifactContent(message.content)) {
+                            return (
+                                <VisualizationArtifactAnswer
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                    isEditingInsight={editInsightToolRegistered}
+                                    activeTabId={activeTabId}
+                                    activeSceneId={activeSceneId}
+                                />
+                            )
+                        } else if (isNotebookArtifactContent(message.content)) {
+                            return (
+                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                            )
                         }
-
-                        return (
-                            <VisualizationArtifactAnswer
-                                key={key}
-                                message={message}
-                                content={message.content}
-                                status={message.status}
-                                isEditingInsight={editInsightToolRegistered}
-                                activeTabId={activeTabId}
-                                activeSceneId={activeSceneId}
-                            />
-                        )
+                        return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isNotebookUpdateMessage(message)) {
@@ -1060,14 +1116,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
     )
 }
 
-const visualizationTypeToQuery = (visualization: VisualizationItem): InsightVizNode | DataVisualizationNode | null => {
-    const source = castAssistantQuery(visualization.answer)
-    if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
-    }
-    return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
-}
-
 const Visualization = React.memo(function Visualization({
     query,
     collapsed,
@@ -1296,12 +1344,18 @@ function SuccessActions({
     hideRatingAndRetry?: boolean
     content?: string | null
 }): JSX.Element {
-    const { traceId } = useValues(maxThreadLogic)
+    const { traceId: logicTraceId } = useValues(maxThreadLogic)
+    const { ratingForTraceId } = useValues(maxMessageRatingsLogic)
+    const { setRatingForTraceId } = useActions(maxMessageRatingsLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
     const { isDev, preflight } = useValues(preflightLogic)
+    const contextTraceId = useTraceId()
 
-    const [rating, setRating] = useState<'good' | 'bad' | null>(null)
+    // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
+    const traceId = contextTraceId || logicTraceId
+
+    const rating = ratingForTraceId(traceId)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
@@ -1309,7 +1363,7 @@ function SuccessActions({
         if (rating || !traceId) {
             return // Already rated
         }
-        setRating(newRating)
+        setRatingForTraceId({ traceId, rating: newRating })
         posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
@@ -1421,7 +1475,7 @@ export const getToolCallDescriptionAndWidget = (
 ): [string, JSX.Element | null] => {
     const commentary = toolCall.args.commentary as string
     const definition = getToolDefinitionFromToolCall(toolCall)
-    let description = `Executing ${toolCall.name}`
+    let description = `${toolCall.status === ExecutionStatus.InProgress ? 'Executing' : 'Executed'} ${toolCall.name}`
     let widget: JSX.Element | null = null
     if (definition) {
         if (definition.displayFormatter) {

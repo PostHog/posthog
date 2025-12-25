@@ -229,6 +229,20 @@ impl<T> KafkaMessage<T> {
     pub fn take_message(&mut self) -> Option<T> {
         self.message.take()
     }
+
+    /// Create a simple KafkaMessage for testing purposes
+    #[cfg(test)]
+    pub fn new_for_test(partition: Partition, offset: i64, message: T) -> Self {
+        Self {
+            topic_partition: partition,
+            offset,
+            key: None,
+            message: Some(message),
+            timestamp: SystemTime::now(),
+            original_headers: None,
+            original_payload: None,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { uuid } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -14,9 +16,10 @@ interface GroupFeedCanvasProps {
 }
 
 export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Element => {
+    const { aggregationLabel } = useValues(groupsModel)
+    const { reportGroupProfileViewed } = useActions(eventUsageLogic)
     const groupKey = group.group_key
     const groupTypeIndex = group.group_type_index
-    const { aggregationLabel } = useValues(groupsModel)
 
     const shortId = `canvas-${groupKey}-${tabId}`
     const mode = 'canvas'
@@ -30,6 +33,10 @@ export const GroupFeedCanvas = ({ group, tabId }: GroupFeedCanvasProps): JSX.Ele
             operator: PropertyOperator.Exact,
         },
     ]
+
+    useOnMountEffect(() => {
+        reportGroupProfileViewed()
+    })
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: groupFilter }}>

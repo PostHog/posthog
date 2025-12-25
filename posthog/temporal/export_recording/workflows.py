@@ -65,8 +65,8 @@ class ExportRecordingWorkflow(PostHogWorkflow):
                 workflow.execute_activity(
                     export_recording_data,
                     export_context,
-                    start_to_close_timeout=timedelta(minutes=30),
-                    schedule_to_close_timeout=timedelta(hours=3),
+                    start_to_close_timeout=timedelta(hours=3),
+                    schedule_to_close_timeout=timedelta(hours=6),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
@@ -89,8 +89,8 @@ class ExportRecordingWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             store_export_data,
             export_context,
-            start_to_close_timeout=timedelta(minutes=30),
-            schedule_to_close_timeout=timedelta(hours=3),
+            start_to_close_timeout=timedelta(hours=3),
+            schedule_to_close_timeout=timedelta(hours=6),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),

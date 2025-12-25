@@ -13,6 +13,7 @@ import { VirtualizedLogsList } from 'products/logs/frontend/components/Virtualiz
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 import { logsViewerLogic } from './logsViewerLogic'
@@ -105,9 +106,19 @@ function LogsViewerContent({
         logs,
         logsCount,
         timezone,
+        isSelectionActive,
     } = useValues(logsViewerLogic)
-    const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
-        useActions(logsViewerLogic)
+    const {
+        setFocused,
+        moveCursorDown,
+        moveCursorUp,
+        toggleExpandLog,
+        resetCursor,
+        setCursorToLogId,
+        toggleSelectLog,
+        clearSelection,
+        togglePrettifyLog,
+    } = useActions(logsViewerLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ tabId }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ tabId }))
     const containerRef = useRef<HTMLDivElement>(null)
@@ -192,17 +203,32 @@ function LogsViewerContent({
         }
     }, [linkToLogId, logsCount, setCursorToLogId])
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
         formatTime: 'HH:mm:ss.SSS',
+        displayTimezone: timezone,
     }
+
+    const handleMoveDown = useCallback(
+        (e: KeyboardEvent): void => {
+            moveCursorDown(e.shiftKey)
+        },
+        [moveCursorDown]
+    )
+
+    const handleMoveUp = useCallback(
+        (e: KeyboardEvent): void => {
+            moveCursorUp(e.shiftKey)
+        },
+        [moveCursorUp]
+    )
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: () => moveCursorDown(), disabled: !isFocused },
-            j: { action: () => moveCursorDown(), disabled: !isFocused },
-            arrowup: { action: () => moveCursorUp(), disabled: !isFocused },
-            k: { action: () => moveCursorUp(), disabled: !isFocused },
+            arrowdown: { action: handleMoveDown, disabled: !isFocused },
+            j: { action: handleMoveDown, disabled: !isFocused },
+            arrowup: { action: handleMoveUp, disabled: !isFocused },
+            k: { action: handleMoveUp, disabled: !isFocused },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
@@ -221,12 +247,50 @@ function LogsViewerContent({
                 },
                 disabled: !isFocused,
             },
+            space: {
+                action: (e: KeyboardEvent) => {
+                    e.preventDefault()
+                    if (cursorLogId) {
+                        toggleSelectLog(cursorLogId)
+                    }
+                },
+                disabled: !isFocused,
+            },
+            escape: {
+                action: () => {
+                    if (isSelectionActive) {
+                        clearSelection()
+                    }
+                },
+                disabled: !isFocused,
+            },
+            p: {
+                action: () => {
+                    if (cursorLogId) {
+                        togglePrettifyLog(cursorLogId)
+                    }
+                },
+                disabled: !isFocused,
+            },
         },
-        [isFocused, cursorLogId, toggleExpandLog, onRefresh, loading, resetCursor, moveCursorDown, moveCursorUp]
+        [
+            isFocused,
+            cursorLogId,
+            toggleExpandLog,
+            onRefresh,
+            loading,
+            resetCursor,
+            moveCursorDown,
+            moveCursorUp,
+            toggleSelectLog,
+            isSelectionActive,
+            clearSelection,
+            togglePrettifyLog,
+        ]
     )
 
     return (
-        <>
+        <div className="flex flex-col gap-2 h-full">
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
@@ -234,9 +298,11 @@ function LogsViewerContent({
                 displayTimezone={timezone}
             />
             <SceneDivider />
+            <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
+            <LogsSelectionToolbar />
             <div
                 ref={containerRef}
-                className="flex flex-col gap-2 h-full outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
+                className="flex flex-col gap-2 flex-1 min-h-0 outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 rounded"
                 tabIndex={0}
                 onFocus={() => {
                     setFocused(true)
@@ -244,13 +310,6 @@ function LogsViewerContent({
                 }}
                 onBlur={() => setFocused(false)}
             >
-                <div className="py-2">
-                    <LogsViewerToolbar
-                        totalLogsCount={totalLogsCount}
-                        orderBy={orderBy}
-                        onChangeOrderBy={onChangeOrderBy}
-                    />
-                </div>
                 {pinnedLogsArray.length > 0 && (
                     <div className="border rounded-t bg-bg-light shadow-sm">
                         <VirtualizedLogsList
@@ -283,6 +342,6 @@ function LogsViewerContent({
                     />
                 </div>
             </div>
-        </>
+        </div>
     )
 }

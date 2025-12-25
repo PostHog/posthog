@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
-from typing import Any, cast
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
@@ -47,42 +48,13 @@ from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import assert_funnel_results_equal
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element, Team
+from posthog.models import Action, Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-
-class PseudoFunnelActors:
-    def __init__(self, person_filter: Any, team: Team):
-        self.filters = person_filter._data
-        self.team = team
-
-    def get_actors(self):
-        actors = get_actors(
-            self.filters,
-            self.team,
-            funnel_step=self.filters.get("funnel_step"),
-            funnel_step_breakdown=self.filters.get("funnel_step_breakdown"),
-        )
-
-        return (
-            None,
-            [{"id": x[0]} for x in actors],
-            None,
-        )
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 def funnel_test_factory(event_factory, person_factory):

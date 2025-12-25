@@ -9,7 +9,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 ingestionV2Combined: true,
-                processAsyncWebhooksHandlers: true,
+                processAsyncWebhooksHandlers: false,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
@@ -18,10 +18,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
+                cdpLegacyWebhooks: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
-                cdpBehaviouralEvents: true,
+                cdpPrecalculatedFilters: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
                 evaluationScheduler: true,
@@ -36,10 +37,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
+                cdpLegacyWebhooks: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
-                cdpBehaviouralEvents: true,
+                cdpPrecalculatedFilters: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
             }
@@ -87,9 +89,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerDelay: true,
             }
-        case PluginServerMode.cdp_behavioural_events:
+        case PluginServerMode.cdp_precalculated_filters:
             return {
-                cdpBehaviouralEvents: true,
+                cdpPrecalculatedFilters: true,
             }
         case PluginServerMode.cdp_cohort_membership:
             return {
@@ -98,6 +100,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_legacy_on_event:
             return {
                 cdpLegacyOnEvent: true,
+            }
+        case PluginServerMode.cdp_legacy_webhooks:
+            return {
+                cdpLegacyWebhooks: true,
             }
         case PluginServerMode.cdp_api:
             return {

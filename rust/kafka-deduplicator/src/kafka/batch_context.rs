@@ -42,23 +42,23 @@ impl BatchConsumerContext {
         }
     }
 
-    /// Async worker that processes rebalance events
+    /// Async worker that processes rebalance cleanup events
+    ///
+    /// Note: This worker only handles CLEANUP operations (slow I/O).
+    /// The SETUP operations (creating workers, removing stores from map) are done
+    /// synchronously within the librdkafka callbacks to ensure they complete
+    /// before messages can arrive/stop.
     async fn rebalance_worker(
         mut rx: mpsc::UnboundedReceiver<RebalanceEvent>,
         handler: Arc<dyn RebalanceHandler>,
     ) {
-        info!("Starting rebalance worker");
+        info!("Starting rebalance cleanup worker");
 
         while let Some(event) = rx.recv().await {
             match event {
                 RebalanceEvent::Revoke(partitions) => {
                     info!(
-                        "Rebalance worker: processing revocation for {} partitions",
-                        partitions.len()
-                    );
-
-                    info!(
-                        "Rebalance worker: all in-flight messages completed for {} partitions",
+                        "Rebalance worker: cleaning up {} revoked partitions",
                         partitions.len()
                     );
 
@@ -68,14 +68,15 @@ impl BatchConsumerContext {
                         tpl.add_partition(partition.topic(), partition.partition_number());
                     }
 
-                    // Call user's revocation handler
-                    if let Err(e) = handler.on_partitions_revoked(&tpl).await {
-                        error!("Partition revocation handler failed: {}", e);
+                    // Call cleanup handler (drains queues, deletes files)
+                    // Note: setup_revoked_partitions was already called synchronously
+                    if let Err(e) = handler.cleanup_revoked_partitions(&tpl).await {
+                        error!("Partition revocation cleanup failed: {}", e);
                     }
                 }
                 RebalanceEvent::Assign(partitions) => {
                     info!(
-                        "Rebalance worker: processing assignment for {} partitions",
+                        "Rebalance worker: cleaning up {} assigned partitions",
                         partitions.len()
                     );
 
@@ -85,15 +86,16 @@ impl BatchConsumerContext {
                         tpl.add_partition(partition.topic(), partition.partition_number());
                     }
 
-                    // Call user's assignment handler
-                    if let Err(e) = handler.on_partitions_assigned(&tpl).await {
-                        error!("Partition assignment handler failed: {}", e);
+                    // Call cleanup handler (downloads checkpoints, etc.)
+                    // Note: setup_assigned_partitions was already called synchronously
+                    if let Err(e) = handler.cleanup_assigned_partitions(&tpl).await {
+                        error!("Partition assignment cleanup failed: {}", e);
                     }
                 }
             }
         }
 
-        info!("Rebalance worker shutting down");
+        info!("Rebalance cleanup worker shutting down");
     }
 }
 
@@ -116,13 +118,19 @@ impl ConsumerContext for BatchConsumerContext {
             Rebalance::Revoke(partitions) => {
                 info!("Revoking {} partitions", partitions.count());
 
+                // SYNC: Call setup handler directly within callback
+                // This removes stores from DashMap BEFORE revocation completes
+                // ensuring no new stores can be created during shutdown
+                self.rebalance_handler.setup_revoked_partitions(partitions);
+
+                // ASYNC: Send cleanup event to worker for slow operations
+                // (draining queues, deleting files)
                 let partitions: Vec<Partition> = partitions
                     .elements()
                     .into_iter()
                     .map(Partition::from)
                     .collect();
 
-                // Send revocation event to async worker
                 if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Revoke(partitions)) {
                     error!("Failed to send revoke event to rebalance worker: {}", e);
                 }
@@ -147,16 +155,23 @@ impl ConsumerContext for BatchConsumerContext {
             Rebalance::Assign(partitions) => {
                 info!("Assigned {} partitions", partitions.count());
 
-                // Extract partition info
+                // SYNC: Call setup handler directly within callback
+                // This creates partition workers BEFORE messages can arrive
+                self.rebalance_handler.setup_assigned_partitions(partitions);
+
+                info!(
+                    "📋 Total partitions assigned: {} partitions",
+                    partitions.count()
+                );
+
+                // ASYNC: Send cleanup event to worker for slow operations
+                // (downloading checkpoints, etc.)
                 let partitions: Vec<Partition> = partitions
                     .elements()
                     .into_iter()
                     .map(Partition::from)
                     .collect();
 
-                info!("📋 Total partitions assigned: {:?}", partitions);
-
-                // Send assignment event to async worker
                 if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign(partitions)) {
                     error!("Failed to send assign event to rebalance worker: {}", e);
                 }

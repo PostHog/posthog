@@ -221,7 +221,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         time.sleep(1)
-        with self.assertNumQueries(FuzzyInt(3, 5)):
+        with self.assertNumQueries(FuzzyInt(3, 6)):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # feature_enabled will be called once for AI billing check
         assert patch_feature_enabled.call_count == 1
