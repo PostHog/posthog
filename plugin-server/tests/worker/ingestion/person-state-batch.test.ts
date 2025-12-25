@@ -3093,7 +3093,7 @@ describe('PersonState.processEvent()', () => {
                 if (attemptCount === 1) {
                     throw new SourcePersonNotFoundError('Source person no longer exists')
                 }
-                return originalMoveDistinctIds.call(hub.postgres, ...args)
+                return originalMoveDistinctIds.call(personRepository, ...args)
             })
 
             jest.spyOn(hub.kafkaProducer, 'queueMessages')
