@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaConsumer } from '~/kafka/consumer'
+import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/utils/utils'
 
 import {
     Action,
@@ -11,10 +12,11 @@ import {
     Hub,
     PostIngestionEvent,
     RawClickHouseEvent,
+    RawKafkaEvent,
     Team,
 } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import { convertToHookPayload, convertToPostIngestionEvent } from '../../utils/event'
+import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { ActionManager } from '../legacy-webhooks/action-manager'
@@ -190,5 +192,50 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
 
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
+    }
+}
+
+function convertToPostIngestionEvent(event: RawKafkaEvent): PostIngestionEvent {
+    const properties = event.properties ? parseJSON(event.properties) : {}
+    if (event.elements_chain) {
+        properties['$elements_chain'] = event.elements_chain
+    }
+
+    return {
+        eventUuid: event.uuid,
+        event: event.event!,
+        teamId: event.team_id,
+        projectId: event.project_id,
+        distinctId: event.distinct_id,
+        properties,
+        timestamp: clickHouseTimestampToISO(event.timestamp),
+        elementsList: undefined,
+        person_id: event.person_id,
+        person_created_at: event.person_created_at
+            ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
+            : null,
+        person_properties: event.person_properties ? parseJSON(event.person_properties) : {},
+    }
+}
+
+function convertToHookPayload(event: PostIngestionEvent): HookPayload['data'] {
+    // It is only at this point that we need the elements list for the full event
+    // NOTE: It is possible that nobody uses it in which case we could remove this for performance but
+    // currently we have no way of being sure so we keep it in
+    mutatePostIngestionEventWithElementsList(event)
+
+    return {
+        eventUuid: event.eventUuid,
+        event: event.event,
+        teamId: event.teamId,
+        distinctId: event.distinctId,
+        properties: event.properties,
+        timestamp: event.timestamp,
+        elementsList: event.elementsList,
+        person: {
+            uuid: event.person_id!,
+            properties: event.person_properties,
+            created_at: event.person_created_at,
+        },
     }
 }
