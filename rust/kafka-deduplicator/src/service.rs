@@ -16,9 +16,10 @@ use crate::deduplication_batch_processor::{
     BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
 };
 use crate::{
-    checkpoint::config::CheckpointConfig,
-    checkpoint::export::CheckpointExporter,
-    checkpoint::s3_uploader::S3Uploader,
+    checkpoint::{
+        config::CheckpointConfig, export::CheckpointExporter, import::CheckpointImporter,
+        s3_downloader::S3Downloader, s3_uploader::S3Uploader,
+    },
     checkpoint_manager::CheckpointManager,
     config::Config,
     kafka::{
@@ -36,6 +37,7 @@ pub struct KafkaDeduplicatorService {
     consumer: Option<BatchConsumer<CapturedEvent>>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
+    checkpoint_importer: Option<Arc<CheckpointImporter>>,
     cleanup_task_handle: Option<CleanupTaskHandle>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     liveness: HealthRegistry,
@@ -46,20 +48,23 @@ pub struct KafkaDeduplicatorService {
 
 impl KafkaDeduplicatorService {
     /// Reset the local checkpoint directory (remove if exists, then create fresh)
-    fn reset_checkpoint_directory(checkpoint_dir: &str) -> Result<()> {
-        let path = std::path::Path::new(checkpoint_dir);
+    fn reset_checkpoint_directories(cfg: &CheckpointConfig) -> Result<()> {
+        for checkpoint_dir in [&cfg.local_checkpoint_dir, &cfg.local_checkpoint_import_dir] {
+            let path = std::path::Path::new(checkpoint_dir);
 
-        if path.exists() {
-            info!("Resetting local checkpoint directory: {checkpoint_dir}");
-            std::fs::remove_dir_all(path).with_context(|| {
-                format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
+            if path.exists() {
+                info!("Resetting local checkpoint directory: {checkpoint_dir}");
+                std::fs::remove_dir_all(path).with_context(|| {
+                    format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
+                })?;
+            }
+
+            std::fs::create_dir_all(path).with_context(|| {
+                format!("Failed to create checkpoint directory: {checkpoint_dir}")
             })?;
+
+            info!("Local checkpoint directory ready: {checkpoint_dir}");
         }
-
-        std::fs::create_dir_all(path)
-            .with_context(|| format!("Failed to create checkpoint directory: {checkpoint_dir}"))?;
-
-        info!("Local checkpoint directory ready: {checkpoint_dir}");
         Ok(())
     }
 
@@ -100,6 +105,7 @@ impl KafkaDeduplicatorService {
             checkpoint_interval: config.checkpoint_interval(),
             checkpoint_full_upload_interval: config.checkpoint_full_upload_interval,
             local_checkpoint_dir: config.local_checkpoint_dir.clone(),
+            local_checkpoint_import_dir: config.checkpoint_import_local_temp_base_path.clone(),
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             aws_region: config.aws_region.clone(),
@@ -109,15 +115,27 @@ impl KafkaDeduplicatorService {
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
+            checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
-        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
+        Self::reset_checkpoint_directories(&checkpoint_config)?;
 
         // create exporter conditionally if S3 config is populated
-        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
+        let exporter = if config.checkpoint_export_enabled() {
             let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
             Some(Arc::new(CheckpointExporter::new(uploader)))
+        } else {
+            None
+        };
+
+        // if checkpoint import is enabled, create and configure the importer
+        let importer = if config.checkpoint_import_enabled() {
+            let downloader = Box::new(S3Downloader::new(&checkpoint_config).await.unwrap());
+            Some(Arc::new(CheckpointImporter::new(
+                downloader,
+                &checkpoint_config,
+            )))
         } else {
             None
         };
@@ -130,6 +148,7 @@ impl KafkaDeduplicatorService {
             consumer: None,
             store_manager,
             checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_importer: importer,
             cleanup_task_handle,
             shutdown_tx: None,
             liveness,
@@ -268,7 +287,7 @@ impl KafkaDeduplicatorService {
             self.store_manager.clone(),
             router,
             offset_tracker.clone(),
-            None, // TODO(eli): bootstrap importer if cfg enabled
+            self.checkpoint_importer.clone(),
         ));
 
         // Create consumer config using the kafka module's builder

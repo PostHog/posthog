@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use super::config::CheckpointConfig;
 use super::{CheckpointDownloader, CheckpointMetadata};
 
 use anyhow::{Context, Result};
@@ -17,15 +18,11 @@ pub struct CheckpointImporter {
 }
 
 impl CheckpointImporter {
-    pub fn new(
-        downloader: Box<dyn CheckpointDownloader>,
-        local_base_import_path: PathBuf,
-        import_attempt_depth: usize,
-    ) -> Self {
+    pub fn new(downloader: Box<dyn CheckpointDownloader>, config: &CheckpointConfig) -> Self {
         Self {
             downloader,
-            local_base_import_path,
-            import_attempt_depth,
+            local_base_import_path: PathBuf::from(&config.local_checkpoint_import_dir),
+            import_attempt_depth: config.checkpoint_import_attempt_depth,
         }
     }
 
