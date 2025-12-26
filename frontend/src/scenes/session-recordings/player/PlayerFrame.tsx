@@ -1,4 +1,5 @@
 import './PlayerFrame.scss'
+import './PlayerFrameLLMHighlight.scss'
 
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
@@ -7,12 +8,15 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
+// import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { player, sessionRecordingId, maskingWindow } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
+    // TODO: Reverse after testing
+    // const llmHighlightClicks = useFeatureFlag('REPLAY_LLM_HIGHLIGHT_CLICKS')
 
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -79,7 +83,10 @@ export const PlayerFrame = (): JSX.Element => {
     }, [containerDimensions, windowResize])
 
     return (
-        <div ref={containerRef} className="PlayerFrame ph-no-capture">
+        <div
+            ref={containerRef}
+            className={clsx('PlayerFrame ph-no-capture', llmHighlightClicks && 'PlayerFrame--llm-highlight')}
+        >
             <div
                 className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
                 ref={frameRef}
