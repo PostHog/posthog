@@ -279,9 +279,12 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
         # Get collection names
         collection_names = db.list_collection_names(authorizedCollections=True)
 
+        if not collection_names:
+            return schema_list
+
         with ThreadPoolExecutor(max_workers=min(len(collection_names), 4)) as executor:
             results = executor.map(
-                _get_schema_from_query, (db[collection_name] for collection_name in collection_names)
+                _get_schema_from_query, [db[collection_name] for collection_name in collection_names]
             )
             for collection_name, schema_info in zip(collection_names, results):
                 schema_list[collection_name].extend(schema_info)
