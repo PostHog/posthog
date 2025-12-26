@@ -9,6 +9,7 @@ use std::time::Duration;
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
 };
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics_const::CHECKPOINT_STORE_NOT_FOUND_COUNTER;
 use crate::store::DeduplicationStore;
@@ -48,6 +49,9 @@ pub struct CheckpointManager {
     // Checkpoint export module - if populated, locally checkpointed partitions will be backed up remotely
     exporter: Option<Arc<CheckpointExporter>>,
 
+    /// Offset tracker for querying committed consumer and producer offsets during checkpointing
+    offset_tracker: Option<Arc<OffsetTracker>>,
+
     /// Cancellation token for the flush task
     cancel_token: CancellationToken,
 
@@ -76,6 +80,32 @@ impl CheckpointManager {
             config,
             store_manager,
             exporter,
+            offset_tracker: None,
+            cancel_token: CancellationToken::new(),
+            is_checkpointing: Arc::new(Mutex::new(HashSet::new())),
+            checkpoint_task: None,
+        }
+    }
+
+    /// Create a new checkpoint manager with offset tracking for checkpointing
+    pub fn new_with_offset_tracker(
+        config: CheckpointConfig,
+        store_manager: Arc<StoreManager>,
+        exporter: Option<Arc<CheckpointExporter>>,
+        offset_tracker: Arc<OffsetTracker>,
+    ) -> Self {
+        info!(
+            max_concurrent_checkpoints = config.max_concurrent_checkpoints,
+            export_enabled = exporter.is_some(),
+            offset_tracking_enabled = true,
+            "Creating checkpoint manager with offset tracking",
+        );
+
+        Self {
+            config,
+            store_manager,
+            exporter,
+            offset_tracker: Some(offset_tracker),
             cancel_token: CancellationToken::new(),
             is_checkpointing: Arc::new(Mutex::new(HashSet::new())),
             checkpoint_task: None,
@@ -101,6 +131,7 @@ impl CheckpointManager {
         let submit_loop_config = self.config.clone();
         let store_manager = self.store_manager.clone();
         let exporter = self.exporter.clone();
+        let offset_tracker = self.offset_tracker.clone();
         let cancel_submit_loop_token = self.cancel_token.child_token();
 
         // loop-local counter for individual worker task logging
@@ -190,6 +221,7 @@ impl CheckpointManager {
                             let worker_checkpoint_state = checkpoint_state.clone();
                             let worker_store_manager = store_manager.clone();
                             let worker_exporter = exporter.as_ref().map(|e| e.clone());
+                            let worker_offset_tracker = offset_tracker.clone();
                             let worker_cancel_token = cancel_submit_loop_token.child_token();
                             let attempt_timestamp = Utc::now();
                             let worker_local_base_dir = Path::new(&submit_loop_config.local_checkpoint_dir);
@@ -206,6 +238,7 @@ impl CheckpointManager {
                                 worker_partition,
                                 attempt_timestamp,
                                 worker_exporter,
+                                worker_offset_tracker,
                             );
 
                             // for now, we don't bother to track the handles of spawned workers
@@ -372,6 +405,7 @@ impl CheckpointManager {
                 partition.clone(),
                 Utc::now(),
                 None,
+                self.offset_tracker.clone(),
             );
 
             worker.checkpoint_partition(&store, None).await?;

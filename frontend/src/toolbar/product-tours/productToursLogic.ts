@@ -581,7 +581,7 @@ export const productToursLogic = kea<productToursLogicType>([
             actions.submitTourForm()
         },
         previewTour: () => {
-            const { tourForm, posthog } = values
+            const { tourForm, posthog, selectedTourId, tours } = values
             if (!tourForm || !posthog?.productTours) {
                 lemonToast.error('Unable to preview tour')
                 return
@@ -597,6 +597,12 @@ export const productToursLogic = kea<productToursLogicType>([
 
             toolbarLogic.actions.toggleMinimized(true)
 
+            // Get appearance from the saved tour if editing an existing one
+            const existingTour =
+                selectedTourId && selectedTourId !== 'new'
+                    ? tours.find((t: ProductTour) => t.id === selectedTourId)
+                    : null
+
             const tour = {
                 id: `preview-${Date.now()}`,
                 name: tourForm.name || 'Preview Tour',
@@ -604,6 +610,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 start_date: null,
                 end_date: null,
                 steps: tourForm.steps,
+                appearance: existingTour?.content?.appearance,
             }
 
             productTours.previewTour(tour)

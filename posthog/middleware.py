@@ -337,6 +337,7 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),

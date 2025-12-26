@@ -19,6 +19,7 @@ use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::metrics_consts::{
     PARTITION_WORKER_BACKPRESSURE_TOTAL, PARTITION_WORKER_BACKPRESSURE_WAIT_MS,
 };
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_worker::{PartitionBatch, PartitionWorker, PartitionWorkerConfig};
 use crate::kafka::types::Partition;
 
@@ -40,6 +41,7 @@ where
 {
     workers: DashMap<Partition, PartitionWorker<T>>,
     processor: Arc<P>,
+    offset_tracker: Arc<OffsetTracker>,
     config: PartitionRouterConfig,
 }
 
@@ -49,10 +51,15 @@ where
     P: BatchConsumerProcessor<T> + 'static,
 {
     /// Create a new partition router
-    pub fn new(processor: Arc<P>, config: PartitionRouterConfig) -> Self {
+    pub fn new(
+        processor: Arc<P>,
+        offset_tracker: Arc<OffsetTracker>,
+        config: PartitionRouterConfig,
+    ) -> Self {
         Self {
             workers: DashMap::new(),
             processor,
+            offset_tracker,
             config,
         }
     }
@@ -81,6 +88,7 @@ where
         let worker = PartitionWorker::new(
             partition.clone(),
             self.processor.clone(),
+            self.offset_tracker.clone(),
             &self.config.worker_config,
         );
         self.workers.insert(partition, worker);
@@ -152,12 +160,18 @@ where
     /// Route a batch of messages to the appropriate partition worker
     ///
     /// Returns an error if no worker exists for the partition.
+    ///
+    /// # Arguments
+    /// * `partition` - The partition to route to
+    /// * `messages` - The messages to route
+    /// * `batch_id` - Sequential ID for ordering verification
     pub async fn route_batch(
         &self,
         partition: Partition,
         messages: Vec<KafkaMessage<T>>,
+        batch_id: u64,
     ) -> Result<()> {
-        let batch = PartitionBatch::new(partition.clone(), messages);
+        let batch = PartitionBatch::new(partition.clone(), messages, batch_id);
 
         // Get sender and release DashMap guard before awaiting to prevent
         // blocking other partitions during backpressure
@@ -201,12 +215,15 @@ where
 
     /// Route multiple batches organized by partition
     /// This is more efficient when routing messages from a single Kafka poll
+    ///
+    /// # Arguments
+    /// * `batches` - Map of partition to (messages, batch_id)
     pub async fn route_batches(
         &self,
-        batches: HashMap<Partition, Vec<KafkaMessage<T>>>,
+        batches: HashMap<Partition, (Vec<KafkaMessage<T>>, u64)>,
     ) -> Result<()> {
-        for (partition, messages) in batches {
-            self.route_batch(partition, messages).await?;
+        for (partition, (messages, batch_id)) in batches {
+            self.route_batch(partition, messages, batch_id).await?;
         }
         Ok(())
     }
@@ -282,8 +299,9 @@ mod tests {
     #[tokio::test]
     async fn test_router_add_partition() {
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         assert_eq!(router.worker_count(), 0);
 
@@ -300,20 +318,21 @@ mod tests {
     #[tokio::test]
     async fn test_router_route_requires_worker() {
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         let partition = Partition::new("test-topic".to_string(), 0);
 
         // Should fail - no worker exists
-        let result = router.route_batch(partition.clone(), vec![]).await;
+        let result = router.route_batch(partition.clone(), vec![], 1).await;
         assert!(result.is_err());
 
         // Add worker
         router.add_partition(partition.clone());
 
         // Should succeed now
-        let result = router.route_batch(partition, vec![]).await;
+        let result = router.route_batch(partition, vec![], 2).await;
         assert!(result.is_ok());
 
         let workers = router.shutdown_all();
@@ -323,8 +342,9 @@ mod tests {
     #[tokio::test]
     async fn test_router_multiple_partitions() {
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         let partitions: Vec<Partition> = (0..5)
             .map(|i| Partition::new("test-topic".to_string(), i))
@@ -340,8 +360,9 @@ mod tests {
     #[tokio::test]
     async fn test_router_remove_partition() {
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         let partition = Partition::new("test-topic".to_string(), 0);
         router.add_partition(partition.clone());
@@ -360,8 +381,9 @@ mod tests {
     #[tokio::test]
     async fn test_router_reuses_after_readd() {
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         let partition = Partition::new("test-topic".to_string(), 0);
 
@@ -384,8 +406,9 @@ mod tests {
         // Simulates rapid revoke → assign where cleanup hasn't run yet
         // The router should reuse the existing worker instead of creating a new one
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         let partition = Partition::new("test-topic".to_string(), 0);
 
@@ -399,7 +422,7 @@ mod tests {
         assert_eq!(router.worker_count(), 1);
 
         // Can still route messages
-        let result = router.route_batch(partition.clone(), vec![]).await;
+        let result = router.route_batch(partition.clone(), vec![], 1).await;
         assert!(result.is_ok());
 
         let workers = router.shutdown_all();
@@ -410,8 +433,9 @@ mod tests {
     async fn test_router_add_partition_idempotent() {
         // Calling add_partition multiple times should not create multiple workers
         let processor = Arc::new(TestProcessor::new());
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionRouterConfig::default();
-        let router = PartitionRouter::new(processor, config);
+        let router = PartitionRouter::new(processor, offset_tracker, config);
 
         let partition = Partition::new("test-topic".to_string(), 0);
 

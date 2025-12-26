@@ -208,13 +208,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
-    # Flags cache verification - hourly at minute 40
+    # Flags cache verification - every 30 minutes
+    # Task takes ~8-10 minutes with 250-team batch size
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="*", minute="40"),
+        crontab(minute="*/30"),
         verify_and_fix_flags_cache_task.s(),
         name="verify and fix flags cache",
-        expires_seconds=60 * 60,
+        expires_seconds=30 * 60,
     )
 
     # Update events table partitions twice a week
