@@ -166,6 +166,9 @@ impl FeatureFlagList {
             .filter(|id| !loaded_flag_ids.contains(id))
             .collect();
 
+        // Store initial active count for logging
+        let active_count = active_flags.len();
+
         // Loop to fetch all transitive dependencies (A depends on B depends on C)
         while !missing_dependency_ids.is_empty() {
             tracing::debug!(
@@ -241,8 +244,8 @@ impl FeatureFlagList {
             "Successfully fetched {} flags from database for team {} ({} active, {} dependencies)",
             active_flags.len(),
             team_id,
-            loaded_flag_ids.len(),
-            active_flags.len() - loaded_flag_ids.len()
+            active_count,
+            active_flags.len() - active_count
         );
 
         Ok(active_flags)
