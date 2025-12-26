@@ -158,6 +158,8 @@ class SessionMomentsLLMAnalyzer:
                     "playback_speed": SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
                     # Keeping default values
                     "mode": "screenshot",
+                    # Highlight clicks in the video
+                    "highlight_clicks": True,
                 },
                 created_by=self.user,
                 created_at=created_at,
