@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
+import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -19,6 +21,7 @@ import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import MaxTool from 'scenes/max/MaxTool'
+import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyMathType } from '~/types'
@@ -213,6 +216,24 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    // Device toggle shortcuts (Web Analytics-specific)
+    useAppShortcut({
+        name: 'WebAnalyticsDesktop',
+        keybind: [[...baseModifier, 'p']],
+        intent: 'Filter desktop devices',
+        interaction: 'function',
+        callback: () => setDeviceTypeFilter(deviceTypeFilter === 'Desktop' ? null : 'Desktop'),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsMobile',
+        keybind: [[...baseModifier, 'm']],
+        intent: 'Filter mobile devices',
+        interaction: 'function',
+        callback: () => setDeviceTypeFilter(deviceTypeFilter === 'Mobile' ? null : 'Mobile'),
+        scope: Scene.WebAnalytics,
+    })
+
     if (featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
         return (
             <LemonSelect
@@ -328,6 +349,16 @@ function FiltersPopover(): JSX.Element {
 
     const { setWebAnalyticsFilters, setConversionGoal } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // Toggle filters shortcut
+    useAppShortcut({
+        name: 'WebAnalyticsFilters',
+        keybind: [[...baseModifier, 'f']],
+        intent: 'Toggle filters',
+        interaction: 'function',
+        callback: () => setDisplayFilters((prev) => !prev),
+        scope: Scene.WebAnalytics,
+    })
 
     const showConversionGoal =
         productTab === ProductTab.ANALYTICS &&
