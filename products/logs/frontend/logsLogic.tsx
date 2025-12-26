@@ -1,6 +1,6 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -978,4 +978,10 @@ export const logsLogic = kea<logsLogicType>([
             }
         },
     })),
+
+    afterMount(({ values, actions }) => {
+        if (values.parsedLogs.length === 0) {
+            actions.runQuery()
+        }
+    }),
 ])
