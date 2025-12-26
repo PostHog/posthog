@@ -25,6 +25,7 @@ import { PropertyMathType } from '~/types'
 
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
+import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
@@ -32,6 +33,7 @@ import {
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
 import { ProductTab } from './common'
+import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
@@ -49,6 +51,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                     <ReloadAll iconOnly />
                     <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                     <WebAnalyticsCompareFilter />
+                    <FilterPresetsDropdown />
                 </>
             }
             right={
@@ -88,6 +91,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
+                    <FilterPresetsDropdown />
                     <LiveUserCount
                         docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
                         dataAttr="web-analytics-live-user-count"
@@ -305,8 +309,17 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
 }
 
 const ShareButton = (): JSX.Element => {
+    const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
+
     const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
+        const url = new URL(window.location.href)
+
+        if (activePreset) {
+            url.search = ''
+            url.searchParams.set('presetId', activePreset.short_id)
+        }
+
+        void copyToClipboard(url.toString(), 'link')
     }
 
     return (

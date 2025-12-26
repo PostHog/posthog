@@ -72,6 +72,7 @@ import {
     TeamPublicType,
     TeamType,
     UniversalFiltersGroupValue,
+    WebAnalyticsFiltersConfig,
 } from '~/types'
 
 import {
@@ -161,6 +162,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'setDomainFilter',
                 'setDeviceTypeFilter',
                 'setCompareFilter',
+                'loadPreset',
             ],
         ],
     })),
@@ -197,6 +199,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         resetTileVisibility: () => true,
+        clearFilters: true,
     }),
     loaders(({ values }) => ({
         shouldShowGeoIPQueries: {
@@ -307,6 +310,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
+                clearFilters: () => true,
             },
         ],
         tablesOrderBy: [
@@ -366,6 +370,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
+                clearFilters: () => ({
+                    dateFrom: INITIAL_DATE_FROM,
+                    dateTo: INITIAL_DATE_TO,
+                    interval: INITIAL_INTERVAL,
+                }),
             },
         ],
         shouldFilterTestAccounts: [
@@ -373,6 +382,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+                clearFilters: () => false,
             },
         ],
         shouldStripQueryParams: [
@@ -387,6 +397,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+                clearFilters: () => null,
             },
         ],
         conversionGoalWarning: [
@@ -477,6 +488,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (isPathCleaningEnabled: boolean, hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled
             },
+        ],
+        currentFiltersConfig: [
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.domainFilter,
+                s.deviceTypeFilter,
+                s.compareFilter,
+                s.dateFilter,
+                s.conversionGoal,
+                s.isPathCleaningEnabled,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                properties,
+                domainFilter,
+                deviceTypeFilter,
+                compareFilter,
+                dateFilter,
+                conversionGoal,
+                isPathCleaningEnabled,
+                shouldFilterTestAccounts
+            ): WebAnalyticsFiltersConfig => ({
+                properties,
+                dateFrom: dateFilter.dateFrom,
+                dateTo: dateFilter.dateTo,
+                interval: dateFilter.interval,
+                compareFilter,
+                domainFilter,
+                deviceTypeFilter,
+                conversionGoal,
+                isPathCleaningEnabled,
+                shouldFilterTestAccounts,
+            }),
         ],
         webAnalyticsFilters: [
             (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.validatedDomainFilter, s.deviceTypeFilter],
@@ -2307,6 +2351,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             addAuthorizedUrl: ({ url }) => {
                 actions.setDomainFilter(url)
+            },
+            loadPreset: ({ filters }) => {
+                // Apply filters managed by this logic (date, conversionGoal, settings)
+                if (filters.dateFrom !== undefined || filters.dateTo !== undefined) {
+                    const interval = filters.interval ?? values.dateFilter.interval
+                    actions.setDatesAndInterval(
+                        filters.dateFrom ?? values.dateFilter.dateFrom,
+                        filters.dateTo ?? values.dateFilter.dateTo,
+                        interval
+                    )
+                }
+                if (filters.conversionGoal !== undefined) {
+                    actions.setConversionGoal(filters.conversionGoal)
+                }
+                if (filters.isPathCleaningEnabled !== undefined) {
+                    actions.setIsPathCleaningEnabled(filters.isPathCleaningEnabled)
+                }
+                if (filters.shouldFilterTestAccounts !== undefined) {
+                    actions.setShouldFilterTestAccounts(filters.shouldFilterTestAccounts)
+                }
             },
         }
     }),
