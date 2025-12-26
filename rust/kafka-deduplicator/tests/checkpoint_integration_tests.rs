@@ -349,6 +349,9 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     // Open a new store from the imported checkpoint to verify it's a valid RocksDB
     info!(path = ?import_result, "Opening store from imported checkpoint");
     let restored_store_config = DeduplicationStoreConfig {
+        // for simplicity, we supply the temp import dir directly for store verification.
+        // in production, the kafka rebalance handler copies successful imports into the
+        // production store directory tree.
         path: import_result.clone(),
         max_capacity: 1_000_000,
     };
@@ -387,9 +390,6 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
 
     // Cleanup S3 bucket
     cleanup_bucket(&minio_client, &test_prefix).await;
-
-    // Note: TempDirs (tmp_store_dir, tmp_checkpoint_dir, tmp_import_dir) are
-    // automatically cleaned up when dropped at end of test
 
     Ok(())
 }
