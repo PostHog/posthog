@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
 
 from products.product_tours.backend.models import ProductTour
@@ -83,7 +84,7 @@ class TestProductTour(APIBaseTest):
 
         # Tour should be archived, not deleted
         tour = ProductTour.all_objects.get(id=tour.id)
-        assert tour.archived is True
+        assert tour.archived
 
         # Should not appear in normal list
         assert not ProductTour.objects.filter(id=tour.id).exists()
@@ -224,3 +225,118 @@ class TestProductTourLinkedSurveys(APIBaseTest):
         # Survey should now be ended
         survey.refresh_from_db()
         assert survey.end_date is not None
+
+
+class TestProductTourInternalTargetingFlag(APIBaseTest):
+    def test_flag_created_when_auto_launch_enabled_on_create(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Auto launch tour",
+                "content": {"steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        tour = ProductTour.objects.get(id=response.json()["id"])
+        assert tour.internal_targeting_flag is not None
+        assert not tour.internal_targeting_flag.active  # Draft state, no start_date
+
+    def test_flag_activated_when_tour_launched(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour to launch",
+                "content": {"steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        tour = ProductTour.objects.get(id=tour_id)
+        assert tour.internal_targeting_flag is not None
+        assert not tour.internal_targeting_flag.active
+
+        # Launch the tour
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"start_date": timezone.now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        assert tour.internal_targeting_flag is not None
+        flag = tour.internal_targeting_flag
+        flag.refresh_from_db()
+        assert flag.active
+
+    def test_flag_deactivated_when_auto_launch_disabled(self):
+        now = timezone.now()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Running tour",
+                "content": {"steps": []},
+                "auto_launch": True,
+                "start_date": now.isoformat(),
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        tour = ProductTour.objects.get(id=tour_id)
+        assert tour.internal_targeting_flag is not None
+        flag = tour.internal_targeting_flag
+        assert flag.active
+
+        # Disable auto_launch
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"auto_launch": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        flag.refresh_from_db()
+        assert not flag.active
+
+    def test_flag_reactivated_when_auto_launch_reenabled(self):
+        """Regression test: when auto_launch is toggled off then back on, flag should reactivate."""
+        now = timezone.now()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Toggle tour",
+                "content": {"steps": []},
+                "auto_launch": True,
+                "start_date": now.isoformat(),
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        tour = ProductTour.objects.get(id=tour_id)
+        assert tour.internal_targeting_flag is not None
+        flag_id = tour.internal_targeting_flag.id
+        assert FeatureFlag.objects.get(id=flag_id).active
+
+        # Disable auto_launch
+        self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"auto_launch": False},
+            format="json",
+        )
+        assert not FeatureFlag.objects.get(id=flag_id).active
+
+        # Re-enable auto_launch - flag should reactivate
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"auto_launch": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        tour.refresh_from_db()
+        # Should reuse the same flag, not create a new one
+        assert tour.internal_targeting_flag is not None
+        assert tour.internal_targeting_flag.id == flag_id
+        assert FeatureFlag.objects.get(id=flag_id).active

@@ -469,15 +469,17 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             false as boolean,
             {
                 loadRecordingAvailability: async () => {
-                    // Use UUIDv7 timestamp for partition pruning (session_id is UUIDv7)
-                    const startTime = `UUIDv7ToDateTime(toUUID('${props.sessionId}'))`
-                    const endTime = `${startTime} + INTERVAL 1 DAY`
+                    // Extract timestamp from UUIDv7 for date filtering
+                    const uuidHex = props.sessionId.replace(/-/g, '')
+                    const timestampMs = parseInt(uuidHex.substring(0, 12), 16)
+                    const startDate = new Date(timestampMs)
+                    const endDate = new Date(timestampMs + 24 * 60 * 60 * 1000)
 
                     const response = await api.recordings.list({
                         kind: NodeKind.RecordingsQuery,
                         session_ids: [props.sessionId],
-                        date_from: startTime,
-                        date_to: endTime,
+                        date_from: startDate.toISOString(),
+                        date_to: endDate.toISOString(),
                         limit: 1,
                     })
                     return (response.results?.length ?? 0) > 0

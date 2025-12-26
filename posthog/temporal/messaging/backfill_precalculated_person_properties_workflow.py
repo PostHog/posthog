@@ -109,22 +109,34 @@ async def backfill_precalculated_person_properties_activity(
             # Query person table for current batch with their distinct_ids
             persons_query = """
                 SELECT
-                    p.id as person_id,
+                    p.person_id,
                     p.properties,
-                    groupArray(pdi.distinct_id) as distinct_ids
-                FROM person FINAL p
+                    pdi.distinct_ids
+                FROM (
+                    SELECT
+                        id as person_id,
+                        argMax(properties, version) as properties
+                    FROM person
+                    WHERE team_id = %(team_id)s
+                    GROUP BY id
+                    HAVING argMax(is_deleted, version) = 0
+                ) p
                 INNER JOIN (
                     SELECT
                         person_id,
-                        distinct_id
-                    FROM person_distinct_id FINAL
-                    WHERE team_id = %(team_id)s
-                      AND is_deleted = 0
-                ) pdi ON p.id = pdi.person_id
-                WHERE p.team_id = %(team_id)s
-                  AND p.is_deleted = 0
-                GROUP BY p.id, p.properties
-                ORDER BY p.id
+                        groupArray(distinct_id) as distinct_ids
+                    FROM (
+                        SELECT
+                            argMax(person_id, version) as person_id,
+                            distinct_id
+                        FROM person_distinct_id2
+                        WHERE team_id = %(team_id)s
+                        GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
+                    )
+                    GROUP BY person_id
+                ) pdi ON p.person_id = pdi.person_id
+                ORDER BY p.person_id
                 LIMIT %(limit)s
                 OFFSET %(offset)s
                 FORMAT JSONEachRow
@@ -191,6 +203,7 @@ async def backfill_precalculated_person_properties_activity(
                     for distinct_id in distinct_ids:
                         event = {
                             "distinct_id": distinct_id,
+                            "person_id": person_id,
                             "team_id": inputs.team_id,
                             "condition": filter_info.condition_hash,
                             "matches": matches,

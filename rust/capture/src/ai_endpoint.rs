@@ -1,11 +1,13 @@
-use axum::body::Bytes;
-use axum::extract::State;
+use axum::body::Body;
+use axum::extract::{MatchedPath, State};
 use axum::http::HeaderMap;
 use axum::response::Json;
 use axum_client_ip::InsecureClientIp;
+use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use flate2::read::GzDecoder;
 use futures::stream;
+use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -16,7 +18,14 @@ use time::OffsetDateTime;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+// Blob metrics
+const AI_BLOB_COUNT_PER_EVENT: &str = "capture_ai_blob_count_per_event";
+const AI_BLOB_SIZE_BYTES: &str = "capture_ai_blob_size_bytes";
+const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_event";
+const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
+
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
 use crate::timestamp;
@@ -38,11 +47,27 @@ pub struct AIEndpointResponse {
     pub accepted_parts: Vec<PartInfo>,
 }
 
-/// A blob part from the multipart request
+/// A blob part from the multipart request, including headers for S3 storage
 #[derive(Debug)]
 struct BlobPart {
     name: String,
+    content_type: Option<String>,
+    content_encoding: Option<String>,
     data: Bytes,
+}
+
+/// Insert S3 URLs from uploaded blobs into event properties.
+fn insert_blob_urls_into_properties(
+    uploaded: &crate::ai_s3::UploadedBlobs,
+    properties: &mut serde_json::Map<String, Value>,
+) {
+    for part in &uploaded.parts {
+        let url = format!(
+            "{}?range={}-{}",
+            uploaded.base_url, part.range_start, part.range_end
+        );
+        properties.insert(part.property_name.clone(), Value::String(url));
+    }
 }
 
 /// Metadata extracted from the event part for early checks (token dropper, quota)
@@ -73,30 +98,41 @@ struct RetrievedMultipartParts {
 #[derive(Debug)]
 struct ParsedMultipartData {
     accepted_parts: Vec<PartInfo>,
-    event_with_placeholders: Value,
+    event: Value,
     event_name: String,
     distinct_id: String,
     event_uuid: Uuid,
     timestamp: Option<String>,
     sent_at: Option<OffsetDateTime>,
+    blob_parts: Vec<BlobPart>,
 }
 
 pub async fn ai_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,
+    path: MatchedPath,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
     debug!("Received request to /i/v0/ai endpoint");
+
+    // Extract body with timed streaming (same pattern as analytics/recordings handlers)
+    // Use 110% of ai_max_sum_of_parts_bytes to account for multipart overhead (matches DefaultBodyLimit layer)
+    let body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
+    let body = extract_body_with_timeout(
+        body,
+        body_limit,
+        state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
+        path.as_str(),
+    )
+    .await?;
 
     // Check for empty body
     if body.is_empty() {
         warn!("AI endpoint received empty body");
         return Err(CaptureError::EmptyPayload);
     }
-
-    // Note: Request body size limit is enforced by Axum's DefaultBodyLimit layer
-    // (110% of ai_max_sum_of_parts_bytes to account for multipart overhead)
 
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers
@@ -151,9 +187,14 @@ pub async fn ai_handler(
     // Capture body size for logging (before we move the Bytes)
     let body_size = decompressed_body.len();
 
+    // Create multipart parser once - reused for all parsing steps
+    let body_stream = stream::once(std::future::ready(Ok::<Bytes, std::io::Error>(
+        decompressed_body,
+    )));
+    let mut multipart = Multipart::new(body_stream, &boundary);
+
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
-    // Bytes::clone() is cheap (ref-counted), no actual data copy
-    let event_metadata = retrieve_event_metadata(decompressed_body.clone(), &boundary).await?;
+    let event_metadata = retrieve_event_metadata(&mut multipart).await?;
 
     // Step 2: Check token dropper early - before parsing remaining parts
     // Token dropper silently drops events (returns 200) to avoid alerting clients
@@ -181,19 +222,92 @@ pub async fn ai_handler(
         .next()
         .ok_or(CaptureError::BillingLimit)?;
 
-    // Step 4: Retrieve and validate remaining multipart parts
+    // Step 4: Retrieve and validate remaining multipart parts (continues parsing from multipart)
     let parts = retrieve_multipart_parts(
-        decompressed_body,
-        &boundary,
+        &mut multipart,
         state.ai_max_sum_of_parts_bytes,
         event_metadata,
     )
     .await?;
 
-    // Step 5: Parse the parts and build event with blob placeholders
-    let parsed = parse_multipart_data(parts)?;
+    // Step 5: Parse the parts
+    let mut parsed = parse_multipart_data(parts)?;
 
-    // Step 6: Build Kafka event
+    // Step 6: Record blob metrics and upload to S3
+    let blob_count = parsed.blob_parts.len();
+    if blob_count > 0 {
+        // Record blob metrics
+        histogram!(AI_BLOB_COUNT_PER_EVENT).record(blob_count as f64);
+
+        let mut total_blob_bytes: usize = 0;
+        for blob in &parsed.blob_parts {
+            let blob_size = blob.data.len();
+            total_blob_bytes += blob_size;
+            histogram!(AI_BLOB_SIZE_BYTES).record(blob_size as f64);
+
+            // Track content type distribution (normalize to known types)
+            let content_type = match blob.content_type.as_deref() {
+                Some("application/json") => "application/json",
+                Some("application/octet-stream") => "application/octet-stream",
+                Some(ct) if ct.starts_with("text/plain") => "text/plain",
+                Some(_) => "other",
+                None => "unknown",
+            };
+            counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "true", "content_type" => content_type)
+                .increment(1);
+        }
+        histogram!(AI_BLOB_TOTAL_BYTES_PER_EVENT).record(total_blob_bytes as f64);
+    } else {
+        counter!(AI_BLOB_EVENTS_TOTAL, "has_blobs" => "false", "content_type" => "none")
+            .increment(1);
+    }
+
+    // Upload blobs to S3 and insert URLs into event properties
+    if !parsed.blob_parts.is_empty() {
+        let blob_storage = state.ai_blob_storage.as_ref().ok_or_else(|| {
+            warn!("AI endpoint received blobs but S3 is not configured");
+            CaptureError::ServiceUnavailable("blob storage not configured".to_string())
+        })?;
+
+        // Convert blob_parts to format expected by AiBlobStorage
+        let blobs: Vec<crate::ai_s3::BlobData> = parsed
+            .blob_parts
+            .iter()
+            .filter_map(|bp| {
+                bp.name
+                    .strip_prefix("event.properties.")
+                    .map(|prop_name| crate::ai_s3::BlobData {
+                        property_name: prop_name.to_string(),
+                        content_type: bp.content_type.clone(),
+                        content_encoding: bp.content_encoding.clone(),
+                        data: bp.data.clone(),
+                    })
+            })
+            .collect();
+
+        // Upload blobs and get URLs
+        // TODO: Replace token with team_id once secret key signing is implemented
+        // and we can resolve tokens to team IDs in capture
+        let uploaded = blob_storage
+            .upload_blobs(token, &parsed.event_uuid.to_string(), blobs)
+            .await
+            .map_err(|e| {
+                warn!("Failed to upload blobs to S3: {:?}", e);
+                CaptureError::NonRetryableSinkError
+            })?;
+
+        // Insert S3 URLs into event properties
+        if let Some(properties) = parsed
+            .event
+            .as_object_mut()
+            .and_then(|obj| obj.get_mut("properties"))
+            .and_then(|p| p.as_object_mut())
+        {
+            insert_blob_urls_into_properties(&uploaded, properties);
+        }
+    }
+
+    // Step 7: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
@@ -247,16 +361,10 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
 /// Retrieve event metadata from the first multipart part for early checks.
 /// This parses only the 'event' part to extract event_name and distinct_id
 /// before processing the rest of the multipart body.
+/// The multipart parser is passed in and will be reused for remaining parts.
 async fn retrieve_event_metadata(
-    body: Bytes,
-    boundary: &str,
+    multipart: &mut Multipart<'_>,
 ) -> Result<EventMetadata, CaptureError> {
-    // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
-    let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
-
-    // Create multipart parser
-    let mut multipart = Multipart::new(body_stream, boundary);
-
     // Get the first field - must be 'event'
     let field = multipart
         .next_field()
@@ -352,7 +460,7 @@ fn build_kafka_event(
 
     // Extract $ignore_sent_at from event properties
     let ignore_sent_at = parsed
-        .event_with_placeholders
+        .event
         .as_object()
         .and_then(|obj| obj.get("properties"))
         .and_then(|props| props.as_object())
@@ -370,14 +478,14 @@ fn build_kafka_event(
     );
 
     // Serialize the event to JSON (this is what goes in the "data" field)
-    let data = serde_json::to_string(&parsed.event_with_placeholders).map_err(|e| {
+    let data = serde_json::to_string(&parsed.event).map_err(|e| {
         warn!("Failed to serialize AI event: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if parsed
-        .event_with_placeholders
+        .event
         .as_object()
         .and_then(|obj| obj.get("properties"))
         .and_then(|props| props.as_object())
@@ -525,12 +633,14 @@ fn process_blob_part(
         name: field_name.clone(),
         length: field_data_len,
         content_type: content_type.clone(),
-        content_encoding,
+        content_encoding: content_encoding.clone(),
     };
 
-    // Create blob part - moves field_name, field_data
+    // Create blob part - moves field_name, field_data, includes headers for S3 storage
     let blob_part = BlobPart {
         name: field_name,
+        content_type,
+        content_encoding,
         data: field_data, // MOVE - no clone of actual blob data!
     };
 
@@ -540,20 +650,14 @@ fn process_blob_part(
 
 /// Retrieve and validate multipart parts from the request body.
 /// The event metadata (first part) has already been parsed by retrieve_event_metadata.
+/// Continues parsing from where retrieve_event_metadata left off.
 async fn retrieve_multipart_parts(
-    body: Bytes,
-    boundary: &str,
+    multipart: &mut Multipart<'_>,
     max_sum_of_parts_bytes: usize,
     event_metadata: EventMetadata,
 ) -> Result<RetrievedMultipartParts, CaptureError> {
     // Size limits
     const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
-
-    // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
-    let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
-
-    // Create multipart parser
-    let mut multipart = Multipart::new(body_stream, boundary);
 
     let mut part_count = 0;
     let mut accepted_parts = Vec::new();
@@ -588,11 +692,11 @@ async fn retrieve_multipart_parts(
             field_name, part_count
         );
 
-        // Skip the event part - already processed in retrieve_event_metadata
+        // Event part was already consumed by retrieve_event_metadata - reject duplicates
         if field_name == "event" {
-            // Consume the field data but don't process it again
-            drop(field.bytes().await);
-            continue;
+            return Err(CaptureError::RequestParsingError(
+                "Duplicate 'event' part found".to_string(),
+            ));
         }
 
         // Read the field data to get the length (this consumes the field)
@@ -706,7 +810,8 @@ async fn retrieve_multipart_parts(
     })
 }
 
-/// Parse retrieved multipart parts and build event with blob placeholders
+/// Parse retrieved multipart parts and validate event structure.
+/// Returns parsed data with blob_parts for later S3 upload.
 fn parse_multipart_data(
     parts: RetrievedMultipartParts,
 ) -> Result<ParsedMultipartData, CaptureError> {
@@ -764,54 +869,20 @@ fn parse_multipart_data(
         .and_then(|v| v.as_str())
         .and_then(|sent_at_str| OffsetDateTime::parse(sent_at_str, &Iso8601::DEFAULT).ok());
 
-    // Insert S3 placeholder URLs for all blob parts
-    // All blobs for an event point to the same S3 file with different byte ranges
-    // Format: s3://PLACEHOLDER/team_id/event_id?range=start-end
-    // For now, use "TEAM_ID" as placeholder since we don't have team resolution yet
-    if let Some(event_obj) = event.as_object_mut() {
-        if let Some(properties) = event_obj
-            .get_mut("properties")
-            .and_then(|p| p.as_object_mut())
-        {
-            // Track cumulative byte offset as if blobs were concatenated in one file
-            let mut current_offset: usize = 0;
-
-            for blob_part in &parts.blob_parts {
-                // Extract property name from "event.properties.PROPERTY_NAME"
-                if let Some(property_name) = blob_part.name.strip_prefix("event.properties.") {
-                    let blob_size = blob_part.data.len();
-                    let range_start = current_offset;
-                    let range_end = current_offset + blob_size - 1;
-
-                    // Calculate byte range for this blob
-                    // HTTP byte ranges are inclusive on both ends: range=0-149 means bytes 0-149 (150 bytes total)
-                    // Note: blob_size is guaranteed to be > 0 due to validation in process_blob_part
-                    let placeholder_url = format!(
-                        "s3://PLACEHOLDER/TEAM_ID/{event_uuid}?range={range_start}-{range_end}"
-                    );
-
-                    properties.insert(property_name.to_string(), Value::String(placeholder_url));
-
-                    // Advance offset for next blob
-                    current_offset += blob_size;
-                }
-            }
-        }
-    }
-
     debug!(
-        "Multipart parsing completed: {} blob placeholders inserted",
+        "Multipart parsing completed: {} blob parts",
         parts.blob_parts.len()
     );
 
     Ok(ParsedMultipartData {
         accepted_parts: parts.accepted_parts,
-        event_with_placeholders: event,
+        event,
         event_name,
         distinct_id,
         event_uuid,
         timestamp,
         sent_at,
+        blob_parts: parts.blob_parts,
     })
 }
 
@@ -907,4 +978,42 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai_s3::{BlobPartRange, UploadedBlobs};
+
+    #[test]
+    fn test_insert_blob_urls_into_properties() {
+        let uploaded = UploadedBlobs {
+            base_url: "s3://capture/llma/phc_test_token/abc-def".to_string(),
+            boundary: "----posthog-ai-abc-def".to_string(),
+            parts: vec![
+                BlobPartRange {
+                    property_name: "$ai_input".to_string(),
+                    range_start: 0,
+                    range_end: 99,
+                },
+                BlobPartRange {
+                    property_name: "$ai_output".to_string(),
+                    range_start: 100,
+                    range_end: 249,
+                },
+            ],
+        };
+
+        let mut properties = serde_json::Map::new();
+        insert_blob_urls_into_properties(&uploaded, &mut properties);
+
+        assert_eq!(
+            properties.get("$ai_input").unwrap().as_str().unwrap(),
+            "s3://capture/llma/phc_test_token/abc-def?range=0-99"
+        );
+        assert_eq!(
+            properties.get("$ai_output").unwrap().as_str().unwrap(),
+            "s3://capture/llma/phc_test_token/abc-def?range=100-249"
+        );
+    }
 }

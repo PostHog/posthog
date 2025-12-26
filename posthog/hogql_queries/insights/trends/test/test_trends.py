@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_different_timezones,
@@ -72,14 +73,6 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optiona
             ret_dict["label"] = f"{entity.name} - {cohort.name}"
             ret_dict["breakdown_value"] = cohort.pk
     return ret_dict
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 def _create_cohort(**kwargs):
@@ -183,7 +176,6 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         trendsFilter=TrendsFilter(
             display=filter.display,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            formula=filter.formula,
             smoothingIntervals=filter.smoothing_intervals,
         ),
         compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),

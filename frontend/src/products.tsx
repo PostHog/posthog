@@ -205,12 +205,17 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'action',
     },
     CustomerAnalytics: {
+        defaultDocsPath: '/docs/customer-analytics',
         projectBased: true,
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
-    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
+    CustomerAnalyticsConfiguration: {
+        defaultDocsPath: '/docs/customer-analytics/configure-your-dashboard',
+        projectBased: true,
+        name: 'Customer analytics configuration',
+    },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -957,7 +962,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: 'Analytics',
         iconType: 'cohort',
         href: urls.customerAnalytics(),
-        tags: ['alpha'],
+        tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
         sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],

@@ -106,6 +106,9 @@ class QueryTags(BaseModel):
     query_time_range_days: Optional[int] = None
     query_type: Optional[str] = None
 
+    rate_limit_bypass: Optional[int] = None
+    rate_limit_wait_ms: Optional[int] = None
+
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
@@ -167,6 +170,8 @@ class QueryTags(BaseModel):
     usage_report: Optional[str] = None
 
     user_email: Optional[str] = None
+
+    is_impersonated: Optional[bool] = None
 
     # constant query tags
     git_commit: Optional[str] = None

@@ -1925,7 +1925,8 @@
                 "filter_session_recordings",
                 "create_insight",
                 "create_form",
-                "task"
+                "task",
+                "upsert_dashboard"
             ],
             "type": "string"
         },
@@ -2515,6 +2516,9 @@
                     "$ref": "#/definitions/integer"
                 },
                 "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_path_cleaning": {
                     "type": "boolean"
                 },
                 "breakdown_type": {
@@ -10045,6 +10049,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -10651,6 +10659,7 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
+                "revenue_analytics_mrr",
                 "revenue_analytics_product",
                 "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
@@ -11390,6 +11399,11 @@
                 "client_query_id": {
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
+                },
+                "debug": {
+                    "default": false,
+                    "description": "Whether to include debug information (such as the executed HogQL) in the response.",
+                    "type": "boolean"
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
@@ -12770,6 +12784,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -16575,6 +16603,9 @@
                     "type": "string"
                 },
                 "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "trace_id": {
                     "type": "string"
                 },
                 "type": {
@@ -21227,6 +21258,7 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "logs_docs_viewed",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -21259,6 +21291,16 @@
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
+                "marketing_analytics_source_configured",
+                "marketing_analytics_settings_updated",
+                "marketing_analytics_dashboard_interaction",
+                "marketing_analytics_ads_integration_visited",
+                "customer_analytics_dashboard_business_mode_changed",
+                "customer_analytics_dashboard_configuration_button_clicked",
+                "customer_analytics_dashboard_filters_changed",
+                "customer_analytics_dashboard_events_saved",
+                "customer_analytics_viewed",
+                "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "vercel_integration"
@@ -27794,6 +27836,10 @@
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
+                "showEventsFilter": {
+                    "description": "Include an events filter above the table to filter by multiple events (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showExport": {
                     "description": "Show the export button",
                     "type": "boolean"
@@ -28031,6 +28077,20 @@
                 "event": {
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -31046,6 +31106,9 @@
                     "type": ["string", "null"]
                 },
                 "name": {
+                    "type": ["string", "null"]
+                },
+                "plan": {
                     "type": ["string", "null"]
                 },
                 "query": {

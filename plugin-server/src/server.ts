@@ -18,6 +18,7 @@ import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehou
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLegacyWebhookConsumer } from './cdp/consumers/cdp-legacy-webhook.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { defaultConfig } from './config/config'
@@ -220,6 +221,14 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     await initPlugins()
                     const consumer = new CdpLegacyEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpLegacyWebhooks) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpLegacyWebhookConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

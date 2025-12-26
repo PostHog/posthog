@@ -1,208 +1,61 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconInfo, IconPlus } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonLabel,
-    LemonSegmentedButton,
-    LemonSegmentedButtonOption,
-    LemonSelect,
-    LemonSnack,
-    LemonTab,
-    LemonTabs,
-    LemonTag,
-    Link,
-    Popover,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FlagSelector } from 'lib/components/FlagSelector'
+import IngestionControls from 'lib/components/IngestionControls'
+import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TriggerMatchChoice } from 'lib/components/Triggers/TriggerMatchChoice'
-import { TriggersSummary } from 'lib/components/Triggers/TriggersSummary'
-import { UrlConfig } from 'lib/components/Triggers/UrlConfig'
-import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Triggers/types'
-import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { isNumeric } from 'lib/utils'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
-import {
-    ReplayPlatform,
-    isStringWithLength,
-    replayTriggersLogic,
-} from 'scenes/settings/environment/replayTriggersLogic'
-import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
+import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AvailableFeature,
-    MultivariateFlagOptions,
-    TeamPublicType,
-    TeamType,
-} from '~/types'
-
-export const ANY_VARIANT = 'any'
-
-export function variantOptions(
-    multivariate: MultivariateFlagOptions | undefined,
-    disabledReason?: string | null
-): LemonSegmentedButtonOption<string>[] {
-    if (!multivariate) {
-        return []
-    }
-    return [
-        {
-            label: ANY_VARIANT,
-            value: ANY_VARIANT,
-            disabledReason: disabledReason ?? undefined,
-        },
-        ...multivariate.variants.map((variant) => {
-            return {
-                label: variant.key,
-                value: variant.key,
-                disabledReason: disabledReason ?? undefined,
-            }
-        }),
-    ]
-}
+import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
 function LinkedFlagSelector(): JSX.Element | null {
     const { selectedPlatform } = useValues(replayTriggersLogic)
 
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
-
-    const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(sessionReplayIngestionControlLogic)
-    const { selectFeatureFlag } = useActions(sessionReplayIngestionControlLogic)
-
-    if (!featureFlagRecordingFeatureEnabled) {
-        return null
-    }
+    const { currentTeam } = useValues(teamLogic)
 
     return (
-        <>
-            <div className="flex flex-col deprecated-space-y-2 mt-2">
-                <div className="flex justify-between">
-                    <LemonLabel className="text-base">
-                        {selectedPlatform === 'mobile' ? null : <TriggerMatchTypeTag />} Enable recordings using feature
-                        flag {featureFlagLoading && <Spinner />}{' '}
-                        <Since
-                            web={{ version: '1.110.0' }}
-                            ios={{ version: '3.11.0' }}
-                            android={{ version: '3.11.0' }}
-                            reactNative={{ version: '3.6.3' }}
-                            flutter={{ version: '4.7.0' }}
-                        />
-                    </LemonLabel>
-                    <div className="flex flex-row justify-start">
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            {({ disabledReason }) => (
-                                <FlagSelector
-                                    value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                                    onChange={(id, key, flag) => {
-                                        selectFeatureFlag(flag)
-                                        updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
-                                    }}
-                                    disabledReason={
-                                        (disabledReason ?? (currentTeamLoading || featureFlagLoading))
-                                            ? 'Loading...'
-                                            : undefined
-                                    }
-                                    readOnly={!!disabledReason || currentTeamLoading || featureFlagLoading}
-                                />
-                            )}
-                        </AccessControlAction>
-                        {currentTeam?.session_recording_linked_flag && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.SessionRecording}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    className="ml-2"
-                                    icon={<IconCancel />}
-                                    size="small"
-                                    type="secondary"
-                                    onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
-                                    title="Clear selected flag"
-                                    loading={currentTeamLoading || featureFlagLoading}
-                                />
-                            </AccessControlAction>
-                        )}
-                    </div>
-                </div>
-
-                <p>
-                    Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
-                </p>
-                {flagHasVariants && (
-                    <>
+        <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
+            <IngestionControls.FlagTrigger
+                logicKey="session-replay-linked-flag"
+                flag={currentTeam?.session_recording_linked_flag ?? null}
+                onChange={(v) => updateCurrentTeam({ session_recording_linked_flag: v })}
+            >
+                <div className="flex flex-col deprecated-space-y-2 mt-2">
+                    <div className="flex justify-between">
                         <LemonLabel className="text-base">
-                            Link to a specific flag variant{' '}
-                            <Tooltip
-                                delayMs={200}
-                                title={
-                                    <>
-                                        <p>Record for "any" variant, or only for a specific variant.</p>
-                                        <p>Variant targeting requires posthog-js v1.110.0+</p>
-                                    </>
-                                }
-                            >
-                                <IconInfo className="text-muted-alt cursor-help" />
-                            </Tooltip>
+                            {selectedPlatform === 'mobile' ? null : <IngestionControls.MatchTypeTag />} Enable
+                            recordings using feature flag
+                            <Since
+                                web={{ version: '1.110.0' }}
+                                ios={{ version: '3.11.0' }}
+                                android={{ version: '3.11.0' }}
+                                reactNative={{ version: '3.6.3' }}
+                                flutter={{ version: '4.7.0' }}
+                            />
                         </LemonLabel>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            {({ disabledReason }) => (
-                                <LemonSegmentedButton
-                                    className="min-w-1/3"
-                                    value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
-                                    options={variantOptions(
-                                        linkedFlag?.filters.multivariate,
-                                        (disabledReason ?? (currentTeamLoading || featureFlagLoading))
-                                            ? 'Loading...'
-                                            : undefined
-                                    )}
-                                    onChange={(variant) => {
-                                        if (!linkedFlag) {
-                                            return
-                                        }
+                        <IngestionControls.FlagSelector />
+                    </div>
 
-                                        updateCurrentTeam({
-                                            session_recording_linked_flag: {
-                                                id: linkedFlag?.id,
-                                                key: linkedFlag?.key,
-                                                variant: variant === ANY_VARIANT ? null : variant,
-                                            },
-                                        })
-                                    }}
-                                />
-                            )}
-                        </AccessControlAction>
-                    </>
-                )}
-            </div>
-        </>
+                    <p>
+                        Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
+                    </p>
+                    <IngestionControls.FlagVariantSelector
+                        tooltip={
+                            <>
+                                <p>Record for "any" variant, or only for a specific variant.</p>
+                                <p>Variant targeting requires posthog-js v1.110.0+</p>
+                            </>
+                        }
+                    />
+                </div>
+            </IngestionControls.FlagTrigger>
+        </PayGateMini>
     )
 }
 
@@ -226,7 +79,7 @@ function UrlTriggerOptions(): JSX.Element | null {
     } = useActions(replayTriggersLogic)
 
     return (
-        <UrlConfig
+        <IngestionControls.UrlConfig
             logic={replayTriggersLogic}
             formKey="proposedUrlTrigger"
             addUrl={addUrlTrigger}
@@ -268,7 +121,7 @@ function UrlBlocklistOptions(): JSX.Element | null {
     } = useActions(replayTriggersLogic)
 
     return (
-        <UrlConfig
+        <IngestionControls.UrlConfig
             logic={replayTriggersLogic}
             formKey="proposedUrlBlocklist"
             addUrl={addUrlBlocklist}
@@ -290,48 +143,6 @@ function UrlBlocklistOptions(): JSX.Element | null {
     )
 }
 
-function EventSelectButton(): JSX.Element {
-    const { eventTriggerConfig } = useValues(replayTriggersLogic)
-    const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
-
-    const [open, setOpen] = useState<boolean>(false)
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.SessionRecording}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            <Popover
-                visible={open}
-                onClickOutside={() => setOpen(false)}
-                overlay={
-                    <TaxonomicFilter
-                        onChange={(_, value) => {
-                            if (isStringWithLength(value)) {
-                                updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value]))))
-                            }
-                            setOpen(false)
-                        }}
-                        excludedProperties={{
-                            [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
-                        }}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-                    />
-                }
-            >
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconPlus />}
-                    sideIcon={null}
-                    onClick={() => setOpen(!open)}
-                >
-                    Add event
-                </LemonButton>
-            </Popover>
-        </AccessControlAction>
-    )
-}
-
 function EventTriggerOptions(): JSX.Element | null {
     const { eventTriggerConfig } = useValues(replayTriggersLogic)
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
@@ -340,33 +151,19 @@ function EventTriggerOptions(): JSX.Element | null {
         <div className="flex flex-col deprecated-space-y-2 mt-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
-                    <TriggerMatchTypeTag /> Event emitted <Since web={{ version: '1.186.0' }} />
+                    <IngestionControls.MatchTypeTag /> Event emitted <Since web={{ version: '1.186.0' }} />
                 </LemonLabel>
-                <EventSelectButton />
+                <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
             <p>Start recording when a PostHog event is queued.</p>
 
             <div className="flex gap-2 flex-wrap">
                 {eventTriggerConfig?.map((trigger) => (
-                    <AccessControlAction
+                    <IngestionControls.EventTrigger
                         key={trigger}
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        {({ disabledReason }) => (
-                            <LemonSnack
-                                onClose={
-                                    !disabledReason
-                                        ? () => {
-                                              updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== trigger))
-                                          }
-                                        : undefined
-                                }
-                            >
-                                {trigger}
-                            </LemonSnack>
-                        )}
-                    </AccessControlAction>
+                        trigger={trigger}
+                        onClose={() => updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== trigger))}
+                    />
                 ))}
             </div>
         </div>
@@ -377,57 +174,23 @@ function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const currentSampleRate =
-        typeof currentTeam?.session_recording_sample_rate === 'string'
-            ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
-            : 100
-
-    const [value, setValue] = useState<number | undefined>(currentSampleRate)
-
-    const updateSampling = (): void => {
-        const returnRate = typeof value == 'number' ? value / 100 : 0
-        if (returnRate > 1) {
-            lemonToast.error('Session recording sample rate must be between 0 to 100')
-        } else {
-            updateCurrentTeam({ session_recording_sample_rate: returnRate.toString() })
-        }
-    }
-
     return (
-        <>
+        <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-row justify-between mt-2">
                 <LemonLabel className="text-base">
-                    <TriggerMatchTypeTag /> Sampling <Since web={{ version: '1.85.0' }} />
+                    <IngestionControls.MatchTypeTag /> Sampling <Since web={{ version: '1.85.0' }} />
                 </LemonLabel>
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <div className="flex flex-row gap-x-2">
-                        <LemonInput
-                            type="number"
-                            className="[&>input::-webkit-inner-spin-button]:appearance-none"
-                            onChange={(value) => setValue(value)}
-                            min={0}
-                            max={100}
-                            suffix={<>%</>}
-                            value={value}
-                            onPressEnter={updateSampling}
-                            data-attr="sampling-setting-input"
-                        />
-                        <LemonButton
-                            type="primary"
-                            disabledReason={currentSampleRate === value && 'there was no change in sample rate'}
-                            onClick={updateSampling}
-                            data-attr="sampling-setting-update"
-                        >
-                            Update
-                        </LemonButton>
-                    </div>
-                </AccessControlAction>
+                <IngestionControls.SamplingTrigger
+                    initialSampleRate={
+                        typeof currentTeam?.session_recording_sample_rate === 'string'
+                            ? Math.floor(parseFloat(currentTeam?.session_recording_sample_rate) * 100)
+                            : 100
+                    }
+                    onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
+                />
             </div>
             <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
-        </>
+        </PayGateMini>
     )
 }
 
@@ -437,55 +200,31 @@ function MinimumDurationSetting(): JSX.Element | null {
 
     return (
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
-            <>
-                <div className="flex flex-row justify-between">
-                    <LemonLabel className="text-base">
-                        Minimum session duration (seconds) <Since web={{ version: '1.85.0' }} />
-                    </LemonLabel>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            onChange={(v) => {
-                                updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
-                            }}
-                            options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
-                            value={currentTeam?.session_recording_minimum_duration_milliseconds}
-                        />
-                    </AccessControlAction>
-                </div>
-                <Tooltip
-                    delayMs={200}
-                    title={
-                        <>
-                            The JS SDK has an in-memory queue. This means that for traditional web apps the minimum
-                            duration control is best effort.{' '}
-                            <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
-                                Read more in our docs
-                            </Link>
-                        </>
-                    }
-                >
-                    Setting a minimum session duration will ensure that only sessions that last longer than that value
-                    are collected. This helps you avoid collecting sessions that are too short to be useful.
-                </Tooltip>
-            </>
+            <div className="flex flex-row justify-between">
+                <LemonLabel className="text-base">
+                    Minimum session duration (seconds) <Since web={{ version: '1.85.0' }} />
+                </LemonLabel>
+                <IngestionControls.MinDuration
+                    value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                    onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
+                />
+            </div>
+            <Tooltip
+                delayMs={200}
+                title={
+                    <>
+                        The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration
+                        control is best effort.{' '}
+                        <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
+                            Read more in our docs
+                        </Link>
+                    </>
+                }
+            >
+                Setting a minimum session duration will ensure that only sessions that last longer than that value are
+                collected. This helps you avoid collecting sessions that are too short to be useful.
+            </Tooltip>
         </PayGateMini>
-    )
-}
-
-function TriggerMatchTypeTag(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    // Let's follow PostHog style of AND / OR from funnels
-    return (
-        <LemonTag type="danger" className="my-2 mr-2">
-            {currentTeam?.session_recording_trigger_match_type_config &&
-            currentTeam?.session_recording_trigger_match_type_config === 'any'
-                ? 'OR'
-                : 'AND'}
-        </LemonTag>
     )
 }
 
@@ -505,23 +244,12 @@ export function ReplayTriggers(): JSX.Element {
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
                     <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
-                        <TriggerMatchChoice
-                            value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-                            onChange={(value) =>
-                                updateCurrentTeam({ session_recording_trigger_match_type_config: value })
-                            }
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        />
+                        <IngestionControls.MatchTypeSelect />
                         <LemonDivider />
                         <UrlTriggerOptions />
                         <EventTriggerOptions />
-                        <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
-                            <LinkedFlagSelector />
-                        </PayGateMini>
-                        <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-                            <Sampling />
-                        </PayGateMini>
+                        <LinkedFlagSelector />
+                        <Sampling />
                     </div>
                     <MinimumDurationSetting />
                     <LemonDivider />
@@ -537,18 +265,23 @@ export function ReplayTriggers(): JSX.Element {
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
-                    <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}>
-                        <LinkedFlagSelector />
-                    </PayGateMini>
+                    <LinkedFlagSelector />
                 </div>
             ),
         },
     ]
 
     return (
-        <div className="flex flex-col gap-y-2">
-            <LemonTabs activeKey={selectedPlatform} onChange={selectPlatform} tabs={tabs} />
-        </div>
+        <IngestionControls
+            logicKey="session-replay"
+            resourceType={AccessControlResourceType.SessionRecording}
+            matchType={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+            onChangeMatchType={(value) => updateCurrentTeam({ session_recording_trigger_match_type_config: value })}
+        >
+            <div className="flex flex-col gap-y-2">
+                <LemonTabs activeKey={selectedPlatform} onChange={selectPlatform} tabs={tabs} />
+            </div>
+        </IngestionControls>
     )
 }
 
@@ -569,7 +302,7 @@ const RecordingTriggersSummary = ({
         )
     }
 
-    return <TriggersSummary triggers={triggers} />
+    return <IngestionControlsSummary triggers={triggers} />
 }
 
 const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: 'web' | 'mobile'): Trigger[] => {

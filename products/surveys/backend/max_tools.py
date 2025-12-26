@@ -47,6 +47,9 @@ class CreateSurveyTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
+    def get_required_resource_access(self):
+        return [("survey", "editor")]
+
     async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationSchema:
         """
         Create a survey from natural language instructions.
@@ -350,6 +353,9 @@ class SurveyAnalysisTool(MaxTool):
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
     )
     args_schema: type[BaseModel] = SurveyAnalysisArgs
+
+    def get_required_resource_access(self):
+        return [("survey", "viewer")]
 
     def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
         """

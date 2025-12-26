@@ -2,7 +2,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { ViewReplayButton } from 'lib/components/ViewReplayButton/ViewReplayButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -116,7 +117,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                                                 })
                                             }}
                                         >
-                                            <ViewReplayButton recordingId={recording.id ?? ''} size="xsmall" />
+                                            <ViewRecordingButton sessionId={recording.id ?? ''} size="xsmall" />
                                         </div>
                                     ),
                                 },
@@ -135,7 +136,12 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                             })
                         }}
                     >
-                        <ViewReplayButton filters={replayFilters} size="small" type="secondary" label="View all" />
+                        <ViewRecordingsPlaylistButton
+                            filters={replayFilters}
+                            size="small"
+                            type="secondary"
+                            label="View all"
+                        />
                     </div>
                 </div>
             </div>

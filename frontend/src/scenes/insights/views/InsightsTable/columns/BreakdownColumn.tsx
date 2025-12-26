@@ -1,6 +1,7 @@
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -74,11 +75,19 @@ export function MultipleBreakdownColumnTitle({
 type BreakdownColumnItemProps = {
     item: IndexedTrendResult
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
+    breakdownFilter?: BreakdownFilter
 }
 
-export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
+export function BreakdownColumnItem({
+    item,
+    formatItemBreakdownLabel,
+    breakdownFilter,
+}: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
-    const formattedLabel = stringWithWBR(breakdownLabel, 20)
+    const showPathCleaningHighlight = breakdownFilter?.breakdown_path_cleaning && typeof breakdownLabel === 'string'
+    const formattedLabel = showPathCleaningHighlight
+        ? parseAliasToReadable(breakdownLabel)
+        : stringWithWBR(breakdownLabel, 20)
 
     return (
         <div className="flex justify-between items-center">
