@@ -19,6 +19,7 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
+use crate::event_restrictions::{EventRestrictionService, IngestionPipeline};
 use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
 
@@ -323,6 +324,65 @@ where
             None
         };
 
+    // Create event restriction service if enabled and redis URL is configured
+    let event_restriction_service = if config.event_restrictions_enabled {
+        if let Some(ref redis_url) = config.event_restrictions_redis_url {
+            let restrictions_redis = Arc::new(
+                RedisClient::with_config(
+                    redis_url.clone(),
+                    common_redis::CompressionConfig::disabled(),
+                    common_redis::RedisValueFormat::default(),
+                    if config.redis_response_timeout_ms == 0 {
+                        None
+                    } else {
+                        Some(Duration::from_millis(config.redis_response_timeout_ms))
+                    },
+                    if config.redis_connection_timeout_ms == 0 {
+                        None
+                    } else {
+                        Some(Duration::from_millis(config.redis_connection_timeout_ms))
+                    },
+                )
+                .await
+                .expect("failed to create event restrictions redis client"),
+            );
+
+            let pipeline = match config.capture_mode {
+                CaptureMode::Events => IngestionPipeline::Analytics,
+                CaptureMode::Recordings => IngestionPipeline::SessionRecordings,
+            };
+
+            let service = EventRestrictionService::new(
+                pipeline,
+                Duration::from_secs(config.event_restrictions_fail_open_after_secs),
+            );
+
+            // Spawn background refresh task
+            let service_clone = service.clone();
+            let refresh_interval =
+                Duration::from_secs(config.event_restrictions_refresh_interval_secs);
+            tokio::spawn(async move {
+                service_clone
+                    .start_refresh_task(restrictions_redis, refresh_interval)
+                    .await;
+            });
+
+            info!(
+                pipeline = %pipeline.as_str(),
+                refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
+                fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
+                "Event restrictions enabled"
+            );
+
+            Some(service)
+        } else {
+            warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
+            None
+        }
+    } else {
+        None
+    };
+
     let app = router::router(
         crate::time::SystemTime {},
         liveness,
@@ -330,6 +390,7 @@ where
         redis_client,
         quota_limiter,
         token_dropper,
+        event_restriction_service,
         config.export_prometheus,
         config.capture_mode,
         config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs

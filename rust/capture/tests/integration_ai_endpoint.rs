@@ -8,6 +8,10 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::event_restrictions::{
+    EventRestrictionService, IngestionPipeline, Restriction, RestrictionManager, RestrictionScope,
+    RestrictionType,
+};
 use capture::limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
@@ -172,6 +176,7 @@ fn setup_ai_test_router() -> Router {
         redis,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -1624,6 +1629,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         redis,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2528,16 +2534,17 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         redis,
         quota_limiter,
         token_dropper,
-        false,
+        None,  // event_restriction_service
+        false, // metrics
         CaptureMode::Events,
         String::from("capture-ai"),
-        None,
-        25 * 1024 * 1024,
-        false,
-        1_i64,
-        false,
-        0.0_f32,
-        26_214_400,
+        None,                             // concurrency_limit
+        25 * 1024 * 1024,                 // event_size_limit
+        false,                            // enable_historical_rerouting
+        1,                                // historical_rerouting_threshold_days
+        false,                            // is_mirror_deploy
+        0.0,                              // verbose_sample_percent
+        26_214_400,                       // ai_max_sum_of_parts_bytes
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
@@ -2727,6 +2734,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         redis,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2825,5 +2833,206 @@ async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
     assert!(
         response_text.contains("billing limit"),
         "Response should contain 'billing limit' error message, got: {response_text}"
+    );
+}
+
+// ----------------------------------------------------------------------------
+// Event Restrictions Tests
+// ----------------------------------------------------------------------------
+
+async fn setup_ai_test_router_with_restriction(
+    restriction_type: RestrictionType,
+    token: &str,
+) -> (Router, CapturingSink) {
+    let liveness = HealthRegistry::new("ai_endpoint_restriction_tests");
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    // Create restriction service with the specified restriction for AI pipeline
+    let service = EventRestrictionService::new(IngestionPipeline::Ai, Duration::from_secs(300));
+
+    let mut manager = RestrictionManager::new();
+    manager.restrictions.insert(
+        token.to_string(),
+        vec![Restriction {
+            restriction_type,
+            scope: RestrictionScope::AllEvents,
+        }],
+    );
+    service.update(manager).await;
+
+    let router = router(
+        timesource,
+        liveness,
+        sink,
+        redis,
+        quota_limiter,
+        TokenDropper::default(),
+        Some(service),
+        false,
+        CaptureMode::Events,
+        String::from("capture-ai"),
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(create_mock_blob_storage()),
+        Some(10),
+        None,
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_drop_event_restriction() {
+    let restricted_token = "phc_restricted_drop_token";
+    let (router, sink) =
+        setup_ai_test_router_with_restriction(RestrictionType::DropEvent, restricted_token).await;
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some(restricted_token)).await;
+
+    // Should return OK (silent drop)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was NOT published to Kafka
+    let events = sink.get_events().await;
+    assert!(
+        events.is_empty(),
+        "Event should be dropped by restriction, but {} events were published",
+        events.len()
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_redirect_to_dlq_restriction() {
+    let restricted_token = "phc_restricted_dlq_token";
+    let (router, sink) =
+        setup_ai_test_router_with_restriction(RestrictionType::RedirectToDlq, restricted_token)
+            .await;
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some(restricted_token)).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published with redirect_to_dlq flag
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert!(
+        events[0].metadata.redirect_to_dlq,
+        "Event should have redirect_to_dlq flag set"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_force_overflow_restriction() {
+    let restricted_token = "phc_restricted_overflow_token";
+    let (router, sink) =
+        setup_ai_test_router_with_restriction(RestrictionType::ForceOverflow, restricted_token)
+            .await;
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some(restricted_token)).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published with force_overflow flag
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert!(
+        events[0].metadata.force_overflow,
+        "Event should have force_overflow flag set"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_skip_person_processing_restriction() {
+    let restricted_token = "phc_restricted_skip_person_token";
+    let (router, sink) = setup_ai_test_router_with_restriction(
+        RestrictionType::SkipPersonProcessing,
+        restricted_token,
+    )
+    .await;
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some(restricted_token)).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published with skip_person_processing flag
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert!(
+        events[0].metadata.skip_person_processing,
+        "Event should have skip_person_processing flag set"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_restriction_does_not_apply_to_other_tokens() {
+    let restricted_token = "phc_restricted_token";
+    let (router, sink) =
+        setup_ai_test_router_with_restriction(RestrictionType::DropEvent, restricted_token).await;
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use a DIFFERENT token that is NOT restricted
+    let response =
+        send_multipart_request(&test_client, form, Some("phc_not_restricted_token")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event WAS published (not dropped)
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Event should be published for non-restricted token"
     );
 }

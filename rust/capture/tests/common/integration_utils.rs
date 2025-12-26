@@ -984,6 +984,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             redis,
             quota_limiter,
             TokenDropper::default(),
+            None, // event_restriction_service
             false,
             unit.mode.clone(),
             String::from("capture"),

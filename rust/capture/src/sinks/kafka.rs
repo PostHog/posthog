@@ -135,6 +135,7 @@ pub struct KafkaSink {
     heatmaps_topic: String,
     replay_overflow_limiter: Option<RedisLimiter>,
     replay_overflow_topic: String,
+    dlq_topic: String,
 }
 
 impl KafkaSink {
@@ -224,6 +225,7 @@ impl KafkaSink {
             heatmaps_topic: config.kafka_heatmaps_topic,
             replay_overflow_topic: config.kafka_replay_overflow_topic,
             replay_overflow_limiter,
+            dlq_topic: config.kafka_dlq_topic,
         })
     }
 
@@ -243,69 +245,103 @@ impl KafkaSink {
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
+        let force_overflow = metadata.force_overflow;
+        let skip_person_processing = metadata.skip_person_processing;
+        let redirect_to_dlq = metadata.redirect_to_dlq;
 
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
-        let (topic, partition_key): (&str, Option<&str>) = match data_type {
-            DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
-            DataType::AnalyticsMain => {
-                // TODO: deprecate capture-led overflow or move logic in handler
-                let overflow_result = match &self.partition {
-                    None => OverflowLimiterResult::NotLimited,
-                    Some(partition) => partition.is_limited(&event_key),
-                };
+        // Apply skip_person_processing from event restrictions
+        if skip_person_processing {
+            headers.set_force_disable_person_processing(true);
+        }
 
-                match overflow_result {
-                    OverflowLimiterResult::ForceLimited => {
-                        headers.set_force_disable_person_processing(true);
+        // Check for redirect_to_dlq first - takes priority over all other routing
+        let (topic, partition_key): (&str, Option<&str>) = if redirect_to_dlq {
+            counter!(
+                "capture_events_rerouted_dlq",
+                &[("reason", "event_restriction")]
+            )
+            .increment(1);
+            (&self.dlq_topic, Some(event_key.as_str()))
+        } else {
+            match data_type {
+                DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
+                DataType::AnalyticsMain => {
+                    // Check for force_overflow from event restrictions first
+                    if force_overflow {
                         counter!(
                             "capture_events_rerouted_overflow",
-                            &[("reason", "force_limited")]
+                            &[("reason", "event_restriction")]
                         )
                         .increment(1);
-                        (&self.overflow_topic, None)
-                    }
-                    OverflowLimiterResult::Limited => {
-                        counter!(
-                            "capture_events_rerouted_overflow",
-                            &[("reason", "rate_limited")]
-                        )
-                        .increment(1);
-                        if self.partition.as_ref().unwrap().should_preserve_locality() {
-                            (&self.overflow_topic, Some(event_key.as_str()))
+                        // Drop partition key if skip_person_processing is set
+                        let key = if skip_person_processing {
+                            None
                         } else {
-                            (&self.overflow_topic, None)
+                            Some(event_key.as_str())
+                        };
+                        (&self.overflow_topic, key)
+                    } else {
+                        // TODO: deprecate capture-led overflow or move logic in handler
+                        let overflow_result = match &self.partition {
+                            None => OverflowLimiterResult::NotLimited,
+                            Some(partition) => partition.is_limited(&event_key),
+                        };
+
+                        match overflow_result {
+                            OverflowLimiterResult::ForceLimited => {
+                                headers.set_force_disable_person_processing(true);
+                                counter!(
+                                    "capture_events_rerouted_overflow",
+                                    &[("reason", "force_limited")]
+                                )
+                                .increment(1);
+                                (&self.overflow_topic, None)
+                            }
+                            OverflowLimiterResult::Limited => {
+                                counter!(
+                                    "capture_events_rerouted_overflow",
+                                    &[("reason", "rate_limited")]
+                                )
+                                .increment(1);
+                                if self.partition.as_ref().unwrap().should_preserve_locality() {
+                                    (&self.overflow_topic, Some(event_key.as_str()))
+                                } else {
+                                    (&self.overflow_topic, None)
+                                }
+                            }
+                            OverflowLimiterResult::NotLimited => {
+                                // event_key is "<token>:<distinct_id>" for std events or
+                                // "<token>:<ip_addr>" for cookieless events
+                                (&self.main_topic, Some(event_key.as_str()))
+                            }
                         }
                     }
-                    OverflowLimiterResult::NotLimited => {
-                        // event_key is "<token>:<distinct_id>" for std events or
-                        // "<token>:<ip_addr>" for cookieless events
-                        (&self.main_topic, Some(event_key.as_str()))
-                    }
                 }
-            }
-            DataType::ClientIngestionWarning => (
-                &self.client_ingestion_warning_topic,
-                Some(event_key.as_str()),
-            ),
-            DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
-            DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
-            DataType::SnapshotMain => {
-                let session_id = session_id
-                    .as_deref()
-                    .ok_or(CaptureError::MissingSessionId)?;
-                let is_overflowing = match &self.replay_overflow_limiter {
-                    None => false,
-                    Some(limiter) => limiter.is_limited(session_id).await,
-                };
+                DataType::ClientIngestionWarning => (
+                    &self.client_ingestion_warning_topic,
+                    Some(event_key.as_str()),
+                ),
+                DataType::HeatmapMain => (&self.heatmaps_topic, Some(event_key.as_str())),
+                DataType::ExceptionMain => (&self.exceptions_topic, Some(event_key.as_str())),
+                DataType::SnapshotMain => {
+                    let session_id = session_id
+                        .as_deref()
+                        .ok_or(CaptureError::MissingSessionId)?;
+                    let is_overflowing = match &self.replay_overflow_limiter {
+                        None => false,
+                        Some(limiter) => limiter.is_limited(session_id).await,
+                    };
 
-                if is_overflowing {
-                    (&self.replay_overflow_topic, Some(session_id))
-                } else {
-                    (&self.main_topic, Some(session_id))
+                    if is_overflowing {
+                        (&self.replay_overflow_topic, Some(session_id))
+                    } else {
+                        (&self.main_topic, Some(session_id))
+                    }
                 }
             }
         };
@@ -462,6 +498,7 @@ mod tests {
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+            kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
@@ -502,6 +539,9 @@ mod tests {
             session_id: None,
             computed_timestamp: None,
             event_name: "test_event".to_string(),
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
         };
 
         let event = ProcessedEvent {
