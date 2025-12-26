@@ -24,7 +24,7 @@ import { WebAnalyticsFilterPresetType } from '~/types'
 
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 
-export function FilterPresetsDropdown(): JSX.Element {
+export const FilterPresetsDropdown = (): JSX.Element => {
     const { pinnedPresets, recentPresets, presetsLoading, activePreset, hasPresets, dropdownOpen, presetToDelete } =
         useValues(webAnalyticsFilterPresetsLogic)
     const {
@@ -170,7 +170,7 @@ export function FilterPresetsDropdown(): JSX.Element {
     )
 }
 
-function SaveFilterPresetModal(): JSX.Element | null {
+const SaveFilterPresetModal = (): JSX.Element | null => {
     const { saveModalOpen, savedPresetLoading, presetFormName, presetFormDescription, canSavePreset } =
         useValues(webAnalyticsFilterPresetsLogic)
     const { closeSaveModal, saveCurrentFiltersAsPreset, setPresetFormName, setPresetFormDescription } =
@@ -227,7 +227,7 @@ function SaveFilterPresetModal(): JSX.Element | null {
     )
 }
 
-function DeletePresetModal({
+const DeletePresetModal = ({
     preset,
     onClose,
     onConfirm,
@@ -235,7 +235,7 @@ function DeletePresetModal({
     preset: WebAnalyticsFilterPresetType | null
     onClose: () => void
     onConfirm: () => void
-}): JSX.Element {
+}): JSX.Element => {
     return (
         <LemonModal
             isOpen={!!preset}

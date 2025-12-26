@@ -1,10 +1,11 @@
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.utils import UUIDModel
 from posthog.utils import generate_short_id
 
 
-class WebAnalyticsFilterPreset(models.Model):
+class WebAnalyticsFilterPreset(UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)

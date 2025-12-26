@@ -2362,7 +2362,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     )
                 }
                 if (filters.conversionGoal !== undefined) {
-                    actions.setConversionGoal(filters.conversionGoal)
+                    actions.setConversionGoal(filters.conversionGoal as WebAnalyticsConversionGoal)
                 }
                 if (filters.isPathCleaningEnabled !== undefined) {
                     actions.setIsPathCleaningEnabled(filters.isPathCleaningEnabled)

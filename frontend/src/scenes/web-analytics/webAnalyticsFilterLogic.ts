@@ -159,7 +159,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                 setDeviceTypeFilter: (_: DeviceType | null, { deviceType }: { deviceType: DeviceType | null }) =>
                     deviceType,
                 clearFilters: () => null,
-                loadPreset: (_, { filters }) => filters.deviceTypeFilter ?? null,
+                loadPreset: (_, { filters }) => (filters.deviceTypeFilter as DeviceType) ?? null,
             },
         ],
         compareFilter: [
@@ -168,7 +168,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
                 clearFilters: () => ({ compare: true }),
-                loadPreset: (_, { filters }) => filters.compareFilter ?? { compare: true },
+                loadPreset: (_, { filters }) => (filters.compareFilter as CompareFilter) ?? { compare: true },
             },
         ],
     }),
