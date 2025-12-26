@@ -83,6 +83,11 @@ impl FeatureFlagList {
     }
 
     /// Returns feature flags from postgres given a team_id
+    ///
+    /// Uses a two-query approach:
+    /// 1. First query fetches all active flags
+    /// 2. Second query (conditional) fetches only inactive flags that are dependencies
+    ///    of active flags, but only if they weren't already loaded in the first query
     pub async fn from_pg(
         client: PostgresReader,
         team_id: TeamId,
@@ -98,7 +103,8 @@ impl FeatureFlagList {
                 FlagError::DatabaseUnavailable
             })?;
 
-        let query = r#"
+        // First query: Get all active flags with evaluation tags
+        let active_query = r#"
             SELECT f.id,
                   f.team_id,
                   f.name,
@@ -125,71 +131,170 @@ impl FeatureFlagList {
               LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
             WHERE t.id = $1
               AND f.deleted = false
+              AND f.active = true
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
-        let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
+
+        let active_flags_rows = sqlx::query_as::<_, FeatureFlagRow>(active_query)
             .bind(team_id)
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to fetch feature flags from database for team {}: {}",
+                    "Failed to fetch active feature flags from database for team {}: {}",
                     team_id,
                     e
                 );
                 FlagError::Internal(format!("Database query error: {e}"))
             })?;
 
-        let flags: Vec<FeatureFlag> = flags_row
+        // Parse active flags
+        let mut active_flags: Vec<FeatureFlag> = active_flags_rows
             .into_iter()
-            .filter_map(|row| {
-                match serde_json::from_value(row.filters) {
-                    Ok(filters) => Some(FeatureFlag {
-                        id: row.id,
-                        team_id: row.team_id,
-                        name: row.name,
-                        key: row.key,
-                        filters,
-                        deleted: row.deleted,
-                        active: row.active,
-                        ensure_experience_continuity: row.ensure_experience_continuity,
-                        version: row.version,
-                        evaluation_runtime: row.evaluation_runtime,
-                        evaluation_tags: row.evaluation_tags,
-                        bucketing_identifier: row.bucketing_identifier,
-                    }),
-                    Err(e) => {
-                        // This is highly unlikely to happen, but if it does, we skip the flag.
-                        tracing::warn!(
-                            "Failed to deserialize filters for flag {} in team {}: {}",
-                            row.key,
-                            row.team_id,
-                            e
-                        );
-                        // Also track as a tombstone - invalid data in postgres should never happen
-                        // Details (team_id, flag_key) are logged above to avoid high-cardinality labels
-                        counter!(
-                            TOMBSTONE_COUNTER,
-                            "namespace" => "feature_flags",
-                            "operation" => "flag_filter_deserialization_error",
-                            "component" => "feature_flag_list",
-                        )
-                        .increment(1);
-
-                        None // Skip this flag, continue with others
-                    }
-                }
-            })
+            .filter_map(Self::parse_flag_row)
             .collect();
 
+        // Extract all flag IDs that active flags depend on
+        let dependency_ids = Self::extract_flag_dependencies(&active_flags);
+
+        // Check which dependencies are missing (not in active flags)
+        let loaded_flag_ids: std::collections::HashSet<i32> =
+            active_flags.iter().map(|f| f.id).collect();
+        let missing_dependency_ids: Vec<i32> = dependency_ids
+            .into_iter()
+            .filter(|id| !loaded_flag_ids.contains(id))
+            .collect();
+
+        // Second query: Only fetch inactive dependencies if there are any missing
+        if !missing_dependency_ids.is_empty() {
+            tracing::debug!(
+                "Fetching {} inactive flag dependencies for team {}",
+                missing_dependency_ids.len(),
+                team_id
+            );
+
+            let dependency_query = r#"
+                SELECT f.id,
+                      f.team_id,
+                      f.name,
+                      f.key,
+                      f.filters,
+                      f.deleted,
+                      f.active,
+                      f.ensure_experience_continuity,
+                      f.version,
+                      f.evaluation_runtime,
+                      COALESCE(
+                          ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
+                          '{}'::text[]
+                      ) AS evaluation_tags,
+                      f.bucketing_identifier
+                  FROM posthog_featureflag AS f
+                  JOIN posthog_team AS t ON (f.team_id = t.id)
+                  LEFT JOIN posthog_featureflagevaluationtag AS et ON (f.id = et.feature_flag_id)
+                  LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
+                WHERE t.id = $1
+                  AND f.deleted = false
+                  AND f.id = ANY($2)
+                GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
+                         f.ensure_experience_continuity, f.version, f.evaluation_runtime, f.bucketing_identifier
+            "#;
+
+            let dependency_flags_rows = sqlx::query_as::<_, FeatureFlagRow>(dependency_query)
+                .bind(team_id)
+                .bind(&missing_dependency_ids)
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        "Failed to fetch inactive flag dependencies from database for team {}: {}",
+                        team_id,
+                        e
+                    );
+                    FlagError::Internal(format!("Database query error: {e}"))
+                })?;
+
+            // Parse and add dependency flags
+            let dependency_flags: Vec<FeatureFlag> = dependency_flags_rows
+                .into_iter()
+                .filter_map(Self::parse_flag_row)
+                .collect();
+
+            active_flags.extend(dependency_flags);
+        }
+
         tracing::debug!(
-            "Successfully fetched {} flags from database for team {}",
-            flags.len(),
-            team_id
+            "Successfully fetched {} flags from database for team {} ({} active, {} dependencies)",
+            active_flags.len(),
+            team_id,
+            loaded_flag_ids.len(),
+            active_flags.len() - loaded_flag_ids.len()
         );
 
-        Ok(flags)
+        Ok(active_flags)
+    }
+
+    /// Extracts all flag IDs that the given flags depend on
+    fn extract_flag_dependencies(flags: &[FeatureFlag]) -> Vec<i32> {
+        use crate::properties::property_models::PropertyType;
+        use std::collections::HashSet;
+        let mut dependencies = HashSet::new();
+
+        for flag in flags {
+            // Check filters -> groups -> properties for flag dependencies
+            for group in &flag.filters.groups {
+                if let Some(properties) = &group.properties {
+                    for property in properties {
+                        // Check if this is a flag dependency (type = 'flag')
+                        if matches!(property.prop_type, PropertyType::Flag) {
+                            // Try to parse the key as an integer flag ID
+                            if let Ok(flag_id) = property.key.parse::<i32>() {
+                                dependencies.insert(flag_id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        dependencies.into_iter().collect()
+    }
+
+    /// Parses a FeatureFlagRow into a FeatureFlag, handling deserialization errors
+    fn parse_flag_row(row: FeatureFlagRow) -> Option<FeatureFlag> {
+        match serde_json::from_value(row.filters) {
+            Ok(filters) => Some(FeatureFlag {
+                id: row.id,
+                team_id: row.team_id,
+                name: row.name,
+                key: row.key,
+                filters,
+                deleted: row.deleted,
+                active: row.active,
+                ensure_experience_continuity: row.ensure_experience_continuity,
+                version: row.version,
+                evaluation_runtime: row.evaluation_runtime,
+                evaluation_tags: row.evaluation_tags,
+                bucketing_identifier: row.bucketing_identifier,
+            }),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to deserialize filters for flag {} in team {}: {}",
+                    row.key,
+                    row.team_id,
+                    e
+                );
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "feature_flags",
+                    "operation" => "flag_filter_deserialization_error",
+                    "component" => "feature_flag_list",
+                )
+                .increment(1);
+                None
+            }
+        }
     }
 }
 

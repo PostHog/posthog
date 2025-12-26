@@ -543,32 +543,22 @@ class FeatureFlagOverride(models.Model):
         ]
 
 
-def _get_flag_dependencies(
-    flags: list[FeatureFlag],
-    all_flags_by_id: dict[int, FeatureFlag],
-    visited: Optional[set[int]] = None,
-) -> set[int]:
+def _extract_flag_dependency_ids(flags: list[FeatureFlag]) -> set[int]:
     """
-    Recursively find all flag IDs that the given flags depend on.
+    Extract all flag IDs that the given flags depend on (non-recursive).
+
+    This function only extracts direct dependencies from flag conditions,
+    without checking if those flags exist or recursing into transitive dependencies.
 
     Args:
-        flags: List of flags to find dependencies for
-        all_flags_by_id: Dictionary mapping flag IDs to FeatureFlag instances
-        visited: Set of flag IDs already visited (to prevent infinite loops)
+        flags: List of flags to extract dependencies from
 
     Returns:
-        Set of flag IDs that are dependencies
+        Set of flag IDs that are direct dependencies
     """
-    if visited is None:
-        visited = set()
-
     dependency_ids = set()
 
     for flag in flags:
-        if flag.id in visited:
-            continue
-        visited.add(flag.id)
-
         # Look for flag dependencies in conditions
         for condition in flag.conditions:
             properties = condition.get("properties", [])
@@ -576,16 +566,60 @@ def _get_flag_dependencies(
                 if prop.get("type") == "flag":
                     try:
                         dep_flag_id = int(prop.get("key"))
-                        if dep_flag_id in all_flags_by_id:
-                            dependency_ids.add(dep_flag_id)
-                            # Recursively find transitive dependencies
-                            dep_flag = all_flags_by_id[dep_flag_id]
-                            transitive_deps = _get_flag_dependencies([dep_flag], all_flags_by_id, visited)
-                            dependency_ids.update(transitive_deps)
+                        dependency_ids.add(dep_flag_id)
                     except (ValueError, TypeError):
                         continue
 
     return dependency_ids
+
+
+def _load_disabled_flag_dependencies(
+    all_flags_by_id: dict[int, FeatureFlag],
+    initial_flags: list[FeatureFlag],
+    filter_kwargs: dict[str, Any],
+) -> None:
+    """
+    Load all disabled flag dependencies into all_flags_by_id.
+
+    This function modifies all_flags_by_id in place by fetching missing dependencies
+    from the database. It handles transitive dependencies by continuing to fetch
+    until no more missing dependencies are found.
+
+    Args:
+        all_flags_by_id: Dictionary to populate with dependency flags (modified in place)
+        initial_flags: List of flags to find dependencies for
+        filter_kwargs: Base filter kwargs for querying (should include team/project and deleted=False)
+    """
+    # Extract all flag dependency IDs from initial flags
+    dependency_ids = _extract_flag_dependency_ids(initial_flags)
+
+    # Find missing dependencies (ones not already loaded)
+    loaded_flag_ids = set(all_flags_by_id.keys())
+    missing_dependency_ids = dependency_ids - loaded_flag_ids
+
+    # Fetch missing dependencies, handling transitive dependencies
+    while missing_dependency_ids:
+        # Build dependency filter without the active constraint
+        dependency_filter_kwargs = {k: v for k, v in filter_kwargs.items() if k != "active"}
+        dependency_filter_kwargs["id__in"] = list(missing_dependency_ids)
+        qs = FeatureFlag.objects.filter(**dependency_filter_kwargs)
+        qs = qs.annotate(
+            evaluation_tag_names_agg=ArrayAgg(
+                "evaluation_tags__tag__name",
+                filter=Q(evaluation_tags__isnull=False),
+                distinct=True,
+            )
+        )
+        dependency_flags = list(qs)
+
+        # Add dependency flags to our collection
+        for flag in dependency_flags:
+            all_flags_by_id[flag.id] = flag
+
+        # Check if these dependencies have their own dependencies (transitive)
+        transitive_dependency_ids = _extract_flag_dependency_ids(dependency_flags)
+        loaded_flag_ids = set(all_flags_by_id.keys())
+        missing_dependency_ids = transitive_dependency_ids - loaded_flag_ids
 
 
 def get_feature_flags(
@@ -598,6 +632,10 @@ def get_feature_flags(
     Returns all active flags plus any inactive flags that are used by active flags
     (as dependencies). This ensures that flag evaluation can work correctly when
     active flags reference inactive flags.
+
+    Uses a two-query approach:
+    1. First query fetches all active, non-deleted flags
+    2. Second query (conditional) fetches inactive dependencies if needed
 
     Evaluation tags are always aggregated using ArrayAgg for performance.
     This avoids N+1 queries when serializing flags with evaluation tags.
@@ -620,29 +658,9 @@ def get_feature_flags(
 
     filter_kwargs.update({"deleted": False})
 
-    # First, get all non-deleted flags to build a complete dependency graph
-    # We need all flags to properly resolve dependencies
-    all_flags_qs = FeatureFlag.objects.filter(**filter_kwargs)
-    all_flags = list(all_flags_qs)
-    all_flags_by_id = {flag.id: flag for flag in all_flags}
-
-    # Get all active flags
-    active_flags = [flag for flag in all_flags if flag.active]
-
-    # Find all flags that active flags depend on (recursively)
-    dependency_ids = _get_flag_dependencies(active_flags, all_flags_by_id)
-
-    # Combine active flags and their dependencies
-    flag_ids_to_return = {flag.id for flag in active_flags} | dependency_ids
-    flags_to_return = [flag for flag in all_flags if flag.id in flag_ids_to_return]
-
-    # Build queryset with evaluation tags aggregated
-    # Single-shot query: flags plus evaluation tag names aggregated to a string array.
-    # We use ArrayAgg to fetch all evaluation tag names in one query instead of
-    # doing a separate query per flag. This is crucial for performance when we have
-    # many flags. The evaluation tags are stored as a many-to-many relationship
-    # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
-    qs = FeatureFlag.objects.filter(id__in=[flag.id for flag in flags_to_return])
+    # First query: Fetch only active flags with evaluation tags aggregated
+    filter_kwargs.update({"active": True})
+    qs = FeatureFlag.objects.filter(**filter_kwargs)
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
             "evaluation_tags__tag__name",
@@ -650,8 +668,13 @@ def get_feature_flags(
             distinct=True,
         )
     )
+    active_flags = list(qs)
+    all_flags_by_id = {flag.id: flag for flag in active_flags}
 
-    all_feature_flags = list(qs)
+    # Load all disabled flag dependencies
+    _load_disabled_flag_dependencies(all_flags_by_id, active_flags, filter_kwargs)
+
+    all_feature_flags = list(all_flags_by_id.values())
 
     # Transfer the aggregated tag names to the _evaluation_tag_names attribute
     # so the serializer can access them without additional queries. This is a
