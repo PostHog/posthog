@@ -59,6 +59,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
+    formatCompareLabel?: (label: string) => string
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

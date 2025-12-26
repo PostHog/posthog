@@ -12,12 +12,19 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
+import {
+    UnexpectedNeverError,
+    capitalizeFirstLetter,
+    humanFriendlyDuration,
+    percentage,
+    tryDecodeURIComponent,
+} from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
@@ -515,13 +522,44 @@ export const WebStatsTrendTile = ({
     )
 
     const context = useMemo((): QueryContext => {
+        const compareFilter = 'compareFilter' in query.source ? query.source.compareFilter : undefined
+        const dateRange = 'dateRange' in query.source ? query.source.dateRange : undefined
+
+        const formatComparisonDates = (isPrevious: boolean): string => {
+            if (!compareFilter?.compare || !dateRange?.date_from) {
+                return ''
+            }
+
+            const currentFrom = dayjs(dateRange.date_from)
+            const currentTo = dateRange.date_to ? dayjs(dateRange.date_to) : dayjs()
+            const diffDays = currentTo.diff(currentFrom, 'day')
+
+            if (isPrevious) {
+                const prevTo = currentFrom.subtract(1, 'day')
+                const prevFrom = prevTo.subtract(diffDays, 'day')
+                return ` (${prevFrom.format('MMM D')} - ${prevTo.format('MMM D')})`
+            }
+
+            return ` (${currentFrom.format('MMM D')} - ${currentTo.format('MMM D')})`
+        }
+
         const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
             insightProps: {
                 ...insightProps,
                 query,
             },
-            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            compareFilter,
+            formatCompareLabel: (label: string) => {
+                const lowerLabel = label.toLowerCase()
+                if (lowerLabel === 'previous') {
+                    return `Previous period${formatComparisonDates(true)}`
+                }
+                if (lowerLabel === 'current') {
+                    return `Current period${formatComparisonDates(false)}`
+                }
+                return capitalizeFirstLetter(label)
+            },
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
