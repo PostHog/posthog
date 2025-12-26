@@ -165,6 +165,10 @@ class ErrorResponseSerializer(serializers.Serializer):
 
 
 class TranscriptionRequestSerializer(serializers.Serializer):
+    file = serializers.FileField(
+        required=True,
+        help_text="Audio file to transcribe (flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, or webm)",
+    )
     model = serializers.ChoiceField(
         choices=["gpt-4o-transcribe", "whisper-1"],
         default="gpt-4o-transcribe",

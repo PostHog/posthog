@@ -389,14 +389,8 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        audio_file = request.FILES.get("file")
-        if not audio_file:
-            return Response(
-                {"error": {"message": "No audio file provided", "type": "invalid_request_error"}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         data = dict(serializer.validated_data)
+        audio_file = data.pop("file")
 
         try:
             # OpenAI expects file as a tuple (filename, file_content, content_type)
