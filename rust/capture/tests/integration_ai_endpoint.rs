@@ -8,7 +8,7 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::limiters::CaptureQuotaLimiter;
+use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -2694,7 +2694,7 @@ async fn test_ai_endpoint_token_dropper_returns_success_with_empty_accepted_part
 // Quota Limiter Tests
 // ----------------------------------------------------------------------------
 
-use capture::limiters::is_llm_event;
+use capture::quota_limiters::is_llm_event;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 
 // Helper to setup test router with quota limiter configured to limit AI events
