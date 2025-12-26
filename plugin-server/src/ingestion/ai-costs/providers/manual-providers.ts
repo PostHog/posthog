@@ -65,17 +65,9 @@ const transcriptionModelCosts: ModelCostRow[] = [
         model: 'gpt-4o-transcribe',
         cost: {
             default: {
-                prompt_token: 0.000001,
-                completion_token: 0.000001,
-            },
-        },
-    },
-    {
-        model: 'gpt-4o-mini-transcribe',
-        cost: {
-            default: {
-                prompt_token: 0.0000005,
-                completion_token: 0.0000005,
+                prompt_token: 0.0000025,
+                completion_token: 0.00001,
+                audio: 0.000006,
             },
         },
     },
@@ -83,8 +75,9 @@ const transcriptionModelCosts: ModelCostRow[] = [
         model: 'whisper-1',
         cost: {
             default: {
-                prompt_token: 0.000001,
-                completion_token: 0.000001,
+                prompt_token: 0,
+                completion_token: 0,
+                audio: 0.000006,
             },
         },
     },

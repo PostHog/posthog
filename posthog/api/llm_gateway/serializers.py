@@ -166,7 +166,7 @@ class ErrorResponseSerializer(serializers.Serializer):
 
 class TranscriptionRequestSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
-        choices=["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"],
+        choices=["gpt-4o-transcribe", "whisper-1"],
         default="gpt-4o-transcribe",
         help_text="Transcription model",
     )

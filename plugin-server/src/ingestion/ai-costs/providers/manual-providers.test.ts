@@ -3,7 +3,7 @@ import { manualCosts } from './manual-providers'
 describe('manualCosts', () => {
     const testCases: Array<{
         model: string
-        expected: { prompt_token: number; completion_token: number; cache_read_token?: number }
+        expected: { prompt_token: number; completion_token: number; cache_read_token?: number; audio?: number }
     }> = [
         {
             model: 'gpt-4.5',
@@ -69,6 +69,22 @@ describe('manualCosts', () => {
                 completion_token: 0,
             },
         },
+        {
+            model: 'gpt-4o-transcribe',
+            expected: {
+                prompt_token: 0.0000025,
+                completion_token: 0.00001,
+                audio: 0.000006,
+            },
+        },
+        {
+            model: 'whisper-1',
+            expected: {
+                prompt_token: 0,
+                completion_token: 0,
+                audio: 0.000006,
+            },
+        },
     ]
 
     it.each(testCases)('has expected costs for $model', ({ model, expected }) => {
@@ -80,6 +96,10 @@ describe('manualCosts', () => {
 
         if (expected.cache_read_token !== undefined) {
             expect(modelEntry?.cost.default.cache_read_token).toBe(expected.cache_read_token)
+        }
+
+        if (expected.audio !== undefined) {
+            expect(modelEntry?.cost.default.audio).toBe(expected.audio)
         }
     })
 })
