@@ -124,7 +124,11 @@ impl KafkaDeduplicatorService {
 
         // create exporter conditionally if S3 config is populated
         let exporter = if config.checkpoint_export_enabled() {
-            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+            let uploader = Box::new(
+                S3Uploader::new(checkpoint_config.clone())
+                    .await
+                    .context("Failed to create S3 uploader")?,
+            );
             Some(Arc::new(CheckpointExporter::new(uploader)))
         } else {
             None
@@ -132,7 +136,11 @@ impl KafkaDeduplicatorService {
 
         // if checkpoint import is enabled, create and configure the importer
         let importer = if config.checkpoint_import_enabled() {
-            let downloader = Box::new(S3Downloader::new(&checkpoint_config).await.unwrap());
+            let downloader = Box::new(
+                S3Downloader::new(&checkpoint_config)
+                    .await
+                    .context("Failed to create S3 downloader")?,
+            );
             Some(Arc::new(CheckpointImporter::new(
                 downloader,
                 &checkpoint_config,
