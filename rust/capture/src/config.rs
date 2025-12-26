@@ -135,7 +135,8 @@ pub struct Config {
     pub http1_header_read_timeout_ms: Option<u64>,
 
     // Body chunk read timeout in milliseconds. If a client stops sending data
-    // for this duration mid-upload, the request is aborted with 504.
+    // for this duration mid-upload, the request is aborted with 408 to avoid
+    // pointless gateway retries of stalled mobile requests that can't succeed.
     // Set env var to enable; unset to disable (existing behavior).
     pub body_chunk_read_timeout_ms: Option<u64>,
 
