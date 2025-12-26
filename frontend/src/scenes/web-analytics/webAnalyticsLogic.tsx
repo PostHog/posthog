@@ -888,6 +888,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
                     // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
                     if (visualization === 'graph') {
+                        const breakdownFilter = getWebAnalyticsBreakdownFilter(breakdownBy)
                         return {
                             ...baseTabProps,
                             query: {
@@ -900,7 +901,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsLineGraph,
                                     },
-                                    breakdownFilter: getWebAnalyticsBreakdownFilter(breakdownBy),
+                                    breakdownFilter: breakdownFilter
+                                        ? {
+                                              ...breakdownFilter,
+                                              breakdown_path_cleaning: isPathCleaningEnabled,
+                                          }
+                                        : undefined,
                                     filterTestAccounts,
                                     conversionGoal,
                                     properties: webAnalyticsFilters,

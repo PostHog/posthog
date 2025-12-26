@@ -123,6 +123,7 @@ pub async fn ai_handler(
         body,
         body_limit,
         state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
         path.as_str(),
     )
     .await?;
