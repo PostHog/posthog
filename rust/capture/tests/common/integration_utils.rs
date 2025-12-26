@@ -8,7 +8,7 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    limiters::CaptureQuotaLimiter,
+    quota_limiters::CaptureQuotaLimiter,
     router::router,
     sinks::Event,
     time::TimeSource,
