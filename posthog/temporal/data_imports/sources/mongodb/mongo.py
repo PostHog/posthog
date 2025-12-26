@@ -52,7 +52,6 @@ def get_indexes(collection: Collection) -> list[str]:
 def filter_mongo_incremental_fields(
     columns: list[tuple[str, str]], collection: Collection
 ) -> list[tuple[str, IncrementalFieldType]]:
-    """Filter incremental fields to only include indexed fields."""
     results: list[tuple[str, IncrementalFieldType]] = []
     indexed_fields = get_indexes(collection)
 
