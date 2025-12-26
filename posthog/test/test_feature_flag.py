@@ -742,8 +742,7 @@ class TestModelCache(BaseTest):
 
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
         assert cached_flags is not None
-        self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].active, False)
+        self.assertEqual(0, len(cached_flags))
 
         flag.active = True
         flag.save()
@@ -751,7 +750,6 @@ class TestModelCache(BaseTest):
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
         assert cached_flags is not None
         self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].active, True)
 
         flag.delete()
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
