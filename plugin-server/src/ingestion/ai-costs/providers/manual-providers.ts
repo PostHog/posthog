@@ -65,9 +65,8 @@ const transcriptionModelCosts: ModelCostRow[] = [
         model: 'gpt-4o-transcribe',
         cost: {
             default: {
-                prompt_token: 0.0000025,
+                prompt_token: 0.000006, // assuming all input tokens are audio tokens
                 completion_token: 0.00001,
-                audio: 0.000006,
             },
         },
     },
@@ -75,9 +74,8 @@ const transcriptionModelCosts: ModelCostRow[] = [
         model: 'whisper-1',
         cost: {
             default: {
-                prompt_token: 0,
+                prompt_token: 0.000006,
                 completion_token: 0,
-                audio: 0.000006,
             },
         },
     },

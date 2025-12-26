@@ -417,8 +417,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             }
 
             # Optional parameters
-            if data.get("prompt"):
-                transcription_kwargs["prompt"] = data["prompt"]
             if data.get("language"):
                 transcription_kwargs["language"] = data["language"]
             if data.get("temperature") is not None:

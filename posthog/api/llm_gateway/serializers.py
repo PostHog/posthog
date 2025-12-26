@@ -170,10 +170,6 @@ class TranscriptionRequestSerializer(serializers.Serializer):
         default="gpt-4o-transcribe",
         help_text="Transcription model",
     )
-    prompt = serializers.CharField(
-        required=False,
-        help_text="Optional text prompt to guide the style, vocabulary or continue a previous audio segment",
-    )
     language = serializers.CharField(
         required=False,
         help_text="Language of the input audio in ISO-639-1 format. See https://github.com/openai/whisper#available-models-and-languages",

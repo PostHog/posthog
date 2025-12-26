@@ -33,7 +33,6 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
     const inputTokens = event.properties['$ai_input_tokens'] || 0
-    const audioTokens = event.properties['$ai_input_audio_tokens'] || 0
 
     // Anthropic special case: inputTokens already excludes cache tokens
     if (matchProvider(event, 'anthropic')) {
@@ -56,14 +55,9 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         return bigDecimal.add(totalCacheCost, uncachedCost)
     }
 
-    // Only consider audio tokens if there's audio pricing configured
-    const audioPrice = cost.cost.audio || 0
-    const effectiveAudioTokens = audioPrice > 0 ? audioTokens : 0
-    const audioCost = bigDecimal.multiply(audioPrice, effectiveAudioTokens)
-
     // Default case: inputTokens includes cache tokens, so subtract them
     // This applies to OpenAI, Gemini, and all other providers by default
-    const regularTokens = bigDecimal.subtract(bigDecimal.subtract(inputTokens, cacheReadTokens), effectiveAudioTokens)
+    const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
 
     let cacheReadCost: string
 
@@ -87,5 +81,5 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
 
-    return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), audioCost)
+    return bigDecimal.add(cacheReadCost, regularCost)
 }
