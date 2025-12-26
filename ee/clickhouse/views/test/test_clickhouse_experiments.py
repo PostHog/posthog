@@ -1763,11 +1763,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
-        # save was called, flag is cached even though experiment is in draft mode (inactive flag)
+        # save was called, but no flags saved because experiment is in draft mode, so flag is not active
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
         assert cached_flags is not None
-        self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].active, False)
+        self.assertEqual(0, len(cached_flags))
 
         id = response.json()["id"]
 
