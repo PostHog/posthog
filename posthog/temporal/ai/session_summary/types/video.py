@@ -1,4 +1,5 @@
 import dataclasses
+from enum import Enum
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
@@ -34,6 +35,49 @@ class VideoSegmentSpec:
     end_time: float  # Seconds from start of video
 
 
+# Using Enum to check the output values of LLM, but don't force the values (use `custom` if validation fails)
+class VideoSegmentTypesEnum(Enum):
+    PAGE_TITLE = "page_title"
+    BLOCK_TITLE = "block_title"
+    LABEL = "label"
+    INPUT = "input"
+    BUTTON = "button"
+    LINK = "link"
+    TAB = "tab"
+    DROPDOWN = "dropdown"
+    CHECKBOX = "checkbox"
+    MODAL = "modal"
+    DATETIME = "datetime"
+    # Adding custom to allow LLM to add elements we didn't think about, to track later
+    CUSTOM = "custom"
+
+    def __repr__(self) -> str:
+        return self.value
+
+
+# Using Enum to check the output values of LLM, but don't force the values (use `custom` if validation fails)
+class VideoSegmentInteractionsEnum(Enum):
+    NAVIGATION = "navigation"
+    SCROLL = "scroll"
+    LOADING = "loading"
+    STATIC = "static"
+    HOVER = "hover"
+    CLICK = "click"
+    RESIZE = "resize"
+    INPUT = "input"
+    MEDIA = "media"
+    # Adding custom to allow LLM to add interactions we didn't think about, to track later
+    CUSTOM = "custom"
+
+    def __repr__(self) -> str:
+        return self.value
+
+
+@dataclasses.dataclass(frozen=True)
+class VideoSegmentElement:
+    element_type: str
+    element_value: str
+
 @dataclasses.dataclass(frozen=True)
 class VideoSegmentOutput:
     """Output representing a segment from video analysis
@@ -44,6 +88,8 @@ class VideoSegmentOutput:
     start_time: str  # Format: MM:SS or HH:MM:SS
     end_time: str  # Format: MM:SS or HH:MM:SS
     description: str
+    elements: list[VideoSegmentElement] | None = None
+    interaction: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

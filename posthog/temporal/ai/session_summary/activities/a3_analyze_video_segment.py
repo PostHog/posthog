@@ -6,8 +6,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from google.genai import types
-from posthoganalytics.ai.gemini import genai
+from google.genai import types, Client
 
 from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.state import (
@@ -17,8 +16,11 @@ from posthog.temporal.ai.session_summary.state import (
 )
 from posthog.temporal.ai.session_summary.types.video import (
     UploadedVideo,
+    VideoSegmentElement,
+    VideoSegmentInteractionsEnum,
     VideoSegmentOutput,
     VideoSegmentSpec,
+    VideoSegmentTypesEnum,
     VideoSummarySingleSessionInputs,
 )
 
@@ -99,8 +101,16 @@ async def analyze_video_segment_activity(
         team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
 
         # Analyze with Gemini using video_metadata to specify the time range
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        response = client.models.generate_content(
+        client = Client(api_key=settings.GEMINI_API_KEY)
+
+        # TODO: Add additional call to combine trasncription with events
+        # events_section=(
+        #                 VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION.format(events_context=events_context)
+        #                 if events_context
+        #                 else ""
+        #             ),
+        # TODO: Use posthoganalytics wrapper for async calls (update posthoganalytics version?)
+        response = await client.aio.models.generate_content(
             model=f"models/{inputs.model_to_use}",
             contents=[
                 types.Part(
@@ -114,19 +124,18 @@ async def analyze_video_segment_activity(
                     team_name=team_name,
                     start_timestamp=start_timestamp,
                     segment_duration=segment_duration,
-                    events_section=VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION.format(events_context=events_context)
-                    if events_context
-                    else "",
+                    element_types = ",".join(f"`{x.value}`" for x in VideoSegmentTypesEnum),
+                    interaction_types = ",".join(f"`{x.value}`" for x in VideoSegmentInteractionsEnum),
                 ),
             ],
             config=types.GenerateContentConfig(max_output_tokens=4096),
-            posthog_distinct_id=inputs.user_distinct_id_to_log,
-            posthog_trace_id=trace_id,
-            posthog_properties={
-                "$session_id": inputs.session_id,
-                "segment_index": segment.segment_index,
-            },
-            posthog_groups={"project": str(inputs.team_id)},
+            # posthog_distinct_id=inputs.user_distinct_id_to_log,
+            # posthog_trace_id=trace_id,
+            # posthog_properties={
+            #     "$session_id": inputs.session_id,
+            #     "segment_index": segment.segment_index,
+            # },
+            # posthog_groups={"project": str(inputs.team_id)},
         )
 
         response_text = (response.text or "").strip()
@@ -139,9 +148,6 @@ async def analyze_video_segment_activity(
             response_preview=response_text[:200] if response_text else None,
         )
 
-        # Parse response into segments
-        segments = []
-
         if response_text.lower() == "static":
             # No activity in this segment
             logger.debug(
@@ -151,29 +157,8 @@ async def analyze_video_segment_activity(
             )
             return []
 
-        # Parse bullet points in format: * MM:SS - MM:SS: description
-        pattern_colon = r"\*\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2}):\s*(.+?)(?=\n\*|$)"
-
-        matches = re.findall(pattern_colon, response_text, re.DOTALL | re.MULTILINE)
-
-        if not matches:
-            logger.warning(
-                f"No segments matched regex pattern for segment {segment.segment_index}",
-                session_id=inputs.session_id,
-                segment_index=segment.segment_index,
-                response_text=response_text[:500],
-            )
-
-        for start_time_str, end_time_str, description in matches:
-            description = description.strip()
-            if description:
-                segments.append(
-                    VideoSegmentOutput(
-                        start_time=start_time_str,
-                        end_time=end_time_str,
-                        description=description,
-                    )
-                )
+        # Parse response into segments
+        segments = VideoSegmentParser().parse_response_into_segment_outputs(response_text)
 
         logger.info(
             f"Parsed {len(segments)} segments from segment {segment.segment_index}",
@@ -194,41 +179,55 @@ async def analyze_video_segment_activity(
 
 
 VIDEO_SEGMENT_ANALYSIS_PROMPT = """
-Analyze this video segment from a session recording of a user using {team_name}.
+# Task
+Analyze this video segment from a session recording of a user using "{team_name}".
 
 This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
-{events_section}
-Your task:
+
+## What to focus on
 - Describe what's happening in the video as a list of salient moments
 - Highlight what features were used, and what the user was doing with them
+- Explicitly mention names/labels of the elements the user interacted with
 - Note any problems, errors, confusion, or friction the user experienced
-- If tracked events show exceptions ($exception_types, $exception_values), identify them in your analysis
-- Red lines indicate mouse movements, and should be ignored
-- If nothing is happening, return "Static"
+- Notice clicks, as they are indicated by magenta circle around cursors
 
-Output format (use timestamps relative to the FULL recording, starting at {start_timestamp}):
-* MM:SS - MM:SS: <detailed description>
-* MM:SS - MM:SS: <detailed description>
-* etc.
+## What to ignore
+- Ignore red lines that indicate mouse movements
+- Ignore accidental hovers
+- Don't list clicks if they are not confirmed visually
+- If the segment or the point within the segment has no activity - return "MM:SS - MM:SS: Static"
 
-Be specific and detailed about:
-- What the user clicked on
-- What pages or sections they navigated to
-- What they typed or entered
-- Any errors or loading states (correlate with exception events if available)
-- Signs of confusion or hesitation
-- What outcomes occurred
+## Granularity
+- Describe at the maximum granularity possible
+- Any explicit user interactions or navigations should get a separate point into the output list
+- If the point covers more than 5 seconds - split it
+- If the point covers more than 1 interaction - split it
 
-Example output:
-* 0:16 - 0:21: User navigated to the dashboard page and viewed the recent activity widget showing 5 new events
-* 0:21 - 0:26: User clicked on "Create new project" button in the top toolbar
-* 0:26 - 0:30: User attempted to submit the form but received validation error "Name is required"
+## Output format
 
-IMPORTANT: Use timestamps relative to the full recording (starting at {start_timestamp}), not relative to this segment.
+Return the output in the following markdown format:
+
+```
+- **MM:SS - MM:SS**: <detailed description of the user action>
+  `elements: element_type="label_1", element_type="label_2"`
+  `interaction: interaction_type`
+- ...
+```
+
+- `element_type` is one of: {element_types}
+- IMPORTANT: If you want to assign multiple elements with the same type to a single point - create a new point instead
+- `interaction_type` is one of: {interaction_types}
+- IMPORTANT: Use timestamps relative to the FULL recording, starting at {start_timestamp})
+
+## Example output
+
+- **00:01 - 00:04**: The user inputs their email address into the Email input field on the PostHog Cloud login page.
+  `elements: page_title="PostHog Cloud", input="Email"`
+  `interaction: input`
 """
 
+## TODO - Reuse events in the additional call
 VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION = """
-<tracked_events>
 The following events were tracked during this segment. Use them to understand what actions the user took
 and correlate them with what you see in the video. Pay special attention to:
 - $exception_types and $exception_values: These indicate errors or exceptions that occurred
@@ -238,8 +237,151 @@ and correlate them with what you see in the video. Pay special attention to:
 
 Events data (in chronological order):
 {events_context}
-</tracked_events>
 """
+
+
+class VideoSegmentParser:
+
+    def _parse_elements(self, elements_raw: str) -> list[VideoSegmentElement]:
+        elements_raw = elements_raw.strip().strip("`")
+        if not elements_raw.startswith("elements:"):
+            msg = f"Unexpected elements field: {elements_raw}"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        content = elements_raw.split("elements:")[-1]
+        if not content:
+            return
+        elements = []
+        # Match key="value" or key=["a", "b"]
+        pattern = r'(\w+)=(\[[^\]]+\]|"[^"]*")'
+        # Not validating with enums, as LLM can return custom values, so focusing on parsing the values
+        for key, value in re.findall(pattern, content):
+            # Parse array: ["Email", "Password"]
+            if value.startswith("["):
+                found_elements = re.findall(r'"([^"]*)"', value)
+                if not found_elements:
+                    logger.warning(f"No elements found for value: {value}", signals_type="session-summaries")
+                    continue
+                for element in found_elements:
+                    try:
+                        element_type = VideoSegmentTypesEnum(key).value
+                    except ValueError:
+                        logger.warning(
+                            f'Unknown element type for value "{value}": {key}, using custom',
+                            signals_type="session-summaries",
+                        )
+                        element_type = VideoSegmentTypesEnum.CUSTOM.value
+                    elements.append(VideoSegmentElement(element_type=element_type, element_value=element))
+            # Parse single: "Email"
+            else:
+                try:
+                    element_type = VideoSegmentTypesEnum(key).value
+                except ValueError:
+                    logger.warning(
+                        f'Unknown element type for value "{value}": {key}, using custom',
+                        signals_type="session-summaries",
+                    )
+                    element_type = VideoSegmentTypesEnum.CUSTOM.value
+                elements.append(VideoSegmentElement(element_type=element_type, element_value=value.strip('"')))
+        return elements
+
+    def _parse_interaction(self, interaction_raw: str) -> str:
+        interaction_raw = interaction_raw.strip().strip("`")
+        if not interaction_raw.startswith("interaction:"):
+            raise ValueError(f"Unexpected interaction field: {interaction_raw}")
+        interaction = interaction_raw.split("interaction:")[-1].strip()
+        try:
+            interaction_type = VideoSegmentInteractionsEnum(interaction).value
+        except ValueError:
+            logger.warning(f"Unknown interaction type: {interaction}, using custom", signals_type="session-summaries")
+            interaction_type = VideoSegmentInteractionsEnum.CUSTOM.value
+        return interaction_type
+
+    def parse_response_into_segment_outputs(self, response_text: str) -> list[VideoSegmentOutput]:
+        points: list[VideoSegmentOutput] = []
+        segment_pattern = r"-\s+\*\*(\d{1,2}:\d{1,2})\s*-\s*(\d{1,2}:\d{1,2})\*\*:\s*((?:.|\n\s)*?)(?=(?:\n-|$))"
+        matches = re.findall(segment_pattern, response_text)
+        for point_pattern_match in matches:
+            # If no elements or interaction are present
+            if len(point_pattern_match) == 2:
+                start_time, end_time = point_pattern_match
+                points.append(
+                    VideoSegmentOutput(
+                        start_time=start_time,
+                        end_time=end_time,
+                        description="",
+                        elements=None,
+                        interaction=None,
+                    )
+                )
+                continue
+            # If description part is present
+            if len(point_pattern_match) == 3:
+                start_time, end_time, description = point_pattern_match
+                description_parts = description.split("\n")
+                # If only description is present
+                if len(description_parts) == 1:
+                    description = description_parts[0]
+                    points.append(
+                        VideoSegmentOutput(
+                            start_time=start_time,
+                            end_time=end_time,
+                            description=description,
+                            elements=None,
+                            interaction=None,
+                        )
+                    )
+                    continue
+                # If description and at least one meta field is present
+                if len(description_parts) == 2:
+                    description, meta_field = description_parts
+                    try:
+                        # Try to parse elements
+                        elements = self._parse_elements(meta_field)
+                        interaction = None
+                    except ValueError:
+                        try:
+                            # If no elements present, try to parse interaction
+                            interaction = self._parse_interaction(meta_field)
+                            elements = None
+                        except ValueError:
+                            msg = f"Unexpected meta field: {meta_field}"
+                            logger.error(msg, signals_type="session-summaries")
+                            raise ValueError(msg)
+                    points.append(
+                        VideoSegmentOutput(
+                            start_time=start_time,
+                            end_time=end_time,
+                            description=description,
+                            elements=elements,
+                            interaction=interaction,
+                        )
+                    )
+                    continue
+                # If description and both meta fields are present
+                if len(description_parts) == 3:
+                    description, elements_raw, interaction_raw = description_parts
+                    elements = self._parse_elements(elements_raw)
+                    interaction = self._parse_interaction(interaction_raw)
+                    points.append(
+                        VideoSegmentOutput(
+                            start_time=start_time,
+                            end_time=end_time,
+                            description=description,
+                            elements=elements,
+                            interaction=interaction,
+                        )
+                    )
+                    continue
+                else:
+                    msg = f"Unexpected number of parts: {len(description_parts)}"
+                    logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
+            else:
+                msg = f"Unexpected number of matches: {len(matches)}"
+                logger.error(msg, signals_type="session-summaries")
+                raise ValueError(msg)
+        return points
 
 
 def _format_timestamp(seconds: float) -> str:

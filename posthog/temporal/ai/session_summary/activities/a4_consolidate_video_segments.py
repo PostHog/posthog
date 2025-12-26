@@ -8,6 +8,7 @@ import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
 
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 from posthog.temporal.ai.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
     ConsolidatedVideoSegment,
@@ -56,7 +57,7 @@ async def consolidate_video_segments_activity(
         segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="models/gemini-2.5-flash",
+            model=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
             contents=[
                 CONSOLIDATION_PROMPT.format(
                     segments_text=segments_text, example_json=json.dumps(CONSOLIDATION_PROMPT_EXAMPLE_JSON, indent=2)
