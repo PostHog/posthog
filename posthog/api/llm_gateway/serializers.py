@@ -162,3 +162,42 @@ class ChatCompletionResponseSerializer(serializers.Serializer):
 
 class ErrorResponseSerializer(serializers.Serializer):
     error = serializers.DictField()
+
+
+class TranscriptionRequestSerializer(serializers.Serializer):
+    model = serializers.ChoiceField(
+        choices=["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"],
+        default="gpt-4o-transcribe",
+        help_text="Transcription model",
+    )
+    language = serializers.CharField(
+        required=False,
+        help_text="Language of the input audio in ISO-639-1 format. See https://github.com/openai/whisper#available-models-and-languages",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        help_text="Optional text prompt to guide the style, vocabulary or continue a previous audio segment",
+    )
+    response_format = serializers.ChoiceField(
+        choices=["text", "json"],  # whisper-1 also supports "srt", "verbose_json", "vtt"
+        default="text",
+        required=False,
+        help_text="Format of the transcript output",
+    )
+    temperature = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Optional temperature between 0 and 1",
+    )
+
+
+class TranscriptionUsageSerializer(serializers.Serializer):
+    input_tokens = serializers.IntegerField(help_text="Number of input tokens (audio tokens)")
+    output_tokens = serializers.IntegerField(help_text="Number of output tokens (transcribed text tokens)")
+    total_tokens = serializers.IntegerField(help_text="Total tokens used")
+
+
+class TranscriptionResponseSerializer(serializers.Serializer):
+    text = serializers.CharField(help_text="The transcribed text")
+    usage = TranscriptionUsageSerializer(required=False, help_text="Token usage for billing")

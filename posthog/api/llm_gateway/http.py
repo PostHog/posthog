@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -35,6 +36,8 @@ from .serializers import (
     ChatCompletionRequestSerializer,
     ChatCompletionResponseSerializer,
     ErrorResponseSerializer,
+    TranscriptionRequestSerializer,
+    TranscriptionResponseSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -345,3 +348,94 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 }
                 status_code = getattr(e, "status_code", 500)
                 return Response(error_response, status=status_code)
+
+    @extend_schema(
+        summary="OpenAI Audio Transcription API",
+        description="Transcribe audio to text using OpenAI's Whisper models. Compatible with OpenAI's Audio Transcription API format.",
+        request=TranscriptionRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TranscriptionResponseSerializer, description="Successful transcription response"
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request parameters"),
+            500: OpenApiResponse(response=ErrorResponseSerializer, description="Internal server error"),
+        },
+        examples=[
+            OpenApiExample(
+                "Basic transcription",
+                description="Transcribe an audio file",
+                value={
+                    "model": "gpt-4o-transcribe",
+                    "response_format": "text",
+                },
+                request_only=True,
+            ),
+        ],
+        tags=["LLM Gateway"],
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="v1/audio/transcriptions",
+        required_scopes=["task:write"],
+        parser_classes=[MultiPartParser],
+    )
+    def audio_transcriptions(self, request: Request, *args, **kwargs):
+        _setup_litellm()
+
+        serializer = TranscriptionRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"message": str(serializer.errors), "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        audio_file = request.FILES.get("file")
+        if not audio_file:
+            return Response(
+                {"error": {"message": "No audio file provided", "type": "invalid_request_error"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = dict(serializer.validated_data)
+
+        try:
+            # OpenAI expects file as a tuple (filename, file_content, content_type)
+            file_tuple = (audio_file.name, audio_file.read(), audio_file.content_type)
+
+            transcription_kwargs: dict[str, Any] = {
+                "model": data["model"],
+                "file": file_tuple,
+                # Always use JSON to get usage data for billing
+                "response_format": "json",
+                "metadata": {
+                    "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
+                    "team_id": str(self.team.id),
+                    "organization_id": str(self.organization.id),
+                    "ai_product": "llm_gateway",
+                },
+            }
+
+            # Add optional parameters
+            if data.get("language"):
+                transcription_kwargs["language"] = data["language"]
+            if data.get("prompt"):
+                transcription_kwargs["prompt"] = data["prompt"]
+
+            response = litellm.transcription(**transcription_kwargs)
+
+            response_data = response.model_dump() if hasattr(response, "model_dump") else response
+            response_data = _serialize_response(response_data)
+            return Response(response_data)
+
+        except Exception as e:
+            logger.exception(f"Error in transcription endpoint: {e}")
+            error_response = {
+                "error": {
+                    "message": getattr(e, "message", str(e)),
+                    "type": getattr(e, "type", "internal_error"),
+                    "code": getattr(e, "code", None),
+                }
+            }
+            status_code = getattr(e, "status_code", 500)
+            return Response(error_response, status=status_code)
