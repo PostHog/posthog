@@ -78,6 +78,9 @@ class SummarizeSessionsTool(MaxTool):
     ).strip()
     args_schema: type[BaseModel] = SummarizeSessionsToolArgs
 
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
+
     async def _arun_impl(
         self,
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],

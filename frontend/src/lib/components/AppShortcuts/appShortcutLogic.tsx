@@ -4,23 +4,28 @@ import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
 
-export interface AppShortcutType {
-    /* The ref to the element to focus on */
-    ref: React.RefObject<HTMLElement>
-    /* The name of the shortcut used for reference */
+interface AppShortcutBase {
     name: string
-    /* The keybind(s) to use for the shortcut - array of keybind arrays for multiple alternative keybinds */
     keybind: string[][]
-    /* Describe what the shortcut does */
     intent: string
-    /* The type of interaction to trigger */
-    interaction: 'click' | 'focus'
-    /* The scope of the shortcut - 'global' or a specific scene key 
-        @default 'global'
-        @see SceneKey for possible values
-    */
     scope?: 'global' | keyof typeof Scene
+    /** Higher priority items appear first in their group. Default: 0 */
+    priority?: number
 }
+
+interface AppShortcutWithRef extends AppShortcutBase {
+    ref: React.RefObject<HTMLElement>
+    interaction: 'click' | 'focus'
+    callback?: never
+}
+
+interface AppShortcutWithCallback extends AppShortcutBase {
+    callback: () => void
+    interaction: 'function'
+    ref?: never
+}
+
+export type AppShortcutType = AppShortcutWithRef | AppShortcutWithCallback
 
 export const appShortcutLogic = kea<appShortcutLogicType>([
     path(['lib', 'components', 'AppShortcuts', 'appShortcutLogic']),
@@ -101,6 +106,8 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                         matchingShortcut.ref.current?.click()
                     } else if (matchingShortcut.interaction === 'focus') {
                         matchingShortcut.ref.current?.focus()
+                    } else if (matchingShortcut.interaction === 'function') {
+                        matchingShortcut.callback()
                     }
                 }
             }

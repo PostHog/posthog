@@ -71,7 +71,6 @@ export function Dashboards(): JSX.Element {
                                 keybind={[keyBinds.new]}
                                 intent="New dashboard"
                                 interaction="click"
-                                asChild
                                 scope={Scene.Dashboards}
                             >
                                 <LemonButton

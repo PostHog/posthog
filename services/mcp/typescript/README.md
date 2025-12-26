@@ -33,7 +33,7 @@ const result = await generateText({
 })
 ```
 
-**[→ See full Vercel AI SDK example](https://github.com/PostHog/posthog/tree/master/products/mcp/examples/ai-sdk)**
+**[→ See full Vercel AI SDK example](https://github.com/PostHog/posthog/tree/master/services/mcp/examples/ai-sdk)**
 
 ### Using with LangChain.js
 
@@ -66,7 +66,7 @@ const result = await executor.invoke({
 })
 ```
 
-**[→ See full LangChain.js example](https://github.com/PostHog/posthog/tree/master/products/mcp/examples/langchain-js)**
+**[→ See full LangChain.js example](https://github.com/PostHog/posthog/tree/master/services/mcp/examples/langchain-js)**
 
 ## Available Tools
 

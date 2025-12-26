@@ -42,3 +42,15 @@ FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
 # Based on typical flag data, 5000 teams ≈ 10-100 MB depending on flag complexity.
 # See cache_expiry_manager.py for implementation details.
 FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
+
+# Batch size for flags cache verification. Each batch loads both cached data
+# (from Redis) and DB data (FeatureFlag objects) into memory simultaneously.
+# Teams with 100+ flags and large filters JSONs can use significant memory.
+# Reduced from 1000 to 250 to prevent OOM. Decrease further if OOMs persist.
+FLAGS_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env("FLAGS_CACHE_VERIFICATION_CHUNK_SIZE", 250, type_cast=int)
+
+# Batch size for team metadata cache verification. Team metadata is much smaller
+# than flags data, so we can use larger batches without OOM risk.
+TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
+    "TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE", 1000, type_cast=int
+)

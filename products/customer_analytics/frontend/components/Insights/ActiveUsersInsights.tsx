@@ -74,7 +74,9 @@ function PowerUsersTable(): JSX.Element {
         showSourceQueryOptions: false,
         source: {
             kind: NodeKind.ActorsQuery,
-            select: isB2c ? ['person', 'event_count', 'last_seen'] : ['group', 'event_count', 'last_seen'],
+            select: isB2c
+                ? ['person_display_name -- Person', 'event_count', 'last_seen']
+                : ['group', 'event_count', 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -101,7 +103,7 @@ function PowerUsersTable(): JSX.Element {
             <div className="flex items-center gap-2">
                 <Tooltip
                     title={`Power ${customerLabel.plural} are the ${customerLabel.plural} that performed your activity event most frequently in the past 30 days.`}
-                    // TODO: Add docs link when released
+                    docLink="https://posthog.com/docs/customer-analytics/dashboard-metrics#power-users"
                 >
                     <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
                 </Tooltip>
