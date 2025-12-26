@@ -23,7 +23,7 @@ class WebAnalyticsFilterPreset(models.Model):
         related_name="modified_web_analytics_filter_presets",
     )
 
-    MATERIAL_PRESET_FIELDS = {"name", "description", "filters"}
+    LAST_MODIFIED_FIELDS = {"name", "description", "filters"}
 
     class Meta:
         unique_together = ("team", "short_id")

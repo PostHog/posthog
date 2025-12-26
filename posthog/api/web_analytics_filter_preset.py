@@ -103,7 +103,7 @@ class WebAnalyticsFilterPresetSerializer(serializers.ModelSerializer):
         except WebAnalyticsFilterPreset.DoesNotExist:
             before_update = None
 
-        if validated_data.keys() & WebAnalyticsFilterPreset.MATERIAL_PRESET_FIELDS:
+        if validated_data.keys() & WebAnalyticsFilterPreset.LAST_MODIFIED_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
