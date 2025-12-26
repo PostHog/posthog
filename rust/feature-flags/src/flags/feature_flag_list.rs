@@ -132,8 +132,8 @@ impl FeatureFlagList {
             WHERE t.id = $1
               AND f.deleted = false
               AND f.active = true
-            GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
-                     f.ensure_experience_continuity, f.version, f.evaluation_runtime
+            GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
+                     f.ensure_experience_continuity, f.version, f.evaluation_runtime, f.bucketing_identifier
         "#;
 
         let active_flags_rows = sqlx::query_as::<_, FeatureFlagRow>(active_query)
@@ -159,15 +159,15 @@ impl FeatureFlagList {
         let dependency_ids = Self::extract_flag_dependencies(&active_flags);
 
         // Check which dependencies are missing (not in active flags)
-        let loaded_flag_ids: std::collections::HashSet<i32> =
+        let mut loaded_flag_ids: std::collections::HashSet<i32> =
             active_flags.iter().map(|f| f.id).collect();
-        let missing_dependency_ids: Vec<i32> = dependency_ids
+        let mut missing_dependency_ids: Vec<i32> = dependency_ids
             .into_iter()
             .filter(|id| !loaded_flag_ids.contains(id))
             .collect();
 
-        // Second query: Only fetch inactive dependencies if there are any missing
-        if !missing_dependency_ids.is_empty() {
+        // Loop to fetch all transitive dependencies (A depends on B depends on C)
+        while !missing_dependency_ids.is_empty() {
             tracing::debug!(
                 "Fetching {} inactive flag dependencies for team {}",
                 missing_dependency_ids.len(),
@@ -221,7 +221,20 @@ impl FeatureFlagList {
                 .filter_map(Self::parse_flag_row)
                 .collect();
 
+            // Extract dependencies from these newly loaded flags (transitive dependencies)
+            let transitive_dependency_ids = Self::extract_flag_dependencies(&dependency_flags);
+
+            // Add these flags to our collection
             active_flags.extend(dependency_flags);
+
+            // Update loaded flag IDs
+            loaded_flag_ids = active_flags.iter().map(|f| f.id).collect();
+
+            // Find any new missing dependencies
+            missing_dependency_ids = transitive_dependency_ids
+                .into_iter()
+                .filter(|id| !loaded_flag_ids.contains(id))
+                .collect();
         }
 
         tracing::debug!(
