@@ -182,9 +182,14 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub checkpoint_full_upload_interval: u32,
 
-    // Whether to enable checkpoint import from S3 on rebalance and/or DR scenario
+    // Whether to enable checkpoint import from remote storage
     #[envconfig(default = "false")]
     pub checkpoint_import_enabled: bool,
+
+    // Whether to enable export to remote storage
+    // on successful local checkpoint attempts
+    #[envconfig(default = "false")]
+    pub checkpoint_export_enabled: bool,
 
     // Number of historical recent checkpoints to attempt to import
     // as fallbacks when most recent download fails or files are corrupted
@@ -344,12 +349,14 @@ impl Config {
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
     }
 
+    // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
-        !self.aws_region.is_empty() && self.s3_bucket.is_some()
+        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_export_enabled
     }
 
+    // Check mulitple conditions for safe checkpoint import enablement
     pub fn checkpoint_import_enabled(&self) -> bool {
-        self.checkpoint_export_enabled() && self.checkpoint_import_enabled
+        !self.aws_region.is_empty() && self.s3_bucket.is_some() && self.checkpoint_import_enabled
     }
 
     /// Get checkpoint interval as Duration
