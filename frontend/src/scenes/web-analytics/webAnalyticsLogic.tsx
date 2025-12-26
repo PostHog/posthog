@@ -2353,7 +2353,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 actions.setDomainFilter(url)
             },
             loadPreset: ({ filters }) => {
-                // Apply filters managed by this logic (date, conversionGoal, settings)
                 if (filters.dateFrom !== undefined || filters.dateTo !== undefined) {
                     const interval = filters.interval ?? values.dateFilter.interval
                     actions.setDatesAndInterval(
