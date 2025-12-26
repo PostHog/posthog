@@ -9,12 +9,9 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 use tracing::{error, warn};
 
-// if a local cache entry awaiting update's last eval window
-// start timestamp is more than this * window_duration, fail open
-// while awaiting async update to freshen the local cache. outside
-// of a Redis outage or global pause in event submission from user team,
-// this will never happen for keys eligible for rate limiting.
-const LOCAL_STALENESS_MULTIPLIER: u64 = 2;
+// multiple of window_duration to limit local cache entry staleness for a given key
+// before we fail open if Redis is unavailable for an extended period
+const LOCAL_STALENESS_MULTIPLIER: u64 = 5;
 
 /// Mode for rate limit checking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
