@@ -5,11 +5,15 @@ import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EntityTypes, FilterType } from '~/types'
 
 import { ConfigureWithAIButton } from 'products/customer_analytics/frontend/components/ConfigureWithAIButton'
@@ -28,13 +32,14 @@ export interface EventSelectorProps {
 function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
+    const { reportCustomerAnalyticsDashboardEventPickerClicked } = useActions(eventUsageLogic)
 
     return (
         <div className={`py-2 ${highlight}`}>
             <div className="ml-1">
                 <div className="flex items-center gap-2">
                     <LemonLabel>{title}</LemonLabel>
-                    <ConfigureWithAIButton prompt={prompt} />
+                    <ConfigureWithAIButton event={title} prompt={prompt} />
                 </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>
@@ -46,7 +51,10 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
                         hideFilter={false}
                         propertyFiltersPopover
                         filters={filters}
-                        setFilters={setFilters}
+                        setFilters={(filters) => {
+                            setFilters(filters)
+                            reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
+                        }}
                         typeKey={`customer-analytics-${title.toLowerCase()}`}
                         mathAvailability={MathAvailability.None}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
@@ -69,6 +77,7 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
                                     },
                                 ],
                             })
+                            reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
                         }}
                     >
                         Select event or action
@@ -84,17 +93,29 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
     const { saveEvents, clearFilterSelections, clearEventsToHighlight } = useActions(
         customerAnalyticsDashboardEventsLogic
     )
+    const { addProductIntent } = useActions(teamLogic)
+    const { reportCustomerAnalyticsDashboardConfigurationViewed, reportCustomerAnalyticsDashboardEventsSaved } =
+        useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleSave = (): void => {
         saveEvents()
         clearEventsToHighlight()
+        reportCustomerAnalyticsDashboardEventsSaved()
+        addProductIntent({
+            product_type: ProductKey.CUSTOMER_ANALYTICS,
+            intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED,
+        })
     }
 
     const handleClear = (): void => {
         clearFilterSelections()
         clearEventsToHighlight()
     }
+
+    useOnMountEffect(() => {
+        reportCustomerAnalyticsDashboardConfigurationViewed()
+    })
 
     return (
         <div className="space-y-4">

@@ -160,6 +160,9 @@ impl DeduplicationStore {
         ts_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8)); // <- per-CF
         ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
         ts_cf_opts.set_max_write_buffer_number(3);
+        // IMPORTANT: CF options don't inherit from DB options, must set compression explicitly
+        // LZ4 is ~2x faster than Snappy for both compression and decompression
+        ts_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
         // ----- CF: UuidIndexKey ([ts][uuid_key] => same 8-byte prefix)
         let mut uuid_timestamp_index_cf_opts = Options::default();
@@ -167,10 +170,12 @@ impl DeduplicationStore {
         uuid_timestamp_index_cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
         uuid_timestamp_index_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
         uuid_timestamp_index_cf_opts.set_max_write_buffer_number(3);
+        uuid_timestamp_index_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
         // ----- CF: UuidKey (point-gets; no prefix extractor)
         let mut uuid_cf_opts = Options::default();
         uuid_cf_opts.set_block_based_table_factory(&block_opts);
+        uuid_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
         let cf_descriptors = vec![
             ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts),

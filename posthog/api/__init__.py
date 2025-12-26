@@ -1,7 +1,16 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import (
+    data_color_theme,
+    feed,
+    hog_flow,
+    hog_flow_template,
+    llm_gateway,
+    metalytics,
+    my_notifications,
+    project,
+)
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -867,6 +876,13 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+register_grandfathered_environment_nested_viewset(
+    r"hog_flow_templates",
+    hog_flow_template.HogFlowTemplateViewSet,
+    "environment_hog_flow_templates",
+    ["team_id"],
+)
+
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
 
 projects_router.register(
@@ -914,20 +930,6 @@ register_grandfathered_environment_nested_viewset(
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
 
 projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
-
-projects_router.register(
-    r"change_requests",
-    approval_api.ChangeRequestViewSet,
-    "project_change_requests",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"approval_policies",
-    approval_api.ApprovalPolicyViewSet,
-    "project_approval_policies",
-    ["team_id"],
-)
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
@@ -1081,5 +1083,19 @@ environments_router.register(
     r"llm_analytics/evaluation_config",
     EvaluationConfigViewSet,
     "environment_llm_analytics_evaluation_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"change_requests",
+    approval_api.ChangeRequestViewSet,
+    "environment_change_requests",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"approval_policies",
+    approval_api.ApprovalPolicyViewSet,
+    "environment_approval_policies",
     ["team_id"],
 )

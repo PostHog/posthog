@@ -1,1 +1,1 @@
-0006_endpoint_derived_from_insight
+0008_endpoint_last_executed_at

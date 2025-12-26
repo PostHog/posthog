@@ -1,15 +1,19 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
+    _get_flags_for_local_evaluation,
     clear_flag_caches,
     flags_hypercache,
     get_flags_response_for_local_evaluation,
     update_flag_caches,
 )
 from posthog.models.project import Project
+from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -299,3 +303,276 @@ class TestLocalEvaluationSignals(BaseTest):
 
         # Signal should NOT trigger because new tags can't be used by any flags yet
         mock_task.delay.assert_not_called()
+
+
+class TestSurveyFlagExclusion(BaseTest):
+    """Tests for excluding survey-linked flags from local evaluation (GitHub issue #43631)."""
+
+    @parameterized.expand(
+        [
+            ("targeting_flag", "targeting_flag"),
+            ("internal_targeting_flag", "internal_targeting_flag"),
+            ("internal_response_sampling_flag", "internal_response_sampling_flag"),
+        ]
+    )
+    def test_survey_linked_flag_excluded_from_local_evaluation(self, _name: str, flag_field: str):
+        regular_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"survey-{flag_field}-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            **{flag_field: survey_flag},
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+
+        assert regular_flag.key in flag_keys
+        assert survey_flag.key not in flag_keys
+
+    def test_linked_flag_not_excluded_from_local_evaluation(self):
+        """The linked_flag field is user-created and should NOT be excluded."""
+        user_linked_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="user-linked-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            linked_flag=user_linked_flag,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+
+        assert user_linked_flag.key in flag_keys
+
+    def test_deleted_survey_does_not_affect_flag_exclusion(self):
+        """Flags from deleted surveys should be included in local evaluation."""
+        survey_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="was-survey-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=survey_flag,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f.key for f in flags]
+
+        survey.delete()
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key in [f.key for f in flags]
+
+    def test_survey_flags_excluded_from_api_response(self):
+        """Verify the full API response excludes survey flags."""
+        regular_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            internal_targeting_flag=survey_flag,
+        )
+
+        response = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        assert response is not None
+        flag_keys = [f["key"] for f in response["flags"]]
+
+        assert regular_flag.key in flag_keys
+        assert survey_flag.key not in flag_keys
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_flag_cache_invalidated_on_survey_change(self, mock_task):
+        """Creating/deleting a survey should invalidate the flag cache."""
+        survey_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        mock_task.reset_mock()
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=survey_flag,
+        )
+
+        mock_task.delay.assert_called_with(self.team.id)
+
+        mock_task.reset_mock()
+
+        survey.delete()
+
+        mock_task.delay.assert_called_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_flag_cache_invalidated_on_survey_update(self, mock_task):
+        """Updating a survey should invalidate the flag cache."""
+        survey_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="survey-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=survey_flag,
+        )
+
+        mock_task.reset_mock()
+
+        survey.name = "Updated Survey Name"
+        survey.save()
+
+        mock_task.delay.assert_called_with(self.team.id)
+
+    def test_archived_survey_flag_still_excluded(self):
+        """Flags from archived surveys should still be excluded from local evaluation."""
+        survey_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="archived-survey-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=survey_flag,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f.key for f in flags]
+
+        # Archive the survey (not delete)
+        survey.archived = True
+        survey.save()
+
+        # Flag should still be excluded since the survey still exists
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        assert survey_flag.key not in [f.key for f in flags]
+
+    def test_survey_flag_reassignment_updates_exclusions(self):
+        """When a survey changes which flags it uses, both old and new flags should update correctly."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=flag_a,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+        assert flag_a.key not in flag_keys
+        assert flag_b.key in flag_keys
+
+        survey.targeting_flag = flag_b
+        survey.save()
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+        assert flag_a.key in flag_keys
+        assert flag_b.key not in flag_keys
+
+    def test_multiple_surveys_sharing_same_flag(self):
+        """When multiple surveys use the same flag, it should be excluded once."""
+        shared_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="shared-targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        for i in range(3):
+            Survey.objects.create(
+                team=self.team,
+                name=f"Survey {i}",
+                type="popover",
+                targeting_flag=shared_flag,
+            )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+
+        assert shared_flag.key not in flag_keys
+
+    def test_survey_with_partial_flag_assignment(self):
+        """Survey with some flags set and others None should only exclude the set flags."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="targeting-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="sampling-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        regular_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            targeting_flag=flag_a,
+            internal_targeting_flag=None,
+            internal_response_sampling_flag=flag_b,
+        )
+
+        flags, _ = _get_flags_for_local_evaluation(self.team, include_cohorts=True)
+        flag_keys = [f.key for f in flags]
+
+        assert flag_a.key not in flag_keys
+        assert flag_b.key not in flag_keys
+        assert regular_flag.key in flag_keys

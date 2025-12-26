@@ -8,11 +8,10 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TagSelect } from 'lib/components/TagSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
@@ -25,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
+import { EventDefinition, EventDefinitionType, FilterLogicalOperator } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -91,41 +90,31 @@ export function EventDefinitionsTable(): JSX.Element {
             : []),
         {
             key: 'actions',
-            width: 0,
+            width: 180,
             render: function RenderActions(_, definition: EventDefinition) {
                 return (
-                    <More
-                        data-attr={`event-definitions-table-more-button-${definition.name}`}
-                        overlay={
-                            <>
-                                <LemonButton
-                                    to={urls.replay(ReplayTabs.Home, {
-                                        filter_group: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            id: definition.name,
-                                                            type: 'events',
-                                                            order: 0,
-                                                            name: definition.name,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    })}
-                                    fullWidth
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="event-definitions-table-view-recordings"
-                                    targetBlank
-                                >
-                                    View recordings
-                                </LemonButton>
-                            </>
-                        }
+                    <ViewRecordingsPlaylistButton
+                        filters={{
+                            filter_group: {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                id: definition.name,
+                                                type: 'events',
+                                                order: 0,
+                                                name: definition.name,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        }}
+                        size="small"
+                        type="secondary"
+                        data-attr="event-definitions-table-view-recordings"
                     />
                 )
             },

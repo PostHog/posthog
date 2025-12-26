@@ -2,8 +2,6 @@ import { Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
-import { destinationE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
-
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { GeoIp } from '../../utils/geoip'
@@ -19,6 +17,7 @@ import {
     LegacyTransformationPluginMeta,
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch } from './hog-executor.service'

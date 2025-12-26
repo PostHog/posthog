@@ -138,7 +138,7 @@ export async function eachBatchHandlerHelper(
     )
 }
 
-async function addGroupPropertiesToPostIngestionEvent(
+export async function addGroupPropertiesToPostIngestionEvent(
     event: PostIngestionEvent,
     groupTypeManager: GroupTypeManager,
     teamManager: TeamManager,

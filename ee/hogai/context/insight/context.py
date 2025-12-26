@@ -2,7 +2,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.models import Team
+from posthog.models import Insight, Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
@@ -45,6 +45,20 @@ class InsightContext:
         self.filters_override = filters_override
         self.variables_override = variables_override
 
+    @classmethod
+    def extract_query(cls, insight: Insight):
+        """Extract and validate query from insight, handling InsightVizNode wrapper."""
+
+        query = insight.query
+        if isinstance(query, dict) and query.get("source"):
+            query = query.get("source")
+        if not query:
+            return None
+        try:
+            return validate_assistant_query(query)
+        except Exception:
+            return None
+
     async def execute_and_format(
         self,
         prompt_template: str = INSIGHT_RESULT_TEMPLATE,
@@ -74,6 +88,7 @@ class InsightContext:
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
+            include_url_reminder=self.insight_id is None,
         )
 
     async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
@@ -86,6 +101,7 @@ class InsightContext:
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
+            include_url_reminder=self.insight_id is None,
         )
 
     async def _get_effective_query(self):

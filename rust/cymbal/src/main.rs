@@ -55,6 +55,10 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 
 #[tokio::main]
 async fn main() {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     setup_tracing();
     info!("Starting up...");
 

@@ -324,6 +324,7 @@ class AssistantTool(StrEnum):
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
     TASK = "task"
+    UPSERT_DASHBOARD = "upsert_dashboard"
 
 
 class AssistantToolCall(BaseModel):
@@ -964,6 +965,7 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+    REVENUE_ANALYTICS_MRR = "revenue_analytics_mrr"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
     REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
@@ -2651,6 +2653,18 @@ class ProductIntentContext(StrEnum):
     REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
     REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
+    MARKETING_ANALYTICS_SOURCE_CONFIGURED = "marketing_analytics_source_configured"
+    MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
+    MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
+    MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = "marketing_analytics_ads_integration_visited"
+    CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = "customer_analytics_dashboard_business_mode_changed"
+    CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = (
+        "customer_analytics_dashboard_configuration_button_clicked"
+    )
+    CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = "customer_analytics_dashboard_filters_changed"
+    CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED = "customer_analytics_dashboard_events_saved"
+    CUSTOMER_ANALYTICS_VIEWED = "customer_analytics_viewed"
+    CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = "customer_analytics_usage_metric_created"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     VERCEL_INTEGRATION = "vercel_integration"
@@ -5536,6 +5550,10 @@ class SavedInsightNode(BaseModel):
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
     )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showFilters: bool | None = None
@@ -16114,6 +16132,7 @@ class SessionBatchEventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -16238,6 +16257,7 @@ class EventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    events: list[str] | None = Field(default=None, description="Filter to events matching any of these event names")
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
@@ -16374,6 +16394,10 @@ class DataTableNode(BaseModel):
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
         default=None, description="Include an event filter above the table (EventsNode only)"
+    )
+    showEventsFilter: bool | None = Field(
+        default=None,
+        description="Include an events filter above the table to filter by multiple events (EventsQuery only)",
     )
     showExport: bool | None = Field(default=None, description="Show the export button")
     showHogQLEditor: bool | None = Field(default=None, description="Include a HogQL query editor above HogQL tables")
@@ -16599,6 +16623,7 @@ class HumanMessage(BaseModel):
     content: str
     id: str | None = None
     parent_tool_call_id: str | None = None
+    trace_id: str | None = None
     type: Literal["human"] = "human"
     ui_context: MaxUIContext | None = None
 
@@ -17231,6 +17256,7 @@ class VisualizationArtifactContent(BaseModel):
     )
     description: str | None = None
     name: str | None = None
+    plan: str | None = None
     query: (
         AssistantTrendsQuery
         | AssistantFunnelsQuery
