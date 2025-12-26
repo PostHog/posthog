@@ -182,6 +182,11 @@ impl GlobalRateLimiter {
         Ok(limiter)
     }
 
+    /// Check if the rate limiter key is registered with a custom defined limit
+    pub fn is_custom_key(&self, key: &str) -> bool {
+        self.config.custom_keys.contains_key(key)
+    }
+
     /// Check if a key is rate limited
     ///
     /// Returns:
@@ -827,5 +832,22 @@ mod tests {
             result.is_none(),
             "Should not be limited when under custom limit"
         );
+    }
+
+    #[tokio::test]
+    async fn test_is_custom_key() {
+        let client = MockRedisClient::new();
+        let client = Arc::new(client);
+        let mut config = test_config();
+        config.custom_keys.insert("custom_a".to_string(), 5);
+        config.custom_keys.insert("custom_b".to_string(), 10);
+
+        let limiter =
+            GlobalRateLimiter::new(config, client).expect("Failed to create rate limiter");
+
+        assert!(limiter.is_custom_key("custom_a"));
+        assert!(limiter.is_custom_key("custom_b"));
+        assert!(!limiter.is_custom_key("unknown_key"));
+        assert!(!limiter.is_custom_key(""));
     }
 }
