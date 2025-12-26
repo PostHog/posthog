@@ -66,6 +66,8 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
         "fullscreen": "true",
         "inspectorSideBar": "false",
         "showInspector": "false",
+        # TODO: Add condition
+        "highlightClicks": "true",
     }
     if playback_speed != 1:
         url_params["playerSpeed"] = playback_speed
