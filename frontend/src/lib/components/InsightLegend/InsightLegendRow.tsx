@@ -90,7 +90,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                     hasMultipleSeries={!isSingleSeries}
                                     hideBreakdown
                                     compareValue={isPrevious ? formatCompareLabel(item) : undefined}
-                                    hideIcon                          
+                                    hideIcon
                                     showSingleName
                                 />
                                 {parseAliasToReadable(formattedBreakdownValue)}
