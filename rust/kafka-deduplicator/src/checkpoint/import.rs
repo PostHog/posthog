@@ -11,7 +11,7 @@ pub struct CheckpointImporter {
     downloader: Box<dyn CheckpointDownloader>,
     // temporary local base path for checkpoint import attempts.
     // NOTE: if successful, caller will copy the files from here
-    // into the RocksDB store mamager's expected path structure
+    // into the RocksDB store manager's expected path structure
     local_base_import_path: PathBuf,
     // number of historical checkpoint attempts to import as fallbacks
     import_attempt_depth: usize,
