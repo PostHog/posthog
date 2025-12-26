@@ -366,7 +366,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 description="Transcribe an audio file",
                 value={
                     "model": "gpt-4o-transcribe",
-                    "response_format": "text",
                 },
                 request_only=True,
             ),
@@ -406,7 +405,8 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             transcription_kwargs: dict[str, Any] = {
                 "model": data["model"],
                 "file": file_tuple,
-                # Always use JSON to get usage data for billing
+                # Use JSON to collect input/output tokens for billing
+                # Other formats are not supported yet ("text", "srt", "verbose_json", "vtt")
                 "response_format": "json",
                 "metadata": {
                     "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
@@ -416,11 +416,13 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 },
             }
 
-            # Add optional parameters
-            if data.get("language"):
-                transcription_kwargs["language"] = data["language"]
+            # Optional parameters
             if data.get("prompt"):
                 transcription_kwargs["prompt"] = data["prompt"]
+            if data.get("language"):
+                transcription_kwargs["language"] = data["language"]
+            if data.get("temperature") is not None:
+                transcription_kwargs["temperature"] = data["temperature"]
 
             response = litellm.transcription(**transcription_kwargs)
 

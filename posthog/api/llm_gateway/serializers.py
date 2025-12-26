@@ -170,19 +170,13 @@ class TranscriptionRequestSerializer(serializers.Serializer):
         default="gpt-4o-transcribe",
         help_text="Transcription model",
     )
-    language = serializers.CharField(
-        required=False,
-        help_text="Language of the input audio in ISO-639-1 format. See https://github.com/openai/whisper#available-models-and-languages",
-    )
     prompt = serializers.CharField(
         required=False,
         help_text="Optional text prompt to guide the style, vocabulary or continue a previous audio segment",
     )
-    response_format = serializers.ChoiceField(
-        choices=["text", "json"],  # whisper-1 also supports "srt", "verbose_json", "vtt"
-        default="text",
+    language = serializers.CharField(
         required=False,
-        help_text="Format of the transcript output",
+        help_text="Language of the input audio in ISO-639-1 format. See https://github.com/openai/whisper#available-models-and-languages",
     )
     temperature = serializers.FloatField(
         required=False,

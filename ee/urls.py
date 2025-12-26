@@ -43,7 +43,7 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import max_tools, session_summaries, transcribe
+    from ee.api import max_tools, session_summaries
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -92,8 +92,6 @@ def extend_api_router() -> None:
     environments_router.register(
         r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
     )
-
-    environments_router.register(r"transcribe", transcribe.TranscribeViewSet, "environment_transcribe", ["team_id"])
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
