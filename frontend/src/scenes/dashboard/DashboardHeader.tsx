@@ -160,6 +160,8 @@ export function DashboardHeader(): JSX.Element | null {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
 
+    const hasUpsertDashboardFeatureFlag = useFeatureFlag('POSTHOG_AI_UPSERT_DASHBOARD')
+
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -274,7 +276,6 @@ export function DashboardHeader(): JSX.Element | null {
                             keybind={[keyBinds.edit]}
                             intent="Toggle edit mode"
                             interaction="click"
-                            asChild
                         >
                             <ButtonPrimitive
                                 onClick={() => {
@@ -461,7 +462,6 @@ export function DashboardHeader(): JSX.Element | null {
                                     intent="Save dashboard"
                                     interaction="click"
                                     scope={Scene.Dashboard}
-                                    asChild
                                 >
                                     <LemonButton
                                         data-attr="dashboard-edit-mode-save"
@@ -523,7 +523,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                 keybind={[keyBinds.dashboardAddTextTile]}
                                                 intent="Add text card"
                                                 interaction="click"
-                                                asChild
                                             >
                                                 <LemonButton
                                                     onClick={() => {
@@ -541,7 +540,11 @@ export function DashboardHeader(): JSX.Element | null {
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            identifier="edit_current_dashboard"
+                                            identifier={
+                                                hasUpsertDashboardFeatureFlag
+                                                    ? 'upsert_dashboard'
+                                                    : 'edit_current_dashboard'
+                                            }
                                             context={{
                                                 current_dashboard: dashboard
                                                     ? {

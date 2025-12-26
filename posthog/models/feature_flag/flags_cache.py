@@ -25,6 +25,7 @@ Manual operations:
     clear_flags_cache(team_id)
 """
 
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -106,11 +107,12 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     if not teams:
         return {}
 
-    # Load all flags for all teams in one query with evaluation tags pre-loaded
+    # Load all flags for all teams in one query with evaluation tags pre-loaded.
+    # Note: We intentionally don't select_related("team") here because we only need
+    # team_id (already on the model) for grouping, and the Team objects are already
+    # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False)
-        .select_related("team")
-        .annotate(
+        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
                 filter=Q(evaluation_tags__isnull=False),
@@ -353,11 +355,34 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     return field_diffs
 
 
+def _get_team_ids_with_flags() -> set[int]:
+    """
+    Get the set of team IDs that have at least one active, non-deleted flag.
+
+    Used by verification to skip expensive DB loads for the ~90% of teams
+    that have zero flags. For those teams, we just verify the cache contains
+    {"flags": []}.
+    """
+    start_time = time.time()
+    result = set(FeatureFlag.objects.filter(active=True, deleted=False).values_list("team_id", flat=True).distinct())
+    duration_ms = (time.time() - start_time) * 1000
+
+    logger.info(
+        "Loaded team IDs with flags",
+        count=len(result),
+        duration_ms=round(duration_ms, 2),
+    )
+
+    return result
+
+
 # Initialize hypercache management config after update_flags_cache is defined
 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
     update_fn=update_flags_cache,
     cache_name="flags",
+    get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
+    empty_cache_value={"flags": []},
 )
 
 

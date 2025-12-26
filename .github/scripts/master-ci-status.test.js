@@ -214,15 +214,15 @@ describe('master-ci-status', () => {
             expect(outputs.still_failing).toBe('Backend CI')
         })
 
-        it('resolves when failing workflow succeeds on same timestamp', async () => {
+        it('does not resolve when success is on same timestamp as failure', async () => {
             const { core, outputs } = createMocks()
             const github = createGithubMock(T1) // Same as fail timestamp
             const context = createContext('Backend CI', 'success', 'abc1234')
 
             await masterCiStatus({ github, context, core })
 
-            // ok_ts = T1, fail_ts = T1. T1 > T1 is false, so not failing.
-            expect(outputs.action).toBe('resolve')
+            // Success must be strictly newer than failure to count as recovery
+            expect(outputs.action).toBe('none')
         })
     })
 
@@ -248,7 +248,9 @@ describe('master-ci-status', () => {
 
             await masterCiStatus({ github, context, core })
 
-            expect(outputs.action).toBe('none')
+            // Backend CI recovered, but Frontend CI still failing
+            expect(outputs.action).toBe('resolve')
+            expect(outputs.recovered_workflow).toBe('Backend CI')
             expect(outputs.resolved).toBe('false')
             expect(outputs.still_failing).toBe('Frontend CI')
         })
@@ -365,7 +367,9 @@ describe('master-ci-status', () => {
             // Should not throw
             await masterCiStatus({ github, context, core })
 
-            expect(outputs.action).toBe('resolve') // No failures tracked = resolved
+            // No failures tracked, so nothing to recover from
+            expect(outputs.action).toBe('none')
+            expect(outputs.resolved).toBe('true') // No failures = resolved
         })
 
         it('handles JSON parse error', async () => {
@@ -436,6 +440,68 @@ describe('master-ci-status', () => {
             expect(writtenState.sha_ts.sha1).toBe(T1) // Still there
             expect(writtenState.sha_ts.sha2).toBe(T2) // Still there
             expect(writtenState.sha_ts.sha3).toBe(T3) // New SHA added
+        })
+    })
+
+    describe('required workflows check', () => {
+        // Use T1 as incident start so T2/T3/T4 are all after it
+        const incidentStartTs = T1
+        const incidentStart = new Date(incidentStartTs).toISOString()
+
+        beforeEach(() => {
+            process.env.REQUIRED_WORKFLOWS = 'Backend CI,Frontend CI'
+        })
+
+        afterEach(() => {
+            delete process.env.REQUIRED_WORKFLOWS
+        })
+
+        it('does not fully resolve if required workflow has not passed since incident', async () => {
+            const state = {
+                channel: 'C123',
+                ts: '123.456',
+                since: incidentStart,
+                sha_ts: { abc: T2 },
+                fail_ts: { 'Backend CI': T2 },
+                ok_ts: { 'Frontend CI': T1 - 1000 }, // Passed BEFORE incident
+            }
+
+            fs.existsSync.mockReturnValue(true)
+            fs.readFileSync.mockReturnValue(JSON.stringify(state))
+
+            const { core, outputs } = createMocks()
+            const github = createGithubMock(T4)
+            const context = createContext('Backend CI', 'success', 'sha4')
+
+            await masterCiStatus({ github, context, core })
+
+            // Backend CI recovered, but Frontend CI hasn't passed since incident
+            expect(outputs.action).toBe('resolve')
+            expect(outputs.resolved).toBe('false') // Not fully resolved
+        })
+
+        it('fully resolves when all required workflows passed since incident', async () => {
+            const state = {
+                channel: 'C123',
+                ts: '123.456',
+                since: incidentStart,
+                sha_ts: { abc: T2 },
+                fail_ts: { 'Backend CI': T2 },
+                ok_ts: { 'Frontend CI': T3 }, // Passed AFTER incident (T3 > T1)
+            }
+
+            fs.existsSync.mockReturnValue(true)
+            fs.readFileSync.mockReturnValue(JSON.stringify(state))
+
+            const { core, outputs } = createMocks()
+            const github = createGithubMock(T4)
+            const context = createContext('Backend CI', 'success', 'sha4')
+
+            await masterCiStatus({ github, context, core })
+
+            // Both required workflows have passed since incident
+            expect(outputs.action).toBe('resolve')
+            expect(outputs.resolved).toBe('true')
         })
     })
 })

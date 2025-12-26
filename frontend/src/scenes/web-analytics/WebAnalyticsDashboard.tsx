@@ -5,6 +5,8 @@ import React, { useState } from 'react'
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,6 +22,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { Scene } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -500,6 +503,41 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
+
+    // Tab switching shortcuts
+    useAppShortcut({
+        name: 'WebAnalyticsTab1',
+        keybind: [keyBinds.tab1],
+        intent: 'Web analytics tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.ANALYTICS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab2',
+        keybind: [keyBinds.tab2],
+        intent: 'Web vitals tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.WEB_VITALS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab3',
+        keybind: [keyBinds.tab3],
+        intent: 'Page reports tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.PAGE_REPORTS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab4',
+        keybind: [keyBinds.tab4],
+        intent: 'Health tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.HEALTH),
+        scope: Scene.WebAnalytics,
+        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
+    })
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')

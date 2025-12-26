@@ -82,7 +82,7 @@ title_generator_mock = patch(
 )
 
 query_executor_mock = patch(
-    "ee.hogai.chat_agent.query_executor.nodes.execute_and_format_query", new=AsyncMock(return_value="Result")
+    "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Result")
 )
 
 
@@ -573,7 +573,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -674,7 +676,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantFunnelsEventsNode(event="$pageleave"),
             ]
         )
-        generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: FunnelsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -778,7 +782,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )
-        generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: RetentionSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -874,7 +880,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         query = AssistantHogQLQuery(query="SELECT 1")
-        generator_mock.return_value = RunnableLambda(lambda _: query.model_dump())
+        generator_mock.return_value = RunnableLambda(
+            lambda _: {"query": "SELECT 1", "name": "Test Insight", "description": "Test Description"}
+        )
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -1160,7 +1168,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # Create a graph that only uses the root node
         graph = AssistantGraph(self.team, self.user).compile_full_graph()
@@ -1273,7 +1283,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
             ]
         )
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         # Run in insights tool mode
         output, _ = await self._run_assistant_graph(
@@ -1561,7 +1573,9 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(
+            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
+        )
 
         query_executor_mock.return_value = PartialAssistantState(
             messages=[

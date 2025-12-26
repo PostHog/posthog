@@ -1,5 +1,6 @@
 use std::future::ready;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
@@ -7,7 +8,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
@@ -36,12 +37,14 @@ pub struct State {
     pub redis: Arc<dyn Client + Send + Sync>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
-    pub event_size_limit: usize,
+    pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    pub body_chunk_read_timeout: Option<Duration>,
+    pub body_read_chunk_size_kb: usize,
 }
 
 #[derive(Clone)]
@@ -70,7 +73,7 @@ impl HistoricalConfig {
             return false;
         }
 
-        let days_stale = Duration::days(self.historical_rerouting_threshold_days);
+        let days_stale = ChronoDuration::days(self.historical_rerouting_threshold_days);
         let threshold = Utc::now() - days_stale;
         timestamp <= threshold
     }
@@ -115,7 +118,7 @@ pub fn router<
     capture_mode: CaptureMode,
     deploy_role: String,
     concurrency_limit: Option<usize>,
-    event_size_limit: usize,
+    event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
     is_mirror_deploy: bool,
@@ -123,13 +126,15 @@ pub fn router<
     ai_max_sum_of_parts_bytes: usize,
     ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     request_timeout_seconds: Option<u64>,
+    body_chunk_read_timeout_ms: Option<u64>,
+    body_read_chunk_size_kb: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
         quota_limiter: Arc::new(quota_limiter),
-        event_size_limit,
+        event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
@@ -139,6 +144,8 @@ pub fn router<
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
         ai_blob_storage,
+        body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
+        body_read_chunk_size_kb,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -471,5 +478,41 @@ mod tests {
 
         // Clean up
         server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_body_chunk_timeout_fires_on_stalled_upload() {
+        use crate::extractors::extract_body_with_timeout;
+        use axum::body::Body;
+        use bytes::Bytes;
+        use futures::{stream, StreamExt};
+
+        // Create a stream that yields one chunk then stalls
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![Ok(Bytes::from("partial data"))];
+        let slow_stream = stream::iter(chunks).chain(stream::pending());
+        let body = Body::from_stream(slow_stream);
+
+        // Use a short chunk timeout
+        let timeout = Some(StdDuration::from_millis(100));
+        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, 256, "/test").await;
+
+        // Should get a BodyReadTimeout error
+        assert!(matches!(
+            result,
+            Err(crate::api::CaptureError::BodyReadTimeout)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_body_chunk_timeout_disabled_when_none() {
+        use crate::extractors::extract_body_with_timeout;
+        use axum::body::Body;
+
+        // Normal body with no timeout
+        let body = Body::from(r#"{"event": "test"}"#);
+        let result = extract_body_with_timeout(body, 1024 * 1024, None, 256, "/test").await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), r#"{"event": "test"}"#.as_bytes());
     }
 }

@@ -84,6 +84,9 @@ pub enum CaptureError {
 
     #[error("service unavailable: {0}")]
     ServiceUnavailable(String),
+
+    #[error("client stopped sending data")]
+    BodyReadTimeout,
 }
 
 impl From<serde_json::Error> for CaptureError {
@@ -118,6 +121,7 @@ impl CaptureError {
             CaptureError::RateLimited => "rate_limited",
             CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
             CaptureError::ServiceUnavailable(_) => "service_unavailable",
+            CaptureError::BodyReadTimeout => "body_read_timeout",
         }
     }
 }
@@ -154,6 +158,8 @@ impl IntoResponse for CaptureError {
             CaptureError::BillingLimit | CaptureError::RateLimited => {
                 (StatusCode::TOO_MANY_REQUESTS, self.to_string())
             }
+
+            CaptureError::BodyReadTimeout => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
         }
         .into_response()
     }

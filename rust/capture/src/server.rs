@@ -262,7 +262,7 @@ where
     // size crosses the kafka limit. In the Events mode, we can unpack the batch and send each
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
-    let event_max_bytes = match config.capture_mode {
+    let event_payload_max_bytes = match config.capture_mode {
         CaptureMode::Events => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
@@ -334,7 +334,7 @@ where
         config.capture_mode,
         config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
-        event_max_bytes,
+        event_payload_max_bytes,
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
         config.is_mirror_deploy,
@@ -342,6 +342,8 @@ where
         config.ai_max_sum_of_parts_bytes,
         ai_blob_storage,
         config.request_timeout_seconds,
+        config.body_chunk_read_timeout_ms,
+        config.body_read_chunk_size_kb,
     );
 
     info!("listening on {:?}", listener.local_addr().unwrap());

@@ -25,11 +25,15 @@ logger = structlog.get_logger(__name__)
 
 CacheType = Literal["flags", "team_metadata"]
 
-# Lock timeout matches time_limit to ensure lock is released if task is killed
-LOCK_TIMEOUT_SECONDS = 4 * 60 * 60  # 4 hours
+# Lock timeout matches time_limit to ensure lock is released if task is killed.
+# Reduced from 1 hour to 25 minutes to enable faster recovery when tasks crash
+# (OOM, deploy kills) without executing their finally block. With 30-minute
+# scheduling and 25-minute lock timeout, a crashed task's lock expires before
+# the next scheduled run, so at most 1 run is skipped after a crash.
+LOCK_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 
 
-def _run_cache_verification(cache_type: CacheType) -> None:
+def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
     """
     Run verification for a specific cache type.
 
@@ -52,7 +56,7 @@ def _run_cache_verification(cache_type: CacheType) -> None:
         return
 
     try:
-        logger.info("Starting cache verification", cache_type=cache_type)
+        logger.info("Starting cache verification", cache_type=cache_type, chunk_size=chunk_size)
 
         from posthog.storage.hypercache_verifier import _run_verification_for_cache
 
@@ -71,7 +75,9 @@ def _run_cache_verification(cache_type: CacheType) -> None:
         start_time = time.time()
 
         try:
-            _run_verification_for_cache(config=config, verify_team_fn=verify_fn, cache_type=cache_type)
+            _run_verification_for_cache(
+                config=config, verify_team_fn=verify_fn, cache_type=cache_type, chunk_size=chunk_size
+            )
         except Exception as e:
             logger.exception("Failed cache verification", cache_type=cache_type, error=str(e))
             capture_exception(e)
@@ -86,27 +92,29 @@ def _run_cache_verification(cache_type: CacheType) -> None:
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=3 * 60 * 60 + 30 * 60,  # 3h 30min soft limit
-    time_limit=4 * 60 * 60,  # 4 hour hard limit (distributed lock prevents overlap)
+    soft_time_limit=20 * 60,  # 20 min soft limit
+    time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
 )
 def verify_and_fix_flags_cache_task() -> None:
     """
     Periodic task to verify the flags HyperCache and fix issues.
 
-    Runs hourly at minute 40. Verifies all teams' flags caches,
-    automatically fixing any cache misses, mismatches, or expiry tracking issues.
+    Runs every 30 minutes. Verifies all teams' flags caches, automatically
+    fixing any cache misses, mismatches, or expiry tracking issues.
     Uses a distributed lock to skip execution if a previous run is still in progress.
+
+    Expected duration: ~8-10 minutes with 250-team batch size.
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="flags", issue_type="..."}
     """
-    _run_cache_verification("flags")
+    _run_cache_verification("flags", settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE)
 
 
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
-    soft_time_limit=3 * 60 * 60 + 30 * 60,  # 3h 30min soft limit
-    time_limit=4 * 60 * 60,  # 4 hour hard limit (distributed lock prevents overlap)
+    soft_time_limit=20 * 60,  # 20 min soft limit
+    time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
 )
 def verify_and_fix_team_metadata_cache_task() -> None:
     """
@@ -116,6 +124,8 @@ def verify_and_fix_team_metadata_cache_task() -> None:
     automatically fixing any cache misses, mismatches, or expiry tracking issues.
     Uses a distributed lock to skip execution if a previous run is still in progress.
 
+    Expected duration: ~3-5 minutes with 1000-team batch size.
+
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="team_metadata", issue_type="..."}
     """
-    _run_cache_verification("team_metadata")
+    _run_cache_verification("team_metadata", settings.TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE)

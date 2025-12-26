@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -13,6 +15,7 @@ import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
@@ -64,12 +67,21 @@ export function SurveysTable(): JSX.Element {
         <>
             <div>
                 <div className={cn('flex flex-wrap gap-2 justify-between mb-0')}>
-                    <LemonInput
-                        type="search"
-                        placeholder="Search for surveys"
-                        onChange={setSearchTerm}
-                        value={searchTerm || ''}
-                    />
+                    <AppShortcut
+                        name="SearchSurveys"
+                        keybind={[keyBinds.filter]}
+                        intent="Search surveys"
+                        interaction="click"
+                        scope={Scene.Surveys}
+                    >
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for surveys"
+                            onChange={setSearchTerm}
+                            value={searchTerm || ''}
+                        />
+                    </AppShortcut>
+
                     <div className="flex gap-2 items-center">
                         {tab === SurveysTabs.Active && (
                             <>

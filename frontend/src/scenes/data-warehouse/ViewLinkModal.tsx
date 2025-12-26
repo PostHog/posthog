@@ -25,6 +25,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink, IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
@@ -747,10 +748,12 @@ type ViewLinkButtonProps = LemonButtonProps & {
 
 export function ViewLinkButton({ tableName, ...props }: ViewLinkButtonProps): JSX.Element {
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
+    const { reportCustomerAnalyticsAddJoinButtonClicked } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
         selectSourceTable(tableName)
         toggleJoinTableModal()
+        reportCustomerAnalyticsAddJoinButtonClicked({ table: tableName })
     }
 
     return (

@@ -18,7 +18,7 @@ from ee.hogai.chat_agent.sql.prompts import (
     SQL_SUPPORTED_FUNCTIONS_DOCS,
 )
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.insight.query_executor import execute_and_format_query
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -34,6 +34,10 @@ from .prompts import (
 
 class ExecuteSQLToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    name: str = Field(
+        description="Short, concise name of the query (2-5 words) that will be displayed as a header in the query tile."
+    )
+    description: str = Field(description="Short, concise description of the query (1 sentence)")
 
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
@@ -61,8 +65,8 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
-    async def _arun_impl(self, query: str) -> tuple[str, ToolMessagesArtifact | None]:
-        parsed_query = self._parse_output({"query": query})
+    async def _arun_impl(self, query: str, name: str, description: str) -> tuple[str, ToolMessagesArtifact | None]:
+        parsed_query = self._parse_output({"query": query, "name": name, "description": description})
         try:
             await self._quality_check_output(
                 output=parsed_query,
@@ -72,8 +76,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         # Display an ephemeral visualization message to the user.
         artifact = await self._context_manager.artifacts.create(
-            content=VisualizationArtifactContent(query=parsed_query.query),
-            name="SQL Query",
+            VisualizationArtifactContent(
+                query=parsed_query.query, name=parsed_query.name, description=parsed_query.description
+            ),
+            "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(
             artifact_id=artifact.short_id,
@@ -81,8 +87,16 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             content_type=ArtifactContentType.VISUALIZATION,
         )
 
+        insight_context = InsightContext(
+            team=self._team,
+            query=parsed_query.query,
+            name=parsed_query.name,
+            description=parsed_query.description,
+            insight_id=artifact_message.artifact_id,
+        )
+
         try:
-            result = await execute_and_format_query(self._team, parsed_query.query)
+            result = await insight_context.execute_and_format()
         except MaxToolRetryableError as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
         except Exception:

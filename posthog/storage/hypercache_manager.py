@@ -185,6 +185,24 @@ class HyperCacheManagementConfig:
     update_fn: UpdateFn  # Function to update cache for a team
     cache_name: str  # Canonical cache name (e.g., "flags", "team_metadata")
 
+    # Optional properties for verification optimization
+    # If set, only teams in this set will have full DB data loaded during verification.
+    # Teams not in this set will use a fast-path check against empty_cache_value.
+    get_team_ids_needing_full_verification_fn: Callable[[], set[int]] | None = None
+    # The expected cache value for teams that don't need full verification (e.g., {"flags": []})
+    empty_cache_value: dict | None = None
+
+    def __post_init__(self) -> None:
+        """Validate that optimization fields are set together."""
+        has_team_ids_fn = self.get_team_ids_needing_full_verification_fn is not None
+        has_empty_value = self.empty_cache_value is not None
+
+        if has_team_ids_fn != has_empty_value:
+            raise ValueError(
+                "Verification optimization requires both get_team_ids_needing_full_verification_fn "
+                "and empty_cache_value to be set together (either both set or both None)"
+            )
+
     # Derived properties (computed from required properties using conventions)
     @property
     def namespace(self) -> str:

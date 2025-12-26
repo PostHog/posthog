@@ -150,6 +150,9 @@ class FilterSessionRecordingsTool(MaxTool):
         """).strip()
     context_prompt_template: str = "Current recordings filters are: {{{current_filters}}}.\nCurrent session ID being viewed: {{{current_session_id}}}."
 
+    def get_required_resource_access(self):
+        return [("session_recording", "viewer")]
+
     async def _arun_impl(
         self, recordings_filters: MaxRecordingUniversalFilters
     ) -> tuple[str, ToolMessagesArtifact | None]:

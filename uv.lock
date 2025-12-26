@@ -2880,20 +2880,6 @@ wheels = [
 ]
 
 [[package]]
-name = "inline-snapshot"
-version = "0.19.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "asttokens" },
-    { name = "executing" },
-    { name = "rich" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/42/bc/bbba2efb2ab0c8cf3d43fb0a7a1d3dfd8533d3bf18df9662ee4c09af7cac/inline_snapshot-0.19.3.tar.gz", hash = "sha256:1e40f34da64fe2406c6bba3f473905e22386da43e16c85060610692325aa94d7", size = 88636, upload-time = "2025-01-15T18:48:55.515Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/fc/d99b8983af46c0adbe10ad369ab929eb35cb32635526a9de4fe06ffd612f/inline_snapshot-0.19.3-py3-none-any.whl", hash = "sha256:81ed10eedb593aee630d2fc0cfe5d10a843c4bd507c2d96ea058c28413985452", size = 43627, upload-time = "2025-01-15T18:48:52.199Z" },
-]
-
-[[package]]
 name = "ipython"
 version = "9.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4595,7 +4581,6 @@ dev = [
     { name = "faker" },
     { name = "fakeredis", extra = ["lua"] },
     { name = "freezegun" },
-    { name = "inline-snapshot" },
     { name = "ipython" },
     { name = "mypy" },
     { name = "mypy-baseline" },
@@ -4847,7 +4832,6 @@ dev = [
     { name = "faker", specifier = "==17.5.0" },
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
     { name = "freezegun", specifier = "==1.2.2" },
-    { name = "inline-snapshot", specifier = "==0.19.*" },
     { name = "ipython", specifier = ">=9.3.0" },
     { name = "mypy", specifier = "~=1.18.2" },
     { name = "mypy-baseline", specifier = "~=0.7.3" },

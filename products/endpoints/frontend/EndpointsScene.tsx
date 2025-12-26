@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -61,24 +63,32 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
                         }}
                         actions={
-                            <LemonButton
-                                type="primary"
-                                to={urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)}
-                                sideAction={{
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        className: 'new-endpoint-overlay',
-                                        actionable: true,
-                                        overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
-                                    },
-                                    'data-attr': 'new-endpoint-dropdown',
-                                }}
-                                data-attr="new-endpoint-button"
-                                size="small"
-                                icon={<IconPlusSmall />}
+                            <AppShortcut
+                                name="EndpointsNew"
+                                keybind={[keyBinds.new]}
+                                intent="New endpoint"
+                                interaction="click"
+                                scope={Scene.EndpointsScene}
                             >
-                                New
-                            </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    to={urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            className: 'new-endpoint-overlay',
+                                            actionable: true,
+                                            overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
+                                        },
+                                        'data-attr': 'new-endpoint-dropdown',
+                                    }}
+                                    data-attr="new-endpoint-button"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                >
+                                    New
+                                </LemonButton>
+                            </AppShortcut>
                         }
                     />
                     <LemonBanner

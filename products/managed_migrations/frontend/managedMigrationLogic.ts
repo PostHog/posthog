@@ -202,12 +202,13 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             }
         },
         loadMigrationsSuccess: () => {
-            const hasRunningMigrations = values.migrations.some(
-                (migration: ManagedMigration) => migration.status === 'running'
+            const hasActiveMigrations = values.migrations.some(
+                (migration: ManagedMigration) =>
+                    migration.display_status === 'running' || migration.display_status === 'waiting_to_start'
             )
-            if (hasRunningMigrations && !values.isPolling) {
+            if (hasActiveMigrations && !values.isPolling) {
                 actions.startPolling()
-            } else if (!hasRunningMigrations && values.isPolling) {
+            } else if (!hasActiveMigrations && values.isPolling) {
                 actions.stopPolling()
             }
         },

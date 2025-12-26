@@ -1,8 +1,8 @@
+use axum::body::Body;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
-use bytes::Bytes;
 use tracing::{error, instrument, warn, Span};
 
 use crate::{
@@ -25,7 +25,7 @@ pub async fn event(
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
-    body: Bytes,
+    body: Body,
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
@@ -118,7 +118,7 @@ pub async fn recording(
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
-    body: Bytes,
+    body: Body,
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
