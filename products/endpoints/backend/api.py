@@ -1,7 +1,7 @@
 import re
 import builtins
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -53,7 +53,6 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -65,6 +64,11 @@ from products.data_warehouse.backend.models.external_data_schema import (
 from products.endpoints.backend.materialization import convert_insight_query_to_hogql
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
+from products.endpoints.backend.rate_limit import (
+    EndpointBurstThrottle,
+    EndpointSustainedThrottle,
+    clear_endpoint_materialization_cache,
+)
 
 from common.hogvm.python.utils import HogVMException
 
@@ -90,7 +94,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return None  # We use Pydantic models instead
 
     def get_throttles(self):
-        return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
 
     def check_team_api_queries_concurrency(self):
         cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
@@ -390,6 +394,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             endpoint.saved_query.soft_delete()
             endpoint.saved_query = None
             endpoint.save()
+        clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
@@ -456,7 +461,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
-        variables_override: Optional[builtins.list[HogQLVariable]] = None,
+        variables_override: builtins.list[HogQLVariable] | None = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
         debug: bool = False,
