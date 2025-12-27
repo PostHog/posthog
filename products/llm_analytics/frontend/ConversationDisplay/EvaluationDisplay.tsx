@@ -1,4 +1,4 @@
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconMinus, IconX } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { lowercaseFirstLetter } from 'lib/utils'
@@ -10,25 +10,43 @@ import { MetadataTag } from '../components/MetadataTag'
 
 export function EvaluationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const rawResult = eventProperties.$ai_evaluation_result
-    const result = rawResult === true || rawResult === 'true'
+    const rawApplicable = eventProperties.$ai_evaluation_applicable
+    // Check if result is explicitly true (handles both boolean and string 'true')
+    const isPass = rawResult === true || rawResult === 'true'
+    // Check if this is an N/A result (applicable is false, or result is null/undefined for boolean_with_na)
+    const isNA = rawApplicable === false || (rawResult === null && rawApplicable !== undefined)
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_evaluation_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
 
+    const renderResultTag = (): JSX.Element => {
+        if (isNA) {
+            return (
+                <LemonTag type="muted" icon={<IconMinus />}>
+                    N/A
+                </LemonTag>
+            )
+        }
+        if (isPass) {
+            return (
+                <LemonTag type="success" icon={<IconCheck />}>
+                    Pass
+                </LemonTag>
+            )
+        }
+        return (
+            <LemonTag type="danger" icon={<IconX />}>
+                Fail
+            </LemonTag>
+        )
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-                {result ? (
-                    <LemonTag type="success" icon={<IconCheck />}>
-                        Pass
-                    </LemonTag>
-                ) : (
-                    <LemonTag type="danger" icon={<IconX />}>
-                        Fail
-                    </LemonTag>
-                )}
+                {renderResultTag()}
                 {evaluationName && (
                     <MetadataTag label="Evaluation" textToCopy={evaluationName}>
                         {evaluationName}

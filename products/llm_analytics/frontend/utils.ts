@@ -812,11 +812,27 @@ type RawEvaluationRunRow = [
     evaluation_name: string | null,
     generation_id: string,
     trace_id: string,
-    result: boolean | string,
+    result: boolean | string | null,
     reasoning: string | null,
+    applicable: boolean | null,
 ]
 
 export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    const rawResult = row[6]
+    const applicable = row[8]
+
+    // If applicable is explicitly false, result should be null (N/A)
+    // Otherwise, convert result to boolean
+    let result: boolean | null
+    if (applicable === false) {
+        result = null
+    } else if (rawResult === null || rawResult === undefined) {
+        // No result and no applicable field means N/A
+        result = null
+    } else {
+        result = rawResult === true || rawResult === 'true'
+    }
+
     return {
         id: row[0],
         timestamp: row[1],
@@ -824,9 +840,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
-        result: row[6] === true || row[6] === 'true',
+        result,
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
+        applicable: applicable ?? undefined,
     }
 }
 
@@ -853,7 +870,8 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_target_event_id as generation_id,
             properties.$ai_trace_id as trace_id,
             properties.$ai_evaluation_result as result,
-            properties.$ai_evaluation_reasoning as reasoning
+            properties.$ai_evaluation_reasoning as reasoning,
+            properties.$ai_evaluation_applicable as applicable
         FROM events
         WHERE
             event = '$ai_evaluation'
