@@ -248,38 +248,213 @@ class ExperimentQueryBuilder:
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
+        Supports EventsNode, ActionsNode, and ExperimentDataWarehouseNode as funnel steps.
+
+        This method separates two orthogonal concerns:
+        1. Ordered vs Unordered funnels - affects CTE structure (with/without exposures CTE + LEFT JOIN)
+        2. DW vs non-DW steps - affects metric_events source (simple query vs UNION)
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
-        num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
+        num_steps = len(self.metric.series) + 1  # +1 as we are including exposure criteria
+        is_unordered = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
-        metric_events_cte_str = """
-                metric_events AS (
-                    SELECT
-                        {entity_key} AS entity_id,
-                        {variant_property} as variant,
-                        timestamp,
-                        uuid,
-                        properties.$session_id AS session_id,
-                        -- step_0, step_1, ... step_N columns added programmatically below
-                    FROM events
-                    WHERE ({exposure_predicate} OR {funnel_steps_filter})
-                )
+        # Check if we have DW steps and find the events_join_key if so
+        has_dw_steps = any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
+        if has_dw_steps:
+            # For DW funnels, use the events_join_key from the first DW step as the entity_id
+            # This ensures all UNION branches use the same join key
+            dw_step = next(step for step in self.metric.series if isinstance(step, ExperimentDataWarehouseNode))
+            entity_key_expr = parse_expr(dw_step.events_join_key)
+        else:
+            entity_key_expr = parse_expr(self.entity_key)
+
+        # Build placeholders needed for the events query
+        events_placeholders: dict[str, ast.Expr] = {
+            "exposure_predicate": self._build_exposure_predicate(),
+            "variant_property": self._build_variant_property(),
+            "entity_key": entity_key_expr,
+            "funnel_steps_filter": self._build_funnel_steps_filter(),
+        }
+
+        # Build metric_events CTE (handles DW vs non-DW internally, injects step columns via AST)
+        metric_events_cte, _has_dw_steps = self._build_funnel_metric_events_cte(events_placeholders)
+
+        # Build remaining placeholders for the outer query
+        placeholders = self._get_funnel_query_placeholders(is_unordered, metric_events_cte)
+        placeholders["num_steps_minus_1"] = ast.Constant(value=num_steps - 1)
+
+        # Build the final query using CTE template
+        query = parse_select(
+            f"""
+            WITH
+            {self._get_funnel_query_ctes(is_unordered)}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+            FROM entity_metrics
+            WHERE notEmpty(variant)
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        self._inject_funnel_breakdown_columns(query)
+
+        # Inject step counts and event data for chart rendering
+        self._inject_funnel_chart_data(query, num_steps)
+
+        return query
+
+    def _get_funnel_events_query_base(self, has_dw_steps: bool = False) -> str:
+        """
+        Returns the base events query template for funnel metrics (without step columns).
+
+        Step columns are injected via AST after parsing to ensure consistent handling
+        for both simple queries and UNION queries with DW steps.
+
+        Args:
+            has_dw_steps: If True, entity_id is converted to String for UNION compatibility
+                          with DW steps that use toString() for their join keys
+        """
+        # When DW steps are present, convert entity_id to String for UNION compatibility
+        # because person_id is UUID type but DW join keys are converted to String
+        # UUID columns stay as UUID since the funnel UDF expects UUID type
+        entity_id_expr = "toString({entity_key})" if has_dw_steps else "{entity_key}"
+        return f"""
+            SELECT
+                {entity_id_expr} AS entity_id,
+                {{variant_property}} as variant,
+                timestamp,
+                uuid,
+                properties.$session_id AS session_id
+            FROM events
+            WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
         """
 
-        is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
+    def _build_dw_step_subquery(self, step: ExperimentDataWarehouseNode, step_index: int) -> ast.SelectQuery:
+        """
+        Builds a subquery for a single data warehouse funnel step.
 
-        # For unordered funnels, the UDF does _not_ filter out funnel steps that occur _before_ the
-        # exposure event. Thus, we need to filter them out with a left join. An attempt to do this with
-        # a window function has been tried, but it failed with a "column not found" issue due to how
-        # HogQL rewrites the query and hitting a bug with the ClickHouse analyzer
-        if is_unordered_funnel:
-            ctes_sql = f"""
+        Args:
+            step: The DW step configuration
+            step_index: 1-based index (step_0 is exposure, step_1 is first series item)
+
+        Returns:
+            AST SelectQuery with step columns included (1 for this step, 0 for others)
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        num_steps = len(self.metric.series) + 1
+
+        # Build step columns: 1 for this step, 0 for all others
+        step_cols = [
+            ast.Alias(
+                alias=f"step_{i}",
+                expr=ast.Constant(value=1 if i == step_index else 0),
+            )
+            for i in range(num_steps)
+        ]
+
+        # Use f-string interpolation for table/field references (like the original code)
+        # because they need to be literal identifiers in the SQL, not placeholder expressions
+        query = parse_select(
+            f"""
+            SELECT
+                toString({step.data_warehouse_join_key}) AS entity_id,
+                '' AS variant,
+                toDateTime({step.table_name}.{step.timestamp_field}) AS timestamp
+            FROM {step.table_name}
+            WHERE {{predicate}}
+            """,
+            placeholders={
+                "predicate": self._build_dw_step_predicate(step),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Add placeholder columns for uuid and session_id to match events query types
+        # Use a placeholder UUID (all zeros) for DW steps since the funnel UDF expects UUID type
+        # Session ID can be empty string since it's String type in events
+        query.select.append(
+            ast.Alias(
+                alias="uuid",
+                expr=ast.Call(name="toUUID", args=[ast.Constant(value="00000000-0000-0000-0000-000000000000")]),
+            )
+        )
+        query.select.append(ast.Alias(alias="session_id", expr=ast.Constant(value="")))
+
+        # Add step columns
+        query.select.extend(step_cols)
+        return query
+
+    def _build_funnel_metric_events_cte(
+        self, placeholders: dict[str, ast.Expr]
+    ) -> tuple[ast.SelectQuery | ast.SelectSetQuery, bool]:
+        """
+        Builds the metric_events CTE for funnel queries.
+
+        Returns:
+            Tuple of (query, has_dw_steps) where query is either:
+            - A simple SelectQuery for events-only funnels
+            - A SelectSetQuery (UNION ALL) combining events and DW sources
+
+        Note: Unlike mean/ratio queries which use a single source, funnel queries support
+        heterogeneous steps (each step can be EventsNode, ActionsNode, or ExperimentDataWarehouseNode).
+        When DW steps are present, we use UNION ALL to combine events from multiple tables.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        has_dw_steps = any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
+        step_columns = self._build_funnel_step_columns()
+
+        # Build the events query (always needed for exposure + event/action steps)
+        # Pass has_dw_steps to convert uuid to String for UNION type compatibility
+        events_query = parse_select(self._get_funnel_events_query_base(has_dw_steps), placeholders=placeholders)
+        assert isinstance(events_query, ast.SelectQuery)
+        events_query.select.extend(step_columns)
+
+        if not has_dw_steps:
+            return events_query, False
+
+        # Build DW subqueries and combine with UNION ALL
+        queries: list[ast.SelectQuery] = [events_query]
+        for i, step in enumerate(self.metric.series):
+            if isinstance(step, ExperimentDataWarehouseNode):
+                dw_query = self._build_dw_step_subquery(step, step_index=i + 1)
+                queries.append(dw_query)
+
+        # Combine with UNION ALL using SelectSetQuery
+        union_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
+        assert isinstance(union_query, ast.SelectSetQuery)  # Always true since len(queries) > 1
+        return union_query, True
+
+    def _get_funnel_query_ctes(self, is_unordered: bool) -> str:
+        """
+        Returns the CTE structure template for funnel queries.
+
+        Args:
+            is_unordered: Whether this is an unordered funnel (requires exposures CTE + LEFT JOIN)
+
+        The metric_events CTE placeholder is filled in by the caller with either
+        a simple SelectQuery or a UNION query for DW steps.
+        """
+        if is_unordered:
+            # For unordered funnels, we need a separate exposures CTE and LEFT JOIN
+            # to filter out funnel steps that occur before the exposure event.
+            # This is because the funnel UDF doesn't handle this case for unordered funnels.
+            return """
                 exposures AS (
-                    {{exposure_select_query}}
+                    {exposure_select_query}
                 ),
 
-                {metric_events_cte_str},
+                metric_events AS ({metric_events_cte}),
 
                 entity_metrics AS (
                     SELECT
@@ -288,9 +463,9 @@ class ExperimentQueryBuilder:
                         exposures.exposure_event_uuid AS exposure_event_uuid,
                         exposures.exposure_session_id AS exposure_session_id,
                         exposures.first_exposure_time AS exposure_timestamp,
-                        {{funnel_aggregation}} AS value,
-                        {{uuid_to_session_map}} AS uuid_to_session,
-                        {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                        {funnel_aggregation} AS value,
+                        {uuid_to_session_map} AS uuid_to_session,
+                        {uuid_to_timestamp_map} AS uuid_to_timestamp
                     FROM exposures
                     LEFT JOIN metric_events
                         ON exposures.entity_id = metric_events.entity_id
@@ -304,87 +479,64 @@ class ExperimentQueryBuilder:
                 )
             """
         else:
-            ctes_sql = f"""
-                {metric_events_cte_str},
+            # For ordered funnels, we can use argMinIf to get exposure data from metric_events
+            return """
+                metric_events AS ({metric_events_cte}),
 
                 entity_metrics AS (
                     SELECT
                         entity_id,
-                        {{variant_expr}} as variant,
+                        {variant_expr} as variant,
                         argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
                         argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
                         argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
-                        {{funnel_aggregation}} AS value,
-                        {{uuid_to_session_map}} AS uuid_to_session,
-                        {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                        {funnel_aggregation} AS value,
+                        {uuid_to_session_map} AS uuid_to_session,
+                        {uuid_to_timestamp_map} AS uuid_to_timestamp
                     FROM metric_events
                     GROUP BY entity_id
                 )
             """
 
-        placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
-            "exposure_predicate": self._build_exposure_predicate(),
-            "variant_property": self._build_variant_property(),
+    def _get_funnel_query_placeholders(
+        self,
+        is_unordered: bool,
+        metric_events_cte: ast.SelectQuery | ast.SelectSetQuery,
+    ) -> dict[str, ast.Expr | ast.SelectQuery | ast.SelectSetQuery]:
+        """
+        Returns the placeholders for funnel query templates.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        num_steps = len(self.metric.series) + 1
+
+        placeholders: dict[str, ast.Expr | ast.SelectQuery | ast.SelectSetQuery] = {
+            "metric_events_cte": metric_events_cte,
             "variant_expr": self._build_variant_expr_for_funnel(),
-            "entity_key": parse_expr(self.entity_key),
-            "funnel_steps_filter": self._build_funnel_steps_filter(),
             "funnel_aggregation": self._build_funnel_aggregation_expr(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
             "uuid_to_session_map": self._build_uuid_to_session_map(),
             "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
         }
 
-        if is_unordered_funnel:
+        if is_unordered:
             placeholders["exposure_select_query"] = self._build_exposure_select_query()
 
-        query = parse_select(
-            f"""
-            WITH
-            {ctes_sql}
+        return placeholders
 
-            SELECT
-                entity_metrics.variant AS variant,
-                count(entity_metrics.entity_id) AS num_users,
-                -- The return value from the funnel eval is zero indexed. So reaching first step means
-                -- it return 0, and so on. So reaching the last step means it will return
-                -- num_steps - 1
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
-                -- step_counts added programmatically below
-                -- steps_event_data added programmatically below
-                -- breakdown columns added programmatically below
-            FROM entity_metrics
-            WHERE notEmpty(variant)
-            GROUP BY entity_metrics.variant
-            -- breakdown columns added programmatically below
-            """,
-            placeholders=placeholders,
-        )
-
-        assert isinstance(query, ast.SelectQuery)
-
-        # Inject breakdown columns into the query AST
-        self._inject_funnel_breakdown_columns(query)
-
-        # Inject step columns into the metric_events CTE
-        # Find the metric_events CTE in the query
-        if query.ctes and "metric_events" in query.ctes:
-            metric_events_cte = query.ctes["metric_events"]
-            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
-                # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns()
-                metric_events_cte.expr.select.extend(step_columns)
-
-        # Inject the additional selects we do for getting the data we need to render the funnel chart
+    def _inject_funnel_chart_data(self, query: ast.SelectQuery, num_steps: int) -> None:
+        """
+        Injects step_counts and steps_event_data columns for funnel chart rendering.
+        Modifies query in-place.
+        """
         # Add step counts - how many users reached each step
         step_count_exprs = []
         for i in range(1, num_steps):
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
-        # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
-        # that step as their last step in the funnel.
-        # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
+        # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp
+        # that have that step as their last step in the funnel.
+        # For users that have 0 matching steps in the funnel (-1), return the exposure event data.
         event_uuids_exprs = []
         for i in range(1, num_steps + 1):
             event_uuids_expr = f"""
@@ -401,8 +553,6 @@ class ExperimentQueryBuilder:
         event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
 
         query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
-
-        return query
 
     def _get_mean_query_common_ctes(self) -> str:
         """
@@ -1356,13 +1506,19 @@ class ExperimentQueryBuilder:
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
         Builds list of step column AST expressions: step_0, step_1, etc.
+        Supports EventsNode, ActionsNode, and ExperimentDataWarehouseNode.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
         step_columns: list[ast.Alias] = [ast.Alias(alias="step_0", expr=self._build_exposure_predicate())]
 
         for i, funnel_step in enumerate(self.metric.series):
-            step_filter = event_or_action_to_filter(self.team, funnel_step)
+            # Use appropriate filter based on step type
+            if isinstance(funnel_step, ExperimentDataWarehouseNode):
+                step_filter = data_warehouse_node_to_filter(self.team, funnel_step)
+            else:
+                step_filter = event_or_action_to_filter(self.team, funnel_step)
+
             step_columns.append(
                 ast.Alias(
                     alias=f"step_{i + 1}",
@@ -1372,12 +1528,39 @@ class ExperimentQueryBuilder:
 
         return step_columns
 
+    def _build_dw_step_predicate(self, step: ExperimentDataWarehouseNode) -> ast.Expr:
+        """
+        Builds the predicate for a data warehouse funnel step.
+        Filters by timestamp range and data warehouse node conditions.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        timestamp_field_chain = [step.table_name, step.timestamp_field]
+
+        return parse_expr(
+            """
+            {timestamp_field} >= {date_from}
+            AND {timestamp_field} < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {dw_filter}
+            """,
+            placeholders={
+                "timestamp_field": ast.Field(chain=timestamp_field_chain),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "dw_filter": data_warehouse_node_to_filter(self.team, step),
+            },
+        )
+
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
         Returns the expression to filter funnel steps (matches ANY step) within
         the time period of the experiment + the conversion window if set.
+        Only includes EventsNode and ActionsNode steps (not data warehouse steps).
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        # Filter to only non-DW steps for the events table
+        event_action_steps = [step for step in self.metric.series if not isinstance(step, ExperimentDataWarehouseNode)]
 
         conversion_window_seconds = self._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
@@ -1391,6 +1574,12 @@ class ExperimentQueryBuilder:
         else:
             date_to = self.date_range_query.date_to_as_hogql()
 
+        # If there are no event/action steps, return False (no funnel steps in events table)
+        if not event_action_steps:
+            steps_filter = ast.Constant(value=False)
+        else:
+            steps_filter = funnel_steps_to_filter(self.team, event_action_steps)
+
         return parse_expr(
             """
             timestamp >= {date_from} AND timestamp <= {date_to}
@@ -1399,7 +1588,7 @@ class ExperimentQueryBuilder:
             placeholders={
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": date_to,
-                "funnel_steps_filter": funnel_steps_to_filter(self.team, self.metric.series),
+                "funnel_steps_filter": steps_filter,
             },
         )
 
