@@ -84,7 +84,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - uses: actions/setup-python@v5
+            - uses: actions/setup-python@v6
               with:
                   python-version: '3.12.10' # There is no 3.12.11/3.12.12 binary for mac/darwin architectures yet
 
@@ -162,7 +162,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v6
               with:
                   python-version: 3.12.12
 
