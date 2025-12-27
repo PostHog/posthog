@@ -26,6 +26,15 @@ from posthog.models.utils import RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
+# Redis Pub/Sub channel name for feature flag updates.
+#
+# IMPORTANT: This constant MUST match the channel name in the Rust SSE manager:
+# `rust/feature-flags/src/sse/sse_redis_manager.rs::FEATURE_FLAGS_REDIS_CHANNEL`
+#
+# When Django saves/updates a feature flag, it publishes to this channel.
+# The Rust service subscribes to the same channel to receive updates.
+FEATURE_FLAGS_REDIS_CHANNEL = "feature_flags:updates"
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -501,6 +510,54 @@ def refresh_flag_cache_on_updates(sender, instance, **kwargs):
     # Defer cache update until after the transaction commits
     # This ensures the database has the new data before we query it
     transaction.on_commit(lambda: set_feature_flags_for_team_in_cache(instance.team.project_id))
+
+
+@mutable_receiver([post_save], sender=FeatureFlag)
+def broadcast_feature_flag_updates_to_redis(sender, instance, created=False, **kwargs):
+    """
+    Broadcast feature flag changes to Redis Pub/Sub for SSE consumers.
+
+    This signal handler publishes feature flag create/update events to a global Redis channel
+    where they can be consumed by all Rust SSE service pods. Each pod filters the events
+    and only broadcasts to SSE clients connected to that specific team.
+
+    Architecture:
+        Django Signal → Redis PUBLISH (global channel) → All Rust Pods → Filter by team → SSE Clients
+
+    Scalability:
+        - Uses ONE Redis channel for ALL teams (FEATURE_FLAGS_REDIS_CHANNEL)
+        - Each Rust pod has ONE Redis subscription (not per-team)
+        - Pods filter events in-memory by team_id
+        - Much more scalable than per-team Redis subscriptions
+    """
+    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+    from posthog.redis import get_client
+
+    def _broadcast():
+        # Determine event type based on created parameter
+        event_type = "created" if created else "updated"
+
+        # Serialize the full flag data
+        data = MinimalFeatureFlagSerializer(instance).data
+
+        # Add team_id to the data so Rust can filter by team
+        data["team_id"] = instance.team_id
+
+        # Publish to the global Redis channel - all Rust pods will receive this
+        # Each pod will filter and only broadcast to SSE clients for this team
+        try:
+            redis_client = get_client()
+            message = json.dumps({"type": event_type, "data": data})
+
+            redis_client.publish(FEATURE_FLAGS_REDIS_CHANNEL, message)
+            logger.info(
+                f"Published {event_type} event for flag {instance.key} (team {instance.team_id}) to global Redis channel"
+            )
+        except Exception:
+            logger.exception(f"Failed to publish feature flag update to Redis for team {instance.team_id}")
+
+    # Defer broadcast until after the transaction commits to ensure consistency
+    transaction.on_commit(_broadcast)
 
 
 class FeatureFlagHashKeyOverride(models.Model):

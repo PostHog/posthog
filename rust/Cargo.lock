@@ -2960,6 +2960,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
+ "async-stream",
  "axum 0.7.5",
  "axum-client-ip",
  "base64 0.22.1",
@@ -2979,6 +2980,7 @@ dependencies = [
  "dateparser",
  "envconfig",
  "futures",
+ "futures-util",
  "governor",
  "health",
  "hex",

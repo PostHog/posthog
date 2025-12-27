@@ -29,6 +29,7 @@ use crate::{
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
+        sse_endpoint,
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
@@ -36,6 +37,7 @@ use crate::{
         consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
         utils::team_id_label_filter,
     },
+    sse::SseRedisSubscriptionManager,
 };
 
 #[derive(Clone)]
@@ -57,6 +59,7 @@ pub struct State {
     pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
+    pub sse_manager: Option<Arc<SseRedisSubscriptionManager>>,
     pub ip_rate_limiter: IpRateLimiter,
 }
 
@@ -96,6 +99,9 @@ pub fn router(
         )
     });
 
+    // Initialize SSE manager for real-time feature flag updates
+    // For now, use a simple Redis URL - in production, this should come from config
+    let sse_manager = Arc::new(SseRedisSubscriptionManager::new(config.redis_url.clone()));
     // Initialize IP-based rate limiter with configuration
     let ip_rate_limiter = IpRateLimiter::new(
         *config.flags_ip_rate_limit_enabled,
@@ -133,6 +139,7 @@ pub fn router(
         flag_definitions_limiter,
         config: config.clone(),
         flags_rate_limiter,
+        sse_manager: Some(sse_manager),
         ip_rate_limiter,
     };
 
@@ -165,6 +172,14 @@ pub fn router(
         .route(
             "/flags/definitions/",
             any(flag_definitions::flags_definitions),
+        )
+        .route(
+            "/flags/definitions/stream",
+            get(sse_endpoint::feature_flags_stream),
+        )
+        .route(
+            "/flags/definitions/stream/",
+            get(sse_endpoint::feature_flags_stream),
         )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
