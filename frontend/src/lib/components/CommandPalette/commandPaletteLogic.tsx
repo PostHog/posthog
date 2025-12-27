@@ -71,7 +71,7 @@ import { InsightType } from '~/types'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
-import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
+import { hedgehogModeLogic } from '../HedgehogMode/hedgehogModeLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
@@ -147,7 +147,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['push'],
             userLogic,
             ['updateUser'],
-            hedgehogBuddyLogic,
+            hedgehogModeLogic,
             ['toggleHedgehogMode'],
             commandBarLogic,
             ['setCommandBar'],
@@ -161,7 +161,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['user'],
             featureFlagLogic,
             ['featureFlags'],
-            hedgehogBuddyLogic,
+            hedgehogModeLogic,
             ['hedgehogModeEnabled'],
             sidePanelLogic,
             ['enabledTabs'],
