@@ -88,7 +88,6 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             self.convert_single_breakdown_to_multiple_breakdowns()
             # Clean up old fields
             self.query.breakdownFilter.breakdown = None
-            self.query.breakdownFilter.breakdown_type = None
 
         self.__post_init__()
 
