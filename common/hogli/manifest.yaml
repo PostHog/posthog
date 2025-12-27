@@ -508,7 +508,19 @@ tools:
         hidden: true
     start:llm:gateway:
         bin_script: start-llm-gateway
-        description: 'TODO: add description for start-llm-gateway'
+        description: Start the LLM Gateway service
+        hidden: true
+    posthog:hobby:
+        bin_script: posthog-hobby
+        description: Run the posthog-hobby installation script for Linux, don't use it on your MacOS development environment
+        hidden: true
+    posthog:hobby:darwin:
+        bin_script: posthog-hobby-darwin
+        description: Run the posthog-hobby installation script for MacOS
+        hidden: true
+    posthog:hobby:demo:
+        bin_script: posthog-hobby-demo
+        description: Run a demo check for the PostHog hobby installation, useful while developing the installation script
         hidden: true
 utilities:
     nuke:

@@ -139,6 +139,10 @@ bin/mprocs*.local.yaml
 # Ignore bin lockfiles
 bin/*.lock
 
+# Hobby installer macOS/demo binaries (for local testing only)
+bin/posthog-hobby-darwin
+bin/posthog-hobby-demo
+
 # Debug output of our session summaries product
 .session-summaries
 
