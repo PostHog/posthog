@@ -9,6 +9,8 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
+
 type ExclusionRowSuffixComponentBaseProps = {
     index: number
     onClose?: () => void
@@ -41,7 +43,11 @@ export function ExclusionRowSuffix({
     }
 
     const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
-        const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, series)
+        // Filter out GroupNodes as funnels don't support them
+        const nonGroupSeries: AnyEntityNode[] | null | undefined = series?.filter(
+            (s): s is AnyEntityNode => s.kind !== NodeKind.GroupNode
+        )
+        const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, nonGroupSeries)
         const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
             exclusionIndex === index ? { ...exclusion, ...newStepRange } : exclusion
         )

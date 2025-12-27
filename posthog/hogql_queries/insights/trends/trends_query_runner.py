@@ -24,6 +24,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     InCohortVia,
@@ -707,7 +708,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             exact_timerange=self.exact_timerange,
         )
 
-    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
@@ -717,6 +718,24 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if isinstance(series, DataWarehouseNode):
             return series.table_name
+
+        if isinstance(series, GroupNode):
+            # Batch fetch all actions to avoid N+1 queries
+            action_ids = [int(node.id) for node in series.nodes if isinstance(node, ActionsNode)]
+            actions_by_id = {}
+            if action_ids:
+                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.team.project_id)
+                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+
+            events = []
+            for node in series.nodes:
+                if isinstance(node, EventsNode):
+                    events.append(node.event if node.event is not None else "All events")
+                elif isinstance(node, ActionsNode):
+                    events.append(actions_by_id.get(int(node.id), "Unnamed action"))
+                elif isinstance(node, DataWarehouseNode):
+                    events.append(node.table_name)
+            return ", ".join(events)
 
         return None  # type: ignore [unreachable]
 

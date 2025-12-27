@@ -23,6 +23,7 @@ import {
     ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupNode,
     GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
@@ -97,6 +98,10 @@ export function isNodeWithSource(node?: Record<string, any> | null): node is Dat
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
+}
+
+export function isGroupNode(node?: Record<string, any> | null): node is GroupNode {
+    return node?.kind === NodeKind.GroupNode
 }
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
@@ -447,7 +452,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+export const getSeries = (
+    query: InsightQueryNode
+): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }

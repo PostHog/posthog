@@ -14,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
@@ -80,7 +80,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             { actions, events, data_warehouse } as any,
                                             true,
                                             MathAvailability.All
-                                        )
+                                        ) as AnyEntityNode[]
 
                                         // Custom exposure metrics are not supported for data warehouse metrics
                                         if (series[0].kind === NodeKind.DataWarehouseNode) {
@@ -245,7 +245,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                     { actions, events, data_warehouse } as any,
                                                     true,
                                                     MathAvailability.All
-                                                )
+                                                ) as AnyEntityNode[]
 
                                                 if (!currentMetric.uuid) {
                                                     return
