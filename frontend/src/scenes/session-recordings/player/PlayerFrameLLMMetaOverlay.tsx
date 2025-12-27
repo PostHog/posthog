@@ -12,7 +12,7 @@ export function PlayerFrameLLMMetaOverlay(): JSX.Element | null {
     }
 
     return (
-        <div className="bg-black text-white text-md px-2 pt-1 pb-2 flex justify-center gap-4 truncate">
+        <div className="bg-black text-white text-md px-2 pt-1 pb-2 flex justify-center gap-4 truncate font-mono">
             <span>
                 <span className="font-bold">URL:</span> {currentURL}
             </span>
