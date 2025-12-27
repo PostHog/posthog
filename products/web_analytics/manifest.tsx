@@ -13,6 +13,7 @@ export const manifest: ProductManifest = {
         webAnalyticsPageReports: (): string => `/web/page-reports`,
         webAnalyticsMarketing: (): string => `/web/marketing`,
         webAnalyticsHealth: (): string => `/web/health`,
+        webAnalyticsLive: (): string => `/web/live`,
     },
     fileSystemTypes: {},
     treeItemsProducts: [

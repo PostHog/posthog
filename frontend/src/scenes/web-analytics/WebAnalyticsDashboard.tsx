@@ -50,6 +50,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -409,6 +410,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
         case ProductTab.HEALTH:
+        case ProductTab.LIVE:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
@@ -424,6 +426,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.HEALTH) {
         return <HealthStatusTab />
+    }
+
+    if (productTab === ProductTab.LIVE) {
+        return <LiveWebAnalyticsMetrics />
     }
 
     return <Tiles />
@@ -454,6 +460,20 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
             key: ProductTab.HEALTH,
             label: <HealthTabLabel />,
             link: '/web/health',
+        },
+    ]
+}
+
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.LIVE,
+            label: 'Live',
+            link: '/web/live',
         },
     ]
 }
@@ -562,6 +582,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
+                ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
             ]}
             sceneInset
