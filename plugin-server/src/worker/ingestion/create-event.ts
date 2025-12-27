@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Element, Person, PersonMode, PreIngestionEvent, RawKafkaEvent, TimestampFormat } from '../../types'
+import { Element, Person, PersonMode, PreIngestionEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
@@ -48,7 +48,8 @@ export function createEvent(
     person: Person,
     processPerson: boolean,
     historicalMigration: boolean,
-    capturedAt: Date | null
+    capturedAt: Date | null,
+    team?: Team | null
 ): RawKafkaEvent {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -111,5 +112,64 @@ export function createEvent(
         ...(historicalMigration ? { historical_migration: true } : {}),
     }
 
+    if (team) {
+        extractDynamicMaterializedColumns(rawEvent, properties, team)
+    }
+
     return rawEvent
+}
+
+function extractDynamicMaterializedColumns(rawEvent: RawKafkaEvent, properties: Properties, team: Team): void {
+    if (!team.materialized_column_slots || team.materialized_column_slots.length === 0) {
+        return
+    }
+
+    for (const slot of team.materialized_column_slots) {
+        // Only process READY and BACKFILL slots (skip ERROR)
+        if (slot.state !== 'READY' && slot.state !== 'BACKFILL') {
+            continue
+        }
+
+        const propertyValue = properties[slot.property_name]
+        if (propertyValue === undefined || propertyValue === null) {
+            continue
+        }
+
+        const columnName = `dmat_${slot.slot_property_type}_${slot.slot_index}` as keyof RawKafkaEvent
+        const convertedValue = convertPropertyValue(propertyValue, slot.slot_property_type)
+
+        if (convertedValue !== null) {
+            ;(rawEvent as any)[columnName] = convertedValue
+        }
+    }
+}
+
+function convertPropertyValue(
+    value: any,
+    propertyType: 'string' | 'numeric' | 'bool' | 'datetime'
+): string | number | null {
+    try {
+        switch (propertyType) {
+            case 'string':
+                return String(value)
+            case 'numeric':
+                const numValue = parseFloat(value)
+                return isNaN(numValue) ? null : numValue
+            case 'bool':
+                const strValue = String(value).toLowerCase()
+                if (strValue === 'true' || strValue === '1') {
+                    return 1
+                }
+                if (strValue === 'false' || strValue === '0') {
+                    return 0
+                }
+                return null
+            case 'datetime':
+                return value
+            default:
+                return null
+        }
+    } catch {
+        return null
+    }
 }

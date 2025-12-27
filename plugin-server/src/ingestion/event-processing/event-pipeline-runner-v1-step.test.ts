@@ -55,9 +55,10 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     available_features: [],
     drop_events_older_than_seconds: null,
     ...overrides,
+    materialized_column_slots: overrides.materialized_column_slots ?? [],
 })
 
-const createTestEventPipelineResult = (): EventPipelineResult => ({
+const createTestEventPipelineResult = (team: Team): EventPipelineResult => ({
     lastStep: 'test-step',
     person: {
         team_id: 1,
@@ -77,6 +78,7 @@ const createTestEventPipelineResult = (): EventPipelineResult => ({
     },
     processPerson: true,
     historicalMigration: false,
+    team,
 })
 
 describe('event-pipeline-runner-v1-step', () => {
@@ -149,7 +151,7 @@ describe('event-pipeline-runner-v1-step', () => {
 
     describe('createEventPipelineRunnerV1Step', () => {
         it('should create a step function that processes events successfully', async () => {
-            const mockResult = createTestEventPipelineResult()
+            const mockResult = createTestEventPipelineResult(mockTeam)
             const ackPromise = Promise.resolve()
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, [ackPromise])
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
@@ -275,7 +277,7 @@ describe('event-pipeline-runner-v1-step', () => {
             const ackPromise2 = Promise.resolve('kafka-ack')
             const ackPromise3 = Promise.resolve({ clickhouse: 'ack' })
             const sideEffects = [ackPromise1, ackPromise2, ackPromise3]
-            const mockResult = createTestEventPipelineResult()
+            const mockResult = createTestEventPipelineResult(mockTeam)
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, sideEffects)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
@@ -307,7 +309,7 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should handle successful pipeline results without side effects', async () => {
-            const mockResult = createTestEventPipelineResult()
+            const mockResult = createTestEventPipelineResult(mockTeam)
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
@@ -339,7 +341,7 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should pass all required parameters to EventPipelineRunner constructor', async () => {
-            const mockResult = createTestEventPipelineResult()
+            const mockResult = createTestEventPipelineResult(mockTeam)
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
@@ -377,7 +379,7 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should call runEventPipeline with correct parameters', async () => {
-            const mockResult = createTestEventPipelineResult()
+            const mockResult = createTestEventPipelineResult(mockTeam)
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
@@ -407,7 +409,7 @@ describe('event-pipeline-runner-v1-step', () => {
 
     describe('processPerson and forceDisablePersonProcessing flags', () => {
         beforeEach(() => {
-            const mockResult = createTestEventPipelineResult()
+            const mockResult = createTestEventPipelineResult(mockTeam)
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
         })

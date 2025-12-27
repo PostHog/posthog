@@ -43,6 +43,7 @@ export type EventPipelineResult = RunnerResult<{
     preparedEvent: PreIngestionEvent
     processPerson: boolean
     historicalMigration: boolean
+    team: Team
 }>
 
 export type EventPipelineHeatmapResult = RunnerResult<{
@@ -292,6 +293,7 @@ export class EventPipelineRunner {
             preparedEvent,
             processPerson,
             historicalMigration,
+            team,
         })
 
         return ok(result, kafkaAcks, warnings)
