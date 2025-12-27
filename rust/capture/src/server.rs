@@ -19,6 +19,7 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
+use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
 
@@ -240,6 +241,12 @@ where
         .expect("failed to create redis client"),
     );
 
+    let global_rate_limiter = if config.global_rate_limit_enabled {
+        Some(GlobalRateLimiter::new(&config, redis_client.clone()))
+    } else {
+        None
+    };
+
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch. You must supply the
@@ -328,6 +335,7 @@ where
         liveness,
         sink,
         redis_client,
+        global_rate_limiter,
         quota_limiter,
         token_dropper,
         config.export_prometheus,
