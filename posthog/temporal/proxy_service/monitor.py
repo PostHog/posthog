@@ -3,6 +3,7 @@ import json
 import uuid
 import socket
 import typing as t
+import asyncio
 import datetime as dt
 import ipaddress
 from dataclasses import dataclass
@@ -20,6 +21,11 @@ from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    CustomHostnameSSLStatus,
+    get_custom_hostname_by_domain,
+)
 from posthog.temporal.proxy_service.common import (
     CaptureEventInputs,
     NonRetriableException,
@@ -29,6 +35,7 @@ from posthog.temporal.proxy_service.common import (
     activity_update_proxy_record,
     get_grpc_client,
     get_record,
+    use_cloudflare_proxy,
 )
 from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest
 
@@ -145,6 +152,48 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
         proxy_record.domain,
     )
 
+    # Branch based on whether to use Cloudflare or legacy proxy provisioner
+    if use_cloudflare_proxy():
+        return await _check_cloudflare_certificate_status(proxy_record, logger)
+    else:
+        return await _check_legacy_certificate_status(proxy_record, logger)
+
+
+async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckActivityOutput:
+    """Check certificate status via Cloudflare API."""
+    try:
+        hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, proxy_record.domain)
+
+        if hostname_info is None:
+            return CheckActivityOutput(
+                errors=["Custom Hostname not found in Cloudflare"],
+                warnings=[],
+            )
+
+        if hostname_info.ssl.status != CustomHostnameSSLStatus.ACTIVE:
+            return CheckActivityOutput(
+                errors=[],
+                warnings=[f"TLS Certificate is not active, status: {hostname_info.ssl.status.value}"],
+            )
+
+        if hostname_info.ssl.validation_errors:
+            error_messages = [err.get("message", "Unknown error") for err in hostname_info.ssl.validation_errors]
+            return CheckActivityOutput(
+                errors=[],
+                warnings=[f"Certificate validation issues: {', '.join(error_messages)}"],
+            )
+
+        return CheckActivityOutput(
+            errors=[],
+            warnings=[],
+        )
+
+    except CloudflareAPIError as e:
+        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+
+
+async def _check_legacy_certificate_status(proxy_record, logger) -> CheckActivityOutput:
+    """Check certificate status via legacy gRPC proxy provisioner."""
     client = await get_grpc_client()
 
     try:
