@@ -37,6 +37,12 @@ outputs:
     build-id:
         description: The ID of the build
         value: ${{ steps.build.outputs.build-id }}
+    digest:
+        description: The digest of the image that was built
+        value: ${{ steps.build.outputs.digest }}
+    registry:
+        description: The ECR registry URL
+        value: ${{ steps.aws-ecr.outputs.registry }}
 
 runs:
     using: 'composite'
