@@ -58,12 +58,17 @@ def _stop_survey_if_reached_limit(survey: Survey, responses_count: int) -> None:
     survey.save(update_fields=["end_date", "responses_limit"])
 
 
-def stop_surveys_reached_target() -> None:
-    all_surveys = Survey.objects.exclude(Q(responses_limit__isnull=True) | Q(end_date__isnull=False)).only(
+def stop_surveys_reached_target(survey_id: str | None = None) -> None:
+    base_queryset = Survey.objects.exclude(Q(responses_limit__isnull=True) | Q(end_date__isnull=False)).only(
         "id", "responses_limit", "team_id", "created_at"
     )
 
+    if survey_id is not None:
+        base_queryset = base_queryset.filter(id=survey_id)
+
+    all_surveys = base_queryset
     all_surveys_sorted = sorted(all_surveys, key=lambda survey: survey.team_id)
+
     for team_id, team_surveys in groupby(all_surveys_sorted, lambda survey: survey.team_id):
         team_surveys_list = list(team_surveys)
         surveys_ids = [survey.id for survey in team_surveys_list]
@@ -71,8 +76,8 @@ def stop_surveys_reached_target() -> None:
 
         response_counts = _get_surveys_response_counts(surveys_ids, team_id, earliest_survey_creation_date)
         for survey in team_surveys_list:
-            survey_id = str(survey.id)
-            if survey_id not in response_counts:
+            sid = str(survey.id)
+            if sid not in response_counts:
                 continue
 
-            _stop_survey_if_reached_limit(survey, response_counts[survey_id])
+            _stop_survey_if_reached_limit(survey, response_counts[sid])
