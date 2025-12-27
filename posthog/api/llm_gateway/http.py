@@ -39,7 +39,26 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
+AI_PRODUCTS = ["llm_gateway", "array", "wizard"]
+
 _litellm_configured = False
+
+
+def _validate_ai_product(client_name: str | None) -> tuple[str, Response | None]:
+    """Validate and extract ai_product from client_name. Returns (ai_product, error_response)."""
+    ai_product = client_name.rstrip("/") if client_name else "llm_gateway"
+    if ai_product not in AI_PRODUCTS:
+        error_response = Response(
+            {
+                "error": {
+                    "message": f"Invalid product: {ai_product}. Allowed: {AI_PRODUCTS}",
+                    "type": "invalid_request_error",
+                }
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+        return ai_product, error_response
+    return ai_product, None
 
 
 def _serialize_response(obj: Any) -> Any:
@@ -87,6 +106,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         latency_ms: float,
         trace_id: str | None = None,
         error: Exception | None = None,
+        ai_product: str = "llm_gateway",
     ) -> None:
         """Capture an LLM generation event to PostHog following the LLM Analytics spec."""
         try:
@@ -102,7 +122,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "$ai_http_status": 200 if not error else getattr(error, "status_code", 500),
                 "team_id": self.team.id,
                 "organization_id": str(self.organization.id),
-                "ai_product": "llm_gateway",
+                "ai_product": ai_product,
             }
 
             if response:
@@ -197,8 +217,14 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ],
         tags=["LLM Gateway"],
     )
-    @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=["task:write"])
-    def anthropic_messages(self, request: Request, *args, **kwargs):
+    @action(
+        detail=False, methods=["POST"], url_path=r"(?P<client_name>\w+/)?v1/messages", required_scopes=["task:write"]
+    )
+    def anthropic_messages(self, request: Request, client_name: str | None = None, *args, **kwargs):
+        ai_product, error_response = _validate_ai_product(client_name)
+        if error_response:
+            return error_response
+
         _setup_litellm()
         serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
@@ -219,7 +245,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
-            "ai_product": "llm_gateway",
+            "ai_product": ai_product,
             **{
                 "trace_id": trace_id,
             },
@@ -263,6 +289,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     latency_ms=latency_ms,
                     trace_id=trace_id,
                     error=error,
+                    ai_product=ai_product,
                 )
 
     @extend_schema(
@@ -303,10 +330,14 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(
         detail=False,
         methods=["POST"],
-        url_path="v1/chat/completions",
+        url_path=r"(?P<client_name>\w+/)?v1/chat/completions",
         required_scopes=["task:write"],
     )
-    def chat_completions(self, request: Request, *args, **kwargs):
+    def chat_completions(self, request: Request, client_name: str | None = None, *args, **kwargs):
+        ai_product, error_response = _validate_ai_product(client_name)
+        if error_response:
+            return error_response
+
         _setup_litellm()
         serializer = ChatCompletionRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -321,7 +352,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
             "team_id": str(self.team.id),
-            "ai_product": "llm_gateway",
+            "ai_product": ai_product,
             "organization_id": str(self.organization.id),
         }
 
