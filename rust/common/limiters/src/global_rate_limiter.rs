@@ -113,23 +113,17 @@ fn bucket_from_timestamp(timestamp: DateTime<Utc>, bucket_interval: Duration) ->
 /// Computed window parameters for rate limit evaluation from Redis
 #[derive(Debug, Clone)]
 struct ReadWindowParams {
-    /// Redis key prefix for bucket keys
-    redis_key_prefix: String,
-    /// Size of each bucket in seconds
-    bucket_secs: i64,
-    /// Number of buckets in the window
-    num_buckets: usize,
-    /// The current bucket boundary (truncated timestamp)
-    current_bucket: i64,
     /// Start of the evaluated window
     window_start: DateTime<Utc>,
     /// End of the evaluated window
     window_end: DateTime<Utc>,
+    /// Pre-computed Redis bucket keys for MGET
+    bucket_keys: Vec<String>,
 }
 
 impl ReadWindowParams {
-    /// Calculate window parameters from config and timestamp
-    fn new(config: &GlobalRateLimiterConfig, timestamp: DateTime<Utc>) -> Self {
+    /// Calculate window parameters from config, key, and timestamp
+    fn new(config: &GlobalRateLimiterConfig, key: &str, timestamp: DateTime<Utc>) -> Self {
         let bucket_secs = config.bucket_interval.as_secs() as i64;
         let window_secs = config.window_interval.as_secs() as i64;
         let num_buckets = (window_secs / bucket_secs) as usize;
@@ -142,28 +136,22 @@ impl ReadWindowParams {
             DateTime::from_timestamp(window_start_bucket + (num_buckets as i64 * bucket_secs), 0)
                 .unwrap_or_else(Utc::now);
 
-        Self {
-            redis_key_prefix: config.redis_key_prefix.clone(),
-            bucket_secs,
-            num_buckets,
-            current_bucket,
-            window_start,
-            window_end,
-        }
-    }
-
-    /// Generate Redis MGET keys for a given rate limit key
-    fn bucket_keys(&self, key: &str) -> Vec<String> {
-        (1..=self.num_buckets)
+        let bucket_keys = (1..=num_buckets)
             .map(|i| {
                 format!(
                     "{}:{}:{}",
-                    self.redis_key_prefix,
+                    config.redis_key_prefix,
                     key,
-                    self.current_bucket - (i as i64 * self.bucket_secs)
+                    current_bucket - (i as i64 * bucket_secs)
                 )
             })
-            .collect()
+            .collect();
+
+        Self {
+            window_start,
+            window_end,
+            bucket_keys,
+        }
     }
 }
 
@@ -333,7 +321,7 @@ impl GlobalRateLimiter {
                 GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                 "step" => "enqueue_update",
                 "result" => "error",
-                "cause" => "channel_error",
+                "cause" => "channel_full",
             )
             .increment(1);
             error!(
@@ -382,13 +370,13 @@ impl GlobalRateLimiter {
 
     /// Fetch rate limit data for a single key from Redis global cache
     async fn fetch_from_global(&self, key: &str, timestamp: DateTime<Utc>) -> Option<CacheEntry> {
-        let wp = ReadWindowParams::new(&self.config, timestamp);
+        let wp = ReadWindowParams::new(&self.config, key, timestamp);
 
         // MGET with timeout
         let read_start = Instant::now();
         let counts = match tokio::time::timeout(
             self.config.global_read_timeout,
-            self.redis.mget(wp.bucket_keys(key)),
+            self.redis.mget(wp.bucket_keys.clone()),
         )
         .await
         {
@@ -621,10 +609,9 @@ mod tests {
 
         // Test at exact bucket boundary
         let ts = DateTime::from_timestamp(1735000050, 0).unwrap();
-        let wp = ReadWindowParams::new(&config, ts);
-        assert_eq!(wp.bucket_secs, 10);
-        assert_eq!(wp.num_buckets, 6); // 60s / 10s = 6 buckets
-        assert_eq!(wp.current_bucket, 1735000050);
+        let wp = ReadWindowParams::new(&config, "test_key", ts);
+        // 60s / 10s = 6 buckets
+        assert_eq!(wp.bucket_keys.len(), 6);
         // window_start = current - (6 * 10) = 1735000050 - 60 = 1734999990
         assert_eq!(
             wp.window_start,
@@ -643,8 +630,9 @@ mod tests {
 
         // Test mid-bucket (should truncate to bucket boundary)
         let ts = DateTime::from_timestamp(1735000057, 0).unwrap();
-        let wp = ReadWindowParams::new(&config, ts);
-        assert_eq!(wp.current_bucket, 1735000050); // Truncated
+        let wp = ReadWindowParams::new(&config, "test_key", ts);
+        // Bucket keys should be based on truncated current_bucket (1735000050)
+        assert!(wp.bucket_keys[0].ends_with(":1735000040"));
         assert_eq!(
             wp.window_start,
             DateTime::from_timestamp(1734999990, 0).unwrap()
@@ -661,10 +649,9 @@ mod tests {
         };
 
         let ts = DateTime::from_timestamp(1735000050, 0).unwrap();
-        let wp = ReadWindowParams::new(&config, ts);
-        assert_eq!(wp.bucket_secs, 5);
-        assert_eq!(wp.num_buckets, 6); // 30s / 5s = 6 buckets
-        assert_eq!(wp.current_bucket, 1735000050);
+        let wp = ReadWindowParams::new(&config, "test_key", ts);
+        // 30s / 5s = 6 buckets
+        assert_eq!(wp.bucket_keys.len(), 6);
         // window_start = 1735000050 - (6 * 5) = 1735000050 - 30 = 1735000020
         assert_eq!(
             wp.window_start,
@@ -676,19 +663,16 @@ mod tests {
     fn test_read_window_params_bucket_keys() {
         let config = test_config();
         let ts = DateTime::from_timestamp(1735000050, 0).unwrap();
-        let wp = ReadWindowParams::new(&config, ts);
-
-        // Verify the bucket keys generated for MGET
-        let bucket_keys = wp.bucket_keys("test_key");
+        let wp = ReadWindowParams::new(&config, "test_key", ts);
 
         // Should be 6 keys (num_buckets) for buckets going back from current
-        assert_eq!(bucket_keys.len(), 6);
-        assert_eq!(bucket_keys[0], "test::test_key:1735000040");
-        assert_eq!(bucket_keys[1], "test::test_key:1735000030");
-        assert_eq!(bucket_keys[2], "test::test_key:1735000020");
-        assert_eq!(bucket_keys[3], "test::test_key:1735000010");
-        assert_eq!(bucket_keys[4], "test::test_key:1735000000");
-        assert_eq!(bucket_keys[5], "test::test_key:1734999990");
+        assert_eq!(wp.bucket_keys.len(), 6);
+        assert_eq!(wp.bucket_keys[0], "test::test_key:1735000040");
+        assert_eq!(wp.bucket_keys[1], "test::test_key:1735000030");
+        assert_eq!(wp.bucket_keys[2], "test::test_key:1735000020");
+        assert_eq!(wp.bucket_keys[3], "test::test_key:1735000010");
+        assert_eq!(wp.bucket_keys[4], "test::test_key:1735000000");
+        assert_eq!(wp.bucket_keys[5], "test::test_key:1734999990");
     }
 
     #[tokio::test]
