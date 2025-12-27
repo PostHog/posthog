@@ -4,5 +4,5 @@ pub mod redis;
 pub mod token_dropper;
 
 pub use global_rate_limiter::{
-    CheckMode, GlobalRateLimitResponse, GlobalRateLimiter, GlobalRateLimiterConfig,
+    GlobalRateLimitResponse, GlobalRateLimiter, GlobalRateLimiterConfig, GlobalRateLimiterImpl,
 };
