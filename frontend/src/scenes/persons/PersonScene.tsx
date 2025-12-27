@@ -45,7 +45,7 @@ import { FeedbackBanner } from 'products/customer_analytics/frontend/components/
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import PersonFeedCanvas from './PersonFeedCanvas'
+import PersonProfileCanvas from './PersonProfileCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
@@ -258,7 +258,7 @@ export function PersonScene(): JSX.Element | null {
                         ? {
                               key: PersonsTabType.PROFILE,
                               label: <span data-attr="persons-profile-tab">Profile</span>,
-                              content: <PersonFeedCanvas person={person} />,
+                              content: <PersonProfileCanvas person={person} />,
                           }
                         : false,
                     {
