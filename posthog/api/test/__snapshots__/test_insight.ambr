@@ -2257,6 +2257,7 @@
          "posthog_alertconfiguration"."calculation_interval",
          "posthog_alertconfiguration"."threshold_id",
          "posthog_alertconfiguration"."condition",
+         "posthog_alertconfiguration"."detector_config",
          "posthog_alertconfiguration"."state",
          "posthog_alertconfiguration"."enabled",
          "posthog_alertconfiguration"."is_calculating",

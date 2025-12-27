@@ -8,6 +8,8 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
+    DetectorConfig,
+    DetectorType,
     GoalLine,
     InsightThresholdType,
     InsightsThresholdBounds,
@@ -34,6 +36,7 @@ export type AlertFormType = Pick<
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: QueryBasedInsightModel['id']
+    detector_config?: DetectorConfig | null
 }
 
 export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
@@ -60,6 +63,15 @@ const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBou
     // Simple assumption that the alert should be triggered when the first/smallest goal line is crossed
     const smallerValue = Math.min(...goalLines.map((line) => line.value))
     return { upper: smallerValue }
+}
+
+const getDefaultDetectorConfig = (goalLines?: GoalLine[] | null): DetectorConfig => {
+    const bounds = getThresholdBounds(goalLines)
+    return {
+        type: DetectorType.THRESHOLD,
+        threshold_type: InsightThresholdType.ABSOLUTE,
+        bounds,
+    } as DetectorConfig
 }
 
 export const alertFormLogic = kea<alertFormLogicType>([
@@ -106,6 +118,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     calculation_interval: AlertCalculationInterval.DAILY,
                     skip_weekend: false,
                     insight: props.insightId,
+                    detector_config: getDefaultDetectorConfig(values.goalLines),
                 } as AlertFormType),
             errors: ({ name }) => ({
                 name: !name ? 'You need to give your alert a name' : undefined,
@@ -125,6 +138,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ...alert.config,
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
+                    // Include detector config if set
+                    detector_config: alert.detector_config ?? undefined,
                 }
 
                 // absolute value alert can only have absolute threshold

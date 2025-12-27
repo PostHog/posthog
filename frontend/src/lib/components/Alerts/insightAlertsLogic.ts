@@ -6,11 +6,20 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import { getInterval, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { InsightLogicProps, IntervalType } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType } from './types'
+import { AlertCheck, AlertType } from './types'
+
+export interface AnomalyPoint {
+    index: number
+    date: string | null // Date string for matching with chart data
+    score: number | null
+    alertId: string
+    alertName: string
+    seriesIndex: number
+}
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -59,6 +68,19 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     selectors({
+        currentInterval: [
+            (s) => [s.insight],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (insight: any): IntervalType | null => {
+                const query = insight?.query
+                if (!query) {
+                    return null
+                }
+                // Get interval from the insight's query source
+                const source = 'source' in query ? query.source : query
+                return getInterval(source) ?? null
+            },
+        ],
         alertThresholdLines: [
             (s) => [s.alerts, s.showAlertThresholdLines],
             (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
@@ -92,6 +114,53 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     return annotations
                 })
                 return result
+            },
+        ],
+        anomalyPoints: [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (s: any) => [s.alerts, s.currentInterval],
+            (alerts: AlertType[], currentInterval: IntervalType | null): AnomalyPoint[] => {
+                const points: AnomalyPoint[] = []
+
+                for (const alert of alerts) {
+                    if (!alert.checks || alert.checks.length === 0) {
+                        continue
+                    }
+
+                    // Get the latest check with triggered points that matches the current interval
+                    const latestCheck = alert.checks.find((check: AlertCheck) => {
+                        if (!check.triggered_points || check.triggered_points.length === 0) {
+                            return false
+                        }
+                        // If check has an interval, only show if it matches current insight interval
+                        if (check.interval && currentInterval && check.interval !== currentInterval) {
+                            return false
+                        }
+                        return true
+                    })
+
+                    if (!latestCheck?.triggered_points) {
+                        continue
+                    }
+
+                    const seriesIndex = alert.config?.series_index ?? 0
+                    const scores = latestCheck.anomaly_scores ?? []
+                    const dates = latestCheck.triggered_dates ?? []
+
+                    for (let i = 0; i < latestCheck.triggered_points.length; i++) {
+                        const index = latestCheck.triggered_points[i]
+                        points.push({
+                            index,
+                            date: dates[i] ?? null,
+                            score: scores[index] ?? null,
+                            alertId: alert.id,
+                            alertName: alert.name,
+                            seriesIndex,
+                        })
+                    }
+                }
+
+                return points
             },
         ],
     }),

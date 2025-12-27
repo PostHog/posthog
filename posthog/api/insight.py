@@ -667,6 +667,11 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
+
+        # Populate checks for each alert (needed for anomaly points visualization)
+        for alert in alerts:
+            alert.checks = alert.alertcheck_set.all().order_by("-created_at")[:5]
+
         from posthog.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data

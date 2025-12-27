@@ -1069,6 +1069,18 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DetectorType(StrEnum):
+    THRESHOLD = "threshold"
+    ZSCORE = "zscore"
+    MAD = "mad"
+    IQR = "iqr"
+    ISOLATION_FOREST = "isolation_forest"
+    ECOD = "ecod"
+    COPOD = "copod"
+    KNN = "knn"
+    ENSEMBLE = "ensemble"
+
+
 class DistanceFunc(StrEnum):
     L1_DISTANCE = "L1Distance"
     L2_DISTANCE = "L2Distance"
@@ -1152,6 +1164,11 @@ class EndpointLastExecutionTimesRequest(BaseModel):
         extra="forbid",
     )
     names: list[str]
+
+
+class EnsembleMode(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
 
 
 class EntityType(StrEnum):
@@ -3169,6 +3186,11 @@ class SlashCommandName(StrEnum):
     FIELD_TICKET = "/ticket"
 
 
+class SmoothingType(StrEnum):
+    MOVING_AVERAGE = "moving_average"
+    EXPONENTIAL = "exponential"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3505,6 +3527,7 @@ class TrendsFilterLegacy(BaseModel):
     hidden_legend_keys: dict[str, bool | Any] | None = None
     min_decimal_places: float | None = None
     show_alert_threshold_lines: bool | None = None
+    show_alert_points: bool | None = None
     show_labels_on_series: bool | None = None
     show_legend: bool | None = None
     show_multiple_y_axes: bool | None = None
@@ -5153,6 +5176,15 @@ class PlanningStep(BaseModel):
     status: PlanningStepStatus
 
 
+class PreprocessingConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    diffs: bool | None = None
+    lags: int | None = None  # Number of lag features for multivariate models (KNN, Isolation Forest)
+    smoothing: int | None = None  # Moving average window size (0 or None = no smoothing)
+
+
 class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6012,6 +6044,16 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
 
 
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bounds: InsightsThresholdBounds
+    preprocessing: PreprocessingConfig | None = None
+    threshold_type: InsightThresholdType
+    type: Literal["threshold"] = "threshold"
+
+
 class TraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6105,6 +6147,7 @@ class TrendsFilter(BaseModel):
         Field(default=None, description="Customizations for the appearance of result datasets.")
     )
     showAlertThresholdLines: bool | None = False
+    showAlertPoints: bool | None = False
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
@@ -6372,6 +6415,16 @@ class WebVitalsPathBreakdownResult(BaseModel):
     good: list[WebVitalsPathBreakdownResultItem]
     needs_improvements: list[WebVitalsPathBreakdownResultItem]
     poor: list[WebVitalsPathBreakdownResultItem]
+
+
+class ZScoreDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = None
+    threshold: float | None = None
+    type: Literal["zscore"] = "zscore"
+    window: int | None = None
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -6876,6 +6929,15 @@ class BreakdownItem(BaseModel):
     )
     label: str
     value: str | int
+
+
+class COPODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = None
+    preprocessing: PreprocessingConfig | None = None
+    type: Literal["copod"] = "copod"
 
 
 class CacheMissResponse(BaseModel):
@@ -9303,6 +9365,15 @@ class DocumentSimilarityQueryResponse(BaseModel):
     )
 
 
+class ECODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = None
+    preprocessing: PreprocessingConfig | None = None
+    type: Literal["ecod"] = "ecod"
+
+
 class EndpointRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10215,6 +10286,16 @@ class HogQLQueryResponse(BaseModel):
     types: list | None = Field(default=None, description="Types of returned columns")
 
 
+class IQRDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiplier: float | None = None
+    preprocessing: PreprocessingConfig | None = None
+    type: Literal["iqr"] = "iqr"
+    window: int | None = None
+
+
 class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10225,6 +10306,26 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class IsolationForestDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = None
+    n_estimators: int | None = None
+    preprocessing: PreprocessingConfig | None = None
+    type: Literal["isolation_forest"] = "isolation_forest"
+
+
+class KNNDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = None
+    n_neighbors: int | None = None
+    preprocessing: PreprocessingConfig | None = None
+    type: Literal["knn"] = "knn"
 
 
 class LifecycleQueryResponse(BaseModel):
@@ -10319,6 +10420,16 @@ class LogsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = None
+    threshold: float | None = None
+    type: Literal["mad"] = "mad"
+    window: int | None = None
 
 
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
@@ -13334,6 +13445,24 @@ class DocumentSimilarityQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class EnsembleDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[
+        ThresholdDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | IsolationForestDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | KNNDetectorConfig
+    ]
+    mode: EnsembleMode
+    type: Literal["ensemble"] = "ensemble"
+
+
 class ErrorTrackingBreakdownsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14445,6 +14574,32 @@ class DatabaseSchemaViewTable(BaseModel):
     query: HogQLQuery
     row_count: float | None = None
     type: Literal["view"] = "view"
+
+
+class DetectorConfig(
+    RootModel[
+        EnsembleDetectorConfig
+        | ThresholdDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | IsolationForestDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | KNNDetectorConfig
+    ]
+):
+    root: (
+        EnsembleDetectorConfig
+        | ThresholdDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | IsolationForestDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | KNNDetectorConfig
+    )
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):

@@ -39,7 +39,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { AnomalyPointData, createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -50,6 +50,9 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+
+// AnomalyPointData is imported from tooltip-data.ts
+export type { AnomalyPointData }
 
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
@@ -233,6 +236,7 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    anomalyPoints?: AnomalyPointData[]
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -277,6 +281,7 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    anomalyPoints = [],
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -467,7 +472,61 @@ export function LineGraph_({
                 },
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: 0,
+            pointRadius: (() => {
+                if (isBar || !Array.isArray(dataset.data)) {
+                    return 0
+                }
+                const seriesAnomalies = anomalyPoints.filter((ap) => ap.seriesIndex === index)
+                if (seriesAnomalies.length === 0) {
+                    return 0
+                }
+                // Use date-based matching when available, fall back to index
+                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean))
+                const anomalyIndices = new Set(seriesAnomalies.map((ap) => ap.index))
+                const chartDays = dataset.days as string[] | undefined
+                return dataset.data.map((_: unknown, i: number) => {
+                    const chartDate = chartDays?.[i]
+                    const isAnomaly = (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
+                    return isAnomaly ? 6 : 0
+                })
+            })(),
+            pointBackgroundColor: (() => {
+                if (isBar || !Array.isArray(dataset.data)) {
+                    return undefined
+                }
+                const seriesAnomalies = anomalyPoints.filter((ap) => ap.seriesIndex === index)
+                if (seriesAnomalies.length === 0) {
+                    return undefined
+                }
+                // Use date-based matching when available, fall back to index
+                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean))
+                const anomalyIndices = new Set(seriesAnomalies.map((ap) => ap.index))
+                const chartDays = dataset.days as string[] | undefined
+                return dataset.data.map((_: unknown, i: number) => {
+                    const chartDate = chartDays?.[i]
+                    const isAnomaly = (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
+                    return isAnomaly ? '#F44336' : 'transparent'
+                })
+            })(),
+            pointBorderColor: (() => {
+                if (isBar || !Array.isArray(dataset.data)) {
+                    return undefined
+                }
+                const seriesAnomalies = anomalyPoints.filter((ap) => ap.seriesIndex === index)
+                if (seriesAnomalies.length === 0) {
+                    return undefined
+                }
+                // Use date-based matching when available, fall back to index
+                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean))
+                const anomalyIndices = new Set(seriesAnomalies.map((ap) => ap.index))
+                const chartDays = dataset.days as string[] | undefined
+                return dataset.data.map((_: unknown, i: number) => {
+                    const chartDate = chartDays?.[i]
+                    const isAnomaly = (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
+                    return isAnomaly ? '#B71C1C' : 'transparent'
+                })
+            })(),
+            pointBorderWidth: 2,
             hitRadius: 0,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
@@ -739,25 +798,30 @@ export function LineGraph_({
                                 const referenceDataPoint = tooltip.dataPoints[0]
                                 const dataset = processedDatasets[referenceDataPoint.datasetIndex]
                                 const date = dataset?.days?.[referenceDataPoint.dataIndex]
-                                const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
-                                    // For stacked bar charts when shift is pressed, show only the hovered bar
-                                    if (isHighlightBarMode) {
-                                        return dp.datasetIndex === referenceDataPoint.datasetIndex
-                                    }
+                                const seriesData = createTooltipData(
+                                    tooltip.dataPoints,
+                                    (dp) => {
+                                        // For stacked bar charts when shift is pressed, show only the hovered bar
+                                        if (isHighlightBarMode) {
+                                            return dp.datasetIndex === referenceDataPoint.datasetIndex
+                                        }
 
-                                    if (tooltipConfig?.filter) {
-                                        return tooltipConfig.filter(dp)
-                                    }
+                                        if (tooltipConfig?.filter) {
+                                            return tooltipConfig.filter(dp)
+                                        }
 
-                                    const hasDotted =
-                                        processedDatasets.some((d) => d.dotted) &&
-                                        dp.dataIndex - processedDatasets?.[dp.datasetIndex]?.data?.length >=
-                                            incompletenessOffsetFromEnd
-                                    return (
-                                        dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
-                                        dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
-                                    )
-                                })
+                                        const hasDotted =
+                                            processedDatasets.some((d) => d.dotted) &&
+                                            dp.dataIndex - processedDatasets?.[dp.datasetIndex]?.data?.length >=
+                                                incompletenessOffsetFromEnd
+                                        return (
+                                            dp.datasetIndex >= (hasDotted ? _datasets.length : 0) &&
+                                            dp.datasetIndex < (hasDotted ? _datasets.length * 2 : _datasets.length)
+                                        )
+                                    },
+                                    anomalyPoints,
+                                    dataset?.days // Pass days array for date-based anomaly matching
+                                )
 
                                 tooltipRoot.render(
                                     <InsightTooltip
@@ -1095,6 +1159,7 @@ export function LineGraph_({
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,
+            anomalyPoints,
         ],
     })
 
