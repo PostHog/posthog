@@ -1,4 +1,4 @@
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { HogFlow } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -26,7 +26,16 @@ describe('HogMasker', () => {
             now = 1720000000000
             mockNow.mockReturnValue(now)
 
-            redis = createRedisV2Pool(hub, 'cdp')
+            redis = createRedisV2PoolFromConfig({
+                connection: hub.CDP_REDIS_HOST
+                    ? {
+                          url: hub.CDP_REDIS_HOST,
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: hub.REDIS_URL },
+                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            })
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             masker = new HogMaskerService(redis)

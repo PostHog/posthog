@@ -8,7 +8,7 @@ import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, RedisPool, ValueMatcher } from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
-import { createRedisPool } from '../../../utils/db/redis'
+import { createRedisPoolFromConfig } from '../../../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
@@ -111,7 +111,17 @@ export class SessionRecordingIngester {
         this.topTracker = new TopTracker()
         this.kafkaParser = new KafkaMessageParser(this.topTracker)
 
-        this.redisPool = createRedisPool(this.hub, 'session-recording')
+        // Session recording uses its own Redis instance with fallback to default
+        this.redisPool = createRedisPoolFromConfig({
+            connection: hub.POSTHOG_SESSION_RECORDING_REDIS_HOST
+                ? {
+                      url: hub.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+                      options: { port: hub.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+        })
 
         const teamService = new TeamService(postgres)
 
