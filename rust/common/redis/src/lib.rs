@@ -215,6 +215,14 @@ pub trait Client {
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError>;
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError>;
+    /// Set raw bytes directly without any serialization or compression.
+    /// Used primarily for tests that need to write pickle-formatted data.
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn set_with_format(
         &self,
