@@ -190,8 +190,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                         event: '$ai_evaluation',
                         custom_name: evaluation.name,
                         math: HogQLMathType.HogQL,
-                        // Pass rate excludes N/A results (only counts where result IS NOT NULL)
-                        math_hogql: `countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) * 100`,
+                        // Pass rate excludes N/A results, returns 0 if all results are N/A
+                        math_hogql: `if(countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
                     })),
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
