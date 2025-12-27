@@ -1,18 +1,10 @@
-import { useValues } from 'kea'
-
 import { Language } from 'lib/components/CodeSnippet'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { Region } from '~/types'
 
 const SetupWizardBanner = ({ integrationName }: { integrationName: string }): JSX.Element => {
-    const { preflight } = useValues(preflightLogic)
-
-    const region = preflight?.region || Region.US
-    const wizardCommand = `npx -y @posthog/wizard@latest${region === Region.EU ? ` --eu` : ''}`
+    const wizardCommand = 'npx -y @posthog/wizard@latest'
 
     return (
         <LemonBanner type="info" hideIcon={true}>
