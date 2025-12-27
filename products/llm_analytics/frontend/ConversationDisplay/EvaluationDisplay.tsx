@@ -13,8 +13,8 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const rawApplicable = eventProperties.$ai_evaluation_applicable
     // Check if result is explicitly true (handles both boolean and string 'true')
     const isPass = rawResult === true || rawResult === 'true'
-    // Check if this is an N/A result (applicable is false, or result is null/undefined for boolean_with_na)
-    const isNA = rawApplicable === false || (rawResult === null && rawApplicable !== undefined)
+    // N/A when backend explicitly sets applicable to false
+    const isNA = rawApplicable === false
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_evaluation_model
