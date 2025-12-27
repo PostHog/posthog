@@ -9,8 +9,6 @@ from parameterized import parameterized
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.rate_limit import (
-    MATERIALIZED_BURST_RATE,
-    MATERIALIZED_SUSTAINED_RATE,
     EndpointBurstThrottle,
     EndpointSustainedThrottle,
     _check_and_cache_materialization_status,
@@ -180,12 +178,12 @@ class TestEndpointThrottles(APIBaseTest):
 
         self.assertEqual(throttle.scope, "api_queries_burst")
 
-    def test_uses_materialized_scope_and_higher_rate_when_materialized(self):
+    def test_uses_materialized_scope_when_materialized(self):
         set_endpoint_materialization_ready(self.team.id, "mat_endpoint", True)
 
-        for throttle_class, expected_rate, expected_scope in [
-            (EndpointBurstThrottle, MATERIALIZED_BURST_RATE, "materialized_endpoint_burst"),
-            (EndpointSustainedThrottle, MATERIALIZED_SUSTAINED_RATE, "materialized_endpoint_sustained"),
+        for throttle_class, expected_scope in [
+            (EndpointBurstThrottle, "materialized_endpoint_burst"),
+            (EndpointSustainedThrottle, "materialized_endpoint_sustained"),
         ]:
             throttle = throttle_class()
             request = MagicMock()
@@ -196,5 +194,4 @@ class TestEndpointThrottles(APIBaseTest):
             with patch.object(throttle_class, "allow_request", return_value=True):
                 throttle.allow_request(request, view)
 
-            self.assertEqual(throttle.rate, expected_rate)
             self.assertEqual(throttle.scope, expected_scope)

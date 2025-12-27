@@ -1,15 +1,11 @@
 from django.core.cache import cache
 
-from posthog.rate_limit import PersonalApiKeyRateThrottle
+from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 
 MATERIALIZED_ENDPOINT_CACHE_KEY = "endpoint_materialized_ready:{team_id}:{endpoint_name}"
 MATERIALIZED_ENDPOINT_CACHE_TTL = 3600  # 1 hour fallback TTL
 
-# Rate limits for inline endpoints (default)
-INLINE_BURST_RATE = "240/minute"
-INLINE_SUSTAINED_RATE = "2400/hour"
-
-# Rate limits for materialized endpoints (5x higher)
+# Rate limits for materialized endpoints (5x higher than api_queries)
 MATERIALIZED_BURST_RATE = "1200/minute"
 MATERIALIZED_SUSTAINED_RATE = "12000/hour"
 
@@ -97,45 +93,33 @@ def _is_materialized_endpoint_request(request, view) -> bool:
     return cached_status is True
 
 
-class EndpointBurstThrottle(PersonalApiKeyRateThrottle):
+class EndpointBurstThrottle(APIQueriesBurstThrottle):
     """
     Adaptive burst throttle for endpoints.
     Uses higher rate limit for materialized endpoints.
     Non-materialized endpoints share the api_queries_burst bucket.
     """
 
-    scope = "api_queries_burst"
-    rate = INLINE_BURST_RATE
-
     def allow_request(self, request, view):
         if _is_materialized_endpoint_request(request, view):
             self.rate = MATERIALIZED_BURST_RATE
             self.scope = "materialized_endpoint_burst"
-        else:
-            self.rate = INLINE_BURST_RATE
-            self.scope = "api_queries_burst"
+            self.num_requests, self.duration = self.parse_rate(self.rate)
 
-        self.num_requests, self.duration = self.parse_rate(self.rate)
         return super().allow_request(request, view)
 
 
-class EndpointSustainedThrottle(PersonalApiKeyRateThrottle):
+class EndpointSustainedThrottle(APIQueriesSustainedThrottle):
     """
     Adaptive sustained throttle for endpoints.
     Uses higher rate limit for materialized endpoints.
     Non-materialized endpoints share the api_queries_sustained bucket.
     """
 
-    scope = "api_queries_sustained"
-    rate = INLINE_SUSTAINED_RATE
-
     def allow_request(self, request, view):
         if _is_materialized_endpoint_request(request, view):
             self.rate = MATERIALIZED_SUSTAINED_RATE
             self.scope = "materialized_endpoint_sustained"
-        else:
-            self.rate = INLINE_SUSTAINED_RATE
-            self.scope = "api_queries_sustained"
+            self.num_requests, self.duration = self.parse_rate(self.rate)
 
-        self.num_requests, self.duration = self.parse_rate(self.rate)
         return super().allow_request(request, view)
