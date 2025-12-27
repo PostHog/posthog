@@ -13,6 +13,7 @@ class OutputType(models.TextChoices):
     """What type of result is expected"""
 
     BOOLEAN = "boolean", "Boolean (Pass/Fail)"
+    BOOLEAN_WITH_NA = "boolean_with_na", "Boolean with NA (Pass/Fail/NA)"
 
 
 class LLMJudgeConfig(BaseModel):
@@ -36,9 +37,20 @@ class BooleanOutputConfig(BaseModel):
     pass
 
 
+class BooleanWithNAOutputConfig(BaseModel):
+    """Configuration for boolean with N/A output type"""
+
+    # Currently no specific config needed
+    # This allows LLM judge to return "not applicable" when criteria doesn't apply
+    pass
+
+
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
-EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[LLMJudgeConfig], type[BooleanOutputConfig]]] = {
+EVALUATION_CONFIG_MODELS: dict[
+    tuple[str, str], tuple[type[LLMJudgeConfig], type[BooleanOutputConfig] | type[BooleanWithNAOutputConfig]]
+] = {
     (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN.value): (LLMJudgeConfig, BooleanOutputConfig),
+    (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN_WITH_NA.value): (LLMJudgeConfig, BooleanWithNAOutputConfig),
 }
 
 
