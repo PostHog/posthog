@@ -215,6 +215,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     output_data = extract_text_from_messages(output_raw)
 
     # Build judge prompt based on output type
+    response_format: type[BooleanEvalResult] | type[BooleanWithNAEvalResult]
     if output_type == "boolean_with_na":
         system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
 
