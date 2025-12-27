@@ -207,6 +207,7 @@ export const commonConfig = {
         '.mp3': 'file',
         '.lottie': 'file',
         '.sql': 'text',
+        '.wasm': 'file',
     },
     metafile: true,
 }
