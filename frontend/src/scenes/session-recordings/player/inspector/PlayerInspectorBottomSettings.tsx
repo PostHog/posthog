@@ -2,9 +2,10 @@ import './PlayerInspectorList.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { BaseIcon, IconCheck } from '@posthog/icons'
+import { BaseIcon, IconCheck, IconEllipsis } from '@posthog/icons'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
@@ -106,12 +107,42 @@ function ShowOnlyMatching(): JSX.Element {
     )
 }
 
+function MoreMenu(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const inspectorLogic = playerInspectorLogic(logicProps)
+
+    const { hasConsoleLogs, getFormattedConsoleLogs } = useValues(inspectorLogic)
+
+    const handleCopyConsoleLogs = (): void => {
+        const formattedLogs = getFormattedConsoleLogs()
+        if (formattedLogs) {
+            void copyToClipboard(formattedLogs, 'console logs')
+        }
+    }
+
+    return (
+        <SettingsMenu
+            items={[
+                {
+                    label: 'Copy console logs',
+                    onClick: handleCopyConsoleLogs,
+                    disabledReason: hasConsoleLogs ? undefined : 'There are no console logs to copy',
+                },
+            ]}
+            icon={<IconEllipsis />}
+        />
+    )
+}
+
 export function PlayerInspectorBottomSettings(): JSX.Element {
     return (
         <SettingsBar border="top">
             <SyncScrolling />
             <ShowOnlyMatching />
             <HideProperties />
+            <div className="ml-auto">
+                <MoreMenu />
+            </div>
         </SettingsBar>
     )
 }
