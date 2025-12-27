@@ -11,7 +11,7 @@ export function PythonInstructions(): JSX.Element {
                 automatically capture Django errors.
             </p>
             <CodeSnippet language={Language.Python}>
-                MIDDLEWARE += ["posthog.integrations.django.PosthogContextMiddleware”]
+                MIDDLEWARE += ["posthog.integrations.django.PosthogContextMiddleware"]
             </CodeSnippet>
             <PythonSetupSnippet enableExceptionAutocapture />
             <h4>Optional: Capture exceptions manually</h4>
