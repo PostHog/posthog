@@ -129,6 +129,7 @@ async def analyze_video_segment_activity(
                 ),
             ],
             config=types.GenerateContentConfig(max_output_tokens=4096),
+            # TODO: Enable back after updating posthoganalytics version
             # posthog_distinct_id=inputs.user_distinct_id_to_log,
             # posthog_trace_id=trace_id,
             # posthog_properties={
