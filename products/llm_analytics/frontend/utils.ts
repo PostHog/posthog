@@ -821,13 +821,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
     const rawResult = row[6]
     const applicable = row[8]
 
-    // If applicable is explicitly false, result should be null (N/A)
+    // N/A only when backend explicitly sets applicable=false
     // Otherwise, convert result to boolean
     let result: boolean | null
     if (applicable === false) {
-        result = null
-    } else if (rawResult === null || rawResult === undefined) {
-        // No result and no applicable field means N/A
         result = null
     } else {
         result = rawResult === true || rawResult === 'true'
