@@ -293,41 +293,43 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     return (
         <SceneContent>
             <div className="flex flex-col gap-y-4">
-                <SceneTitleSection
-                    name={survey.name}
-                    description={survey.description}
-                    resourceType={{
-                        type: 'survey',
-                    }}
-                    canEdit
-                    onNameChange={(name) => setSurveyValue('name', name)}
-                    onDescriptionChange={(description) => setSurveyValue('description', description)}
-                    renameDebounceMs={0}
-                    forceEdit
-                    actions={
-                        <>
-                            <LemonButton
-                                data-attr="cancel-survey"
-                                type="secondary"
-                                loading={surveyLoading}
-                                onClick={handleCancelClick}
-                                size="small"
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-survey"
-                                htmlType="submit"
-                                loading={surveyLoading}
-                                form="survey"
-                                size="small"
-                            >
-                                {id === 'new' ? 'Save as draft' : 'Save'}
-                            </LemonButton>
-                        </>
-                    }
-                />
+                <LemonField name="name">
+                    <SceneTitleSection
+                        name={survey.name}
+                        description={survey.description}
+                        resourceType={{
+                            type: 'survey',
+                        }}
+                        canEdit
+                        onNameChange={(name) => setSurveyValue('name', name)}
+                        onDescriptionChange={(description) => setSurveyValue('description', description)}
+                        renameDebounceMs={0}
+                        forceEdit
+                        actions={
+                            <>
+                                <LemonButton
+                                    data-attr="cancel-survey"
+                                    type="secondary"
+                                    loading={surveyLoading}
+                                    onClick={handleCancelClick}
+                                    size="small"
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-survey"
+                                    htmlType="submit"
+                                    loading={surveyLoading}
+                                    form="survey"
+                                    size="small"
+                                >
+                                    {id === 'new' ? 'Save as draft' : 'Save'}
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                </LemonField>
             </div>
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                 <div className="flex flex-col gap-2 flex-1 SurveyForm">
