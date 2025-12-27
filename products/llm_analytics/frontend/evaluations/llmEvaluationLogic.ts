@@ -11,7 +11,7 @@ import { Breadcrumb } from '~/types'
 import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationRun } from './types'
+import { EvaluationConditionSet, EvaluationConfig, EvaluationOutputType, EvaluationRun } from './types'
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
@@ -29,6 +29,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationDescription: (description: string) => ({ description }),
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
+        setEvaluationOutputType: (outputType: EvaluationOutputType) => ({ outputType }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
 
         // Evaluation management actions
@@ -76,6 +77,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: (state, { prompt }) =>
                     state ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } } : null,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
+                setEvaluationOutputType: (state, { outputType }) =>
+                    state ? { ...state, output_type: outputType } : null,
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
@@ -110,6 +113,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationDescription: () => true,
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
+                setEvaluationOutputType: () => true,
                 setTriggerConditions: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
@@ -252,13 +256,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const successfulRuns = runs.filter((r) => r.result === true).length
                 const failedRuns = runs.filter((r) => r.result === false).length
                 const errorRuns = runs.filter((r) => r.status === 'failed').length
+                // Applicable runs excludes N/A (result === null)
+                const applicableRuns = successfulRuns + failedRuns
+                const completedRuns = runs.filter((r) => r.status === 'completed').length
 
                 return {
                     total: runs.length,
                     successful: successfulRuns,
                     failed: failedRuns,
                     errors: errorRuns,
-                    successRate: runs.length > 0 ? Math.round((successfulRuns / runs.length) * 100) : 0,
+                    successRate: applicableRuns > 0 ? Math.round((successfulRuns / applicableRuns) * 100) : 0,
+                    applicabilityRate: completedRuns > 0 ? Math.round((applicableRuns / completedRuns) * 100) : 0,
                 }
             },
         ],
