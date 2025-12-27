@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Generate requirements_lock.txt from uv.lock for Bazel's rules_python
+# Run with: bazel run //:requirements.update
+
+set -euo pipefail
+
+cd "${BUILD_WORKSPACE_DIRECTORY:-$(git rev-parse --show-toplevel)}"
+
+echo "Exporting uv.lock to requirements_lock.txt..."
+uv export --format requirements-txt --all-extras --group dev --no-hashes > requirements_lock.txt
+
+echo "Done. Updated requirements_lock.txt"
