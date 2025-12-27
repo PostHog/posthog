@@ -174,7 +174,13 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
 
 
 def _expr_to_compare_op(
-    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
+    expr: ast.Expr,
+    value: ValueT,
+    operator: PropertyOperator,
+    property: Property,
+    is_json_field: bool,
+    team: Team,
+    scope: Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"] = "event",
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
@@ -183,6 +189,13 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
+        if property.type == "person" and scope == "person" and property.key.startswith("$virt"):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value=None),
+            )
+
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -441,6 +454,7 @@ def property_to_expr(
             property=property,
             is_json_field=False,
             team=team,
+            scope=scope,
         )
 
         return ast.And(exprs=[key_condition, index_condition])
@@ -498,6 +512,7 @@ def property_to_expr(
                         team=team,
                         property=property,
                         is_json_field=False,
+                        scope=scope,
                     )
                     for v in value
                 ]
@@ -636,6 +651,7 @@ def property_to_expr(
             team=team,
             property=property,
             is_json_field=property.type != "session",
+            scope=scope,
         )
 
         if is_exception_string_array_property:
@@ -695,6 +711,7 @@ def property_to_expr(
                 team=team,
                 property=property,
                 is_json_field=False,
+                scope=scope,
             )
 
         if property.key == "text":
@@ -708,6 +725,7 @@ def property_to_expr(
                         team=team,
                         property=property,
                         is_json_field=False,
+                        scope=scope,
                     )
                 },
             )
