@@ -5,8 +5,9 @@ use crate::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{decoding, process_request, RequestContext},
+    handler::{decoding, process_request, CanonicalLogGuard, CanonicalLogLine, RequestContext},
     router,
+    utils::user_agent::UserAgentInfo,
 };
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
@@ -20,18 +21,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use tracing::Instrument;
 use uuid::Uuid;
-
-struct LogContext<'a> {
-    headers: &'a HeaderMap,
-    query_params: &'a FlagsQueryParams,
-    method: &'a Method,
-    path: &'a MatchedPath,
-    ip: &'a str,
-    request_id: Uuid,
-    is_from_decide: bool,
-    query_version: Option<i32>,
-    response_format: &'a str,
-}
 
 /// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
 /// Good for tracing logs from the Contour layer all the way to the property evaluation
@@ -206,7 +195,7 @@ pub async fn flags(
     // Extract client IP, checking X-Forwarded-For header first
     let ip = extract_client_ip(&headers, direct_ip);
 
-    // Handle different HTTP methods
+    // Handle different HTTP methods (these don't need canonical logging)
     match method {
         Method::GET => {
             // GET requests return minimal flags response
@@ -248,6 +237,27 @@ pub async fn flags(
         }
     }
 
+    // Convert IP to string once and reuse throughout the request
+    let ip_string = ip.to_string();
+
+    // Parse User-Agent and extract SDK info for logging
+    let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
+    let ua_info = UserAgentInfo::parse(user_agent);
+
+    // Initialize canonical log guard with all upfront request metadata.
+    // The guard ensures the log is emitted even on early returns (e.g., rate limiting).
+    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via log_mut().
+    let mut guard = CanonicalLogGuard::new(CanonicalLogLine {
+        request_id,
+        ip: ip_string.clone(),
+        user_agent: user_agent.map(|s| s.to_string()),
+        lib: ua_info.lib_for_logging(),
+        // Browser SDK sends ver= query param, server SDKs send version in User-Agent
+        lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
+        api_version: query_params.version.clone(),
+        ..Default::default()
+    });
+
     // Check if this request came through the decide proxy
     let is_from_decide = headers
         .get("X-Original-Endpoint")
@@ -285,14 +295,23 @@ pub async fn flags(
     // simply rotating through fake tokens from the same IP address.
 
     // Check IP-based rate limit first
-    if !state.ip_rate_limiter.allow_request(&ip.to_string()) {
+    // Guard auto-emits on early return
+    if !state.ip_rate_limiter.allow_request(&ip_string) {
+        guard.log_mut().rate_limited = true;
+        guard.log_mut().http_status = 429;
+        guard.log_mut().error_code = Some("ip_rate_limited".to_string());
         return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
     }
 
     // Check token-based rate limit
     // Extract token from body, use IP as fallback if extraction fails
-    let rate_limit_key = decoding::extract_token(&context.body).unwrap_or_else(|| ip.to_string());
+    // Guard auto-emits on early return
+    let rate_limit_key =
+        decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
     if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+        guard.log_mut().rate_limited = true;
+        guard.log_mut().http_status = 429;
+        guard.log_mut().error_code = Some("token_rate_limited".to_string());
         return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
     }
 
@@ -310,66 +329,37 @@ pub async fn flags(
         &query_params,
         &method,
         &path,
-        &ip.to_string(),
+        &ip_string,
         request_id,
     );
 
-    let response = async move { process_request(context).await }
+    // Transfer log ownership for async processing (guard is consumed, no auto-emit)
+    let canonical_log = guard.into_inner();
+
+    let (result, mut canonical_log) = async move { process_request(context, canonical_log).await }
         .instrument(_span)
-        .await?;
+        .await;
 
-    // Determine the response format based on whether request is from decide and version
-    let (versioned_response, response_format) =
-        get_versioned_response(is_from_decide, query_version, response)?;
-
-    let log_context = LogContext {
-        headers: &headers,
-        query_params: &query_params,
-        method: &method,
-        path: &path,
-        ip: &ip.to_string(),
-        request_id,
-        is_from_decide,
-        query_version,
-        response_format,
-    };
-    log_request_info(log_context);
-
-    Ok(Json(versioned_response).into_response())
-}
-
-fn log_request_info(ctx: LogContext) {
-    let user_agent = ctx
-        .headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = ctx
-        .query_params
-        .compression
-        .as_ref()
-        .map_or("none", |c| c.as_str());
-    let content_type = ctx
-        .headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
-    tracing::info!(
-        user_agent = %user_agent,
-        content_encoding = %content_encoding,
-        content_type = %content_type,
-        version = %ctx.query_params.version.as_deref().unwrap_or("unknown"),
-        lib_version = %ctx.query_params.lib_version.as_deref().unwrap_or("unknown"),
-        compression = %ctx.query_params.compression.as_ref().map_or("none", |c| c.as_str()),
-        method = %ctx.method.as_str(),
-        path = %ctx.path.as_str().trim_end_matches('/'),
-        ip = %ctx.ip,
-        sent_at = %ctx.query_params.sent_at.unwrap_or(0).to_string(),
-        request_id = %ctx.request_id,
-        is_from_decide = %ctx.is_from_decide,
-        query_version = ?ctx.query_version,
-        response_format = %ctx.response_format,
-        "Processing request"
-    );
+    match result {
+        Ok(response) => {
+            // Determine the response format based on whether request is from decide and version
+            match get_versioned_response(is_from_decide, query_version, response) {
+                Ok((versioned_response, _response_format)) => {
+                    canonical_log.http_status = 200;
+                    canonical_log.emit();
+                    Ok(Json(versioned_response).into_response())
+                }
+                Err(e) => {
+                    canonical_log.emit_for_error(&e);
+                    Err(e)
+                }
+            }
+        }
+        Err(e) => {
+            canonical_log.emit_for_error(&e);
+            Err(e)
+        }
+    }
 }
 
 fn create_request_span(
