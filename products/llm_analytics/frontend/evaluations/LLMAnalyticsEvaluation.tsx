@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
@@ -35,8 +36,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         isNewEvaluation,
         runsSummary,
     } = useValues(llmEvaluationLogic)
-    const { setEvaluationName, setEvaluationDescription, setEvaluationEnabled, saveEvaluation, resetEvaluation } =
-        useActions(llmEvaluationLogic)
+    const {
+        setEvaluationName,
+        setEvaluationDescription,
+        setEvaluationEnabled,
+        setEvaluationOutputType,
+        saveEvaluation,
+        resetEvaluation,
+    } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
 
@@ -145,6 +152,40 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </span>
                                 </div>
                             </Field>
+
+                            <Field name="output_type" label="Output type">
+                                <LemonSelect
+                                    value={evaluation.output_type}
+                                    onChange={(value) => value && setEvaluationOutputType(value)}
+                                    options={[
+                                        {
+                                            value: 'boolean',
+                                            label: 'Pass/Fail',
+                                            labelInMenu: (
+                                                <div>
+                                                    <div className="font-medium">Pass/Fail</div>
+                                                    <div className="text-muted text-xs">
+                                                        Evaluation returns true (pass) or false (fail)
+                                                    </div>
+                                                </div>
+                                            ),
+                                        },
+                                        {
+                                            value: 'boolean_with_na',
+                                            label: 'Pass/Fail/NA',
+                                            labelInMenu: (
+                                                <div>
+                                                    <div className="font-medium">Pass/Fail/NA</div>
+                                                    <div className="text-muted text-xs">
+                                                        Evaluation can also return "Not Applicable" when criteria
+                                                        doesn't apply
+                                                    </div>
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
+                                />
+                            </Field>
                         </div>
                     </div>
 
@@ -187,6 +228,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </div>
                                         <div className="text-muted">Success Rate</div>
                                     </div>
+                                    {evaluation.output_type === 'boolean_with_na' && (
+                                        <div className="text-center">
+                                            <div className="font-semibold text-lg">
+                                                {runsSummary.applicabilityRate}%
+                                            </div>
+                                            <div className="text-muted">Applicable</div>
+                                        </div>
+                                    )}
                                     <div className="text-center">
                                         <div className="font-semibold text-lg text-danger">{runsSummary.errors}</div>
                                         <div className="text-muted">Errors</div>
