@@ -59,6 +59,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "capture_dead_clicks": false,
         "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
+        "core_events_config": {
+          "core_events": [],
+        },
         "correlation_config": {
           "excluded_event_names": [
             "$autocapture",

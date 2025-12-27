@@ -181,6 +181,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",
             "category": "Pipeline",

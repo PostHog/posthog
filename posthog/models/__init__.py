@@ -21,6 +21,7 @@ from .batch_imports import BatchImport
 from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
+from .core_event import TeamCoreEventsConfig
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
@@ -116,6 +117,7 @@ __all__ = [
     "CohortPeople",
     "CohortCalculationHistory",
     "ColumnConfiguration",
+    "TeamCoreEventsConfig",
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",
