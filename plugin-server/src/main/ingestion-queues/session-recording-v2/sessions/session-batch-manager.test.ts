@@ -4,6 +4,7 @@ import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
@@ -16,6 +17,7 @@ describe('SessionBatchManager', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
+    let mockSessionTracker: jest.Mocked<SessionTracker>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -56,6 +58,10 @@ describe('SessionBatchManager', () => {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
+        mockSessionTracker = {
+            trackSession: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionTracker>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
@@ -64,6 +70,7 @@ describe('SessionBatchManager', () => {
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
+            sessionTracker: mockSessionTracker,
         })
     })
 
@@ -81,6 +88,7 @@ describe('SessionBatchManager', () => {
             mockFileStorage,
             mockMetadataStore,
             mockConsoleLogStore,
+            mockSessionTracker,
             Number.MAX_SAFE_INTEGER
         )
 
@@ -159,6 +167,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -166,6 +175,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
                 500
             )
         })
@@ -179,6 +189,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
             })
 
             await manager.flush()
@@ -188,6 +199,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
                 250
             )
         })
@@ -201,6 +213,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -208,6 +221,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
                 0
             )
         })
@@ -221,6 +235,7 @@ describe('SessionBatchManager', () => {
                 fileStorage: mockFileStorage,
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
+                sessionTracker: mockSessionTracker,
             })
 
             expect(SessionBatchRecorder).toHaveBeenCalledWith(
@@ -228,6 +243,7 @@ describe('SessionBatchManager', () => {
                 mockFileStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
+                mockSessionTracker,
                 Number.MAX_SAFE_INTEGER
             )
         })

@@ -4,6 +4,7 @@ import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
+import { SessionTracker } from './session-tracker'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -20,6 +21,8 @@ export interface SessionBatchManagerConfig {
     metadataStore: SessionMetadataStore
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
+    /** Session tracker for new session detection */
+    sessionTracker: SessionTracker
 }
 
 /**
@@ -66,6 +69,7 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
+    private readonly sessionTracker: SessionTracker
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -75,12 +79,14 @@ export class SessionBatchManager {
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
+        this.sessionTracker = config.sessionTracker
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
+            this.sessionTracker,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
@@ -104,6 +110,7 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
+            this.sessionTracker,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()

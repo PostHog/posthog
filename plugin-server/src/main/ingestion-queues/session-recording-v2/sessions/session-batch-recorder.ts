@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../../utils/logger'
+import { NewSessionLimiter } from '../../../../utils/token-bucket'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
@@ -10,6 +11,7 @@ import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionRateLimiter } from './session-rate-limiter'
+import { SessionTracker } from './session-tracker'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
@@ -70,6 +72,7 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
+        private readonly sessionTracker: SessionTracker,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
@@ -88,6 +91,32 @@ export class SessionBatchRecorder {
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
         const teamSessionKey = `${teamId}$${sessionId}`
+
+        // Check if this is a new session and whether it should be rate limited
+        let shouldRateLimitNewSession = false
+
+        await this.sessionTracker.trackSession(teamId, sessionId, (teamId, _sessionId) => {
+            const isAllowed = NewSessionLimiter.consume(String(teamId), 1)
+            if (!isAllowed) {
+                shouldRateLimitNewSession = true
+                SessionBatchMetrics.incrementNewSessionsRateLimited()
+            }
+            return Promise.resolve()
+        })
+
+        if (shouldRateLimitNewSession) {
+            logger.debug('🔁', 'session_batch_recorder_new_session_rate_limited', {
+                partition,
+                sessionId,
+                teamId,
+                batchId: this.batchId,
+            })
+            this.offsetManager.trackOffset({
+                partition: message.message.metadata.partition,
+                offset: message.message.metadata.offset,
+            })
+            return 0
+        }
 
         const isAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
 

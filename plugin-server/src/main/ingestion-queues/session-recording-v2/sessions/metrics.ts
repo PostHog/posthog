@@ -68,6 +68,16 @@ export class SessionBatchMetrics {
         help: 'Number of events that were rate limited',
     })
 
+    private static readonly newSessionsDetected = new Counter({
+        name: 'recording_blob_ingestion_v2_new_sessions_detected_total',
+        help: 'Number of new sessions detected (not seen in Redis within TTL)',
+    })
+
+    private static readonly newSessionsRateLimited = new Counter({
+        name: 'recording_blob_ingestion_v2_new_sessions_rate_limited_total',
+        help: 'Number of new sessions that were rate limited',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -119,5 +129,13 @@ export class SessionBatchMetrics {
 
     public static incrementEventsRateLimited(count: number = 1): void {
         this.eventsRateLimited.inc(count)
+    }
+
+    public static incrementNewSessionsDetected(count: number = 1): void {
+        this.newSessionsDetected.inc(count)
+    }
+
+    public static incrementNewSessionsRateLimited(count: number = 1): void {
+        this.newSessionsRateLimited.inc(count)
     }
 }
