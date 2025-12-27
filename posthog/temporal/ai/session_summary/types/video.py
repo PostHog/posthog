@@ -1,5 +1,6 @@
 import dataclasses
 from enum import Enum
+from typing import Literal
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
@@ -79,9 +80,14 @@ class VideoSegmentElement:
     element_value: str
 
 
+@dataclasses.dataclass(frozen=True)
 class VideoSegmentInteraction:
+    interaction_source: Literal["video", "events"]
     interaction_type: str | None = None
     elements: list[VideoSegmentElement] | None = None
+    # Timestamp of the start of the interaction, in real seconds (based on the metadata, not video),
+    # to be able to link interactions to the session timeline
+    s_from_start: int | None = None
 
 
 @dataclasses.dataclass  # Not frozen, as we plan to extend it

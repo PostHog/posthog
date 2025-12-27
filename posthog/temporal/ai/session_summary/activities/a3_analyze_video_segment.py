@@ -1,3 +1,4 @@
+from datetime import datetime
 from math import floor
 import re
 import json
@@ -155,59 +156,15 @@ async def analyze_video_segment_activity(
             )
             return segments
 
-        # Calculate the average start offset of the points within the segment - the difference between video timestamp and timestamp indicator
-        # The assumption that timestamp indicator and start of the point should be close, so offset could be reliably applied to events search
-        events_offset_s = max(
-            0,
-            floor(
-                median(
-                    # The assumption that the video timestamps is either later (rendering delays) or the same as the timestamp indicator
-                    _parse_timestamp_to_seconds(segment.start_time) - segment.timestamp_indicator
-                    for segment in segments_with_indicators
-                )
-            ),
+        # Add relevant events as interactions
+        segments_with_interactions = await VideoSegmentEventsEnricher().add_relevant_events_as_interactions(
+            segments_with_indicators=segments_with_indicators,
+            segment_spec=segment,
+            redis_key_base=inputs.redis_key_base,
+            session_id=inputs.session_id,
         )
-
-        # Get events using the offset
-        redis_client, redis_input_key, _ = get_redis_state_client(
-            key_base=inputs.redis_key_base,
-            input_label=StateActivitiesEnum.SESSION_DB_DATA,
-            state_id=inputs.session_id,
-        )
-        llm_input_raw = await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        )
-        if llm_input_raw:
-            llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
-
-            # Find events within this segment's time range
-            start_ms = int(segment.start_time * 1000)
-            end_ms = int(segment.end_time * 1000)
-            events_in_range = _find_events_in_time_range(
-                start_ms=start_ms,
-                end_ms=end_ms,
-                simplified_events_mapping=llm_input.simplified_events_mapping,
-                simplified_events_columns=llm_input.simplified_events_columns,
-                session_start_time_str=llm_input.session_start_time_str,
-            )
-
-            if events_in_range:
-                events_context = _format_events_for_prompt(
-                    events_in_range=events_in_range,
-                    simplified_events_columns=llm_input.simplified_events_columns,
-                    url_mapping_reversed=llm_input.url_mapping_reversed,
-                    window_mapping_reversed=llm_input.window_mapping_reversed,
-                )
-                logger.info(
-                    f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
-                    session_id=inputs.session_id,
-                    segment_index=segment.segment_index,
-                    event_count=len(events_in_range),
-                )
-
+        if segments_with_interactions:
+            return segments_with_interactions
         return segments
 
     except Exception as e:
@@ -277,24 +234,6 @@ Return the output in the following markdown format:
   `elements: page_title="PostHog Cloud", input="Email"`
   `interaction: input`
   `rec_t: 119`
-"""
-
-## TODO - Reuse events in the additional call
-VIDEO_SEGMENT_EVENTS_ENRICHMENT_PROMPT = """
-# Task
-Attach events to the relevant points in the description of the segment of session recordings.
-
-This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
-
-The following events were tracked during this segment. Use them to understand what actions the user took
-and correlate them with what you see in the video. Pay special attention to:
-- $exception_types and $exception_values: These indicate errors or exceptions that occurred
-- elements_chain_texts: Text content the user interacted with
-- $event_type: The type of interaction (click, submit, etc.)
-- $current_url: The page URL where the action occurred
-
-Events data (in chronological order):
-{events_context}
 """
 
 
@@ -376,6 +315,9 @@ class VideoSegmentParser:
             logger.exception(f"No timestamp indicator found in: {description_raw}", signals_type="session-summaries")
             return None
         timestamp_indicator = results[0].strip()
+        # If returns the range - stick only to the start, as the main purpose it to link the interaction to the session timeline
+        if "-" in timestamp_indicator:
+            timestamp_indicator = timestamp_indicator.split("-")[0]
         return int(timestamp_indicator)
 
     def parse_response_into_segment_outputs(self, response_text: str) -> list[VideoSegmentOutput]:
@@ -401,13 +343,33 @@ class VideoSegmentParser:
                     interactions = None
                 # If only elements
                 elif not interaction_type and elements:
-                    interactions = [VideoSegmentInteraction(interaction_type=VideoSegmentInteractionsEnum.CUSTOM.value, elements=elements)]
+                    interactions = [
+                        VideoSegmentInteraction(
+                            interaction_source="video",
+                            interaction_type=VideoSegmentInteractionsEnum.CUSTOM.value,
+                            elements=elements,
+                            s_from_start=timestamp_indicator,
+                        )
+                    ]
                 # If only interaction
                 elif interaction_type and not elements:
-                    interactions = [VideoSegmentInteraction(interaction_type=interaction_type)]
+                    interactions = [
+                        VideoSegmentInteraction(
+                            interaction_source="video",
+                            interaction_type=interaction_type,
+                            s_from_start=timestamp_indicator,
+                        )
+                    ]
                 # If both interaction and elements
                 elif interaction_type and elements:
-                    interactions = [VideoSegmentInteraction(interaction_type=interaction_type, elements=elements)]
+                    interactions = [
+                        VideoSegmentInteraction(
+                            interaction_source="video",
+                            interaction_type=interaction_type,
+                            elements=elements,
+                            s_from_start=timestamp_indicator,
+                        )
+                    ]
                 else:
                     # Keep mypy happy
                     interactions = None
@@ -417,20 +379,136 @@ class VideoSegmentParser:
                         end_time=end_time,
                         description=description,
                         interactions=interactions,
+                        # Using the same indicator for the segment and interaction as segment IS interaction, just with more context
                         timestamp_indicator=timestamp_indicator,
                     )
                 )
         return points
 
 
-# class VideoSegmentEventsEnricher:
-#     def __init__(self, events_offset_s: int):
-#         self.events_offset_s = events_offset_s
+class VideoSegmentEventsEnricher:
 
-#     def enrich_events(self, events: list[Event]) -> list[Event]:
-#         for event in events:
-#             event.timestamp += self.events_offset_s
-#         return events
+    def _pick_relevant_events(
+        self,
+        events_in_range: list[tuple[str, list[Any]]],
+        simplified_events_columns: list[str],
+        session_start_time: datetime,
+    ) -> list[VideoSegmentInteraction] | None:
+        if not events_in_range:
+            return None
+        interactions: list[VideoSegmentInteraction] = []
+        # Pick only meaning-heavy context from the events
+        key_columns = [
+            "event_id",
+            "event_index",
+            "event",
+            "timestamp",
+            "$event_type",
+            "$current_url",
+            "elements_chain_texts",
+            "$exception_types",
+            "$exception_values",
+        ]
+        # Get indices for key columns
+        column_indices: dict[str, int | None] = {}
+        for col in key_columns:
+            column_indices[col] = get_column_index(simplified_events_columns, col)
+        # Convert events to interactions
+        # TODO: Also include event id (`_` below) in the schema for better linking to other data
+        for _, event_data in events_in_range:
+            # Keep only clicks for the initial version, as they are the most reliable events
+            event = event_data[column_indices["event"]]
+            event_type = event_data[column_indices["$event_type"]]
+            timestamp_str = event_data[column_indices["timestamp"]]
+            timestamp_s = int(calculate_time_since_start(timestamp_str, session_start_time) / 1000)
+            if event != "$autocapture" and event_type != "click":
+                continue
+            # Keep only clicks that have text context attached to mean anything
+            elements_chain_texts = event_data[column_indices["elements_chain_texts"]]
+            if not elements_chain_texts:
+                continue
+            # Convert click into interaction
+            event_interaction = VideoSegmentInteraction(
+                interaction_source="events",
+                interaction_type=VideoSegmentInteractionsEnum.CLICK.value,
+                elements=[
+                    VideoSegmentElement(element_type=VideoSegmentTypesEnum.LABEL.value, element_value=label)
+                    for label in elements_chain_texts
+                ],
+                s_from_start=timestamp_s,
+            )
+            interactions.append(event_interaction)
+        return interactions
+
+    async def add_relevant_events_as_interactions(
+        self,
+        segments_with_indicators: list[VideoSegmentOutput],
+        segment_spec: VideoSegmentSpec,
+        redis_key_base: str,
+        session_id: str,
+    ) -> list[VideoSegmentOutput] | None:
+        # Calculate the average start offset of the points within the segment - the difference between video timestamp and timestamp indicator
+        # The assumption that timestamp indicator and start of the point should be close, so offset could be reliably applied to events search
+        events_offset_s = max(
+            0,
+            floor(
+                median(
+                    # The assumption that the video timestamps is either later (rendering delays) or the same as the timestamp indicator
+                    _parse_timestamp_to_seconds(segment.start_time) - segment.timestamp_indicator
+                    for segment in segments_with_indicators
+                )
+            ),
+        )
+        # Get events using the offset
+        redis_client, redis_input_key, _ = get_redis_state_client(
+            key_base=redis_key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=session_id,
+        )
+        llm_input_raw = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+        if not llm_input_raw:
+            return None
+        llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
+        session_start_time = prepare_datetime(llm_input.session_start_time_str)
+
+        # Iterate over segments to attach relevant events as interactions, using the offset
+        updated_segments = []
+        for segment in segments_with_indicators:
+            # Find events within this segment's time range, adjusting for the events offset
+            start_ms = int((_parse_timestamp_to_seconds(segment.start_time) - events_offset_s) * 1000)
+            end_ms = int((_parse_timestamp_to_seconds(segment.end_time) - events_offset_s) * 1000)
+            events_in_range = _find_events_in_time_range(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                simplified_events_mapping=llm_input.simplified_events_mapping,
+                simplified_events_columns=llm_input.simplified_events_columns,
+                session_start_time=session_start_time,
+            )
+            if not events_in_range:
+                return None
+            logger.info(
+                f"Found {len(events_in_range)} events in segment {segment_spec.segment_index} time range",
+                session_id=session_id,
+                segment_index=segment_spec.segment_index,
+                event_count=len(events_in_range),
+            )
+            relevant_events = self._pick_relevant_events(
+                events_in_range=events_in_range,
+                simplified_events_columns=llm_input.simplified_events_columns,
+                session_start_time=session_start_time,
+            )
+            if relevant_events:
+                segment.interactions.extend(relevant_events)
+            # Sort interactions by s_from_start
+            segment.interactions.sort(key=lambda x: x.s_from_start)
+            # TODO: Remove duplicates - both video and events marked the same click
+            updated_segments.append(segment)
+        return updated_segments
 
 
 def _parse_timestamp_to_seconds(time_str: str) -> int:
@@ -448,68 +526,17 @@ def _format_timestamp(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
-def _format_events_for_prompt(
-    events_in_range: list[tuple[str, list[Any]]],
-    simplified_events_columns: list[str],
-    url_mapping_reversed: dict[str, str],
-    window_mapping_reversed: dict[str, str],
-) -> str:
-    """Format events data for inclusion in the video analysis prompt"""
-    if not events_in_range:
-        return "No tracked events occurred during this segment."
-
-    # Build a simplified view of events for the prompt
-    # Include key columns that help understand what happened
-    key_columns = [
-        "event_id",
-        "event_index",
-        "event",
-        "timestamp",
-        "$event_type",
-        "$current_url",
-        "elements_chain_texts",
-        "$exception_types",
-        "$exception_values",
-    ]
-
-    # Get indices for key columns
-    column_indices: dict[str, int | None] = {}
-    for col in key_columns:
-        column_indices[col] = get_column_index(simplified_events_columns, col)
-
-    # Format events
-    formatted_events = []
-    for event_id, event_data in events_in_range:
-        event_info: dict[str, Any] = {"event_id": event_id}
-        for col in key_columns:
-            idx = column_indices.get(col)
-            if idx is not None and idx < len(event_data):
-                value = event_data[idx]
-                if value is not None:
-                    # Resolve URL and window mappings
-                    if col == "$current_url" and isinstance(value, str):
-                        value = url_mapping_reversed.get(value, value)
-                    elif col == "$window_id" and isinstance(value, str):
-                        value = window_mapping_reversed.get(value, value)
-                    event_info[col] = value
-        formatted_events.append(event_info)
-
-    # TODO: Use CSV format instead of JSON for fewer tokens
-    return json.dumps(formatted_events, indent=2, default=str)
-
-
 def _find_events_in_time_range(
     start_ms: int,
     end_ms: int,
     simplified_events_mapping: dict[str, list[Any]],
     simplified_events_columns: list[str],
-    session_start_time_str: str,
+    session_start_time: datetime,
 ) -> list[tuple[str, list[Any]]]:
     """Find all events that fall within the given time range (in milliseconds from session start).
 
     Returns a list of (event_id, event_data) tuples sorted by event_index.
     """
-    session_start_time = prepare_datetime(session_start_time_str)
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     event_index_index = get_column_index(simplified_events_columns, "event_index")
 
