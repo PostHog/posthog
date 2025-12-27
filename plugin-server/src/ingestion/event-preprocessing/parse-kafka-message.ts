@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { sanitizeEvent } from '~/utils/event'
+
 import { IncomingEvent, PipelineEvent } from '../../types'
-import { sanitizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { drop, ok } from '../pipelines/results'

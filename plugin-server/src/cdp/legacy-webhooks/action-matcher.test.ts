@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { commonUserId } from '../../../tests/helpers/plugins'
+import { insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
 import {
     Action,
     ActionStep,
@@ -10,12 +12,10 @@ import {
     PropertyOperator,
     RawAction,
     StringMatching,
-} from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { ActionManager } from '../../../src/worker/ingestion/action-manager'
-import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
-import { commonUserId } from '../../helpers/plugins'
-import { insertRow, resetTestDatabase } from '../../helpers/sql'
+} from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { ActionManager } from './action-manager'
+import { ActionMatcher, castingCompare } from './action-matcher'
 
 jest.mock('../../../src/utils/logger')
 
@@ -50,7 +50,7 @@ describe('ActionMatcher', () => {
         hub = await createHub()
         actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        actionMatcher = new ActionMatcher(actionManager)
         actionCounter = 0
     })
 
