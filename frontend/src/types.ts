@@ -5028,6 +5028,7 @@ export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
     prefix: string
     payload: Record<string, any>
+    is_direct_query?: boolean
 }
 export interface ExternalDataSource {
     id: string
@@ -5042,6 +5043,7 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
+    is_direct_query: boolean
 }
 
 export interface DataModelingJob {
@@ -5081,6 +5083,25 @@ export interface IncrementalField {
     field_type: IncrementalFieldType // the actual database field type
 }
 
+export interface ForeignKeyInfo {
+    column: string
+    target_table: string
+    target_column: string
+}
+
+export interface ColumnInfo {
+    name: string
+    data_type: string
+    is_nullable?: boolean
+}
+
+export interface IndexInfo {
+    name: string
+    columns: string[]
+    is_unique: boolean
+    is_primary: boolean
+}
+
 export interface ExternalDataSourceSyncSchema {
     table: string
     rows?: number | null
@@ -5092,6 +5113,11 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    // Schema metadata for direct query sources
+    primary_key?: string[] | null
+    foreign_keys?: ForeignKeyInfo[] | null
+    columns?: ColumnInfo[] | null
+    indexes?: IndexInfo[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
