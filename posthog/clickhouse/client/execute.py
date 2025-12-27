@@ -140,8 +140,9 @@ def sync_execute(
             pass
     tags = get_query_tags()
     is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+    is_api_key = tags.access_method in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
 
-    # When someone uses an API key, always put their query to the offline cluster
+    # When someone uses a personal API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
     if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
         workload = Workload.OFFLINE
@@ -150,7 +151,7 @@ def sync_execute(
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_api_key else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
@@ -173,7 +174,7 @@ def sync_execute(
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
-        if is_personal_api_key:
+        if is_api_key:
             ch_user = ClickHouseUser.API
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app

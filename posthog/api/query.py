@@ -33,7 +33,7 @@ from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -147,7 +147,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                is_query_service=(
+                    get_query_tag_value("access_method")
+                    in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
+                ),
                 limit_context=(
                     # QUERY_ASYNC provides extended max execution time for insight queries
                     LimitContext.QUERY_ASYNC
@@ -156,7 +159,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                         or is_insight_actors_query(query_dict)
                         or is_insight_actors_options_query(query_dict)
                     )
-                    and get_query_tag_value("access_method") != "personal_api_key"
+                    and get_query_tag_value("access_method")
+                    not in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
                     else None
                 ),
             )
