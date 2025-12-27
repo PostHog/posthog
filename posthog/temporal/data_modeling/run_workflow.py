@@ -58,6 +58,7 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
+from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
 
 LOGGER = get_logger(__name__)
 
@@ -1436,6 +1437,10 @@ async def update_saved_query_status(
     saved_query.status = status
 
     await database_sync_to_async(saved_query.save)()
+
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
+        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
 
 
 @dataclasses.dataclass
