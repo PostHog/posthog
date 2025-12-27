@@ -19,6 +19,7 @@ export type ConfigurationSceneTabType =
     | 'error-tracking-symbol-sets'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-alerting'
+    | 'error-tracking-spikes-detection'
 
 export interface ErrorTrackingConfigurationSceneLogicProps {
     initialTab?: ConfigurationSceneTabType
