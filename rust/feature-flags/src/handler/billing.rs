@@ -13,7 +13,7 @@ use common_metrics::inc;
 use limiters::redis::ServiceName;
 use std::collections::HashMap;
 
-use super::types::RequestContext;
+use super::types::{Library, RequestContext};
 
 pub async fn check_limits(
     context: &RequestContext,
@@ -48,11 +48,14 @@ pub async fn record_usage(
     let has_billable_flags = contains_billable_flags(filtered_flags);
 
     if has_billable_flags {
+        let library = Library::from_headers(&context.headers);
+
         if let Err(e) = increment_request_count(
             context.state.redis_client.clone(),
             team_id,
             1,
             FlagRequestType::Decide,
+            Some(library),
         )
         .await
         {
