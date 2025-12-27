@@ -169,8 +169,16 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
     date_from: '-30d',
 }
 
-export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
-    return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+export const getDefaultFilters = (
+    personUUID?: PersonUUID,
+    pinnedFilters?: UniversalFiltersGroup
+): RecordingUniversalFilters => {
+    const defaultFilters = personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+    if (!pinnedFilters) {
+        return defaultFilters
+    }
+    defaultFilters['filter_group'] = { ...defaultFilters.filter_group, ...pinnedFilters }
+    return defaultFilters
 }
 
 /**
@@ -423,6 +431,7 @@ export interface SessionRecordingPlaylistLogicProps {
     autoPlay?: boolean
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
@@ -657,21 +666,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
-                            return getDefaultFilters(props.personUUID)
+                            return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }
+
+                        // Always set pinned filters last, so they are not overwritten by the others
+                        const filter_group = { ...state.filter_group, ...filters.filter_group, ...props.pinnedFilters }
 
                         return {
                             ...state,
                             // if we're setting a relative date_from, then we need to clear the existing date_to
                             date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
                             ...filters,
+                            filter_group,
                         }
                     } catch (e) {
                         posthog.captureException(e)
-                        return getDefaultFilters(props.personUUID)
+                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
                     }
                 },
-                resetFilters: () => getDefaultFilters(props.personUUID),
+                resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
             },
         ],
         showFilters: [
@@ -1402,7 +1415,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ] => {
             const params: ReplayURLSearchParamTypes = objectClean({
                 ...router.values.searchParams,
-                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
+                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID, props.pinnedFilters))
+                    ? undefined
+                    : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
