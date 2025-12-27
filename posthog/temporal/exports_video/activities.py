@@ -60,9 +60,6 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     except (ValueError, TypeError):
         playback_speed = 1
 
-    # Check if clicks highlight is requested
-    highlight_clicks = asset.export_context.get("highlight_clicks", False)
-
     url_params = {
         "token": access_token,
         "t": ts,
@@ -72,8 +69,6 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     }
     if playback_speed != 1:
         url_params["playerSpeed"] = playback_speed
-    if highlight_clicks:
-        url_params["highlightClicks"] = "true"
 
     url = absolute_uri(f"/exporter?{'&'.join(f'{key}={value}' for key, value in url_params.items())}")
 

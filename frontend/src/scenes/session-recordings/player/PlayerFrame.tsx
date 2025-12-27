@@ -8,14 +8,12 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { player, sessionRecordingId, maskingWindow } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
-    const { highlightClicks } = useValues(playerSettingsLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -82,10 +80,9 @@ export const PlayerFrame = (): JSX.Element => {
     }, [containerDimensions, windowResize])
 
     return (
-        <div
-            ref={containerRef}
-            className={clsx('PlayerFrame ph-no-capture', highlightClicks && 'PlayerFrame--llm-highlight')}
-        >
+        // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
+        // The initial approach was conditional, but everyone liked how it looked, so we decided to make it the default.
+        <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}>
             <div
                 className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
                 ref={frameRef}

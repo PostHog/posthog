@@ -37,7 +37,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
-        setHighlightClicks: (highlightClicks: boolean) => ({ highlightClicks }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -116,12 +115,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
             },
         ],
-        highlightClicks: [
-            false,
-            {
-                setHighlightClicks: (_, { highlightClicks }) => highlightClicks,
-            },
-        ],
     })),
 
     selectors({
@@ -181,12 +174,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
-            }
-            // Make clicks more noticeable in the recording, if requested by the URL
-            // Adding on the `*` level (instead of just exporter) to allow enabling it when watching recordings
-            const highlightClicks = 'highlightClicks' in searchParams && (searchParams.highlightClicks ?? false)
-            if (values.highlightClicks !== highlightClicks) {
-                actions.setHighlightClicks(highlightClicks)
             }
         },
         ['**/shared/*']: (_, searchParams) => {
