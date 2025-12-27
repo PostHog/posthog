@@ -37,6 +37,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
+        setShowLLMMetadata: (showLLMMetadata: boolean) => ({ showLLMMetadata }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -115,6 +116,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
             },
         ],
+        showLLMMetadata: [
+            false,
+            // Don't persist this setting as required for export only
+            {
+                setShowLLMMetadata: (_, { showLLMMetadata }) => showLLMMetadata,
+            },
+        ],
     })),
 
     selectors({
@@ -170,12 +178,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams, hashParams) => {
-            const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
-            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
-                actions.setSidebarOpen(inspectorSideBarOpen)
-            }
-        },
         ['**/shared/*']: (_, searchParams) => {
             // when sharing a recording, you can specify whether the inspector should be open.
             // we should obey that regardless of the preference stored here.
@@ -191,6 +193,17 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             const playerSpeed = Number(searchParams.playerSpeed ?? 1)
             if (values.speed !== playerSpeed) {
                 actions.setSpeed(playerSpeed)
+            }
+            const showLLMMetadata = 'showLLMMetadata' in searchParams && (searchParams.showLLMMetadata ?? false)
+            if (values.showLLMMetadata !== showLLMMetadata) {
+                actions.setShowLLMMetadata(showLLMMetadata)
+            }
+        },
+        // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
+        '*': (_, searchParams, hashParams) => {
+            const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
+            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                actions.setSidebarOpen(inspectorSideBarOpen)
             }
         },
     })),

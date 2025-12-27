@@ -85,7 +85,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
     const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
-    const { isCinemaMode } = useValues(playerSettingsLogic)
+    const { isCinemaMode, showLLMMetadata } = useValues(playerSettingsLogic)
     const { setIsCinemaMode } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -268,7 +268,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                                             </>
                                         ) : null}
                                     </div>
-                                    <PlayerFrameLLMMetaOverlay />
+                                    {showLLMMetadata ? <PlayerFrameLLMMetaOverlay /> : null}
                                     {!hidePlayerElements ? <PlayerController /> : null}
                                 </div>
                             </div>
