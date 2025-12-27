@@ -1,6 +1,8 @@
 export {
     BatchPipelineBuilder,
     FilteredBatchPipelineBuilder,
+    GroupingBatchPipelineBuilder,
+    GroupProcessingBuilder,
     MessageAwareBatchPipelineBuilder,
     TeamAwareBatchPipelineBuilder,
 } from './batch-pipeline-builders'

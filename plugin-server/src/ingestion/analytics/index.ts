@@ -31,3 +31,10 @@ export {
     createPreTeamPreprocessingSubpipeline,
     PreTeamPreprocessingSubpipelineConfig,
 } from './pre-team-preprocessing-subpipeline'
+
+export {
+    createJoinedIngestionPipeline,
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineInput,
+} from './joined-ingestion-pipeline'
