@@ -25,7 +25,7 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
     if (!tabId) {
         throw new Error('<Experiment /> must receive a tabId prop')
     }
-    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic({ tabId }))
+    const { formMode, experimentMissing, experimentId, experiment } = useValues(experimentSceneLogic({ tabId }))
     const { currentTeamId } = useValues(teamLogic)
 
     useFileSystemLogView({
@@ -45,7 +45,7 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
     return (
         <BindLogic logic={experimentLogic} props={logicProps}>
             {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-                <ExperimentForm tabId={tabId} />
+                <ExperimentForm draftExperiment={experiment} tabId={tabId} />
             ) : (
                 <ExperimentView tabId={tabId} />
             )}
