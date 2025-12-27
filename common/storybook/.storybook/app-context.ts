@@ -64,14 +64,15 @@ export const getStorybookAppContext = (): AppContext => ({
     ],
     resource_access_control: {
         action: 'manager',
-        feature_flag: 'manager',
         dashboard: 'manager',
+        experiment: 'manager',
+        external_data_source: 'manager',
+        feature_flag: 'manager',
         insight: 'manager',
         notebook: 'manager',
-        session_recording: 'manager',
         revenue_analytics: 'manager',
+        session_recording: 'manager',
         survey: 'manager',
-        experiment: 'manager',
         web_analytics: 'manager',
     },
 })
