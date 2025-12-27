@@ -17,7 +17,9 @@ from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourc
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
     _parse_connection_string,
     filter_mongo_incremental_fields,
+    get_collection_names,
     get_schemas as get_mongo_schemas,
+    mongo_client,
     mongo_source,
 )
 
@@ -36,10 +38,13 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
 
-        filtered_results = [
-            (collection_name, filter_mongo_incremental_fields(columns, config.connection_string, collection_name))
-            for collection_name, columns in mongo_schemas.items()
-        ]
+        connection_params = _parse_connection_string(config.connection_string)
+        with mongo_client(config.connection_string) as client:
+            db = client[connection_params["database"]]
+            filtered_results = [
+                (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
+                for collection_name, columns in mongo_schemas.items()
+            ]
 
         return [
             SourceSchema(
@@ -76,8 +81,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                 return False, host_errors
 
         try:
-            schemas = self.get_schemas(config, team_id)
-            if len(schemas) == 0:
+            collection_names = get_collection_names(config)
+            if len(collection_names) == 0:
                 return False, "No collections found in database"
         except OperationFailure as e:
             capture_exception(e)
