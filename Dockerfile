@@ -174,10 +174,8 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies using cache mount for faster rebuilds
-# Cache ID includes libxmlsec1 version to bust cache when system library changes
-RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
+# Install Python dependencies using bind mounts for better layer caching
+RUN --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
