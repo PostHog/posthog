@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,14 +19,24 @@ import { maxLogic, mergeConversationHistory } from './maxLogic'
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
     {
+        identifier: 'create_insight' as const,
+        name: TOOL_DEFINITIONS['create_insight'].name,
+        description: TOOL_DEFINITIONS['create_insight'].description,
+    },
+    {
+        identifier: 'execute_sql' as const,
+        name: TOOL_DEFINITIONS['execute_sql'].name,
+        description: TOOL_DEFINITIONS['execute_sql'].description,
+    },
+    {
+        identifier: 'filter_session_recordings' as const,
+        name: TOOL_DEFINITIONS['filter_session_recordings'].name,
+        description: TOOL_DEFINITIONS['filter_session_recordings'].description,
+    },
+    {
         identifier: 'web_search',
         name: TOOL_DEFINITIONS['web_search'].name,
         description: TOOL_DEFINITIONS['web_search'].description,
-    },
-    {
-        identifier: 'session_summarization' as const,
-        name: TOOL_DEFINITIONS['session_summarization'].name,
-        description: TOOL_DEFINITIONS['session_summarization'].description,
     },
     {
         identifier: 'create_dashboard' as const,
@@ -37,11 +47,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'search' as const,
         name: TOOL_DEFINITIONS['search'].name,
         description: TOOL_DEFINITIONS['search'].description,
-    },
-    {
-        identifier: 'create_and_query_insight' as const,
-        name: 'Query data',
-        description: 'Query data by creating insights and SQL queries',
     },
     {
         identifier: 'create_task' as const,
@@ -206,13 +211,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
                     return !toolDefinition.flag || featureFlags[toolDefinition.flag]
                 })
-                if (featureFlags[FEATURE_FLAGS.AGENT_MODES]) {
-                    staticTools.unshift({
-                        identifier: 'filter_session_recordings' as const,
-                        name: TOOL_DEFINITIONS['filter_session_recordings'].name,
-                        description: TOOL_DEFINITIONS['filter_session_recordings'].description,
-                    })
-                }
                 return staticTools
             },
         ],
@@ -226,7 +224,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         tools: [(s) => [s.toolMap], (toolMap): ToolRegistration[] => Object.values(toolMap)],
         editInsightToolRegistered: [
             (s) => [s.registeredToolMap],
-            (registeredToolMap) => !!registeredToolMap.create_and_query_insight || !!registeredToolMap.create_insight,
+            (registeredToolMap) => !!registeredToolMap.create_insight,
         ],
         toolSuggestions: [
             (s) => [s.tools],

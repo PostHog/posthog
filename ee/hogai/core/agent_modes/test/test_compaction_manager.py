@@ -370,11 +370,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # When the window boundary is None (messages too large), we expect:
         # - Original messages preserved
         # - Summary message appended
+        # - Mode reminder appended
         # - Start message copied
         # - Window start should be the summary message
-        self.assertEqual(len(result.messages), 5)
+        self.assertEqual(len(result.messages), 6)
         self.assertEqual(result.messages[0].id, start_id)
-        self.assertEqual(result.messages[-2].id, summary_id)
+        self.assertEqual(result.messages[-3].id, summary_id)
         last_msg = result.messages[-1]
         assert isinstance(last_msg, HumanMessage)  # Type narrowing
         self.assertEqual(last_msg.content, "Initial question")
@@ -462,9 +463,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # The copied start message should have a new ID returned
         self.assertEqual(result.updated_start_id, copied_start.id)
 
-        # Summary and copied start should be at the beginning of the window
+        # Summary, mode reminder, and copied start should be at the beginning of the window
         summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
-        self.assertEqual(result.messages[summary_idx + 1].id, copied_start.id, "Copied start should follow summary")
+        # Mode reminder is injected between summary and copied start
+        self.assertEqual(
+            result.messages[summary_idx + 2].id, copied_start.id, "Copied start should follow mode reminder"
+        )
 
     def test_tool_call_complete_sequence_in_window(self):
         """
@@ -700,9 +704,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
         )
 
-        # When there's no window boundary, the summary and copied start message are appended
-        self.assertEqual(len(result.messages), 4)  # original 2 + summary + copied start
-        self.assertEqual(result.messages[-2].id, summary_id)
+        # When there's no window boundary, the summary, mode reminder, and copied start message are appended
+        self.assertEqual(len(result.messages), 5)  # original 2 + summary + mode reminder + copied start
+        self.assertEqual(result.messages[-3].id, summary_id)
         self.assertEqual(result.updated_window_start_id, summary_id)
         # Updated start ID should be the copied message
         self.assertNotEqual(result.updated_start_id, start_id)
@@ -744,7 +748,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify full message list structure: original messages + summary + mode reminder + copied start
@@ -782,7 +785,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.SQL,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Find where summary and mode reminder were inserted
@@ -826,7 +828,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.SESSION_REPLAY,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify structure: summary at start, then mode reminder, then copied start, then window messages
@@ -858,40 +859,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         self.assertIsInstance(result.messages[copied_start_idx], HumanMessage)
         self.assertNotEqual(copied_start.id, start_id)
 
-    def test_no_mode_message_injection_when_feature_flag_disabled(self):
-        """Test that mode reminder is not injected when feature flag is disabled"""
-        start_id = str(uuid4())
-        summary_id = str(uuid4())
-
-        messages: list[AssistantMessageUnion] = [
-            HumanMessage(content="Question", id=start_id),
-            AssistantMessage(content="Response"),
-        ]
-
-        summary_message = ContextMessage(content="Summary", id=summary_id)
-
-        result = self.window_manager.update_window(
-            messages,
-            summary_message,
-            AgentMode.PRODUCT_ANALYTICS,
-            start_id=start_id,
-            is_modes_feature_flag_enabled=False,
-        )
-
-        # Should only have summary, not mode reminder
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertEqual(len(context_messages), 1, "Should only have summary context message")
-        summary_ctx_msg = context_messages[0]
-        self.assertEqual(summary_ctx_msg.id, summary_id)
-        assert isinstance(summary_ctx_msg, ContextMessage)
-        self.assertIn("Summary", summary_ctx_msg.content)
-        # Verify no mode reminder
-        mode_reminder = next(
-            (msg for msg in result.messages if isinstance(msg, ContextMessage) and "product_analytics" in msg.content),
-            None,
-        )
-        self.assertIsNone(mode_reminder, "Mode reminder should not be present when feature flag is disabled")
-
     def test_no_mode_message_injection_when_mode_evident_in_window(self):
         """Test that mode reminder is not injected when mode is already evident from switch_mode tool call"""
 
@@ -920,7 +887,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify only summary context message exists (no mode reminder)
@@ -961,7 +927,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Should have initial mode message and summary, but no mode reminder
@@ -1014,7 +979,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 summary_message,
                 mode,
                 start_id=start_id,
-                is_modes_feature_flag_enabled=True,
             )
 
             # Verify two context messages: summary and mode reminder

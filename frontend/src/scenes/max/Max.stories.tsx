@@ -1008,13 +1008,13 @@ export const TaskExecutionComponent: StoryFn = () => {
         tool_calls: [
             {
                 id: 'task_1',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_2',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {
                     commentary: 'Identifying peak usage times and user segments',
@@ -1038,7 +1038,7 @@ export const TaskExecutionComponent: StoryFn = () => {
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
@@ -1178,19 +1178,19 @@ export const TaskExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_3',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_4',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },

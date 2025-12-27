@@ -44,7 +44,6 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -170,7 +169,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
                 summary_message,
                 state.agent_mode_or_default,
                 start_id=start_id,
-                is_modes_feature_flag_enabled=has_agent_modes_feature_flag(self._team, self._user),
             )
             window_id = insertion_result.updated_window_start_id
             start_id = insertion_result.updated_start_id
