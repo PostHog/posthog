@@ -355,6 +355,8 @@ class TestQueryPatternDetection(BaseTest):
 class TestQueryTransformation(BaseTest, QueryMatchingTest):
     """Tests for the query transformation logic."""
 
+    replace_all_numbers = True
+
     def _parse_and_transform(self, query: str) -> str:
         node = parse_select(query)
         assert isinstance(node, ast.SelectQuery)
