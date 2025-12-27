@@ -42,13 +42,13 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
+from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SummarizeSessionGroupWorkflow,
     _start_session_group_summary_workflow,
     execute_summarize_session_group,
     fetch_session_batch_events_activity,
-    get_llm_single_session_summary_activity,
 )
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryOfSummariesInputs,

@@ -74,10 +74,18 @@ class SessionSummarizationNode(AssistantNode):
             )
         )
 
-    def _has_video_validation_feature_flag(self) -> bool | None:
+    def _determine_video_validation_enabled(self) -> bool | Literal["full"] | None:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """
+        if posthoganalytics.feature_enabled(
+            "max-session-summarization-video-as-base",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
+            return "full"  # Use video as base of summarization
         return posthoganalytics.feature_enabled(
             "max-session-summarization-video-validation",
             str(self._user.distinct_id),
@@ -112,7 +120,7 @@ class SessionSummarizationNode(AssistantNode):
         summary_type: Literal["single", "group"] = (
             "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-        video_validation_enabled = self._has_video_validation_feature_flag()
+        video_validation_enabled = self._determine_video_validation_enabled()
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=self._user,
@@ -471,7 +479,7 @@ class _SessionSummarizer:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
-        video_validation_enabled = self._node._has_video_validation_feature_flag()
+        video_validation_enabled = self._node._determine_video_validation_enabled()
 
         async def _summarize(session_id: str) -> dict[str, Any]:
             nonlocal completed
@@ -508,7 +516,7 @@ class _SessionSummarizer:
             session_ids=session_ids, team=self._node._team
         )
         # Check if the summaries should be validated with videos
-        video_validation_enabled = self._node._has_video_validation_feature_flag()
+        video_validation_enabled = self._node._determine_video_validation_enabled()
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,

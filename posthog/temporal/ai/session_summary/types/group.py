@@ -1,5 +1,6 @@
 import dataclasses
 from enum import Enum
+from typing import Literal
 
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
@@ -29,7 +30,7 @@ class SessionGroupSummaryInputs:
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
-    video_validation_enabled: bool | None = None
+    video_validation_enabled: bool | Literal["full"] | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
