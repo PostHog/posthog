@@ -333,6 +333,199 @@ describe('Hogflow Executor', () => {
             `)
         })
 
+        it('should resume from delay action and execute next action in same run', async () => {
+            const hogFlowWithDelay = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        delay: {
+                            type: 'delay',
+                            config: {
+                                delay_duration: '10m',
+                            },
+                        },
+                        function_id_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'delay',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'delay',
+                            to: 'function_id_1',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'function_id_1',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+                .build()
+
+            const invocation = createExampleHogFlowInvocation(hogFlowWithDelay, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: {
+                        name: 'John Doe',
+                    },
+                },
+            })
+
+            // First execution: should schedule with delay
+            const delayResult = await executor.execute(invocation)
+
+            expect(delayResult.finished).toBe(false)
+            expect(delayResult.invocation.queueScheduledAt).toBeDefined()
+            expect(delayResult.invocation.queueScheduledAt!.toISO()).toBe('2025-01-01T00:10:00.000Z')
+            expect(delayResult.invocation.state.currentAction!.id).toBe('delay')
+
+            // Move time forward by 11 minutes
+            const delayedTime = DateTime.fromISO('2025-01-01T00:11:00.000Z')
+            jest.spyOn(Date, 'now').mockReturnValue(delayedTime.toMillis())
+
+            // Second execution: should detect resume from delay, switch to function action, and execute it in same run
+            const resumeResult = await executor.execute(delayResult.invocation)
+
+            expect(resumeResult.finished).toEqual(true)
+            expect(resumeResult.invocation.state.currentAction!.id).toEqual('exit')
+            expect(resumeResult.invocation.queueScheduledAt).toBeUndefined()
+
+            // Verify that delay was completed, function was executed, and exit was reached all in one run
+            const logMessages = resumeResult.logs.map((log) => log.message)
+            expect(logMessages).toContain(
+                '[Action:delay] Delay completed, resuming workflow with latest workflow definition'
+            )
+            expect(logMessages).toContain('Workflow moved to action [Action:function_id_1]')
+            expect(logMessages).toContain('Executing action [Action:function_id_1]')
+            expect(logMessages).toContain('[Action:function_id_1] Hello, Mr John Doe!')
+            expect(logMessages).toContain('Workflow moved to action [Action:exit]')
+            expect(logMessages).toContain('Executing action [Action:exit]')
+            expect(logMessages).toContain('Workflow completed')
+        })
+
+        it('should resume from wait_until_time_window action and execute next action in same run', async () => {
+            const hogFlowWithWaitUntilTimeWindow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        wait_until_time_window: {
+                            type: 'wait_until_time_window',
+                            config: {
+                                time: ['00:05', '23:59'],
+                                day: 'any',
+                                timezone: 'UTC',
+                            },
+                        },
+                        function_id_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'wait_until_time_window',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'wait_until_time_window',
+                            to: 'function_id_1',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'function_id_1',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+                .build()
+
+            const invocation = createExampleHogFlowInvocation(hogFlowWithWaitUntilTimeWindow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: {
+                        name: 'John Doe',
+                    },
+                },
+            })
+
+            // First execution: should schedule with wait_until_time_window
+            const waitResult = await executor.execute(invocation)
+
+            // Verify wait_until_time_window was scheduled - the workflow should not finish, it should be scheduled
+            expect(waitResult.finished).toBe(false)
+            expect(waitResult.invocation.queueScheduledAt).toBeDefined()
+            expect(waitResult.invocation.queueScheduledAt!.toISO()).toBe('2025-01-01T00:05:00.000Z')
+            expect(waitResult.invocation.state.currentAction!.id).toBe('wait_until_time_window')
+
+            // Move time forward to 00:06 UTC (past the scheduled time of 00:05)
+            const delayedTime = DateTime.fromISO('2025-01-01T00:06:00.000Z')
+            jest.spyOn(Date, 'now').mockReturnValue(delayedTime.toMillis())
+
+            // Second execution: should detect resume from wait_until_time_window, switch to function action, and execute it in same run
+            const resumeResult = await executor.execute(waitResult.invocation)
+
+            expect(resumeResult.finished).toEqual(true)
+            expect(resumeResult.invocation.state.currentAction!.id).toEqual('exit')
+            expect(resumeResult.invocation.queueScheduledAt).toBeUndefined()
+
+            // Verify that wait_until_time_window was completed, function was executed, and exit was reached all in one run
+            const logMessages = resumeResult.logs.map((log) => log.message)
+            expect(logMessages).toContain(
+                '[Action:wait_until_time_window] Wait until time window completed, resuming workflow with latest workflow definition'
+            )
+            expect(logMessages).toContain('Workflow moved to action [Action:function_id_1]')
+            expect(logMessages).toContain('Executing action [Action:function_id_1]')
+            expect(logMessages).toContain('[Action:function_id_1] Hello, Mr John Doe!')
+            expect(logMessages).toContain('Workflow moved to action [Action:exit]')
+            expect(logMessages).toContain('Executing action [Action:exit]')
+            expect(logMessages).toContain('Workflow completed')
+        })
+
         describe('action filtering', () => {
             beforeEach(() => {
                 const action = hogFlow.actions.find((action) => action.id === 'function_id_1')!

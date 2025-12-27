@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findContinueAction } from '../hogflow-utils'
+import { CyclotronJobInvocationHogFlow } from '../../../types'
+import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
@@ -13,12 +14,43 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
     execute({
         invocation,
         action,
+        result,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
+        // Check if we're resuming from a wait_until_time_window (queueScheduledAt was cleared when queue consumed the job)
+        const isResuming = !invocation.queueScheduledAt && this.isResumingFromWaitUntilTimeWindow(invocation, action)
+
+        if (isResuming) {
+            const nextAction = findContinueAction(invocation)
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `${actionIdForLogging(action)} Wait until time window completed, resuming workflow with latest workflow definition`,
+            })
+            return {
+                nextAction,
+            }
+        }
+
         const nextTime = getWaitUntilTime(action)
+
         return {
-            nextAction: findContinueAction(invocation),
             scheduledAt: nextTime ?? undefined,
         }
+    }
+
+    private isResumingFromWaitUntilTimeWindow(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
+    ): boolean {
+        const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
+        if (!startedAtTimestamp) {
+            return false
+        }
+
+        // Recalculate when the wait until time should be
+        const waitUntilTime = getWaitUntilTime(action)
+        // If getWaitUntilTime returns null, it means we're within the time window and should execute immediately
+        return waitUntilTime === null || DateTime.utc() >= waitUntilTime
     }
 }
 
