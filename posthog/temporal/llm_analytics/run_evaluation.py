@@ -8,7 +8,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
@@ -45,6 +45,12 @@ class BooleanWithNAEvalResult(BaseModel):
     reasoning: str
     applicable: bool
     verdict: bool | None = None
+
+    @model_validator(mode="after")
+    def verdict_required_when_applicable(self) -> "BooleanWithNAEvalResult":
+        if self.applicable and self.verdict is None:
+            raise ValueError("verdict is required when applicable is true")
+        return self
 
 
 @dataclass
