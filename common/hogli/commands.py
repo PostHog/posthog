@@ -40,4 +40,7 @@ from __future__ import annotations
 #     """Say hello to someone."""
 #     click.echo(f"{greeting}, {name}!")
 # Import commands from other modules to register them
-from hogli import doctor  # noqa: F401
+from hogli import (
+    doctor,  # noqa: F401
+    migrations,  # noqa: F401
+)
