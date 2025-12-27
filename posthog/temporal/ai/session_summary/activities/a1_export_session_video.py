@@ -95,6 +95,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 "duration": session_duration,
                 "playback_speed": 1.0,  # Normal speed
                 "mode": "video",
+                "show_llm_metadata": True,  # Display additional metadata for LLMs in the video
             },
             created_by_id=inputs.user_id,
             created_at=created_at,
