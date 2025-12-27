@@ -70,9 +70,10 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     Get feature flags for the feature-flags service.
 
-    Fetches all active, non-deleted feature flags for the team and returns them
-    wrapped in a dict that HyperCache can serialize. The actual flag data is in the
-    "flags" key as a list of flag dictionaries.
+    Fetches non-deleted active feature flags and any non-deleted inactive flags
+    that are dependencies of active flags. Returns them wrapped in a dict that
+    HyperCache can serialize. The actual flag data is in the "flags" key as a
+    list of flag dictionaries.
 
     Returns:
         dict: {"flags": [...]} where flags is a list of flag dictionaries
