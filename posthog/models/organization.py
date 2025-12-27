@@ -53,6 +53,10 @@ class OrganizationUsageInfo(TypedDict):
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
+    workflow_emails: OrganizationUsageResource | None
+    workflow_destinations_dispatched: OrganizationUsageResource | None
+    workflow_push: OrganizationUsageResource | None
+    workflow_sms: OrganizationUsageResource | None
     period: list[str] | None
 
 

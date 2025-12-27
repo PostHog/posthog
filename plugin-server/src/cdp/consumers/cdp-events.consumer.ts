@@ -9,6 +9,7 @@ import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -266,49 +267,61 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         const validInvocations: CyclotronJobInvocation[] = []
 
         // Iterate over adding them to the list and updating their priority
-        possibleInvocations.forEach((item, index) => {
-            try {
-                const rateLimit = rateLimits[index][1]
-                if (rateLimit.isRateLimited) {
-                    counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+        await Promise.all(
+            possibleInvocations.map(async (item, index) => {
+                try {
+                    const rateLimit = rateLimits[index][1]
+                    if (rateLimit.isRateLimited) {
+                        counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                        this.hogFunctionMonitoringService.queueAppMetric(
+                            {
+                                team_id: item.teamId,
+                                app_source_id: item.functionId,
+                                metric_kind: 'failure',
+                                metric_name: 'rate_limited',
+                                count: 1,
+                            },
+                            'hog_flow'
+                        )
+                        return
+                    }
+                } catch (e) {
+                    captureException(e)
+                    logger.error('🔴', 'Error checking rate limit for hog flow', { err: e })
+                }
+
+                // Check quota limits for workflow actions
+                const isQuotaLimited = await shouldBlockHogFlowDueToQuota(item, {
+                    hub: this.hub,
+                    hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+                })
+
+                if (isQuotaLimited) {
+                    return
+                }
+
+                const state = states[item.hogFlow.id].state
+                if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,
                             metric_kind: 'failure',
-                            metric_name: 'rate_limited',
+                            metric_name: 'disabled_permanently',
                             count: 1,
                         },
                         'hog_flow'
                     )
                     return
                 }
-            } catch (e) {
-                captureException(e)
-                logger.error('🔴', 'Error checking rate limit for hog flow', { err: e })
-            }
 
-            const state = states[item.hogFlow.id].state
-            if (state === HogWatcherState.disabled) {
-                this.hogFunctionMonitoringService.queueAppMetric(
-                    {
-                        team_id: item.teamId,
-                        app_source_id: item.functionId,
-                        metric_kind: 'failure',
-                        metric_name: 'disabled_permanently',
-                        count: 1,
-                    },
-                    'hog_flow'
-                )
-                return
-            }
+                if (state === HogWatcherState.degraded) {
+                    item.queuePriority = 2
+                }
 
-            if (state === HogWatcherState.degraded) {
-                item.queuePriority = 2
-            }
-
-            validInvocations.push(item)
-        })
+                validInvocations.push(item)
+            })
+        )
 
         // Now we can filter by masking configs
         const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)

@@ -1,7 +1,14 @@
+import { Counter } from 'prom-client'
+
 import { QuotaResource } from '../../common/services/quota-limiting.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { CyclotronJobInvocationHogFunction } from '../types'
-import { counterQuotaLimited } from './metrics'
+
+const counterQuotaLimited = new Counter({
+    name: 'cdp_function_quota_limited',
+    help: 'A function invocation was quota limited',
+    labelNames: ['team_id'],
+})
 
 export interface QuotaLimitingContext {
     hub: {
