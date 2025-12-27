@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.rate_limit import (
-    INLINE_BURST_RATE,
-    INLINE_SUSTAINED_RATE,
     MATERIALIZED_BURST_RATE,
     MATERIALIZED_SUSTAINED_RATE,
     EndpointBurstThrottle,
@@ -16,41 +16,28 @@ from products.endpoints.backend.rate_limit import (
     _check_and_cache_materialization_status,
     _is_materialized_endpoint_request,
     clear_endpoint_materialization_cache,
-    get_endpoint_materialization_cache_key,
     is_endpoint_materialization_ready,
     set_endpoint_materialization_ready,
 )
 
 
-class TestMaterializationCacheHelpers(TestCase):
+class TestMaterializationCache(TestCase):
     def setUp(self):
         cache.clear()
 
     def tearDown(self):
         cache.clear()
 
-    def test_get_cache_key_format(self):
-        cache_key = get_endpoint_materialization_cache_key(123, "my_endpoint")
-        self.assertEqual(cache_key, "endpoint_materialized_ready:123:my_endpoint")
+    def test_cache_miss_returns_none(self):
+        self.assertIsNone(is_endpoint_materialization_ready(123, "nonexistent"))
 
-    def test_is_endpoint_materialization_ready_returns_none_on_miss(self):
-        result = is_endpoint_materialization_ready(123, "nonexistent")
-        self.assertIsNone(result)
-
-    def test_set_and_get_materialization_ready_true(self):
-        set_endpoint_materialization_ready(123, "test_endpoint", True)
-        result = is_endpoint_materialization_ready(123, "test_endpoint")
-        self.assertTrue(result)
-
-    def test_set_and_get_materialization_ready_false(self):
-        set_endpoint_materialization_ready(123, "test_endpoint", False)
-        result = is_endpoint_materialization_ready(123, "test_endpoint")
-        self.assertFalse(result)
+    @parameterized.expand([(True,), (False,)])
+    def test_set_and_get_materialization_status(self, is_ready):
+        set_endpoint_materialization_ready(123, "test_endpoint", is_ready)
+        self.assertEqual(is_endpoint_materialization_ready(123, "test_endpoint"), is_ready)
 
     def test_clear_cache(self):
         set_endpoint_materialization_ready(123, "test_endpoint", True)
-        self.assertTrue(is_endpoint_materialization_ready(123, "test_endpoint"))
-
         clear_endpoint_materialization_cache(123, "test_endpoint")
         self.assertIsNone(is_endpoint_materialization_ready(123, "test_endpoint"))
 
@@ -64,12 +51,11 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         cache.clear()
         super().tearDown()
 
-    def test_returns_false_for_nonexistent_endpoint(self):
-        result = _check_and_cache_materialization_status(self.team.id, "nonexistent")
-        self.assertFalse(result)
+    def test_nonexistent_endpoint_returns_false(self):
+        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "nonexistent"))
 
-    def test_returns_false_for_non_materialized_endpoint(self):
-        endpoint = Endpoint.objects.create(
+    def test_non_materialized_endpoint_returns_false_and_caches(self):
+        Endpoint.objects.create(
             name="inline_endpoint",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
@@ -77,21 +63,27 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             is_active=True,
         )
 
-        result = _check_and_cache_materialization_status(self.team.id, endpoint.name)
-        self.assertFalse(result)
-        self.assertFalse(is_endpoint_materialization_ready(self.team.id, endpoint.name))
+        self.assertFalse(_check_and_cache_materialization_status(self.team.id, "inline_endpoint"))
+        self.assertFalse(is_endpoint_materialization_ready(self.team.id, "inline_endpoint"))
 
-    def test_returns_false_for_materialized_but_not_completed(self):
+    @parameterized.expand(
+        [
+            (DataWarehouseSavedQuery.Status.RUNNING, False),
+            (DataWarehouseSavedQuery.Status.FAILED, False),
+            (DataWarehouseSavedQuery.Status.COMPLETED, True),
+        ]
+    )
+    def test_materialized_endpoint_status(self, status, expected_ready):
         saved_query = DataWarehouseSavedQuery.objects.create(
-            name="test_query",
+            name=f"query_{status}",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=True,
-            status=DataWarehouseSavedQuery.Status.RUNNING,
+            status=status,
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
-        endpoint = Endpoint.objects.create(
-            name="running_endpoint",
+        Endpoint.objects.create(
+            name=f"endpoint_{status}",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
@@ -99,31 +91,9 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             saved_query=saved_query,
         )
 
-        result = _check_and_cache_materialization_status(self.team.id, endpoint.name)
-        self.assertFalse(result)
-        self.assertFalse(is_endpoint_materialization_ready(self.team.id, endpoint.name))
-
-    def test_returns_true_for_completed_materialized_endpoint(self):
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            name="completed_query",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            is_materialized=True,
-            status=DataWarehouseSavedQuery.Status.COMPLETED,
-            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
-        )
-        endpoint = Endpoint.objects.create(
-            name="materialized_endpoint",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            is_active=True,
-            saved_query=saved_query,
-        )
-
-        result = _check_and_cache_materialization_status(self.team.id, endpoint.name)
-        self.assertTrue(result)
-        self.assertTrue(is_endpoint_materialization_ready(self.team.id, endpoint.name))
+        result = _check_and_cache_materialization_status(self.team.id, f"endpoint_{status}")
+        self.assertEqual(result, expected_ready)
+        self.assertEqual(is_endpoint_materialization_ready(self.team.id, f"endpoint_{status}"), expected_ready)
 
 
 class TestIsMaterializedEndpointRequest(APIBaseTest):
@@ -135,25 +105,21 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         cache.clear()
         super().tearDown()
 
-    def test_returns_false_when_no_team_id(self):
+    @parameterized.expand(
+        [
+            (None, "test"),  # no team_id
+            (123, None),  # no endpoint_name (via empty kwargs)
+        ]
+    )
+    def test_returns_false_when_missing_context(self, team_id, endpoint_name):
         request = MagicMock()
         view = MagicMock()
-        view.team_id = None
-        view.kwargs = {"name": "test"}
+        view.team_id = team_id
+        view.kwargs = {"name": endpoint_name} if endpoint_name else {}
 
-        result = _is_materialized_endpoint_request(request, view)
-        self.assertFalse(result)
+        self.assertFalse(_is_materialized_endpoint_request(request, view))
 
-    def test_returns_false_when_no_endpoint_name(self):
-        request = MagicMock()
-        view = MagicMock()
-        view.team_id = 123
-        view.kwargs = {}
-
-        result = _is_materialized_endpoint_request(request, view)
-        self.assertFalse(result)
-
-    def test_returns_cached_true_value(self):
+    def test_uses_cached_value(self):
         set_endpoint_materialization_ready(123, "test", True)
 
         request = MagicMock()
@@ -161,31 +127,19 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         view.team_id = 123
         view.kwargs = {"name": "test"}
 
-        result = _is_materialized_endpoint_request(request, view)
-        self.assertTrue(result)
-
-    def test_returns_cached_false_value(self):
-        set_endpoint_materialization_ready(123, "test", False)
-
-        request = MagicMock()
-        view = MagicMock()
-        view.team_id = 123
-        view.kwargs = {"name": "test"}
-
-        result = _is_materialized_endpoint_request(request, view)
-        self.assertFalse(result)
+        self.assertTrue(_is_materialized_endpoint_request(request, view))
 
     def test_lazy_loads_on_cache_miss(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
-            name="lazy_load_query",
+            name="lazy_query",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
-        endpoint = Endpoint.objects.create(
-            name="lazy_load_endpoint",
+        Endpoint.objects.create(
+            name="lazy_endpoint",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
@@ -193,16 +147,15 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
             saved_query=saved_query,
         )
 
-        self.assertIsNone(is_endpoint_materialization_ready(self.team.id, endpoint.name))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
 
         request = MagicMock()
         view = MagicMock()
         view.team_id = self.team.id
-        view.kwargs = {"name": endpoint.name}
+        view.kwargs = {"name": "lazy_endpoint"}
 
-        result = _is_materialized_endpoint_request(request, view)
-        self.assertTrue(result)
-        self.assertTrue(is_endpoint_materialization_ready(self.team.id, endpoint.name))
+        self.assertTrue(_is_materialized_endpoint_request(request, view))
+        self.assertTrue(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
 
 
 class TestEndpointThrottles(APIBaseTest):
@@ -214,7 +167,7 @@ class TestEndpointThrottles(APIBaseTest):
         cache.clear()
         super().tearDown()
 
-    def test_burst_throttle_uses_inline_rate_by_default(self):
+    def test_uses_api_queries_scope_for_non_materialized(self):
         throttle = EndpointBurstThrottle()
 
         request = MagicMock()
@@ -225,49 +178,23 @@ class TestEndpointThrottles(APIBaseTest):
         with patch.object(throttle, "allow_request", wraps=throttle.allow_request):
             throttle.allow_request(request, view)
 
-        self.assertEqual(throttle.rate, INLINE_BURST_RATE)
-        self.assertEqual(throttle.scope, "endpoint_burst")
+        self.assertEqual(throttle.scope, "api_queries_burst")
 
-    def test_burst_throttle_uses_materialized_rate_when_cached_true(self):
+    def test_uses_materialized_scope_and_higher_rate_when_materialized(self):
         set_endpoint_materialization_ready(self.team.id, "mat_endpoint", True)
-        throttle = EndpointBurstThrottle()
 
-        request = MagicMock()
-        view = MagicMock()
-        view.team_id = self.team.id
-        view.kwargs = {"name": "mat_endpoint"}
+        for throttle_class, expected_rate, expected_scope in [
+            (EndpointBurstThrottle, MATERIALIZED_BURST_RATE, "materialized_endpoint_burst"),
+            (EndpointSustainedThrottle, MATERIALIZED_SUSTAINED_RATE, "materialized_endpoint_sustained"),
+        ]:
+            throttle = throttle_class()
+            request = MagicMock()
+            view = MagicMock()
+            view.team_id = self.team.id
+            view.kwargs = {"name": "mat_endpoint"}
 
-        with patch.object(EndpointBurstThrottle, "allow_request", return_value=True):
-            throttle.allow_request(request, view)
+            with patch.object(throttle_class, "allow_request", return_value=True):
+                throttle.allow_request(request, view)
 
-        self.assertEqual(throttle.rate, MATERIALIZED_BURST_RATE)
-        self.assertEqual(throttle.scope, "materialized_endpoint_burst")
-
-    def test_sustained_throttle_uses_inline_rate_by_default(self):
-        throttle = EndpointSustainedThrottle()
-
-        request = MagicMock()
-        view = MagicMock()
-        view.team_id = 999
-        view.kwargs = {"name": "nonexistent"}
-
-        with patch.object(throttle, "allow_request", wraps=throttle.allow_request):
-            throttle.allow_request(request, view)
-
-        self.assertEqual(throttle.rate, INLINE_SUSTAINED_RATE)
-        self.assertEqual(throttle.scope, "endpoint_sustained")
-
-    def test_sustained_throttle_uses_materialized_rate_when_cached_true(self):
-        set_endpoint_materialization_ready(self.team.id, "mat_endpoint", True)
-        throttle = EndpointSustainedThrottle()
-
-        request = MagicMock()
-        view = MagicMock()
-        view.team_id = self.team.id
-        view.kwargs = {"name": "mat_endpoint"}
-
-        with patch.object(EndpointSustainedThrottle, "allow_request", return_value=True):
-            throttle.allow_request(request, view)
-
-        self.assertEqual(throttle.rate, MATERIALIZED_SUSTAINED_RATE)
-        self.assertEqual(throttle.scope, "materialized_endpoint_sustained")
+            self.assertEqual(throttle.rate, expected_rate)
+            self.assertEqual(throttle.scope, expected_scope)

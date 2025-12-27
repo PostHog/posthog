@@ -101,9 +101,10 @@ class EndpointBurstThrottle(PersonalApiKeyRateThrottle):
     """
     Adaptive burst throttle for endpoints.
     Uses higher rate limit for materialized endpoints.
+    Non-materialized endpoints share the api_queries_burst bucket.
     """
 
-    scope = "endpoint_burst"
+    scope = "api_queries_burst"
     rate = INLINE_BURST_RATE
 
     def allow_request(self, request, view):
@@ -112,7 +113,7 @@ class EndpointBurstThrottle(PersonalApiKeyRateThrottle):
             self.scope = "materialized_endpoint_burst"
         else:
             self.rate = INLINE_BURST_RATE
-            self.scope = "endpoint_burst"
+            self.scope = "api_queries_burst"
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
         return super().allow_request(request, view)
@@ -122,9 +123,10 @@ class EndpointSustainedThrottle(PersonalApiKeyRateThrottle):
     """
     Adaptive sustained throttle for endpoints.
     Uses higher rate limit for materialized endpoints.
+    Non-materialized endpoints share the api_queries_sustained bucket.
     """
 
-    scope = "endpoint_sustained"
+    scope = "api_queries_sustained"
     rate = INLINE_SUSTAINED_RATE
 
     def allow_request(self, request, view):
@@ -133,22 +135,7 @@ class EndpointSustainedThrottle(PersonalApiKeyRateThrottle):
             self.scope = "materialized_endpoint_sustained"
         else:
             self.rate = INLINE_SUSTAINED_RATE
-            self.scope = "endpoint_sustained"
+            self.scope = "api_queries_sustained"
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
         return super().allow_request(request, view)
-
-
-# Keep these for backwards compatibility and explicit use
-class MaterializedEndpointBurstThrottle(PersonalApiKeyRateThrottle):
-    """Higher burst rate limit for materialized endpoints (5x normal)."""
-
-    scope = "materialized_endpoint_burst"
-    rate = MATERIALIZED_BURST_RATE
-
-
-class MaterializedEndpointSustainedThrottle(PersonalApiKeyRateThrottle):
-    """Higher sustained rate limit for materialized endpoints (5x normal)."""
-
-    scope = "materialized_endpoint_sustained"
-    rate = MATERIALIZED_SUSTAINED_RATE
