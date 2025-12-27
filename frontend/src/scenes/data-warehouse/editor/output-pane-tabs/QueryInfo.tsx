@@ -133,6 +133,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
         updateDataWarehouseSavedQuery,
         loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
+        materializeDataWarehouseSavedQuery,
         revertMaterialization,
         setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
@@ -267,15 +268,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                     size="small"
                                     onClick={() => {
                                         if (editingView) {
-                                            updateDataWarehouseSavedQuery({
-                                                id: editingView.id,
-                                                sync_frequency: '24hour',
-                                                types: [[]],
-                                                lifecycle:
-                                                    dataModelingJobs && dataModelingJobs.results.length > 0
-                                                        ? 'update'
-                                                        : 'create',
-                                            })
+                                            materializeDataWarehouseSavedQuery(editingView.id)
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
                                         }
