@@ -11,6 +11,8 @@ from posthog.models import Organization, Team
 from products.llm_analytics.backend.models.evaluations import Evaluation
 
 from .run_evaluation import (
+    BooleanEvalResult,
+    BooleanWithNAEvalResult,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     emit_evaluation_event_activity,
@@ -167,3 +169,194 @@ class TestRunEvaluationWorkflow:
 
         assert parsed.evaluation_id == "eval-123"
         assert parsed.event_data == event_data
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_boolean_with_na_applicable(self, setup_data):
+        """Test LLM judge execution with boolean_with_na output type when applicable"""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean_with_na",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            },
+        )
+
+        with patch("openai.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+
+            mock_parsed = MagicMock()
+            mock_parsed.verdict = True
+            mock_parsed.applicable = True
+            mock_parsed.reasoning = "The answer is correct"
+
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.parsed = mock_parsed
+            mock_client.beta.chat.completions.parse.return_value = mock_response
+
+            result = await execute_llm_judge_activity(evaluation, event_data)
+
+            assert result["verdict"] is True
+            assert result["applicable"] is True
+            assert result["reasoning"] == "The answer is correct"
+            assert result["output_type"] == "boolean_with_na"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_boolean_with_na_not_applicable(self, setup_data):
+        """Test LLM judge execution with boolean_with_na output type when not applicable"""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Check mathematical accuracy"},
+            "output_type": "boolean_with_na",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "Hello, how are you?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "I'm doing well, thanks!"}],
+            },
+        )
+
+        with patch("openai.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+
+            mock_parsed = MagicMock()
+            mock_parsed.verdict = None
+            mock_parsed.applicable = False
+            mock_parsed.reasoning = "This is a greeting, not a math problem"
+
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.parsed = mock_parsed
+            mock_client.beta.chat.completions.parse.return_value = mock_response
+
+            result = await execute_llm_judge_activity(evaluation, event_data)
+
+            assert result["verdict"] is None
+            assert result["applicable"] is False
+            assert result["reasoning"] == "This is a greeting, not a math problem"
+            assert result["output_type"] == "boolean_with_na"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_emit_evaluation_event_activity_boolean_with_na_applicable(self, setup_data):
+        """Test emitting evaluation event for applicable boolean_with_na result"""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={},
+            person_id=str(uuid.uuid4()),
+        )
+
+        result = {
+            "verdict": True,
+            "reasoning": "Test passed",
+            "applicable": True,
+            "output_type": "boolean_with_na",
+        }
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
+            with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
+                mock_team_get.return_value = team
+
+                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+
+                mock_create.assert_called_once()
+                call_kwargs = mock_create.call_args[1]
+                assert call_kwargs["event"] == "$ai_evaluation"
+                assert call_kwargs["properties"]["$ai_evaluation_result"] is True
+                assert call_kwargs["properties"]["$ai_evaluation_applicable"] is True
+                assert call_kwargs["properties"]["$ai_evaluation_output_type"] == "boolean_with_na"
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_emit_evaluation_event_activity_boolean_with_na_not_applicable(self, setup_data):
+        """Test emitting evaluation event for not applicable boolean_with_na result"""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={},
+            person_id=str(uuid.uuid4()),
+        )
+
+        result = {
+            "verdict": None,
+            "reasoning": "Not applicable",
+            "applicable": False,
+            "output_type": "boolean_with_na",
+        }
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Team.objects.get") as mock_team_get:
+            with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
+                mock_team_get.return_value = team
+
+                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+
+                mock_create.assert_called_once()
+                call_kwargs = mock_create.call_args[1]
+                assert call_kwargs["event"] == "$ai_evaluation"
+                # Result should not be set when not applicable
+                assert "$ai_evaluation_result" not in call_kwargs["properties"]
+                assert call_kwargs["properties"]["$ai_evaluation_applicable"] is False
+                assert call_kwargs["properties"]["$ai_evaluation_output_type"] == "boolean_with_na"
+
+
+class TestEvalResultModels:
+    def test_boolean_eval_result(self):
+        """Test BooleanEvalResult model"""
+        result = BooleanEvalResult(reasoning="Test reasoning", verdict=True)
+        assert result.reasoning == "Test reasoning"
+        assert result.verdict is True
+
+    def test_boolean_with_na_eval_result_applicable(self):
+        """Test BooleanWithNAEvalResult model when applicable"""
+        result = BooleanWithNAEvalResult(reasoning="Test reasoning", applicable=True, verdict=True)
+        assert result.reasoning == "Test reasoning"
+        assert result.applicable is True
+        assert result.verdict is True
+
+    def test_boolean_with_na_eval_result_not_applicable(self):
+        """Test BooleanWithNAEvalResult model when not applicable"""
+        result = BooleanWithNAEvalResult(reasoning="Not applicable", applicable=False, verdict=None)
+        assert result.reasoning == "Not applicable"
+        assert result.applicable is False
+        assert result.verdict is None

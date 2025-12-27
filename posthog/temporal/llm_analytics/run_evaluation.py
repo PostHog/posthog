@@ -35,6 +35,18 @@ class BooleanEvalResult(BaseModel):
     verdict: bool
 
 
+class BooleanWithNAEvalResult(BaseModel):
+    """Structured output for boolean with N/A evaluation results.
+
+    When the evaluation criteria doesn't apply to the input/output,
+    applicable should be False and verdict should be None.
+    """
+
+    reasoning: str
+    applicable: bool
+    verdict: bool | None = None
+
+
 @dataclass
 class RunEvaluationInputs:
     evaluation_id: str
@@ -113,9 +125,9 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
     output_type = evaluation["output_type"]
-    if output_type != "boolean":
+    if output_type not in ("boolean", "boolean_with_na"):
         raise ApplicationError(
-            f"Unsupported output type: {output_type}. Only 'boolean' is currently supported.",
+            f"Unsupported output type: {output_type}. Supported types: 'boolean', 'boolean_with_na'.",
             non_retryable=True,
         )
 
@@ -202,12 +214,26 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
 
-    # Build judge prompt
-    system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
+    # Build judge prompt based on output type
+    if output_type == "boolean_with_na":
+        system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
+
+{prompt}
+
+First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case (e.g., checking for mathematical accuracy on a greeting, or evaluating a skill that wasn't exercised), mark it as not applicable.
+
+Return:
+- applicable: true if the criteria applies to this input/output, false if it doesn't apply
+- verdict: true if it passes, false if it fails, or null if not applicable
+- reasoning: a brief explanation (1 sentence)"""
+        response_format = BooleanWithNAEvalResult
+    else:
+        system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
 
 {prompt}
 
 Provide a brief reasoning (1 sentence) and a boolean verdict (true/false)."""
+        response_format = BooleanEvalResult
 
     user_prompt = f"""Input: {input_data}
 
@@ -230,7 +256,7 @@ Output: {output_data}"""
         response = client.beta.chat.completions.parse(
             model=DEFAULT_JUDGE_MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            response_format=BooleanEvalResult,
+            response_format=response_format,
         )
     except openai.AuthenticationError:
         if is_byok:
@@ -277,7 +303,7 @@ Output: {output_data}"""
 
     # Extract token usage from response
     usage = response.usage
-    return {
+    result_dict = {
         "verdict": result.verdict,
         "reasoning": result.reasoning,
         "input_tokens": usage.prompt_tokens if usage else 0,
@@ -285,7 +311,14 @@ Output: {output_data}"""
         "total_tokens": usage.total_tokens if usage else 0,
         "is_byok": is_byok,
         "key_id": key_id,
+        "output_type": output_type,
     }
+
+    # Include applicable field for boolean_with_na output type
+    if output_type == "boolean_with_na":
+        result_dict["applicable"] = result.applicable
+
+    return result_dict
 
 
 @temporalio.activity.defn
@@ -305,12 +338,14 @@ async def emit_evaluation_event_activity(
             raise ValueError(f"Team {event_data['team_id']} not found")
 
         event_uuid = uuid.uuid4()
-        properties = {
+        output_type = result.get("output_type", "boolean")
+
+        properties: dict[str, Any] = {
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
             "$ai_evaluation_model": DEFAULT_JUDGE_MODEL,
             "$ai_evaluation_start_time": start_time.isoformat(),
-            "$ai_evaluation_result": result["verdict"],
+            "$ai_evaluation_output_type": output_type,
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
@@ -318,6 +353,17 @@ async def emit_evaluation_event_activity(
             "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
             "$ai_evaluation_key_id": result.get("key_id"),
         }
+
+        # Handle result based on output type
+        if output_type == "boolean_with_na":
+            applicable = result.get("applicable", True)
+            properties["$ai_evaluation_applicable"] = applicable
+            # Only set result when applicable
+            if applicable:
+                properties["$ai_evaluation_result"] = result["verdict"]
+        else:
+            # Standard boolean output - always set result
+            properties["$ai_evaluation_result"] = result["verdict"]
 
         # Convert person_id string to UUID
         person_id = uuid.UUID(event_data["person_id"]) if event_data.get("person_id") else None
