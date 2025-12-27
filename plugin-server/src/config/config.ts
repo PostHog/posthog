@@ -226,7 +226,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
-        CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+        CDP_LEGACY_EVENT_CONSUMER_INLINE_PERCENTAGE: 0,
 
         CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-webhooks',
         CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,

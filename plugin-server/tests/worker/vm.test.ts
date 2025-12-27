@@ -6,13 +6,11 @@ import { fetch } from 'undici'
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
-import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
+import { Hub, PluginConfig, PluginConfigVMResponse, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT, delay } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { pluginConfig39 } from '../helpers/plugins'
-import { plugin60 } from '../helpers/plugins'
+import { plugin60, pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/logger')
@@ -59,6 +57,7 @@ describe('vm tests', () => {
             const response = responsesToUrls[args[0] as unknown as string] || { fetch: 'mock' }
 
             return Promise.resolve({
+                status: 200,
                 json: jest.fn().mockResolvedValue(response),
             } as any)
         })
