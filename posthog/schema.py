@@ -12108,6 +12108,7 @@ class RetentionFilter(BaseModel):
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
+    goalLines: list[GoalLine] | None = None
     meanRetentionCalculation: MeanRetentionCalculation | None = None
     minimumOccurrences: int | None = None
     period: RetentionPeriod | None = RetentionPeriod.DAY

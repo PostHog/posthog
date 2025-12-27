@@ -138,7 +138,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
                 display || ChartDisplayType.ActionsLineGraph
             )) ||
-        (isFunnels && isTrendsFunnel)
+        (isFunnels && isTrendsFunnel) ||
+        (isRetention &&
+            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
+                display || ChartDisplayType.ActionsLineGraph
+            ))
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
