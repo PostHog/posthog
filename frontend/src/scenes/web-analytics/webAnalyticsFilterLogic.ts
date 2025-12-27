@@ -5,7 +5,7 @@ import { isNotNil } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { CompareFilter, WebAnalyticsPropertyFilter, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
-import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator, WebAnalyticsFiltersConfig } from '~/types'
 
 import { DeviceType, INITIAL_WEB_ANALYTICS_FILTER } from './common'
 import type { webAnalyticsFilterLogicType } from './webAnalyticsFilterLogicType'
@@ -44,6 +44,8 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
         setDomainFilter: (domain: string | null) => ({ domain }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        loadPreset: (filters: WebAnalyticsFiltersConfig) => ({ filters }),
+        clearFilters: true,
     }),
     reducers({
         rawWebAnalyticsFilters: [
@@ -51,6 +53,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             persistConfig,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
+                clearFilters: () => INITIAL_WEB_ANALYTICS_FILTER,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
                     if (value === null) {
                         // if there's already an isNotSet filter, remove it
@@ -123,6 +126,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     // the domain and host filters don't interact well, so remove the host filter when the domain filter is set
                     return state.filter((filter) => filter.key !== '$host')
                 },
+                loadPreset: (_, { filters }) => filters.properties ?? INITIAL_WEB_ANALYTICS_FILTER,
             },
         ],
         domainFilter: [
@@ -133,6 +137,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     const { domain } = payload
                     return domain
                 },
+                clearFilters: () => null,
                 togglePropertyFilter: (state, { key }) => {
                     // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
                     return key === '$host' ? null : state
@@ -144,6 +149,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     }
                     return state
                 },
+                loadPreset: (_, { filters }) => filters.domainFilter ?? null,
             },
         ],
         deviceTypeFilter: [
@@ -152,6 +158,8 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             {
                 setDeviceTypeFilter: (_: DeviceType | null, { deviceType }: { deviceType: DeviceType | null }) =>
                     deviceType,
+                clearFilters: () => null,
+                loadPreset: (_, { filters }) => (filters.deviceTypeFilter as DeviceType) ?? null,
             },
         ],
         compareFilter: [
@@ -159,6 +167,8 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
+                clearFilters: () => ({ compare: true }),
+                loadPreset: (_, { filters }) => (filters.compareFilter as CompareFilter) ?? { compare: true },
             },
         ],
     }),
