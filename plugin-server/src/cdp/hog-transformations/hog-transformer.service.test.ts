@@ -364,6 +364,92 @@ describe('HogTransformer', () => {
             expect(result?.event?.properties?.test_property).toEqual(null)
         })
 
+        it('should allow second transformation to read property added by first transformation', async () => {
+            const firstTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'alpha',
+                type: 'transformation',
+                id: 'template-first',
+                name: 'First Template',
+                description: 'Adds a property that the second transformation will read',
+                category: ['Custom'],
+                code_language: 'hog',
+                code: `
+                    let returnEvent := event
+                    returnEvent.properties.added_by_first := 'value_from_first'
+                    returnEvent.properties.counter := 1
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const secondTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'alpha',
+                type: 'transformation',
+                id: 'template-second',
+                name: 'Second Template',
+                description: 'Reads property from first transformation and creates a derived property',
+                category: ['Custom'],
+                code_language: 'hog',
+                code: `
+                    let returnEvent := event
+                    // This should be able to read the property added by the first transformation
+                    returnEvent.properties.derived_from_first := f'derived_from_{event.properties.added_by_first}'
+                    returnEvent.properties.counter := event.properties.counter + 1
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const firstTransformationFunction = createHogFunction({
+                type: 'transformation',
+                name: firstTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(firstTemplate.code),
+                execution_order: 1,
+            })
+
+            const secondTransformationFunction = createHogFunction({
+                type: 'transformation',
+                name: secondTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(secondTemplate.code),
+                execution_order: 2,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
+            await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
+
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
+                firstTransformationFunction.id,
+                secondTransformationFunction.id,
+            ])
+
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+
+            const event: PluginEvent = {
+                ip: '89.160.20.129',
+                site_url: 'http://localhost',
+                team_id: teamId,
+                now: '2024-06-07T12:00:00.000Z',
+                uuid: 'event-id',
+                event: 'event-name',
+                distinct_id: 'distinct-id',
+                properties: { $ip: '89.160.20.129' },
+                timestamp: '2024-01-01T00:00:00Z',
+            }
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(2)
+            expect(result?.event?.properties?.added_by_first).toEqual('value_from_first')
+            expect(result?.event?.properties?.derived_from_first).toEqual('derived_from_value_from_first')
+            expect(result?.event?.properties?.counter).toEqual(2)
+        })
+
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
                 free: true,
