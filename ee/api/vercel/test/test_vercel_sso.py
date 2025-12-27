@@ -88,7 +88,9 @@ class SSOTestHelper:
     def assert_login_redirect(response, expected_continuation_params):
         """Assert that the response redirects to login with proper continuation URL"""
         assert response.status_code == status.HTTP_302_FOUND
-        assert response.url.startswith("/login?next=")
+        # The login redirect includes email, message, and next params
+        assert response.url.startswith("/login?")
+        assert "next=" in response.url or "next%3D" in response.url
         for param, value in expected_continuation_params.items():
             assert f"{param}={value}" in response.url or f"{param}%3D{value}" in response.url
 
@@ -122,6 +124,21 @@ def create_user_claims(installation_id: str, user_id: str = "sso_user_123", emai
     )
 
 
+@pytest.fixture(autouse=True)
+def clear_vercel_cache():
+    """Clear the Vercel SSO claims cache before each test to ensure isolation."""
+    from django.core.cache import cache
+
+    from ee.vercel.integration import VercelIntegration
+
+    # Clear any cached claims for the test auth code
+    cache_key = VercelIntegration._get_cache_key(TestConstants.AUTH_CODE)
+    cache.delete(cache_key)
+    yield
+    # Clean up after the test as well
+    cache.delete(cache_key)
+
+
 @pytest.fixture
 def sso_setup(db, client):
     sso_user = User.objects.create_user(email=TestConstants.EMAIL, password="testpass", first_name="SSO User")
@@ -143,7 +160,7 @@ def sso_setup(db, client):
         "installation": sso_installation,
         "installation_id": sso_installation_id,
         "client": client,
-        "url": "/login/vercel/",
+        "url": "/login/vercel",
     }
 
 
