@@ -27,6 +27,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 evaluationScheduler: true,
                 logsIngestion: true,
+                recordingApi: true,
             }
 
         case PluginServerMode.local_cdp:
@@ -122,6 +123,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
+            }
+        case PluginServerMode.recording_api:
+            return {
+                recordingApi: true,
             }
     }
 }

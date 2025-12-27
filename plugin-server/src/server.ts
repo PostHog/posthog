@@ -33,6 +33,7 @@ import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { RecordingApi } from './recording/recording-api'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -297,6 +298,15 @@ export class PluginServer {
                     const consumer = new LogsIngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.recordingApi) {
+                serviceLoaders.push(async () => {
+                    const api = new RecordingApi(hub)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 
