@@ -18,8 +18,10 @@ const MIN_RUNS_FOR_FAILING_STATUS = 3
 export interface EvaluationStats {
     evaluation_id: string
     runs_count: number
+    applicable_count: number
     pass_count: number
     pass_rate: number
+    applicability_rate: number
 }
 
 export interface SummaryMetrics {
@@ -28,7 +30,7 @@ export interface SummaryMetrics {
     failing_evaluations_count: number
 }
 
-type RawStatsRow = [evaluation_id: string, runs_count: number, pass_count: number]
+type RawStatsRow = [evaluation_id: string, runs_count: number, applicable_count: number, pass_count: number]
 
 function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
     if (!dateFrom) {
@@ -81,7 +83,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             SELECT
                                 properties.$ai_evaluation_id as evaluation_id,
                                 count() as runs_count,
-                                countIf(properties.$ai_evaluation_result = true) as pass_count
+                                countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable_count,
+                                countIf(properties.$ai_evaluation_result = 1) as pass_count
                             FROM events
                             WHERE event = '$ai_evaluation' AND {filters}
                             GROUP BY evaluation_id
@@ -99,14 +102,19 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
 
                         return (response.results || []).map((row: RawStatsRow) => {
                             const runs_count = row[1]
-                            const pass_count = row[2]
-                            const pass_rate = runs_count > 0 ? (pass_count / runs_count) * 100 : 0
+                            const applicable_count = row[2]
+                            const pass_count = row[3]
+                            // Pass rate excludes N/A results (uses applicable_count as denominator)
+                            const pass_rate = applicable_count > 0 ? (pass_count / applicable_count) * 100 : 0
+                            const applicability_rate = runs_count > 0 ? (applicable_count / runs_count) * 100 : 0
 
                             return {
                                 evaluation_id: row[0],
                                 runs_count,
+                                applicable_count,
                                 pass_count,
                                 pass_rate: Math.round(pass_rate * 10) / 10,
+                                applicability_rate: Math.round(applicability_rate * 10) / 10,
                             }
                         })
                     } catch (error) {
@@ -123,12 +131,16 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
             (s) => [s.stats],
             (stats: EvaluationStats[]): SummaryMetrics => {
                 const total_runs = stats.reduce((sum: number, stat) => sum + stat.runs_count, 0)
+                const total_applicable = stats.reduce((sum: number, stat) => sum + stat.applicable_count, 0)
                 const total_passes = stats.reduce((sum: number, stat) => sum + stat.pass_count, 0)
-                const overall_pass_rate = total_runs > 0 ? (total_passes / total_runs) * 100 : 0
+                // Overall pass rate excludes N/A results
+                const overall_pass_rate = total_applicable > 0 ? (total_passes / total_applicable) * 100 : 0
 
                 const failing_count = stats.filter((stat) => {
+                    // Use applicable_count for minimum runs check
                     return (
-                        stat.runs_count >= MIN_RUNS_FOR_FAILING_STATUS && stat.pass_rate < PASS_RATE_SUCCESS_THRESHOLD
+                        stat.applicable_count >= MIN_RUNS_FOR_FAILING_STATUS &&
+                        stat.pass_rate < PASS_RATE_SUCCESS_THRESHOLD
                     )
                 }).length
 
@@ -178,7 +190,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                         event: '$ai_evaluation',
                         custom_name: evaluation.name,
                         math: HogQLMathType.HogQL,
-                        math_hogql: `countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result = true) / countIf(properties.$ai_evaluation_id = '${evaluation.id}') * 100`,
+                        // Pass rate excludes N/A results (only counts where result IS NOT NULL)
+                        math_hogql: `countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result = 1) / countIf(properties.$ai_evaluation_id = '${evaluation.id}' AND properties.$ai_evaluation_result IS NOT NULL) * 100`,
                     })),
                     trendsFilter: {
                         display: ChartDisplayType.ActionsLineGraph,
