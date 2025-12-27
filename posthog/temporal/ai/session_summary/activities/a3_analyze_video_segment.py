@@ -189,13 +189,24 @@ This segment starts at {start_timestamp} in the full recording and runs for appr
 - Highlight what features were used, and what the user was doing with them
 - Explicitly mention names/labels of the elements the user interacted with
 - Note any problems, errors, confusion, or friction the user experienced
-- Notice clicks, as they are indicated by magenta circle around cursors
+- Notice clicks, as they 
 
 ## What to ignore
-- Ignore red lines that indicate mouse movements
 - Ignore accidental hovers
 - Don't list clicks if they are not confirmed visually
 - If the segment or the point within the segment has no activity - return "MM:SS - MM:SS: Static"
+
+## Indicators
+Video includes additional video indicators for LLMs specifically, and are not visible to the user:
+
+- Clicks are indicated by magenta circle around cursors
+- Mouse movements are indicated by a moving red line
+- Bottom of the video includes a black line with additional metadata:
+    - Current URL, use it to better understand the page's context
+    - Current timestamp (since the start of the recording), use it as a main source of truth for output timestamps
+    - Optional `IDLE` indicator, if present - user didn't move mouse or click buttons
+
+Avoid mentioning these indicators in the output, as they are not part of the recording and added for analysis purposes only.
 
 ## Granularity
 - Describe at the maximum granularity possible
