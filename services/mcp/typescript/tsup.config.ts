@@ -1,6 +1,8 @@
+import path from 'path'
 import { defineConfig } from 'tsup'
 
-export default defineConfig({
+// NPM package build (default)
+const packageConfig = defineConfig({
     entry: {
         index: 'src/index.ts',
         tools: 'src/tools/index.ts',
@@ -19,3 +21,30 @@ export default defineConfig({
         }
     },
 })
+
+// Server build (Node.js)
+const serverConfig = defineConfig({
+    entry: {
+        index: 'src/server/index.ts',
+    },
+    outDir: 'dist/server',
+    format: ['cjs'],
+    dts: false,
+    clean: true,
+    splitting: false,
+    treeshake: true,
+    platform: 'node',
+    target: 'node22',
+    noExternal: [/.*/],
+    esbuildOptions(options) {
+        options.loader = {
+            ...options.loader,
+            '.md': 'text',
+        }
+        options.alias = {
+            '@': path.resolve(__dirname, 'src'),
+        }
+    },
+})
+
+export default process.env.BUILD_SERVER === 'true' ? serverConfig : packageConfig
