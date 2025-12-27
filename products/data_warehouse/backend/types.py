@@ -10,6 +10,8 @@ class IncrementalFieldType(StrEnum):
     DateTime = "datetime"
     Date = "date"
     Timestamp = "timestamp"
+    # RevenueCat specific
+    String = "string"
     # MongoDB specific
     ObjectID = "objectid"
 

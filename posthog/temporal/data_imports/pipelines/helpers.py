@@ -33,3 +33,5 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
         return date(1970, 1, 1)
     if field_type == IncrementalFieldType.ObjectID:
         return "000000000000000000000000"
+    if field_type == IncrementalFieldType.String:
+        return ""
