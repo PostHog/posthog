@@ -227,7 +227,12 @@ Return the output in the following markdown format:
 """
 
 ## TODO - Reuse events in the additional call
-VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION = """
+VIDEO_SEGMENT_EVENTS_ENRICHMENT_PROMPT = """
+# Task
+Attach events to the relevant points in the description of the segment of session recordings.
+
+This segment starts at {start_timestamp} in the full recording and runs for approximately {segment_duration:.0f} seconds.
+
 The following events were tracked during this segment. Use them to understand what actions the user took
 and correlate them with what you see in the video. Pay special attention to:
 - $exception_types and $exception_values: These indicate errors or exceptions that occurred
