@@ -5,10 +5,6 @@ from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrot
 MATERIALIZED_ENDPOINT_CACHE_KEY = "endpoint_materialized_ready:{team_id}:{endpoint_name}"
 MATERIALIZED_ENDPOINT_CACHE_TTL = 3600  # 1 hour fallback TTL
 
-# Rate limits for materialized endpoints (5x higher than api_queries)
-MATERIALIZED_BURST_RATE = "1200/minute"
-MATERIALIZED_SUSTAINED_RATE = "12000/hour"
-
 
 def get_endpoint_materialization_cache_key(team_id: int, endpoint_name: str) -> str:
     return MATERIALIZED_ENDPOINT_CACHE_KEY.format(team_id=team_id, endpoint_name=endpoint_name)
@@ -76,6 +72,7 @@ def _check_and_cache_materialization_status(team_id: int, endpoint_name: str) ->
         set_endpoint_materialization_ready(team_id, endpoint_name, is_ready)
         return is_ready
     except Endpoint.DoesNotExist:
+        set_endpoint_materialization_ready(team_id, endpoint_name, False)
         return False
 
 
@@ -90,7 +87,7 @@ def _is_materialized_endpoint_request(request, view) -> bool:
     if cached_status is None:
         return _check_and_cache_materialization_status(team_id, endpoint_name)
 
-    return cached_status is True
+    return cached_status
 
 
 class EndpointBurstThrottle(APIQueriesBurstThrottle):
@@ -102,7 +99,7 @@ class EndpointBurstThrottle(APIQueriesBurstThrottle):
 
     def allow_request(self, request, view):
         if _is_materialized_endpoint_request(request, view):
-            self.rate = MATERIALIZED_BURST_RATE
+            self.rate = "1200/minute"
             self.scope = "materialized_endpoint_burst"
             self.num_requests, self.duration = self.parse_rate(self.rate)
 
@@ -118,7 +115,7 @@ class EndpointSustainedThrottle(APIQueriesSustainedThrottle):
 
     def allow_request(self, request, view):
         if _is_materialized_endpoint_request(request, view):
-            self.rate = MATERIALIZED_SUSTAINED_RATE
+            self.rate = "12000/hour"
             self.scope = "materialized_endpoint_sustained"
             self.num_requests, self.duration = self.parse_rate(self.rate)
 

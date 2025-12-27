@@ -191,7 +191,6 @@ class TestEndpointThrottles(APIBaseTest):
             view.team_id = self.team.id
             view.kwargs = {"name": "mat_endpoint"}
 
-            with patch.object(throttle_class, "allow_request", return_value=True):
-                throttle.allow_request(request, view)
+            throttle.allow_request(request, view)
 
             self.assertEqual(throttle.scope, expected_scope)

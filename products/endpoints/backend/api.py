@@ -3,7 +3,6 @@ import builtins
 from datetime import timedelta
 from typing import Union, cast
 
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -45,7 +44,6 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
-from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -95,17 +93,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def get_throttles(self):
         return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
-
-    def check_team_api_queries_concurrency(self):
-        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-        if self.team:
-            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
-            cache.set(cache_key, new_val)
-            return new_val
-        return False
 
     def _serialize_endpoint(self, endpoint: Endpoint) -> dict:
         result = {
