@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = { workspace = true }
 anyhow = { workspace = true }
 common-redis = { path = "../redis" }
 dashmap = "6.1"

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use common_redis::Client;
 use moka::sync::Cache;
@@ -16,13 +17,41 @@ const GLOBAL_RATE_LIMITER_ERROR_COUNTER: &str = "global_rate_limiter_error_total
 const GLOBAL_RATE_LIMITER_BATCH_WRITE_HISTOGRAM: &str = "global_rate_limiter_batch_write_seconds";
 const GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM: &str = "global_rate_limiter_batch_read_seconds";
 
-/// Mode for rate limit checking
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CheckMode {
-    /// Use the global default limit for all keys
-    Global,
-    /// Only check keys present in custom_keys map, using their custom limits
-    Custom,
+/// Trait for global rate limiting
+#[async_trait]
+pub trait GlobalRateLimiter: Send + Sync {
+    /// Evaluate if a key is rate limited:
+    ///
+    /// - Consult and refresh the local cache if needed
+    /// - Enqueue an update to the key's count for async batch submission
+    ///   to the global cache
+    /// - Fail open if the local cache is stale or global cache unavaialble
+    ///
+    /// Returns `Some(response)` if rate limited, `None` if allowed or internal error occurred
+    async fn update_eval_key(
+        &self,
+        key: &str,
+        count: u64,
+        timestamp: Option<DateTime<Utc>>,
+    ) -> Option<GlobalRateLimitResponse>;
+
+    /// Evaluate if a "custom key" is rate limited. The operation is the same as
+    /// as update_eval_key, other than how the key and threshold are determined:.
+    ///
+    /// - Custom keys are defined in the custom_keys map, associated with anoverride value
+    /// - If the key is present in the map, the override threshold value is applied
+    /// - If the key is not present in the map, it is not subject to rate limiting
+    ///
+    /// Returns `Some(response)` if rate limited, `None` if allowed or internal error occurred
+    async fn update_eval_custom_key(
+        &self,
+        key: &str,
+        count: u64,
+        timestamp: Option<DateTime<Utc>>,
+    ) -> Option<GlobalRateLimitResponse>;
+
+    /// Close the update channel and flush remaining update records to global cache
+    fn shutdown(&mut self);
 }
 
 /// Configuration for the global rate limiter
@@ -102,6 +131,14 @@ struct UpdateRequest {
     bucket_id: i64,
     count: u64,
 }
+/// Mode for rate limit checking
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckMode {
+    /// Use the global default limit for all keys
+    Global,
+    /// Only check keys present in custom_keys map, using their custom limits
+    Custom,
+}
 
 /// Calculate bucket ID from timestamp and interval
 fn bucket_from_timestamp(timestamp: DateTime<Utc>, bucket_interval: Duration) -> i64 {
@@ -179,15 +216,43 @@ pub struct GlobalRateLimitResponse {
 /// This limiter uses a sliding window algorithm with configurable bucket granularity.
 /// Updates are batched and sent to Redis asynchronously via a background task
 #[derive(Clone)]
-pub struct GlobalRateLimiter {
+pub struct GlobalRateLimiterImpl {
     config: GlobalRateLimiterConfig,
     redis: Arc<dyn Client + Send + Sync>,
     cache: Cache<String, CacheEntry>,
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
 }
 
-impl GlobalRateLimiter {
-    /// Create a new GlobalRateLimiter
+#[async_trait]
+impl GlobalRateLimiter for GlobalRateLimiterImpl {
+    async fn update_eval_key(
+        &self,
+        key: &str,
+        count: u64,
+        timestamp: Option<DateTime<Utc>>,
+    ) -> Option<GlobalRateLimitResponse> {
+        self.update_eval_key_internal(CheckMode::Global, key, count, timestamp)
+            .await
+    }
+
+    async fn update_eval_custom_key(
+        &self,
+        key: &str,
+        count: u64,
+        timestamp: Option<DateTime<Utc>>,
+    ) -> Option<GlobalRateLimitResponse> {
+        self.update_eval_key_internal(CheckMode::Custom, key, count, timestamp)
+            .await
+    }
+
+    fn shutdown(&mut self) {
+        // dropping the update_tx will close the channel and trigger final flush
+        let _ = self.update_tx.take();
+    }
+}
+
+impl GlobalRateLimiterImpl {
+    /// Create a new GlobalRateLimiterImpl
     ///
     /// This spawns a background task for batching updates to Redis.
     pub fn new(config: GlobalRateLimiterConfig, redis: Arc<dyn Client + Send + Sync>) -> Self {
@@ -211,16 +276,6 @@ impl GlobalRateLimiter {
         limiter
     }
 
-    /// Check if the rate limiter key is registered with a custom defined limit
-    pub fn is_custom_key(&self, key: &str) -> bool {
-        self.config.custom_keys.contains_key(key)
-    }
-
-    pub fn shutdown(&mut self) {
-        // dropping the update_tx will close the channel and trigger final flush
-        let _ = self.update_tx.take();
-    }
-
     /// Evaluate a key for rate limiting locally and enqueue an update to the global cache
     ///
     /// Returns:
@@ -229,7 +284,7 @@ impl GlobalRateLimiter {
     ///
     /// In `Custom` mode, returns `None` immediately if the key is not in the custom_keys map.
     /// Updates are always queued to the background task regardless of the return value.
-    pub async fn eval_update_key(
+    async fn update_eval_key_internal(
         &self,
         mode: CheckMode,
         key: &str,
@@ -577,28 +632,28 @@ mod tests {
         // Test exact bucket boundary
         let ts = DateTime::from_timestamp(1735000040, 0).unwrap();
         assert_eq!(
-            GlobalRateLimiter::bucket_from_timestamp(ts, bucket_interval),
+            GlobalRateLimiterImpl::bucket_from_timestamp(ts, bucket_interval),
             1735000040
         );
 
         // Test mid-bucket
         let ts = DateTime::from_timestamp(1735000047, 0).unwrap();
         assert_eq!(
-            GlobalRateLimiter::bucket_from_timestamp(ts, bucket_interval),
+            GlobalRateLimiterImpl::bucket_from_timestamp(ts, bucket_interval),
             1735000040
         );
 
         // Test end of bucket
         let ts = DateTime::from_timestamp(1735000049, 0).unwrap();
         assert_eq!(
-            GlobalRateLimiter::bucket_from_timestamp(ts, bucket_interval),
+            GlobalRateLimiterImpl::bucket_from_timestamp(ts, bucket_interval),
             1735000040
         );
 
         // Test next bucket
         let ts = DateTime::from_timestamp(1735000050, 0).unwrap();
         assert_eq!(
-            GlobalRateLimiter::bucket_from_timestamp(ts, bucket_interval),
+            GlobalRateLimiterImpl::bucket_from_timestamp(ts, bucket_interval),
             1735000050
         );
     }
@@ -681,12 +736,10 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         // Should not be limited when count is under limit
-        let result = limiter
-            .eval_update_key(CheckMode::Global, "test_key", 5, None)
-            .await;
+        let result = limiter.update_eval_key("test_key", 5, None).await;
 
         assert!(
             result.is_none(),
@@ -700,7 +753,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config(); // limit = 10
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         // Pre-populate cache with count at the limit
         let now = Utc::now();
@@ -714,9 +767,7 @@ mod tests {
             },
         );
 
-        let result = limiter
-            .eval_update_key(CheckMode::Global, "test_key", 1, None)
-            .await;
+        let result = limiter.update_eval_key("test_key", 1, None).await;
 
         assert!(result.is_some(), "Should be limited when at/over threshold");
     }
@@ -727,7 +778,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config(); // limit=10, window=60s, bucket=10s
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         let now = Utc::now();
         let window_start = now - chrono::Duration::seconds(60);
@@ -741,9 +792,7 @@ mod tests {
             },
         );
 
-        let result = limiter
-            .eval_update_key(CheckMode::Global, "test_key", 1, None)
-            .await;
+        let result = limiter.update_eval_key("test_key", 1, None).await;
 
         let response = result.expect("Should be rate limited");
 
@@ -765,12 +814,10 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         // Don't populate cache - cache miss triggers Redis fetch which returns empty (fail open)
-        let result = limiter
-            .eval_update_key(CheckMode::Global, "unknown_key", 1000, None)
-            .await;
+        let result = limiter.update_eval_key("unknown_key", 1000, None).await;
 
         assert!(result.is_none(), "Should fail open and return None");
     }
@@ -781,7 +828,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiter::new(config.clone(), client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config.clone(), client.clone());
 
         // Manually populate cache
         let now = Utc::now();
@@ -796,9 +843,7 @@ mod tests {
         );
 
         // This should use cache and not hit Redis
-        let result = limiter
-            .eval_update_key(CheckMode::Global, "cached_key", 1, None)
-            .await;
+        let result = limiter.update_eval_key("cached_key", 1, None).await;
 
         assert!(
             result.is_none(),
@@ -820,7 +865,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiter::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
 
         // Manually set cache to be at limit
         let now = Utc::now();
@@ -835,9 +880,7 @@ mod tests {
         );
 
         // This should be limited but still queue an update
-        let result = limiter
-            .eval_update_key(CheckMode::Global, "limited_key", 1, None)
-            .await;
+        let result = limiter.update_eval_key("limited_key", 1, None).await;
 
         assert!(result.is_some(), "Should be limited");
 
@@ -882,11 +925,11 @@ mod tests {
         let mut config = test_config();
         config.custom_keys.insert("known_key".to_string(), 5);
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         // Unknown key in Custom mode should return None immediately
         let result = limiter
-            .eval_update_key(CheckMode::Custom, "unknown_key", 100, None)
+            .update_eval_custom_key("unknown_key", 100, None)
             .await;
 
         assert!(
@@ -903,7 +946,7 @@ mod tests {
         // Set a custom limit of 5 for this key (global limit is 10)
         config.custom_keys.insert("custom_key".to_string(), 5);
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         // Manually set cache to 5 (at custom limit of 5)
         let now = Utc::now();
@@ -918,9 +961,7 @@ mod tests {
         );
 
         // count 5 >= limit 5, should be limited
-        let result = limiter
-            .eval_update_key(CheckMode::Custom, "custom_key", 1, None)
-            .await;
+        let result = limiter.update_eval_custom_key("custom_key", 1, None).await;
 
         assert!(
             result.is_some(),
@@ -936,7 +977,7 @@ mod tests {
         // Set a custom limit of 10 for this key
         config.custom_keys.insert("custom_key".to_string(), 10);
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
         // Manually set cache to 5 (under custom limit of 10)
         let now = Utc::now();
@@ -951,9 +992,7 @@ mod tests {
         );
 
         // count 5 < limit 10, should not be limited
-        let result = limiter
-            .eval_update_key(CheckMode::Custom, "custom_key", 1, None)
-            .await;
+        let result = limiter.update_eval_custom_key("custom_key", 1, None).await;
 
         assert!(
             result.is_none(),
@@ -962,19 +1001,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_is_custom_key() {
+    async fn test_custom_key_behavior() {
         let client = MockRedisClient::new();
         let client = Arc::new(client);
         let mut config = test_config();
         config.custom_keys.insert("custom_a".to_string(), 5);
         config.custom_keys.insert("custom_b".to_string(), 10);
 
-        let limiter = GlobalRateLimiter::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, client);
 
-        assert!(limiter.is_custom_key("custom_a"));
-        assert!(limiter.is_custom_key("custom_b"));
-        assert!(!limiter.is_custom_key("unknown_key"));
-        assert!(!limiter.is_custom_key(""));
+        // Pre-populate cache so we get deterministic results
+        let now = Utc::now();
+        limiter.cache.insert(
+            "custom_a".to_string(),
+            CacheEntry {
+                count: 10, // over limit of 5
+                window_start: now - chrono::Duration::seconds(60),
+                window_end: now,
+                expires_at: now + chrono::Duration::seconds(120),
+            },
+        );
+
+        // custom_a is in custom_keys, should be evaluated and limited (count 10 >= limit 5)
+        let result = limiter.update_eval_custom_key("custom_a", 1, None).await;
+        assert!(result.is_some(), "custom_a should be rate limited");
+
+        // unknown_key is NOT in custom_keys, should return None immediately
+        let result = limiter.update_eval_custom_key("unknown_key", 1, None).await;
+        assert!(
+            result.is_none(),
+            "unknown_key should return None (not in custom_keys)"
+        );
+
+        // empty key is NOT in custom_keys, should return None immediately
+        let result = limiter.update_eval_custom_key("", 1, None).await;
+        assert!(
+            result.is_none(),
+            "empty key should return None (not in custom_keys)"
+        );
     }
 
     #[tokio::test]
@@ -987,9 +1051,9 @@ mod tests {
         config.batch_max_key_cardinality = 100;
         config.batch_interval = Duration::from_secs(60); // Long interval so it won't trigger
 
-        let limiter = GlobalRateLimiter::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
 
-        // Pre-populate cache so eval_update_key doesn't block on Redis fetch
+        // Pre-populate cache so update_eval_key_internal doesn't block on Redis fetch
         let now = Utc::now();
         limiter.cache.insert(
             "key_a".to_string(),
@@ -1003,9 +1067,7 @@ mod tests {
 
         // Send 3 updates to the same key - should trigger flush on update count
         for _ in 0..3 {
-            let _ = limiter
-                .eval_update_key(CheckMode::Global, "key_a", 1, None)
-                .await;
+            let _ = limiter.update_eval_key("key_a", 1, None).await;
         }
 
         // Give background task time to process
@@ -1032,7 +1094,7 @@ mod tests {
         config.batch_max_key_cardinality = 3;
         config.batch_interval = Duration::from_secs(60); // Long interval so it won't trigger
 
-        let limiter = GlobalRateLimiter::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
 
         // Pre-populate cache for multiple keys
         let now = Utc::now();
@@ -1050,9 +1112,7 @@ mod tests {
 
         // Send updates to 3 different keys - should trigger flush on key cardinality
         for i in 0..3 {
-            let _ = limiter
-                .eval_update_key(CheckMode::Global, &format!("key_{i}"), 1, None)
-                .await;
+            let _ = limiter.update_eval_key(&format!("key_{i}"), 1, None).await;
         }
 
         // Give background task time to process
@@ -1079,7 +1139,7 @@ mod tests {
         config.batch_max_key_cardinality = 10;
         config.batch_interval = Duration::from_secs(60);
 
-        let limiter = GlobalRateLimiter::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
 
         // Pre-populate cache
         let now = Utc::now();
@@ -1096,21 +1156,11 @@ mod tests {
         }
 
         // Send 5 updates across 3 keys (under cardinality limit, at update count limit)
-        let _ = limiter
-            .eval_update_key(CheckMode::Global, "key_0", 1, None)
-            .await;
-        let _ = limiter
-            .eval_update_key(CheckMode::Global, "key_0", 1, None)
-            .await;
-        let _ = limiter
-            .eval_update_key(CheckMode::Global, "key_1", 1, None)
-            .await;
-        let _ = limiter
-            .eval_update_key(CheckMode::Global, "key_1", 1, None)
-            .await;
-        let _ = limiter
-            .eval_update_key(CheckMode::Global, "key_2", 1, None)
-            .await;
+        let _ = limiter.update_eval_key("key_0", 1, None).await;
+        let _ = limiter.update_eval_key("key_0", 1, None).await;
+        let _ = limiter.update_eval_key("key_1", 1, None).await;
+        let _ = limiter.update_eval_key("key_1", 1, None).await;
+        let _ = limiter.update_eval_key("key_2", 1, None).await;
 
         // Give background task time to process
         tokio::time::sleep(Duration::from_millis(50)).await;
