@@ -78,7 +78,13 @@ class VideoSegmentElement:
     element_type: str
     element_value: str
 
-@dataclasses.dataclass(frozen=True)
+
+class VideoSegmentInteraction:
+    interaction_type: str | None = None
+    elements: list[VideoSegmentElement] | None = None
+
+
+@dataclasses.dataclass  # Not frozen, as we plan to extend it
 class VideoSegmentOutput:
     """Output representing a segment from video analysis
 
@@ -88,8 +94,8 @@ class VideoSegmentOutput:
     start_time: str  # Format: MM:SS or HH:MM:SS
     end_time: str  # Format: MM:SS or HH:MM:SS
     description: str
-    elements: list[VideoSegmentElement] | None = None
-    interaction: str | None = None
+    interactions: list[VideoSegmentInteraction] | None = None
+    timestamp_indicator: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)

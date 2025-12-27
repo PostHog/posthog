@@ -1,5 +1,7 @@
+from math import floor
 import re
 import json
+from statistics import median
 from typing import Any, cast
 
 from django.conf import settings
@@ -17,6 +19,7 @@ from posthog.temporal.ai.session_summary.state import (
 from posthog.temporal.ai.session_summary.types.video import (
     UploadedVideo,
     VideoSegmentElement,
+    VideoSegmentInteraction,
     VideoSegmentInteractionsEnum,
     VideoSegmentOutput,
     VideoSegmentSpec,
@@ -44,49 +47,6 @@ async def analyze_video_segment_activity(
     Returns detailed descriptions of salient moments in the segment.
     """
     try:
-        # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
-        llm_input: SingleSessionSummaryLlmInputs | None = None
-        events_context = ""
-        if inputs.redis_key_base:
-            redis_client, redis_input_key, _ = get_redis_state_client(
-                key_base=inputs.redis_key_base,
-                input_label=StateActivitiesEnum.SESSION_DB_DATA,
-                state_id=inputs.session_id,
-            )
-            llm_input_raw = await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            )
-            if llm_input_raw:
-                llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
-
-                # Find events within this segment's time range
-                start_ms = int(segment.start_time * 1000)
-                end_ms = int(segment.end_time * 1000)
-                events_in_range = _find_events_in_time_range(
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                    simplified_events_mapping=llm_input.simplified_events_mapping,
-                    simplified_events_columns=llm_input.simplified_events_columns,
-                    session_start_time_str=llm_input.session_start_time_str,
-                )
-
-                if events_in_range:
-                    events_context = _format_events_for_prompt(
-                        events_in_range=events_in_range,
-                        simplified_events_columns=llm_input.simplified_events_columns,
-                        url_mapping_reversed=llm_input.url_mapping_reversed,
-                        window_mapping_reversed=llm_input.window_mapping_reversed,
-                    )
-                    logger.info(
-                        f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
-                        session_id=inputs.session_id,
-                        segment_index=segment.segment_index,
-                        event_count=len(events_in_range),
-                    )
-
         # Construct analysis prompt
         start_timestamp = _format_timestamp(segment.start_time)
         end_timestamp = _format_timestamp(segment.end_time)
@@ -118,14 +78,15 @@ async def analyze_video_segment_activity(
                     video_metadata=types.VideoMetadata(
                         start_offset=f"{segment.start_time}s",
                         end_offset=f"{segment.end_time}s",
+                        fps=3,  # Increased FPS to get clicks properly (0.33s animation on click)
                     ),
                 ),
                 VIDEO_SEGMENT_ANALYSIS_PROMPT.format(
                     team_name=team_name,
                     start_timestamp=start_timestamp,
                     segment_duration=segment_duration,
-                    element_types = ",".join(f"`{x.value}`" for x in VideoSegmentTypesEnum),
-                    interaction_types = ",".join(f"`{x.value}`" for x in VideoSegmentInteractionsEnum),
+                    element_types=",".join(f"`{x.value}`" for x in VideoSegmentTypesEnum),
+                    interaction_types=",".join(f"`{x.value}`" for x in VideoSegmentInteractionsEnum),
                 ),
             ],
             config=types.GenerateContentConfig(max_output_tokens=4096),
@@ -160,6 +121,13 @@ async def analyze_video_segment_activity(
 
         # Parse response into segments
         segments = VideoSegmentParser().parse_response_into_segment_outputs(response_text)
+        if not segments:
+            logger.warning(
+                f"No segments found for segment {segment.segment_index}",
+                session_id=inputs.session_id,
+                segment_index=segment.segment_index,
+            )
+            return []
 
         logger.info(
             f"Parsed {len(segments)} segments from segment {segment.segment_index}",
@@ -167,6 +135,78 @@ async def analyze_video_segment_activity(
             segment_index=segment.segment_index,
             segment_count=len(segments),
         )
+
+        # If no data in Redis - no events to process
+        if not inputs.redis_key_base:
+            return segments
+
+        # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
+        # Timestamps generated by Gemini could be unreliable (as the recording could be rendered slowly, start later, and so),
+        # so we need to use timestamp indicators from the video to calculate offset to get actually relevent events
+        llm_input: SingleSessionSummaryLlmInputs | None = None
+
+        # If no segments with indicators - we can't reliably attach events, so returning segments as is
+        segments_with_indicators = [segment for segment in segments if segment.timestamp_indicator]
+        if not segments_with_indicators:
+            logger.warning(
+                f"No segments with timestamp indicators found for segment {segment.segment_index}",
+                session_id=inputs.session_id,
+                segment_index=segment.segment_index,
+            )
+            return segments
+
+        # Calculate the average start offset of the points within the segment - the difference between video timestamp and timestamp indicator
+        # The assumption that timestamp indicator and start of the point should be close, so offset could be reliably applied to events search
+        events_offset_s = max(
+            0,
+            floor(
+                median(
+                    # The assumption that the video timestamps is either later (rendering delays) or the same as the timestamp indicator
+                    _parse_timestamp_to_seconds(segment.start_time) - segment.timestamp_indicator
+                    for segment in segments_with_indicators
+                )
+            ),
+        )
+
+        # Get events using the offset
+        redis_client, redis_input_key, _ = get_redis_state_client(
+            key_base=inputs.redis_key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=inputs.session_id,
+        )
+        llm_input_raw = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+        if llm_input_raw:
+            llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
+
+            # Find events within this segment's time range
+            start_ms = int(segment.start_time * 1000)
+            end_ms = int(segment.end_time * 1000)
+            events_in_range = _find_events_in_time_range(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                simplified_events_mapping=llm_input.simplified_events_mapping,
+                simplified_events_columns=llm_input.simplified_events_columns,
+                session_start_time_str=llm_input.session_start_time_str,
+            )
+
+            if events_in_range:
+                events_context = _format_events_for_prompt(
+                    events_in_range=events_in_range,
+                    simplified_events_columns=llm_input.simplified_events_columns,
+                    url_mapping_reversed=llm_input.url_mapping_reversed,
+                    window_mapping_reversed=llm_input.window_mapping_reversed,
+                )
+                logger.info(
+                    f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
+                    session_id=inputs.session_id,
+                    segment_index=segment.segment_index,
+                    event_count=len(events_in_range),
+                )
 
         return segments
 
@@ -190,12 +230,6 @@ This segment starts at {start_timestamp} in the full recording and runs for appr
 - Highlight what features were used, and what the user was doing with them
 - Explicitly mention names/labels of the elements the user interacted with
 - Note any problems, errors, confusion, or friction the user experienced
-- Notice clicks, as they 
-
-## What to ignore
-- Ignore accidental hovers
-- Don't list clicks if they are not confirmed visually
-- If the segment or the point within the segment has no activity - return "MM:SS - MM:SS: Static"
 
 ## Indicators
 Video includes additional video indicators for LLMs specifically, and are not visible to the user:
@@ -203,11 +237,16 @@ Video includes additional video indicators for LLMs specifically, and are not vi
 - Clicks are indicated by magenta circle around cursors
 - Mouse movements are indicated by a moving red line
 - Bottom of the video includes a black line with additional metadata:
-    - Current URL, use it to better understand the page's context
-    - Current timestamp (since the start of the recording), use it as a main source of truth for output timestamps
+    - Current `URL`, use it to better understand the page's context
+    - `REC_T` indicator, use it to populate the `rec_t` field in the output
     - Optional `IDLE` indicator, if present - user didn't move mouse or click buttons
 
 Avoid mentioning these indicators in the output, as they are not part of the recording and added for analysis purposes only.
+
+## What to ignore
+- Ignore accidental hovers
+- Don't list clicks if they are not confirmed visually
+- If the segment or the point within the segment has no activity - return "MM:SS - MM:SS: Static"
 
 ## Granularity
 - Describe at the maximum granularity possible
@@ -223,19 +262,21 @@ Return the output in the following markdown format:
 - **MM:SS - MM:SS**: <detailed description of the user action>
   `elements: element_type="label_1", element_type="label_2"`
   `interaction: interaction_type`
+  `rec_t: REC_T`
 - ...
 ```
 
 - `element_type` is one of: {element_types}
 - IMPORTANT: If you want to assign multiple elements with the same type to a single point - create a new point instead
 - `interaction_type` is one of: {interaction_types}
-- IMPORTANT: Use timestamps relative to the FULL recording, starting at {start_timestamp})
+- `rec_t` - the value of the `REC_T` indicator at the bottom of the video
 
 ## Example output
 
-- **00:01 - 00:04**: The user inputs their email address into the Email input field on the PostHog Cloud login page.
+- **02:07 - 02:10**: The user inputs their email address into the Email input field on the PostHog Cloud login page.
   `elements: page_title="PostHog Cloud", input="Email"`
   `interaction: input`
+  `rec_t: 119`
 """
 
 ## TODO - Reuse events in the additional call
@@ -259,15 +300,26 @@ Events data (in chronological order):
 
 class VideoSegmentParser:
 
-    def _parse_elements(self, elements_raw: str) -> list[VideoSegmentElement]:
-        elements_raw = elements_raw.strip().strip("`")
-        if not elements_raw.startswith("elements:"):
-            msg = f"Unexpected elements field: {elements_raw}"
-            logger.error(msg, signals_type="session-summaries")
-            raise ValueError(msg)
-        content = elements_raw.split("elements:")[-1]
+    def _parse_description(self, description_raw: str) -> str | None:
+        description_pattern = (
+            r"^(.*)?(?:\n+\s*`|$)"  # First line till the first ` after a new line or the end of the string
+        )
+        results = re.findall(description_pattern, description_raw)
+        if not results:
+            # We expect the description to be present at all times
+            logger.exception(f"No description found in: {description_raw}", signals_type="session-summaries")
+            return None
+        return results[0]
+
+    def _parse_elements(self, description_raw: str) -> list[VideoSegmentElement] | None:
+        elements_pattern = r"\s*`elements:\s*(.*)?`(?:\n|$)"
+        results = re.findall(elements_pattern, description_raw)
+        if not results:
+            # It's ok for elements to be missing
+            return None
+        content = results[0].strip()
         if not content:
-            return
+            return None
         elements = []
         # Match key="value" or key=["a", "b"]
         pattern = r'(\w+)=(\[[^\]]+\]|"[^"]*")'
@@ -302,17 +354,29 @@ class VideoSegmentParser:
                 elements.append(VideoSegmentElement(element_type=element_type, element_value=value.strip('"')))
         return elements
 
-    def _parse_interaction(self, interaction_raw: str) -> str:
-        interaction_raw = interaction_raw.strip().strip("`")
-        if not interaction_raw.startswith("interaction:"):
-            raise ValueError(f"Unexpected interaction field: {interaction_raw}")
-        interaction = interaction_raw.split("interaction:")[-1].strip()
+    def _parse_interaction(self, description_raw: str) -> str:
+        interaction_pattern = r"\s*`interaction:\s*(.*)?`(?:\n|$)"
+        results = re.findall(interaction_pattern, description_raw)
+        if not results:
+            # It's ok for interaction to be missing
+            return None
+        interaction = results[0].strip()
         try:
             interaction_type = VideoSegmentInteractionsEnum(interaction).value
         except ValueError:
             logger.warning(f"Unknown interaction type: {interaction}, using custom", signals_type="session-summaries")
             interaction_type = VideoSegmentInteractionsEnum.CUSTOM.value
         return interaction_type
+
+    def _parse_timestamp_indicator(self, description_raw: str) -> int | None:
+        timestamp_indicator_pattern = r"\s*`rec_t:\s*(.*)?`(?:\n|$)"
+        results = re.findall(timestamp_indicator_pattern, description_raw)
+        if not results:
+            # We expect the timestamp indicator to be present at all times
+            logger.exception(f"No timestamp indicator found in: {description_raw}", signals_type="session-summaries")
+            return None
+        timestamp_indicator = results[0].strip()
+        return int(timestamp_indicator)
 
     def parse_response_into_segment_outputs(self, response_text: str) -> list[VideoSegmentOutput]:
         points: list[VideoSegmentOutput] = []
@@ -322,83 +386,59 @@ class VideoSegmentParser:
             # If no elements or interaction are present
             if len(point_pattern_match) == 2:
                 start_time, end_time = point_pattern_match
+                points.append(VideoSegmentOutput(start_time=start_time, end_time=end_time, description=""))
+                continue
+            # If description part is present - extract meta fields
+            if len(point_pattern_match) == 3:
+                start_time, end_time, description = point_pattern_match
+                description_raw = description.strip()
+                description = self._parse_description(description_raw)
+                elements = self._parse_elements(description_raw)
+                interaction_type = self._parse_interaction(description_raw)
+                timestamp_indicator = self._parse_timestamp_indicator(description_raw)
+                # If no interaction metadata
+                if not interaction_type and not elements:
+                    interactions = None
+                # If only elements
+                elif not interaction_type and elements:
+                    interactions = [VideoSegmentInteraction(interaction_type=VideoSegmentInteractionsEnum.CUSTOM.value, elements=elements)]
+                # If only interaction
+                elif interaction_type and not elements:
+                    interactions = [VideoSegmentInteraction(interaction_type=interaction_type)]
+                # If both interaction and elements
+                elif interaction_type and elements:
+                    interactions = [VideoSegmentInteraction(interaction_type=interaction_type, elements=elements)]
+                else:
+                    # Keep mypy happy
+                    interactions = None
                 points.append(
                     VideoSegmentOutput(
                         start_time=start_time,
                         end_time=end_time,
-                        description="",
-                        elements=None,
-                        interaction=None,
+                        description=description,
+                        interactions=interactions,
+                        timestamp_indicator=timestamp_indicator,
                     )
                 )
-                continue
-            # If description part is present
-            if len(point_pattern_match) == 3:
-                start_time, end_time, description = point_pattern_match
-                description_parts = description.split("\n")
-                # If only description is present
-                if len(description_parts) == 1:
-                    description = description_parts[0]
-                    points.append(
-                        VideoSegmentOutput(
-                            start_time=start_time,
-                            end_time=end_time,
-                            description=description,
-                            elements=None,
-                            interaction=None,
-                        )
-                    )
-                    continue
-                # If description and at least one meta field is present
-                if len(description_parts) == 2:
-                    description, meta_field = description_parts
-                    try:
-                        # Try to parse elements
-                        elements = self._parse_elements(meta_field)
-                        interaction = None
-                    except ValueError:
-                        try:
-                            # If no elements present, try to parse interaction
-                            interaction = self._parse_interaction(meta_field)
-                            elements = None
-                        except ValueError:
-                            msg = f"Unexpected meta field: {meta_field}"
-                            logger.error(msg, signals_type="session-summaries")
-                            raise ValueError(msg)
-                    points.append(
-                        VideoSegmentOutput(
-                            start_time=start_time,
-                            end_time=end_time,
-                            description=description,
-                            elements=elements,
-                            interaction=interaction,
-                        )
-                    )
-                    continue
-                # If description and both meta fields are present
-                if len(description_parts) == 3:
-                    description, elements_raw, interaction_raw = description_parts
-                    elements = self._parse_elements(elements_raw)
-                    interaction = self._parse_interaction(interaction_raw)
-                    points.append(
-                        VideoSegmentOutput(
-                            start_time=start_time,
-                            end_time=end_time,
-                            description=description,
-                            elements=elements,
-                            interaction=interaction,
-                        )
-                    )
-                    continue
-                else:
-                    msg = f"Unexpected number of parts: {len(description_parts)}"
-                    logger.error(msg, signals_type="session-summaries")
-                    raise ValueError(msg)
-            else:
-                msg = f"Unexpected number of matches: {len(matches)}"
-                logger.error(msg, signals_type="session-summaries")
-                raise ValueError(msg)
         return points
+
+
+# class VideoSegmentEventsEnricher:
+#     def __init__(self, events_offset_s: int):
+#         self.events_offset_s = events_offset_s
+
+#     def enrich_events(self, events: list[Event]) -> list[Event]:
+#         for event in events:
+#             event.timestamp += self.events_offset_s
+#         return events
+
+
+def _parse_timestamp_to_seconds(time_str: str) -> int:
+    parts = list(map(int, time_str.split(":")))
+    seconds = 0
+    for i, part in enumerate(reversed(parts)):
+        seconds += part * (60**i)
+    return seconds
 
 
 def _format_timestamp(seconds: float) -> str:
