@@ -157,6 +157,8 @@ class SessionMomentsLLMAnalyzer:
                     "playback_speed": SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
                     # Keeping default values
                     "mode": "screenshot",
+                    # Display additional metadata for LLMs in the video
+                    "show_llm_metadata": True,
                 },
                 created_by=self.user,
                 created_at=created_at,
