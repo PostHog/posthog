@@ -37,10 +37,11 @@ export interface HogflowTestInvocation {
     mock_async_functions: boolean
 }
 
-const createExampleEvent = (
+export const createExampleEvent = (
     teamId?: number,
     workflowName?: string | null,
-    eventName: string = '$pageview'
+    eventName: string = '$pageview',
+    email: string = 'example@posthog.com'
 ): CyclotronJobInvocationGlobals => ({
     event: {
         uuid: uuid(),
@@ -58,7 +59,7 @@ const createExampleEvent = (
     person: {
         id: uuid(),
         properties: {
-            email: 'example@posthog.com',
+            email,
         },
         name: 'Example person',
         url: `${window.location.origin}/person/${uuid()}`,
@@ -75,7 +76,7 @@ const createExampleEvent = (
     },
 })
 
-const createGlobalsFromResponse = (
+export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
