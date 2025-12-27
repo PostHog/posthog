@@ -62,6 +62,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
             <Form logic={dataWarehouseSourceSettingsLogic} formKey="sourceConfig" enableFormOnSubmit>
                 <SourceFormComponent
                     showPrefix={false}
+                    showDescription={true}
                     sourceConfig={sourceFieldConfig}
                     jobInputs={jobInputs}
                     setSourceConfigValue={setSourceConfigValue}
