@@ -33,7 +33,7 @@ function HogFlowEditorContent(): JSX.Element {
         setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
-        onDragStart,
+        showDropzones,
         onDragOver,
         onDrop,
         setReactFlowWrapper,
@@ -59,7 +59,7 @@ function HogFlowEditorContent(): JSX.Element {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodesDelete={onNodesDelete}
-                onDragStart={onDragStart}
+                onDragStart={showDropzones}
                 onDragOver={onDragOver}
                 onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
