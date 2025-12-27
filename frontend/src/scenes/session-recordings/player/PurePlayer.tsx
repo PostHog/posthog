@@ -19,6 +19,7 @@ import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/comm
 import { urls } from 'scenes/urls'
 
 import { PlayerFrame } from './PlayerFrame'
+import { PlayerFrameLLMMetaOverlay } from './PlayerFrameLLMMetaOverlay'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
@@ -267,6 +268,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                                             </>
                                         ) : null}
                                     </div>
+                                    <PlayerFrameLLMMetaOverlay />
                                     {!hidePlayerElements ? <PlayerController /> : null}
                                 </div>
                             </div>
