@@ -13,7 +13,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Gauge, Histogram } from 'prom-client'
 
 import {
     EventHeaders,
@@ -83,25 +83,6 @@ const histogramKafkaConsumeInterval = new Histogram({
     help: 'Time elapsed between Kafka consume calls',
     labelNames: ['topic', 'groupId'],
     buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
-})
-
-// Simple metrics to track offset commits
-const gaugeLastProcessedOffset = new Gauge({
-    name: 'kafka_consumer_last_processed_offset',
-    help: 'Last processed offset per partition',
-    labelNames: ['topic', 'partition', 'groupId'],
-})
-
-const gaugeLastStoredOffset = new Gauge({
-    name: 'kafka_consumer_last_stored_offset',
-    help: 'Last stored (committed) offset per partition',
-    labelNames: ['topic', 'partition', 'groupId'],
-})
-
-const counterOffsetStoreAttempts = new Counter({
-    name: 'kafka_consumer_offset_store_attempts_total',
-    help: 'Total offset store attempts per partition',
-    labelNames: ['topic', 'partition', 'groupId', 'status'],
 })
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
@@ -612,39 +593,7 @@ export class KafkaConsumer {
             logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
                 this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
-
-                // Track successful offset stores
-                topicPartitionOffsetsToCommit.forEach((tpo) => {
-                    counterOffsetStoreAttempts
-                        .labels({
-                            topic: tpo.topic,
-                            partition: tpo.partition.toString(),
-                            groupId: this.config.groupId,
-                            status: 'success',
-                        })
-                        .inc()
-
-                    // Track the last stored offset
-                    gaugeLastStoredOffset
-                        .labels({
-                            topic: tpo.topic,
-                            partition: tpo.partition.toString(),
-                            groupId: this.config.groupId,
-                        })
-                        .set(tpo.offset)
-                })
             } catch (e) {
-                // Track failed offset stores
-                topicPartitionOffsetsToCommit.forEach((tpo) => {
-                    counterOffsetStoreAttempts
-                        .labels({
-                            topic: tpo.topic,
-                            partition: tpo.partition.toString(),
-                            groupId: this.config.groupId,
-                            status: 'failed',
-                        })
-                        .inc()
-                })
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
                 let assignedPartitions: Assignment[] | string = []
@@ -770,17 +719,6 @@ export class KafkaConsumer {
                     const taskCreatedAt = Date.now()
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
-
-                    // Track last processed offsets
-                    topicPartitionOffsetsToCommit.forEach((tpo) => {
-                        gaugeLastProcessedOffset
-                            .labels({
-                                topic: tpo.topic,
-                                partition: tpo.partition.toString(),
-                                groupId: this.config.groupId,
-                            })
-                            .set(tpo.offset)
-                    })
 
                     void backgroundTask.finally(async () => {
                         // Track that we made progress
