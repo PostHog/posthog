@@ -118,15 +118,12 @@ class ExecutionMode(StrEnum):
     """Use cache for longer, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = "force_cache"
     """Do not initiate calculation."""
-    CALCULATE_INLINE_ALWAYS = "force_inline"
-    """Always recalculate inline (for endpoints: bypass materialization)."""
 
 
 BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-    ExecutionMode.CALCULATE_INLINE_ALWAYS,
 }
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
@@ -1148,7 +1145,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         refresh_requested=True, cache_manager=cache_manager, user=user
                     )
                 )
-            elif execution_mode not in (ExecutionMode.CALCULATE_BLOCKING_ALWAYS, ExecutionMode.CALCULATE_INLINE_ALWAYS):
+            elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
                 # Let's look in the cache first
                 results = self.handle_cache_and_async_logic(
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user

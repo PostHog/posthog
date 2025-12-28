@@ -75,32 +75,20 @@ MAX_CACHE_AGE_SECONDS = 86400
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 
-def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None, use_materialized: bool) -> RefreshType:
+def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> RefreshType:
     """
     Map the simplified EndpointRefreshMode to the underlying RefreshType.
 
-    For materialized endpoints:
-    - cache -> blocking (use cache, fall back to S3)
-    - fresh -> force_blocking (bypass cache, query S3)
-    - live -> force_inline (bypass S3, run original query)
-
-    For non-materialized endpoints:
-    - cache -> blocking (use cache, fall back to query)
-    - fresh -> force_blocking (bypass cache, run query)
-    - live -> force_blocking (same as fresh, no materialization to bypass)
+    - cache -> blocking (use cache if fresh)
+    - fresh -> force_blocking (bypass cache)
+    - live -> force_blocking (bypass cache; materialization bypass handled separately)
     """
     if mode is None or mode == EndpointRefreshMode.CACHE:
         return RefreshType.BLOCKING
 
-    if mode == EndpointRefreshMode.FRESH:
-        return RefreshType.FORCE_BLOCKING
-
-    if mode == EndpointRefreshMode.LIVE:
-        if use_materialized:
-            return RefreshType.FORCE_INLINE
-        return RefreshType.FORCE_BLOCKING
-
-    return RefreshType.BLOCKING
+    # Both 'fresh' and 'live' bypass cache - the materialization decision
+    # is handled in _should_use_materialized_table()
+    return RefreshType.FORCE_BLOCKING
 
 
 @extend_schema(tags=["endpoints"])
@@ -585,7 +573,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
 
             # Map the simplified EndpointRefreshMode to RefreshType for the underlying query
-            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh, use_materialized=True)
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
 
             query_request_data = {
                 "client_query_id": data.client_query_id,
@@ -661,7 +649,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query[query_field] = value
 
             # Map the simplified EndpointRefreshMode to RefreshType for the underlying query
-            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh, use_materialized=False)
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
 
             variables_override = self._parse_variables(query, data.variables) if data.variables else None
             query_request_data = {

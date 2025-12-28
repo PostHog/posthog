@@ -2923,7 +2923,6 @@ class RefreshType(StrEnum):
     FORCE_ASYNC = "force_async"
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
-    FORCE_INLINE = "force_inline"
     LAZY_ASYNC = "lazy_async"
 
 

@@ -1660,7 +1660,6 @@ export type RefreshType =
     | 'force_async'
     | 'force_blocking'
     | 'force_cache'
-    | 'force_inline'
     | 'lazy_async'
 
 export interface EndpointRequest {
