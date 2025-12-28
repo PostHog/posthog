@@ -15,6 +15,7 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::ai_s3::BlobStorage;
+use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
@@ -22,9 +23,9 @@ use common_redis::Client;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
-use crate::limiters::CaptureQuotaLimiter;
 use crate::metrics_middleware::{apply_request_timeout, track_metrics};
 use crate::prometheus::setup_metrics_recorder;
+use crate::quota_limiters::CaptureQuotaLimiter;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -35,6 +36,7 @@ pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
+    pub global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
     pub event_payload_size_limit: usize,
@@ -112,6 +114,7 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
+    global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
@@ -133,6 +136,7 @@ pub fn router<
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
+        global_rate_limiter,
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
