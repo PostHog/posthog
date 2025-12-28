@@ -6,8 +6,8 @@ use crate::config::Config;
 use chrono::Utc;
 use common_redis::Client;
 use limiters::global_rate_limiter::{
-    GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter, GlobalRateLimiterConfig,
-    GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
+    EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter,
+    GlobalRateLimiterConfig, GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
 };
 use tracing::error;
 
@@ -38,20 +38,31 @@ impl GlobalRateLimiter {
     /// Evaluate key for global rate limit. Response with metadata is returned if limited.
     pub async fn is_limited(&self, key: &str, count: u64) -> Option<GlobalRateLimitResponse> {
         // call is instrumented internally
-        self.limiter
+        match self
+            .limiter
             .update_eval_key(key, count, Some(Utc::now()))
             .await
+        {
+            EvalResult::Limited(response) => Some(response),
+            _ => None, // Allowed, NotApplicable, FailOpen all treated as "not limited"
+        }
     }
 
-    // Evaluate a custom key candidate. If it was registered when the
+    /// Evaluate a custom key candidate. If it was registered when the limiter was
+    /// created, evaluate the key against the custom limit. Otherwise, return None.
     pub async fn is_custom_key_limited(
         &self,
         key: &str,
         count: u64,
     ) -> Option<GlobalRateLimitResponse> {
-        self.limiter
+        match self
+            .limiter
             .update_eval_custom_key(key, count, Some(Utc::now()))
             .await
+        {
+            EvalResult::Limited(response) => Some(response),
+            _ => None, // Allowed, NotApplicable, FailOpen all treated as "not limited"
+        }
     }
 
     // trigger shutdown and stop pushing updates to global cache
