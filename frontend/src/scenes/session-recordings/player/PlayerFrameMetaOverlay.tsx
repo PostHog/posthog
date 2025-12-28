@@ -12,8 +12,8 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
     const isInactive = currentSegment?.isActive === false
 
     return (
-        <div className="bg-black text-white text-md px-2 pt-1 pb-2 flex justify-center gap-4 truncate font-mono">
-            <span>
+        <div className="bg-black text-white text-md px-2 pt-1 pb-2 flex justify-center gap-4 font-mono truncate">
+            <span className="truncate">
                 <span className="font-bold">URL:</span> {currentURL}
             </span>
             <span>
