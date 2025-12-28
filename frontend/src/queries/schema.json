@@ -11405,6 +11405,11 @@
             "required": ["names"],
             "type": "object"
         },
+        "EndpointRefreshMode": {
+            "description": "Controls how endpoint results are fetched.\n- `cache` (default): Return cached results if available, otherwise fetch from data source\n- `fresh`: Bypass cache and fetch fresh results from the data source\n- `live`: Run the original query directly against the database (bypasses materialization for materialized endpoints)",
+            "enum": ["cache", "fresh", "live"],
+            "type": "string"
+        },
         "EndpointRequest": {
             "additionalProperties": false,
             "properties": {
@@ -11465,9 +11470,9 @@
                     "type": "object"
                 },
                 "refresh": {
-                    "$ref": "#/definitions/RefreshType",
-                    "default": "blocking",
-                    "description": "Controls how results are fetched and how much to rely on the cache.\n\nFor non-materialized endpoints:\n- `'blocking'` - Use cached results if fresh, otherwise run query synchronously\n- `'force_blocking'` - Run query synchronously, bypassing cache\n\nFor materialized endpoints:\n- `'blocking'` - Use cached results if fresh, otherwise query the materialized table (S3)\n- `'force_blocking'` - Query the materialized table (S3), bypassing result cache\n- `'force_inline'` - Run the original query directly against the database, bypassing both cache and materialization"
+                    "$ref": "#/definitions/EndpointRefreshMode",
+                    "default": "cache",
+                    "description": "Controls how results are fetched:\n- `cache` (default): Return cached results if available\n- `fresh`: Bypass cache, fetch from data source (S3 for materialized, run query for non-materialized)\n- `live`: Run original query directly against the database (bypasses materialization)"
                 },
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",

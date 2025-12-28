@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from posthog.schema import (
     DataWarehouseSyncInterval,
     EndpointLastExecutionTimesRequest,
+    EndpointRefreshMode,
     EndpointRequest,
     EndpointRunRequest,
     HogQLQuery,
@@ -72,6 +73,34 @@ MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
 
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
+
+
+def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None, use_materialized: bool) -> RefreshType:
+    """
+    Map the simplified EndpointRefreshMode to the underlying RefreshType.
+
+    For materialized endpoints:
+    - cache -> blocking (use cache, fall back to S3)
+    - fresh -> force_blocking (bypass cache, query S3)
+    - live -> force_inline (bypass S3, run original query)
+
+    For non-materialized endpoints:
+    - cache -> blocking (use cache, fall back to query)
+    - fresh -> force_blocking (bypass cache, run query)
+    - live -> force_blocking (same as fresh, no materialization to bypass)
+    """
+    if mode is None or mode == EndpointRefreshMode.CACHE:
+        return RefreshType.BLOCKING
+
+    if mode == EndpointRefreshMode.FRESH:
+        return RefreshType.FORCE_BLOCKING
+
+    if mode == EndpointRefreshMode.LIVE:
+        if use_materialized:
+            return RefreshType.FORCE_INLINE
+        return RefreshType.FORCE_BLOCKING
+
+    return RefreshType.BLOCKING
 
 
 @extend_schema(tags=["endpoints"])
@@ -422,7 +451,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Materialization incomplete/failed
         - Materialized data is stale (older than sync frequency)
         - User overrides present (variables, query)
-        - force_inline requested (explicitly bypass materialization)
+        - 'live' mode requested (explicitly bypass materialization)
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -443,8 +472,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.variables:
             return False
 
-        # force_inline explicitly bypasses materialization to run the original query
-        if data.refresh == RefreshType.FORCE_INLINE:
+        # 'live' mode explicitly bypasses materialization to run the original query
+        if data.refresh == EndpointRefreshMode.LIVE:
             return False
 
         if data.query_override:
@@ -555,10 +584,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
 
+            # Map the simplified EndpointRefreshMode to RefreshType for the underlying query
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh, use_materialized=True)
+
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "name": f"{endpoint.name}_materialized",
-                "refresh": data.refresh or RefreshType.BLOCKING,
+                "refresh": refresh_type,
                 "query": materialized_hogql_query.model_dump(),
             }
 
@@ -628,12 +660,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
 
+            # Map the simplified EndpointRefreshMode to RefreshType for the underlying query
+            refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh, use_materialized=False)
+
             variables_override = self._parse_variables(query, data.variables) if data.variables else None
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
                 "name": endpoint.name,
-                "refresh": data.refresh,
+                "refresh": refresh_type,
                 "query": query,
             }
 

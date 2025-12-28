@@ -1165,6 +1165,12 @@ class EndpointLastExecutionTimesRequest(BaseModel):
     names: list[str]
 
 
+class EndpointRefreshMode(StrEnum):
+    CACHE = "cache"
+    FRESH = "fresh"
+    LIVE = "live"
+
+
 class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
@@ -9326,15 +9332,12 @@ class EndpointRunRequest(BaseModel):
             " $pageview's"
         ),
     )
-    refresh: RefreshType | None = Field(
-        default=RefreshType.BLOCKING,
+    refresh: EndpointRefreshMode | None = Field(
+        default=EndpointRefreshMode.CACHE,
         description=(
-            "Controls how results are fetched and how much to rely on the cache.\n\nFor non-materialized endpoints:\n-"
-            " `'blocking'` - Use cached results if fresh, otherwise run query synchronously\n- `'force_blocking'` - Run"
-            " query synchronously, bypassing cache\n\nFor materialized endpoints:\n- `'blocking'` - Use cached results"
-            " if fresh, otherwise query the materialized table (S3)\n- `'force_blocking'` - Query the materialized"
-            " table (S3), bypassing result cache\n- `'force_inline'` - Run the original query directly against the"
-            " database, bypassing both cache and materialization"
+            "Controls how results are fetched:\n- `cache` (default): Return cached results if available\n- `fresh`:"
+            " Bypass cache, fetch from data source (S3 for materialized, run query for non-materialized)\n- `live`: Run"
+            " original query directly against the database (bypasses materialization)"
         ),
     )
     variables: dict[str, Any] | None = Field(

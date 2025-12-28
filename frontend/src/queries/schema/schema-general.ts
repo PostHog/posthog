@@ -1676,25 +1676,27 @@ export interface EndpointRequest {
     derived_from_insight?: string
 }
 
+/**
+ * Controls how endpoint results are fetched.
+ * - `cache` (default): Return cached results if available, otherwise fetch from data source
+ * - `fresh`: Bypass cache and fetch fresh results from the data source
+ * - `live`: Run the original query directly against the database (bypasses materialization for materialized endpoints)
+ */
+export type EndpointRefreshMode = 'cache' | 'fresh' | 'live'
+
 export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
     /**
-     * Controls how results are fetched and how much to rely on the cache.
+     * Controls how results are fetched:
+     * - `cache` (default): Return cached results if available
+     * - `fresh`: Bypass cache, fetch from data source (S3 for materialized, run query for non-materialized)
+     * - `live`: Run original query directly against the database (bypasses materialization)
      *
-     * For non-materialized endpoints:
-     * - `'blocking'` - Use cached results if fresh, otherwise run query synchronously
-     * - `'force_blocking'` - Run query synchronously, bypassing cache
-     *
-     * For materialized endpoints:
-     * - `'blocking'` - Use cached results if fresh, otherwise query the materialized table (S3)
-     * - `'force_blocking'` - Query the materialized table (S3), bypassing result cache
-     * - `'force_inline'` - Run the original query directly against the database, bypassing both cache and materialization
-     *
-     * @default 'blocking'
+     * @default 'cache'
      */
-    refresh?: RefreshType
+    refresh?: EndpointRefreshMode
     /**
      * A map for overriding insight query filters.
      *
