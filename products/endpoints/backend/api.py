@@ -77,17 +77,13 @@ ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> RefreshType:
     """
-    Map the simplified EndpointRefreshMode to the underlying RefreshType.
+    Map EndpointRefreshMode to RefreshType.
 
-    - cache -> blocking (use cache if fresh)
-    - fresh -> force_blocking (bypass cache)
-    - live -> force_blocking (bypass cache; materialization bypass handled separately)
+    - cache -> blocking
+    - fresh/live -> force_blocking (materialization bypass handled in _should_use_materialized_table)
     """
     if mode is None or mode == EndpointRefreshMode.CACHE:
         return RefreshType.BLOCKING
-
-    # Both 'fresh' and 'live' bypass cache - the materialization decision
-    # is handled in _should_use_materialized_table()
     return RefreshType.FORCE_BLOCKING
 
 
@@ -572,7 +568,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
 
-            # Map the simplified EndpointRefreshMode to RefreshType for the underlying query
             refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
 
             query_request_data = {
@@ -648,7 +643,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
 
-            # Map the simplified EndpointRefreshMode to RefreshType for the underlying query
             refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
 
             variables_override = self._parse_variables(query, data.variables) if data.variables else None
