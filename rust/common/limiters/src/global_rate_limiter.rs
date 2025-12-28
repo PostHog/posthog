@@ -25,30 +25,30 @@ pub trait GlobalRateLimiter: Send + Sync {
     /// - Consult and refresh the local cache if needed
     /// - Enqueue an update to the key's count for async batch submission
     ///   to the global cache
-    /// - Fail open if the local cache is stale or global cache unavaialble
+    /// - Fail open if the local cache is stale or global cache unavailable
     ///
-    /// Returns `Some(response)` if rate limited, `None` if allowed or internal error occurred
+    /// Returns `EvalResult` indicating whether the request is allowed, limited, or failed open
     async fn update_eval_key(
         &self,
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
-    ) -> Option<GlobalRateLimitResponse>;
+    ) -> EvalResult;
 
     /// Evaluate if a "custom key" is rate limited. The operation is the same as
-    /// as update_eval_key, other than how the key and threshold are determined:.
+    /// as update_eval_key, other than how the key and threshold are determined:
     ///
-    /// - Custom keys are defined in the custom_keys map, associated with anoverride value
+    /// - Custom keys are defined in the custom_keys map, associated with an override value
     /// - If the key is present in the map, the override threshold value is applied
     /// - If the key is not present in the map, it is not subject to rate limiting
     ///
-    /// Returns `Some(response)` if rate limited, `None` if allowed or internal error occurred
+    /// Returns `EvalResult` indicating whether the request is allowed, limited, not applicable, or failed open
     async fn update_eval_custom_key(
         &self,
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
-    ) -> Option<GlobalRateLimitResponse>;
+    ) -> EvalResult;
 
     /// Close the update channel and flush remaining update records to global cache
     fn shutdown(&mut self);
@@ -211,6 +211,28 @@ pub struct GlobalRateLimitResponse {
     pub update_interval: Duration,
 }
 
+/// Reason for failing open (not enforcing rate limit)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailOpenReason {
+    /// Redis read operation timed out
+    RedisTimeout,
+    /// Redis returned an error
+    RedisError,
+}
+
+/// Result of evaluating a rate limit check
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EvalResult {
+    /// Request allowed (under threshold)
+    Allowed,
+    /// Request rate limited, includes response metadata
+    Limited(GlobalRateLimitResponse),
+    /// Key not subject to rate limiting (custom key mode, unregistered key)
+    NotApplicable,
+    /// Failed open due to Redis error or timeout
+    FailOpen { reason: FailOpenReason },
+}
+
 /// A distributed rate limiter using local LRU cache + Redis time-bucketed counters.
 ///
 /// This limiter uses a sliding window algorithm with configurable bucket granularity.
@@ -230,7 +252,7 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
-    ) -> Option<GlobalRateLimitResponse> {
+    ) -> EvalResult {
         self.update_eval_key_internal(CheckMode::Global, key, count, timestamp)
             .await
     }
@@ -240,7 +262,7 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
-    ) -> Option<GlobalRateLimitResponse> {
+    ) -> EvalResult {
         self.update_eval_key_internal(CheckMode::Custom, key, count, timestamp)
             .await
     }
@@ -279,10 +301,11 @@ impl GlobalRateLimiterImpl {
     /// Evaluate a key for rate limiting locally and enqueue an update to the global cache
     ///
     /// Returns:
-    /// - `Some(response_metadata)` if the key is rate limited, with metadata suitable for 429 responses
-    /// - `None` if the key is not currently rate limited or on error (fail open)
+    /// - `EvalResult::Limited(response)` if the key is rate limited, with metadata suitable for 429 responses
+    /// - `EvalResult::Allowed` if the key is not currently rate limited
+    /// - `EvalResult::NotApplicable` in Custom mode if the key is not in custom_keys map
+    /// - `EvalResult::FailOpen { reason }` on Redis error or timeout
     ///
-    /// In `Custom` mode, returns `None` immediately if the key is not in the custom_keys map.
     /// Updates are always queued to the background task regardless of the return value.
     async fn update_eval_key_internal(
         &self,
@@ -290,12 +313,12 @@ impl GlobalRateLimiterImpl {
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
-    ) -> Option<GlobalRateLimitResponse> {
+    ) -> EvalResult {
         let threshold = match mode {
             CheckMode::Custom => {
                 match self.config.custom_keys.get(key) {
                     Some(&custom_limit) => custom_limit,
-                    None => return None, // Key not in custom_keys map, it's not subject to rate limiting
+                    None => return EvalResult::NotApplicable, // Key not in custom_keys map
                 }
             }
             CheckMode::Global => self.config.global_threshold,
@@ -308,15 +331,15 @@ impl GlobalRateLimiterImpl {
 
         // Check local cache, refresh from Redis if missing/expired
         let entry = match self.check_refresh_entry(key, now).await {
-            Some(entry) => entry,
-            None => {
+            Ok(entry) => entry,
+            Err(reason) => {
                 // Redis error or timeout - fail open
                 metrics::counter!(
                     GLOBAL_RATE_LIMITER_EVAL_COUNTER,
                     "result" => "fail_open",
                 )
                 .increment(1);
-                return None;
+                return EvalResult::FailOpen { reason };
             }
         };
 
@@ -330,8 +353,7 @@ impl GlobalRateLimiterImpl {
             )
             .increment(1);
 
-            // returning this means the key is rate limited as of this evaluation
-            Some(GlobalRateLimitResponse {
+            EvalResult::Limited(GlobalRateLimitResponse {
                 key: key.to_string(),
                 current_count: entry.count,
                 threshold,
@@ -347,7 +369,7 @@ impl GlobalRateLimiterImpl {
             )
             .increment(1);
 
-            None
+            EvalResult::Allowed
         }
     }
 
@@ -388,7 +410,11 @@ impl GlobalRateLimiterImpl {
     }
 
     /// Check local cache for entry, refresh from Redis if missing or expired
-    async fn check_refresh_entry(&self, key: &str, timestamp: DateTime<Utc>) -> Option<CacheEntry> {
+    async fn check_refresh_entry(
+        &self,
+        key: &str,
+        timestamp: DateTime<Utc>,
+    ) -> Result<CacheEntry, FailOpenReason> {
         // Check local cache first
         if let Some(entry) = self.cache.get(key) {
             // Check if entry is still valid
@@ -398,7 +424,7 @@ impl GlobalRateLimiterImpl {
                     "result" => "hit",
                 )
                 .increment(1);
-                return Some(entry);
+                return Ok(entry);
             }
             // Entry expired, fall through to refresh
             metrics::counter!(
@@ -420,11 +446,15 @@ impl GlobalRateLimiterImpl {
         // Insert into cache
         self.cache.insert(key.to_string(), entry.clone());
 
-        Some(entry)
+        Ok(entry)
     }
 
     /// Fetch rate limit data for a single key from Redis global cache
-    async fn fetch_from_global(&self, key: &str, timestamp: DateTime<Utc>) -> Option<CacheEntry> {
+    async fn fetch_from_global(
+        &self,
+        key: &str,
+        timestamp: DateTime<Utc>,
+    ) -> Result<CacheEntry, FailOpenReason> {
         let wp = ReadWindowParams::new(&self.config, key, timestamp);
 
         // MGET with timeout
@@ -453,7 +483,7 @@ impl GlobalRateLimiterImpl {
                 )
                 .increment(1);
                 warn!(key = key, error = %e, "Failed to fetch rate limit from Redis");
-                return None;
+                return Err(FailOpenReason::RedisError);
             }
             Err(_) => {
                 metrics::counter!(
@@ -463,7 +493,7 @@ impl GlobalRateLimiterImpl {
                 )
                 .increment(1);
                 warn!(key = key, "Redis read timeout in fetch_from_global");
-                return None;
+                return Err(FailOpenReason::RedisTimeout);
             }
         };
 
@@ -478,7 +508,7 @@ impl GlobalRateLimiterImpl {
             chrono::Duration::milliseconds(self.config.bucket_interval.as_millis() as i64 / 2);
         let expires_at = timestamp + half_bucket;
 
-        Some(CacheEntry {
+        Ok(CacheEntry {
             count,
             window_start: wp.window_start,
             window_end: wp.window_end,
@@ -734,16 +764,28 @@ mod tests {
     async fn test_not_limited_when_under_threshold() {
         let client = MockRedisClient::new();
         let client = Arc::new(client);
-        let config = test_config();
+        let config = test_config(); // limit = 10
 
         let limiter = GlobalRateLimiterImpl::new(config, client);
 
+        // Pre-populate cache with count under the limit
+        let now = Utc::now();
+        limiter.cache.insert(
+            "test_key".to_string(),
+            CacheEntry {
+                count: 5,
+                window_start: now - chrono::Duration::seconds(60),
+                window_end: now,
+                expires_at: now + chrono::Duration::seconds(120),
+            },
+        );
+
         // Should not be limited when count is under limit
-        let result = limiter.update_eval_key("test_key", 5, None).await;
+        let result = limiter.update_eval_key("test_key", 1, None).await;
 
         assert!(
-            result.is_none(),
-            "Should not be limited when under threshold"
+            matches!(result, EvalResult::Allowed),
+            "Should return Allowed when under threshold, got {result:?}"
         );
     }
 
@@ -769,7 +811,10 @@ mod tests {
 
         let result = limiter.update_eval_key("test_key", 1, None).await;
 
-        assert!(result.is_some(), "Should be limited when at/over threshold");
+        assert!(
+            matches!(result, EvalResult::Limited(_)),
+            "Should be Limited when at/over threshold, got {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -794,7 +839,10 @@ mod tests {
 
         let result = limiter.update_eval_key("test_key", 1, None).await;
 
-        let response = result.expect("Should be rate limited");
+        let response = match result {
+            EvalResult::Limited(r) => r,
+            other => panic!("Expected Limited, got {other:?}"),
+        };
 
         assert_eq!(response.key, "test_key");
         assert_eq!(response.current_count, 15);
@@ -809,17 +857,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cache_miss_fails_open() {
+    async fn test_cache_miss_with_empty_redis_returns_allowed() {
         let client = MockRedisClient::new();
         let client = Arc::new(client);
         let config = test_config();
 
         let limiter = GlobalRateLimiterImpl::new(config, client);
 
-        // Don't populate cache - cache miss triggers Redis fetch which returns empty (fail open)
+        // Don't populate cache - cache miss triggers Redis fetch which returns empty data
+        // Empty Redis response means count=0 which is under threshold (Allowed)
         let result = limiter.update_eval_key("unknown_key", 1000, None).await;
 
-        assert!(result.is_none(), "Should fail open and return None");
+        assert!(
+            matches!(result, EvalResult::Allowed),
+            "Empty Redis response should return Allowed (count=0 < threshold), got {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -846,8 +898,8 @@ mod tests {
         let result = limiter.update_eval_key("cached_key", 1, None).await;
 
         assert!(
-            result.is_none(),
-            "Should not be limited with cached count of 5"
+            matches!(result, EvalResult::Allowed),
+            "Should return Allowed with cached count of 5, got {result:?}"
         );
 
         // Verify no mget calls were made (cache was used)
@@ -882,7 +934,10 @@ mod tests {
         // This should be limited but still queue an update
         let result = limiter.update_eval_key("limited_key", 1, None).await;
 
-        assert!(result.is_some(), "Should be limited");
+        assert!(
+            matches!(result, EvalResult::Limited(_)),
+            "Should be Limited, got {result:?}"
+        );
 
         // Give background task time to process
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -908,10 +963,10 @@ mod tests {
         assert_eq!(config.redis_key_prefix, "@posthog/global_rate_limiter");
         assert_eq!(config.global_cache_ttl, Duration::from_secs(300));
         assert_eq!(config.local_cache_ttl, Duration::from_secs(120));
-        assert_eq!(config.global_read_timeout, Duration::from_millis(5));
-        assert_eq!(config.global_write_timeout, Duration::from_millis(10));
-        assert_eq!(config.local_cache_max_entries, 400_000);
-        assert_eq!(config.batch_interval, Duration::from_millis(1000));
+        assert_eq!(config.global_read_timeout, Duration::from_millis(10));
+        assert_eq!(config.global_write_timeout, Duration::from_millis(20));
+        assert_eq!(config.local_cache_max_entries, 300_000);
+        assert_eq!(config.batch_interval, Duration::from_millis(200));
         assert_eq!(config.batch_max_update_count, 10000);
         assert_eq!(config.batch_max_key_cardinality, 1000);
         assert_eq!(config.channel_capacity, 1_000_000);
@@ -919,7 +974,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_custom_mode_unknown_key_returns_none() {
+    async fn test_custom_mode_unknown_key_returns_not_applicable() {
         let client = MockRedisClient::new();
         let client = Arc::new(client);
         let mut config = test_config();
@@ -927,14 +982,14 @@ mod tests {
 
         let limiter = GlobalRateLimiterImpl::new(config, client);
 
-        // Unknown key in Custom mode should return None immediately
+        // Unknown key in Custom mode should return NotApplicable immediately
         let result = limiter
             .update_eval_custom_key("unknown_key", 100, None)
             .await;
 
         assert!(
-            result.is_none(),
-            "Custom mode should return None for unknown keys"
+            matches!(result, EvalResult::NotApplicable),
+            "Custom mode should return NotApplicable for unknown keys, got {result:?}"
         );
     }
 
@@ -964,8 +1019,8 @@ mod tests {
         let result = limiter.update_eval_custom_key("custom_key", 1, None).await;
 
         assert!(
-            result.is_some(),
-            "Should be limited when reaching custom limit"
+            matches!(result, EvalResult::Limited(_)),
+            "Should be Limited when reaching custom limit, got {result:?}"
         );
     }
 
@@ -995,8 +1050,8 @@ mod tests {
         let result = limiter.update_eval_custom_key("custom_key", 1, None).await;
 
         assert!(
-            result.is_none(),
-            "Should not be limited when under custom limit"
+            matches!(result, EvalResult::Allowed),
+            "Should return Allowed when under custom limit, got {result:?}"
         );
     }
 
@@ -1024,20 +1079,23 @@ mod tests {
 
         // custom_a is in custom_keys, should be evaluated and limited (count 10 >= limit 5)
         let result = limiter.update_eval_custom_key("custom_a", 1, None).await;
-        assert!(result.is_some(), "custom_a should be rate limited");
-
-        // unknown_key is NOT in custom_keys, should return None immediately
-        let result = limiter.update_eval_custom_key("unknown_key", 1, None).await;
         assert!(
-            result.is_none(),
-            "unknown_key should return None (not in custom_keys)"
+            matches!(result, EvalResult::Limited(_)),
+            "custom_a should be Limited, got {result:?}"
         );
 
-        // empty key is NOT in custom_keys, should return None immediately
+        // unknown_key is NOT in custom_keys, should return NotApplicable immediately
+        let result = limiter.update_eval_custom_key("unknown_key", 1, None).await;
+        assert!(
+            matches!(result, EvalResult::NotApplicable),
+            "unknown_key should return NotApplicable (not in custom_keys), got {result:?}"
+        );
+
+        // empty key is NOT in custom_keys, should return NotApplicable immediately
         let result = limiter.update_eval_custom_key("", 1, None).await;
         assert!(
-            result.is_none(),
-            "empty key should return None (not in custom_keys)"
+            matches!(result, EvalResult::NotApplicable),
+            "empty key should return NotApplicable (not in custom_keys), got {result:?}"
         );
     }
 

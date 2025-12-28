@@ -33,15 +33,37 @@
 //! | `redis_mget_direct/{6,12,24}` | Raw Redis MGET baseline |
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::Client;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use limiters::global_rate_limiter::{
-    GlobalRateLimiter, GlobalRateLimiterConfig, GlobalRateLimiterImpl,
+    EvalResult, GlobalRateLimiter, GlobalRateLimiterConfig, GlobalRateLimiterImpl,
 };
 use tokio::runtime::Runtime;
+
+/// Global counter for tracking fail-opens during benchmarks
+static FAIL_OPEN_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Track a result and increment fail-open counter if needed
+fn track_result(result: EvalResult) -> EvalResult {
+    if matches!(result, EvalResult::FailOpen { .. }) {
+        FAIL_OPEN_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+    result
+}
+
+/// Report and reset fail-open count. Call after each benchmark group.
+fn report_fail_opens(bench_name: &str) {
+    let count = FAIL_OPEN_COUNT.swap(0, Ordering::Relaxed);
+    if count > 0 {
+        eprintln!(
+            "WARNING: {count} fail-opens detected during '{bench_name}' benchmark - results may be skewed!"
+        );
+    }
+}
 
 const REDIS_URL: &str = "redis://localhost:6379/";
 
@@ -107,9 +129,14 @@ fn bench_local_cache_hit(c: &mut Criterion) {
     });
 
     c.bench_function("local_cache_hit", |b| {
-        b.to_async(&rt)
-            .iter(|| async { black_box(limiter.update_eval_key("cache_hit_key", 1, None).await) });
+        b.to_async(&rt).iter(|| async {
+            black_box(track_result(
+                limiter.update_eval_key("cache_hit_key", 1, None).await,
+            ))
+        });
     });
+
+    report_fail_opens("local_cache_hit");
 }
 
 /// Benchmark 2: Redis cache miss - measures MGET latency for sliding window reads
@@ -130,9 +157,15 @@ fn bench_redis_cache_miss(c: &mut Criterion) {
             key_counter += 1;
             let key = format!("miss_key_{key_counter}");
             let limiter_ref = &limiter;
-            async move { black_box(limiter_ref.update_eval_key(&key, 1, None).await) }
+            async move {
+                black_box(track_result(
+                    limiter_ref.update_eval_key(&key, 1, None).await,
+                ))
+            }
         });
     });
+
+    report_fail_opens("redis_cache_miss");
 }
 
 /// Benchmark 3: Batch write throughput with varying batch sizes
@@ -188,13 +221,17 @@ fn bench_high_cardinality(c: &mut Criterion) {
                 async move {
                     for i in 0..n {
                         let key = format!("hc_key_{i}");
-                        black_box(limiter_ref.update_eval_key(&key, 1, None).await);
+                        black_box(track_result(
+                            limiter_ref.update_eval_key(&key, 1, None).await,
+                        ));
                     }
                 }
             });
         });
     }
     group.finish();
+
+    report_fail_opens("high_cardinality");
 }
 
 /// Benchmark 5: End-to-end update_eval_key throughput
@@ -228,7 +265,11 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
             counter = (counter + 1) % 100;
             let key = format!("e2e_key_{counter}");
             let limiter_ref = &limiter;
-            async move { black_box(limiter_ref.update_eval_key(&key, 1, None).await) }
+            async move {
+                black_box(track_result(
+                    limiter_ref.update_eval_key(&key, 1, None).await,
+                ))
+            }
         });
     });
 
@@ -239,11 +280,17 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
             counter += 1;
             let key = format!("e2e_cold_key_{counter}");
             let limiter_ref = &limiter;
-            async move { black_box(limiter_ref.update_eval_key(&key, 1, None).await) }
+            async move {
+                black_box(track_result(
+                    limiter_ref.update_eval_key(&key, 1, None).await,
+                ))
+            }
         });
     });
 
     group.finish();
+
+    report_fail_opens("e2e_throughput");
 }
 
 /// Benchmark 6: Custom key evaluation
@@ -265,16 +312,16 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("custom_key");
 
-    // Unregistered key - should return None immediately (fast path)
+    // Unregistered key - should return NotApplicable immediately (fast path)
     group.bench_function("unregistered", |b| {
         b.to_async(&rt).iter(|| {
             let limiter_ref = &limiter;
             async move {
-                black_box(
+                black_box(track_result(
                     limiter_ref
                         .update_eval_custom_key("unregistered_key", 1, None)
                         .await,
-                )
+                ))
             }
         });
     });
@@ -286,11 +333,17 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
             counter = (counter + 1) % 100;
             let key = format!("registered_key_{counter}");
             let limiter_ref = &limiter;
-            async move { black_box(limiter_ref.update_eval_custom_key(&key, 1, None).await) }
+            async move {
+                black_box(track_result(
+                    limiter_ref.update_eval_custom_key(&key, 1, None).await,
+                ))
+            }
         });
     });
 
     group.finish();
+
+    report_fail_opens("custom_key");
 }
 
 /// Benchmark: Redis MGET latency directly (bypasses limiter)
