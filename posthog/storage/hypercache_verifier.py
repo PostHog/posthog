@@ -5,6 +5,7 @@ Provides reusable verification logic for Celery tasks that verify cache consiste
 and automatically fix issues.
 """
 
+import gc
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -86,6 +87,11 @@ def verify_and_fix_all_teams(
     Returns:
         VerificationResult with stats and list of fixed team IDs
     """
+    # Clear any accumulated garbage before starting to maximize available memory.
+    # Workers can accumulate memory from previous tasks, and starting clean
+    # gives us more headroom for this memory-intensive operation.
+    gc.collect()
+
     if chunk_size is None:
         # Use the more conservative flags setting as default
         chunk_size = settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE
@@ -153,6 +159,12 @@ def verify_and_fix_all_teams(
             )
 
         last_id = teams[-1].id
+
+        # Explicitly release memory between batches to prevent accumulation.
+        # Python's GC doesn't aggressively return memory to the OS, so without this,
+        # memory can accumulate across batches and contribute to OOMs in workers
+        # with high baseline memory from other tasks.
+        gc.collect()
 
     return result
 
