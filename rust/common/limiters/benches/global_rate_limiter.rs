@@ -72,7 +72,7 @@ fn setup_redis() -> Option<(Runtime, Arc<common_redis::RedisClient>)> {
         match common_redis::RedisClient::new(REDIS_URL.to_string()).await {
             Ok(client) => Some(Arc::new(client)),
             Err(e) => {
-                eprintln!("Redis unavailable ({}), skipping Redis benchmarks", e);
+                eprintln!("Redis unavailable ({e}), skipping Redis benchmarks");
                 None
             }
         }
@@ -107,9 +107,8 @@ fn bench_local_cache_hit(c: &mut Criterion) {
     });
 
     c.bench_function("local_cache_hit", |b| {
-        b.to_async(&rt).iter(|| async {
-            black_box(limiter.update_eval_key("cache_hit_key", 1, None).await)
-        });
+        b.to_async(&rt)
+            .iter(|| async { black_box(limiter.update_eval_key("cache_hit_key", 1, None).await) });
     });
 }
 
@@ -129,7 +128,7 @@ fn bench_redis_cache_miss(c: &mut Criterion) {
         let mut key_counter = 0u64;
         b.to_async(&rt).iter(|| {
             key_counter += 1;
-            let key = format!("miss_key_{}", key_counter);
+            let key = format!("miss_key_{key_counter}");
             let limiter_ref = &limiter;
             async move { black_box(limiter_ref.update_eval_key(&key, 1, None).await) }
         });
@@ -156,15 +155,10 @@ fn bench_batch_write_throughput(c: &mut Criterion) {
                     let redis_clone = redis.clone();
                     async move {
                         let items: Vec<(String, i64)> = (0..size)
-                            .map(|i| (format!("bench:batch_key_{}", i), 1i64))
+                            .map(|i| (format!("bench:batch_key_{i}"), 1i64))
                             .collect();
 
-                        black_box(
-                            redis_clone
-                                .batch_incr_by_expire_nx(items, 300)
-                                .await
-                                .ok(),
-                        )
+                        black_box(redis_clone.batch_incr_by_expire_nx(items, 300).await.ok())
                     }
                 });
             },
@@ -185,24 +179,20 @@ fn bench_high_cardinality(c: &mut Criterion) {
 
     for num_keys in [1000, 10000].iter() {
         group.throughput(Throughput::Elements(*num_keys as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_keys),
-            num_keys,
-            |b, &n| {
-                let config = bench_config();
-                let limiter = create_limiter(&rt, config, redis.clone());
+        group.bench_with_input(BenchmarkId::from_parameter(num_keys), num_keys, |b, &n| {
+            let config = bench_config();
+            let limiter = create_limiter(&rt, config, redis.clone());
 
-                b.to_async(&rt).iter(|| {
-                    let limiter_ref = &limiter;
-                    async move {
-                        for i in 0..n {
-                            let key = format!("hc_key_{}", i);
-                            black_box(limiter_ref.update_eval_key(&key, 1, None).await);
-                        }
+            b.to_async(&rt).iter(|| {
+                let limiter_ref = &limiter;
+                async move {
+                    for i in 0..n {
+                        let key = format!("hc_key_{i}");
+                        black_box(limiter_ref.update_eval_key(&key, 1, None).await);
                     }
-                });
-            },
-        );
+                }
+            });
+        });
     }
     group.finish();
 }
@@ -222,7 +212,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..100 {
             let _ = limiter
-                .update_eval_key(&format!("e2e_key_{}", i), 1, None)
+                .update_eval_key(&format!("e2e_key_{i}"), 1, None)
                 .await;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -236,7 +226,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
         let mut counter = 0u64;
         b.to_async(&rt).iter(|| {
             counter = (counter + 1) % 100;
-            let key = format!("e2e_key_{}", counter);
+            let key = format!("e2e_key_{counter}");
             let limiter_ref = &limiter;
             async move { black_box(limiter_ref.update_eval_key(&key, 1, None).await) }
         });
@@ -247,7 +237,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
         let mut counter = 0u64;
         b.to_async(&rt).iter(|| {
             counter += 1;
-            let key = format!("e2e_cold_key_{}", counter);
+            let key = format!("e2e_cold_key_{counter}");
             let limiter_ref = &limiter;
             async move { black_box(limiter_ref.update_eval_key(&key, 1, None).await) }
         });
@@ -269,7 +259,7 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
     for i in 0..100 {
         config
             .custom_keys
-            .insert(format!("registered_key_{}", i), 50_000);
+            .insert(format!("registered_key_{i}"), 50_000);
     }
     let limiter = create_limiter(&rt, config, redis);
 
@@ -294,7 +284,7 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
         let mut counter = 0u64;
         b.to_async(&rt).iter(|| {
             counter = (counter + 1) % 100;
-            let key = format!("registered_key_{}", counter);
+            let key = format!("registered_key_{counter}");
             let limiter_ref = &limiter;
             async move { black_box(limiter_ref.update_eval_custom_key(&key, 1, None).await) }
         });
@@ -314,18 +304,14 @@ fn bench_redis_mget_direct(c: &mut Criterion) {
     let mut group = c.benchmark_group("redis_mget_direct");
 
     for num_keys in [6, 12, 24].iter() {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(num_keys),
-            num_keys,
-            |b, &n| {
-                let keys: Vec<String> = (0..n).map(|i| format!("mget_key_{}", i)).collect();
-                b.to_async(&rt).iter(|| {
-                    let keys_clone = keys.clone();
-                    let redis_clone = redis.clone();
-                    async move { black_box(redis_clone.mget(keys_clone).await.ok()) }
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(num_keys), num_keys, |b, &n| {
+            let keys: Vec<String> = (0..n).map(|i| format!("mget_key_{i}")).collect();
+            b.to_async(&rt).iter(|| {
+                let keys_clone = keys.clone();
+                let redis_clone = redis.clone();
+                async move { black_box(redis_clone.mget(keys_clone).await.ok()) }
+            });
+        });
     }
     group.finish();
 }
