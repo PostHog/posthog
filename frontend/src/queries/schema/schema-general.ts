@@ -1660,6 +1660,7 @@ export type RefreshType =
     | 'force_async'
     | 'force_blocking'
     | 'force_cache'
+    | 'force_inline'
     | 'lazy_async'
 
 export interface EndpointRequest {
@@ -1680,9 +1681,17 @@ export interface EndpointRunRequest {
     client_query_id?: string
 
     /**
-     * Whether results should be calculated sync or async, and how much to rely on the cache:
-     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * Controls how results are fetched and how much to rely on the cache.
+     *
+     * For non-materialized endpoints:
+     * - `'blocking'` - Use cached results if fresh, otherwise run query synchronously
+     * - `'force_blocking'` - Run query synchronously, bypassing cache
+     *
+     * For materialized endpoints:
+     * - `'blocking'` - Use cached results if fresh, otherwise query the materialized table (S3)
+     * - `'force_blocking'` - Query the materialized table (S3), bypassing result cache
+     * - `'force_inline'` - Run the original query directly against the database, bypassing both cache and materialization
+     *
      * @default 'blocking'
      */
     refresh?: RefreshType

@@ -11467,7 +11467,7 @@
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",
                     "default": "blocking",
-                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
+                    "description": "Controls how results are fetched and how much to rely on the cache.\n\nFor non-materialized endpoints:\n- `'blocking'` - Use cached results if fresh, otherwise run query synchronously\n- `'force_blocking'` - Run query synchronously, bypassing cache\n\nFor materialized endpoints:\n- `'blocking'` - Use cached results if fresh, otherwise query the materialized table (S3)\n- `'force_blocking'` - Query the materialized table (S3), bypassing result cache\n- `'force_inline'` - Run the original query directly against the database, bypassing both cache and materialization"
                 },
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
@@ -26446,6 +26446,7 @@
                 "force_async",
                 "force_blocking",
                 "force_cache",
+                "force_inline",
                 "lazy_async"
             ],
             "type": "string"
