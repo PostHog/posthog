@@ -16,3 +16,11 @@ strum = { version = "0.26", features = ["derive"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[bench]]
+name = "global_rate_limiter"
+harness = false
