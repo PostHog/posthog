@@ -1,0 +1,65 @@
+.PlayerFrame--llm-highlight {
+    .PlayerFrame__content {
+        .replayer-mouse.active::after {
+            // Animation speed slower than 0.33s generates confusions, as the mouse moves (on the other element, but still red)
+            // However, to properly catch it we need FPS 3 (1s/0.33)
+            animation: PlayerFrame__click--llm-highlight 0.33s ease-in-out 1;
+        }
+
+        .replayer-mouse.touch-device.active::after {
+            animation: PlayerFrame__touch-click--llm-highlight 0.33s ease-in-out 1;
+        }
+
+        // Desktop
+        @keyframes PlayerFrame__click--llm-highlight {
+            0% {
+                // Start at full size to highlight the click area
+                width: 60px;
+                height: 60px;
+
+                // Using Magenta as it's bright and less likely to blend in with UI elements
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            // Shrink unevenly to keep the highlight visible as long as possible
+            80% {
+                width: 40px;
+                height: 40px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            100% {
+                width: 20px;
+                height: 20px;
+                background: rgb(236 72 153);
+                opacity: 0.3;
+            }
+        }
+
+        // Mobile (touch devices normally have no passive cursor, so we fade to invisible)
+        @keyframes PlayerFrame__touch-click--llm-highlight {
+            0% {
+                width: 60px;
+                height: 60px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            80% {
+                width: 40px;
+                height: 40px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            100% {
+                width: 40px;
+                height: 40px;
+                background: rgb(236 72 153);
+                opacity: 0;
+            }
+        }
+    }
+}

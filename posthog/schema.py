@@ -4253,6 +4253,7 @@ class BreakdownFilter(BaseModel):
     breakdown_histogram_bin_count: int | None = None
     breakdown_limit: int | None = None
     breakdown_normalize_url: bool | None = None
+    breakdown_path_cleaning: bool | None = None
     breakdown_type: BreakdownType | None = BreakdownType.EVENT
     breakdowns: list[Breakdown] | None = Field(default=None, max_length=3)
 
