@@ -6,14 +6,13 @@ use crate::config::Config;
 use chrono::Utc;
 use common_redis::Client;
 use limiters::global_rate_limiter::{
-    CheckMode, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter,
-    GlobalRateLimiterConfig,
+    GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter, GlobalRateLimiterConfig,
+    GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
 };
 use tracing::error;
 
-#[derive(Clone)]
 pub struct GlobalRateLimiter {
-    limiter: CommonGlobalRateLimiter,
+    limiter: Box<dyn CommonGlobalRateLimiter>,
 }
 
 impl GlobalRateLimiter {
@@ -32,20 +31,26 @@ impl GlobalRateLimiter {
         };
 
         Self {
-            limiter: CommonGlobalRateLimiter::new(grl_config, redis),
+            limiter: Box::new(CommonGlobalRateLimiterImpl::new(grl_config, redis)),
         }
     }
 
-    /// Evaluate key for global rate limit. Response with metadata is returned if limited
+    /// Evaluate key for global rate limit. Response with metadata is returned if limited.
     pub async fn is_limited(&self, key: &str, count: u64) -> Option<GlobalRateLimitResponse> {
-        let mode = match self.limiter.is_custom_key(key) {
-            true => CheckMode::Custom,
-            _ => CheckMode::Global,
-        };
-
         // call is instrumented internally
         self.limiter
-            .eval_update_key(mode, key, count, Some(Utc::now()))
+            .update_eval_key(key, count, Some(Utc::now()))
+            .await
+    }
+
+    // Evaluate a custom key candidate. If it was registered when the
+    pub async fn is_custom_key_limited(
+        &self,
+        key: &str,
+        count: u64,
+    ) -> Option<GlobalRateLimitResponse> {
+        self.limiter
+            .update_eval_custom_key(key, count, Some(Utc::now()))
             .await
     }
 
