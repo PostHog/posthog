@@ -12,6 +12,7 @@ RELATED_OBJECTS = (
     "action",
     "feature_flag",
     "experiment_saved_metric",
+    "endpoint",
 )
 
 
@@ -78,6 +79,13 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     )
     experiment_saved_metric = models.ForeignKey(
         "ExperimentSavedMetric",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    endpoint = models.ForeignKey(
+        "endpoints.Endpoint",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

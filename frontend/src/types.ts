@@ -2184,6 +2184,7 @@ export interface EndpointType extends WithAccessControl {
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
     materialization?: EndpointMaterializationType
+    tags?: string[]
 }
 
 export interface EndpointMaterializationType {

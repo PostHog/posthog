@@ -1,7 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonLabel, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -13,6 +14,7 @@ interface EndpointOverviewProps {
 
 export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
+    const { updateEndpoint } = useActions(endpointLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
@@ -29,6 +31,14 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                         <LemonTag type={endpoint.is_active ? 'success' : 'danger'}>
                             <b className="uppercase">{endpoint.is_active ? 'Active' : 'Inactive'}</b>
                         </LemonTag>
+                    </div>
+                    <div className="flex flex-col">
+                        <LemonLabel>Tags</LemonLabel>
+                        <ObjectTags
+                            tags={endpoint.tags || []}
+                            onChange={(tags) => updateEndpoint(endpoint.name, { tags })}
+                            saving={false}
+                        />
                     </div>
                     <div className="flex flex-col">
                         <LemonLabel info="Versions auto-increment when the query changes. Access older versions via the 'version' parameter in requests. Useful for gradual rollouts and rollbacks.">

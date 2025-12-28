@@ -1,9 +1,10 @@
 import re
 import builtins
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -41,6 +42,7 @@ from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemViewSetMixin, is_licensed_for_tagged_items
 from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -51,8 +53,9 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
-from posthog.models import User
+from posthog.models import Tag, User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.tag import tagify
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
@@ -75,7 +78,7 @@ ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 
 @extend_schema(tags=["endpoints"])
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
+class EndpointViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
@@ -103,7 +106,46 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return new_val
         return False
 
-    def _serialize_endpoint(self, endpoint: Endpoint) -> dict:
+    def _get_tags(self, endpoint: Endpoint) -> list[str]:
+        """Get tags for an endpoint, respecting license restrictions."""
+        if not is_licensed_for_tagged_items(self.request.user):
+            return []
+
+        if hasattr(endpoint, "prefetched_tags"):
+            return [p.tag.name for p in endpoint.prefetched_tags]
+        return list(endpoint.tagged_items.values_list("tag__name", flat=True))
+
+    def _set_tags(self, endpoint: Endpoint, tags: list[str] | None) -> None:
+        """Set tags for an endpoint, respecting license restrictions."""
+        if not is_licensed_for_tagged_items(self.request.user):
+            return
+
+        if tags is None:
+            return
+
+        # Normalize and dedupe tags
+        deduped_tags = list({tagify(t) for t in tags})
+        tagged_item_objects = []
+
+        # Create tags
+        for tag in deduped_tags:
+            tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=endpoint.team_id)
+            tagged_item_instance, _ = endpoint.tagged_items.get_or_create(tag_id=tag_instance.id)
+            tagged_item_objects.append(tagged_item_instance)
+
+        # Delete tags that are missing (use individual deletes to trigger activity logging)
+        tagged_items_to_delete = endpoint.tagged_items.exclude(tag__name__in=deduped_tags)
+        for tagged_item in tagged_items_to_delete:
+            tagged_item.delete()
+
+        # Cleanup tags that aren't used by team
+        Tag.objects.filter(
+            Q(team_id=endpoint.team_id) & Q(tagged_items__isnull=True) & Q(team_defaults__isnull=True)
+        ).delete()
+
+        endpoint.prefetched_tags = tagged_item_objects
+
+    def _serialize_endpoint(self, endpoint: Endpoint, include_tags: bool = True) -> dict:
         result = {
             "id": str(endpoint.id),
             "name": endpoint.name,
@@ -121,6 +163,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
         }
+
+        if include_tags:
+            result["tags"] = self._get_tags(endpoint)
 
         if endpoint.is_materialized and endpoint.saved_query:
             sync_freq_str = None
@@ -214,6 +259,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=query_dict,
                 created_by=cast(User, request.user),
             )
+
+            # Handle tags from request (not part of pydantic model)
+            tags = request.data.get("tags")
+            if tags is not None:
+                self._set_tags(endpoint, tags)
 
             log_activity(
                 organization_id=self.organization.id,
@@ -327,6 +377,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     self._enable_materialization(endpoint, sync_frequency, request)
                 elif should_disable:
                     self._disable_materialization(endpoint)
+
+            # Handle tags from request (not part of pydantic model)
+            if "tags" in request.data:
+                self._set_tags(endpoint, request.data.get("tags"))
 
             changes = changes_between("Endpoint", previous=before_update, current=endpoint)
             log_activity(
@@ -456,7 +510,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
-        variables_override: Optional[builtins.list[HogQLVariable]] = None,
+        variables_override: builtins.list[HogQLVariable] | None = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
         debug: bool = False,

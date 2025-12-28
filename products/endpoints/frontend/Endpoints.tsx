@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -98,6 +99,18 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
         },
         createdAtColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         createdByColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
+        {
+            title: 'Tags',
+            key: 'tags',
+            dataIndex: 'tags',
+            render: function Render(_, record) {
+                const tags = record.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        } as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         atColumn<EndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
             EndpointType,
             keyof EndpointType | undefined
