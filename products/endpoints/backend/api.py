@@ -1,7 +1,7 @@
 import re
 import builtins
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -421,8 +421,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Not materialized
         - Materialization incomplete/failed
         - Materialized data is stale (older than sync frequency)
-        - User overrides present (variables, filters, query)
-        - Force refresh requested
+        - User overrides present (variables, query)
+        - force_inline requested (explicitly bypass materialization)
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -443,7 +443,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.variables:
             return False
 
-        if data.refresh in ["force_blocking"]:
+        # force_inline explicitly bypasses materialization to run the original query
+        if data.refresh == RefreshType.FORCE_INLINE:
             return False
 
         if data.query_override:
@@ -456,7 +457,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query_request_data: dict,
         client_query_id: str | None,
         request: Request,
-        variables_override: Optional[builtins.list[HogQLVariable]] = None,
+        variables_override: builtins.list[HogQLVariable] | None = None,
         cache_age_seconds: int | None = None,
         extra_result_fields: dict | None = None,
         debug: bool = False,
