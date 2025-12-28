@@ -1,4 +1,5 @@
 import './PlayerFrame.scss'
+import './PlayerFrameLLMHighlight.scss'
 
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
@@ -79,7 +80,9 @@ export const PlayerFrame = (): JSX.Element => {
     }, [containerDimensions, windowResize])
 
     return (
-        <div ref={containerRef} className="PlayerFrame ph-no-capture">
+        // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
+        // The initial approach was conditional, but everyone liked how it looked, so we decided to make it the default.
+        <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight')}>
             <div
                 className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
                 ref={frameRef}
