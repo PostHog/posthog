@@ -1,10 +1,8 @@
 import { useValues } from 'kea'
 
-import { colonDelimitedDuration } from 'lib/utils'
-
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
-export function PlayerFrameLLMMetaOverlay(): JSX.Element | null {
+export function PlayerFrameMetaOverlay(): JSX.Element | null {
     const { currentURL, currentPlayerTime, currentSegment } = useValues(sessionRecordingPlayerLogic)
 
     if (!currentURL || currentPlayerTime === undefined) {
@@ -19,7 +17,7 @@ export function PlayerFrameLLMMetaOverlay(): JSX.Element | null {
                 <span className="font-bold">URL:</span> {currentURL}
             </span>
             <span>
-                <span className="font-bold">TIMESTAMP:</span> {colonDelimitedDuration(currentPlayerTime / 1000, null)}
+                <span className="font-bold">REC_T:</span> {Math.floor(currentPlayerTime / 1000)}
             </span>
             {isInactive && (
                 <span>

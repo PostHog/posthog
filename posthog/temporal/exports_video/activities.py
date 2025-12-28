@@ -55,7 +55,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
         height = max(300, min(2160, int(height)))
 
     # Display additional metadata for LLMs in the video
-    show_llm_metadata = asset.export_context.get("show_llm_metadata", False)
+    show_metadata_footer = asset.export_context.get("show_metadata_footer", False)
 
     # we can set playback speed to any integer between 1 and 360
     try:
@@ -72,8 +72,8 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     }
     if playback_speed != 1:
         url_params["playerSpeed"] = playback_speed
-    if show_llm_metadata:
-        url_params["showLLMMetadata"] = "true"
+    if show_metadata_footer:
+        url_params["showMetadataFooter"] = "true"
 
     url = absolute_uri(f"/exporter?{'&'.join(f'{key}={value}' for key, value in url_params.items())}")
 
