@@ -37,7 +37,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
-        showMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
+        setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
