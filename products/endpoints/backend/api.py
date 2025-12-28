@@ -80,7 +80,7 @@ def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> 
     Map EndpointRefreshMode to RefreshType.
 
     - cache -> blocking
-    - fresh/live -> force_blocking (materialization bypass handled in _should_use_materialized_table)
+    - force/direct -> force_blocking (materialization bypass handled in _should_use_materialized_table)
     """
     if mode is None or mode == EndpointRefreshMode.CACHE:
         return RefreshType.BLOCKING
@@ -435,7 +435,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         - Materialization incomplete/failed
         - Materialized data is stale (older than sync frequency)
         - User overrides present (variables, query)
-        - 'live' mode requested (explicitly bypass materialization)
+        - 'direct' mode requested (explicitly bypass materialization)
         """
         if not endpoint.is_materialized or not endpoint.saved_query:
             return False
@@ -456,8 +456,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.variables:
             return False
 
-        # 'live' mode explicitly bypasses materialization to run the original query
-        if data.refresh == EndpointRefreshMode.LIVE:
+        # 'direct' mode explicitly bypasses materialization to run the original query
+        if data.refresh == EndpointRefreshMode.DIRECT:
             return False
 
         if data.query_override:
@@ -749,6 +749,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if endpoint.query.get("kind") != "HogQLQuery" and data.variables:
             raise ValidationError(
                 "Only query_override and filters_override are allowed when executing an Insight query"
+            )
+        if data.refresh == EndpointRefreshMode.DIRECT and not endpoint.is_materialized:
+            raise ValidationError(
+                "'direct' refresh mode is only valid for materialized endpoints. "
+                "Use 'cache' or 'force' instead, or enable materialization on this endpoint."
             )
 
     @extend_schema(

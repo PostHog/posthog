@@ -712,12 +712,12 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
 
-    def test_fresh_mode_uses_materialized_table(self):
-        """Test that 'fresh' mode on a materialized endpoint still uses the materialized table (not inline)."""
+    def test_force_mode_uses_materialized_table(self):
+        """Test that 'force' mode on a materialized endpoint still uses the materialized table (not inline)."""
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="fresh_mode_endpoint",
+            name="force_mode_endpoint",
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
@@ -726,14 +726,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.table = DataWarehouseTable.objects.create(
             team=self.team,
-            name="fresh_mode_endpoint",
+            name="force_mode_endpoint",
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="s3://test-bucket/path",
         )
         saved_query.save()
 
         endpoint = Endpoint.objects.create(
-            name="fresh_mode_endpoint",
+            name="force_mode_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
@@ -749,21 +749,21 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
-                {"refresh": "fresh"},
+                {"refresh": "force"},
                 format="json",
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # 'fresh' should still use materialized table, just bypass cache
+            # 'force' should still use materialized table, just bypass cache
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
 
-    def test_live_mode_bypasses_materialization(self):
-        """Test that 'live' mode on a materialized endpoint bypasses materialization and runs inline."""
+    def test_direct_mode_bypasses_materialization(self):
+        """Test that 'direct' mode on a materialized endpoint bypasses materialization and runs inline."""
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="live_mode_endpoint",
+            name="direct_mode_endpoint",
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
@@ -772,14 +772,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.table = DataWarehouseTable.objects.create(
             team=self.team,
-            name="live_mode_endpoint",
+            name="direct_mode_endpoint",
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="s3://test-bucket/path",
         )
         saved_query.save()
 
         endpoint = Endpoint.objects.create(
-            name="live_mode_endpoint",
+            name="direct_mode_endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
@@ -795,14 +795,34 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
-                {"refresh": "live"},
+                {"refresh": "direct"},
                 format="json",
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # 'live' should bypass materialization and run inline
+            # 'direct' should bypass materialization and run inline
             mock_inline.assert_called_once()
             mock_materialized.assert_not_called()
+
+    def test_direct_mode_rejected_for_non_materialized_endpoint(self):
+        """Test that 'direct' mode is rejected for non-materialized endpoints."""
+        endpoint = Endpoint.objects.create(
+            name="non_materialized_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+            {"refresh": "direct"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("direct", response.json()["detail"].lower())
+        self.assertIn("materialized", response.json()["detail"].lower())
 
 
 @pytest.mark.asyncio

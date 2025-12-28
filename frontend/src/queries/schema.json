@@ -11406,8 +11406,8 @@
             "type": "object"
         },
         "EndpointRefreshMode": {
-            "description": "Controls how endpoint results are fetched.\n- `cache` (default): Return cached results if available, otherwise fetch from data source\n- `fresh`: Bypass cache and fetch fresh results from the data source\n- `live`: Run the original query directly against the database (bypasses materialization for materialized endpoints)",
-            "enum": ["cache", "fresh", "live"],
+            "description": "Controls how endpoint results are fetched.\n- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.",
+            "enum": ["cache", "force", "direct"],
             "type": "string"
         },
         "EndpointRequest": {
@@ -11471,8 +11471,7 @@
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
-                    "default": "cache",
-                    "description": "Controls how results are fetched:\n- `cache` (default): Return cached results if available\n- `fresh`: Bypass cache, fetch from data source (S3 for materialized, run query for non-materialized)\n- `live`: Run original query directly against the database (bypasses materialization)"
+                    "default": "cache"
                 },
                 "variables": {
                     "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
