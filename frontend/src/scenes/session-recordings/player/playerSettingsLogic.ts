@@ -37,7 +37,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
-        setShowLLMMetadata: (showLLMMetadata: boolean) => ({ showLLMMetadata }),
+        setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -116,11 +116,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
             },
         ],
-        showLLMMetadata: [
+        showMetadataFooter: [
             false,
             // Don't persist this setting as required for export only
             {
-                setShowLLMMetadata: (_, { showLLMMetadata }) => showLLMMetadata,
+                setShowMetadataFooter: (_, { showMetadataFooter }) => showMetadataFooter,
             },
         ],
     })),
@@ -194,9 +194,10 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             if (values.speed !== playerSpeed) {
                 actions.setSpeed(playerSpeed)
             }
-            const showLLMMetadata = 'showLLMMetadata' in searchParams && (searchParams.showLLMMetadata ?? false)
-            if (values.showLLMMetadata !== showLLMMetadata) {
-                actions.setShowLLMMetadata(showLLMMetadata)
+            const showMetadataFooter =
+                'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
+            if (values.showMetadataFooter !== showMetadataFooter) {
+                actions.setShowMetadataFooter(showMetadataFooter)
             }
         },
         // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
