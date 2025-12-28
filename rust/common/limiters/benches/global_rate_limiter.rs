@@ -505,6 +505,149 @@ fn bench_redis_mget_direct(c: &mut Criterion) {
     group.finish();
 }
 
+/// Simulation: 20 processes × 1000 req/sec, 100k key cardinality, random distribution
+///
+/// This models a realistic high-cardinality scenario to measure:
+/// - Cache hit rate
+/// - Fail-open rate
+/// - Sustainable throughput
+/// - Redis saturation behavior
+fn bench_high_cardinality_simulation(c: &mut Criterion) {
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+    use std::sync::atomic::AtomicU64;
+
+    let Some((rt, redis)) = setup_redis() else {
+        eprintln!("Skipping bench_high_cardinality_simulation: Redis unavailable");
+        return;
+    };
+
+    const NUM_PROCESSES: usize = 20;
+    const KEYS_CARDINALITY: u64 = 100_000;
+    const REQUESTS_PER_PROCESS: usize = 1000; // 1 second of traffic per process
+
+    let config = bench_config();
+
+    // Prime Redis with bucket data for all keys (this takes a while)
+    eprintln!("Priming {KEYS_CARDINALITY} keys in Redis...");
+    rt.block_on(async {
+        // Prime in batches of 1000 keys
+        for batch_start in (0..KEYS_CARDINALITY).step_by(1000) {
+            let batch_end = (batch_start + 1000).min(KEYS_CARDINALITY);
+            for i in batch_start..batch_end {
+                let key = format!("sim_key_{i}");
+                prime_redis_buckets(&redis, &config, &key, 100).await;
+            }
+            if batch_start % 10000 == 0 {
+                eprintln!("  Primed {batch_start}/{KEYS_CARDINALITY } keys...");
+            }
+        }
+    });
+    eprintln!("Priming complete.");
+
+    // Counters for results
+    static SIM_CACHE_HIT: AtomicU64 = AtomicU64::new(0);
+    static SIM_CACHE_MISS: AtomicU64 = AtomicU64::new(0);
+    static SIM_FAIL_OPEN: AtomicU64 = AtomicU64::new(0);
+    static SIM_LIMITED: AtomicU64 = AtomicU64::new(0);
+
+    // Reset counters
+    SIM_CACHE_HIT.store(0, Ordering::Relaxed);
+    SIM_CACHE_MISS.store(0, Ordering::Relaxed);
+    SIM_FAIL_OPEN.store(0, Ordering::Relaxed);
+    SIM_LIMITED.store(0, Ordering::Relaxed);
+
+    let mut group = c.benchmark_group("simulation_20proc_100k_keys");
+    group.sample_size(10); // Fewer samples since each iteration is expensive
+    group.measurement_time(Duration::from_secs(30));
+    group.throughput(Throughput::Elements(
+        (NUM_PROCESSES * REQUESTS_PER_PROCESS) as u64,
+    ));
+
+    group.bench_function("1_second_of_traffic", |b| {
+        b.to_async(&rt).iter(|| {
+            let redis_clone = redis.clone();
+            let config_clone = config.clone();
+
+            async move {
+                // Create 20 independent limiters (simulating 20 processes)
+                let limiters: Vec<_> = (0..NUM_PROCESSES)
+                    .map(|_| GlobalRateLimiterImpl::new(config_clone.clone(), redis_clone.clone()))
+                    .collect();
+
+                // Spawn 20 concurrent tasks, each processing 1000 requests
+                let handles: Vec<_> = limiters
+                    .into_iter()
+                    .enumerate()
+                    .map(|(proc_id, limiter)| {
+                        tokio::spawn(async move {
+                            let mut rng = StdRng::seed_from_u64(proc_id as u64);
+                            let mut local_results = (0u64, 0u64, 0u64, 0u64); // hit, miss, fail, limited
+
+                            for _ in 0..REQUESTS_PER_PROCESS {
+                                // Random key from 100k cardinality
+                                let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
+                                let key = format!("sim_key_{key_id}");
+
+                                let result = limiter.update_eval_key(&key, 1, None).await;
+
+                                match result {
+                                    EvalResult::Allowed => local_results.0 += 1,
+                                    EvalResult::Limited(_) => local_results.3 += 1,
+                                    EvalResult::FailOpen { .. } => local_results.2 += 1,
+                                    EvalResult::NotApplicable => {}
+                                }
+                            }
+
+                            local_results
+                        })
+                    })
+                    .collect();
+
+                // Wait for all "processes" to complete
+                for handle in handles {
+                    if let Ok((hits, misses, fails, limited)) = handle.await {
+                        SIM_CACHE_HIT.fetch_add(hits, Ordering::Relaxed);
+                        SIM_CACHE_MISS.fetch_add(misses, Ordering::Relaxed);
+                        SIM_FAIL_OPEN.fetch_add(fails, Ordering::Relaxed);
+                        SIM_LIMITED.fetch_add(limited, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    });
+
+    group.finish();
+
+    // Report simulation results
+    let total_hits = SIM_CACHE_HIT.load(Ordering::Relaxed);
+    let total_misses = SIM_CACHE_MISS.load(Ordering::Relaxed);
+    let total_fails = SIM_FAIL_OPEN.load(Ordering::Relaxed);
+    let total_limited = SIM_LIMITED.load(Ordering::Relaxed);
+    let total = total_hits + total_misses + total_fails + total_limited;
+
+    if total > 0 {
+        eprintln!("\n=== Simulation Results ===");
+        eprintln!("Total requests: {total}");
+        eprintln!(
+            "Allowed: {} ({:.1}%)",
+            total_hits + total_misses,
+            (total_hits + total_misses) as f64 / total as f64 * 100.0
+        );
+        eprintln!(
+            "Fail-opens: {} ({:.1}%)",
+            total_fails,
+            total_fails as f64 / total as f64 * 100.0
+        );
+        eprintln!(
+            "Rate limited: {} ({:.1}%)",
+            total_limited,
+            total_limited as f64 / total as f64 * 100.0
+        );
+        eprintln!("===========================\n");
+    }
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default()
@@ -517,7 +660,8 @@ criterion_group!(
         bench_high_cardinality,
         bench_update_eval_key_e2e,
         bench_custom_key_evaluation,
-        bench_redis_mget_direct
+        bench_redis_mget_direct,
+        bench_high_cardinality_simulation
 );
 
 criterion_main!(benches);
