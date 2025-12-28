@@ -577,7 +577,7 @@ impl GlobalRateLimiterImpl {
         // Take ownership of batch, leaving empty HashMap in place
         let aggregated = std::mem::take(batch);
 
-        // Prepare items for batch_incr_by_expire_nx
+        // Prepare items for batch_incr_by_expire
         let items: Vec<(String, i64)> = aggregated
             .iter()
             .map(|((key, bucket_id), count)| {
@@ -591,7 +591,7 @@ impl GlobalRateLimiterImpl {
         let write_batch_start = Instant::now();
         match tokio::time::timeout(
             config.global_write_timeout,
-            redis.batch_incr_by_expire_nx(items, config.global_cache_ttl.as_secs() as usize),
+            redis.batch_incr_by_expire(items, config.global_cache_ttl.as_secs() as usize),
         )
         .await
         {
@@ -942,11 +942,11 @@ mod tests {
         // Give background task time to process
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Verify batch_incr_by_expire_nx was called
+        // Verify batch_incr_by_expire was called
         let calls = client.get_calls();
         let batch_calls: Vec<_> = calls
             .iter()
-            .filter(|c| c.op == "batch_incr_by_expire_nx")
+            .filter(|c| c.op == "batch_incr_by_expire")
             .collect();
         assert!(
             !batch_calls.is_empty(),
@@ -1134,7 +1134,7 @@ mod tests {
         let calls = client.get_calls();
         let batch_calls: Vec<_> = calls
             .iter()
-            .filter(|c| c.op == "batch_incr_by_expire_nx")
+            .filter(|c| c.op == "batch_incr_by_expire")
             .collect();
         assert!(
             !batch_calls.is_empty(),
@@ -1179,7 +1179,7 @@ mod tests {
         let calls = client.get_calls();
         let batch_calls: Vec<_> = calls
             .iter()
-            .filter(|c| c.op == "batch_incr_by_expire_nx")
+            .filter(|c| c.op == "batch_incr_by_expire")
             .collect();
         assert!(
             !batch_calls.is_empty(),
@@ -1226,7 +1226,7 @@ mod tests {
         let calls = client.get_calls();
         let batch_calls: Vec<_> = calls
             .iter()
-            .filter(|c| c.op == "batch_incr_by_expire_nx")
+            .filter(|c| c.op == "batch_incr_by_expire")
             .collect();
         assert!(
             !batch_calls.is_empty(),
