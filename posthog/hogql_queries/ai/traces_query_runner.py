@@ -479,7 +479,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.NotEq,
                             left=ast.Field(chain=["properties", "ai_support_impersonated"]),
-                            right=ast.Constant(value=True),
+                            right=ast.Constant(value="true"),
                         ),
                     ]
                 )

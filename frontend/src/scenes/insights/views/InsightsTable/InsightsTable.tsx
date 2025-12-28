@@ -183,7 +183,13 @@ export function InsightsTable({
                 />
             ),
             render: (_, item) => {
-                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                return (
+                    <BreakdownColumnItem
+                        item={item}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+                        breakdownFilter={breakdownFilter}
+                    />
+                )
             },
             key: 'breakdown',
             sorter: (a, b) => {
@@ -230,7 +236,13 @@ export function InsightsTable({
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
-                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
                 },
                 key: columnKey,
                 sorter: (a, b) => {

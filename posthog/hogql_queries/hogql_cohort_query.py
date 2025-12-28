@@ -874,27 +874,13 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
         # Build query using precalculated_events
         query_str = """
-            SELECT
-                pdi2.person_id as id
-            FROM
-            (
-                SELECT DISTINCT distinct_id
-                FROM precalculated_events
-                WHERE
-                    team_id = {team_id}
-                    AND condition = {condition_hash}
-                    AND date >= toDate({date_from})
-            ) AS pfe
-            INNER JOIN
-            (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) as person_id
-                FROM raw_person_distinct_ids
-                WHERE team_id = {team_id}
-                GROUP BY distinct_id
-                HAVING argMax(is_deleted, version) = 0
-            ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
+            SELECT DISTINCT
+                person_id as id
+            FROM precalculated_events
+            WHERE
+                team_id = {team_id}
+                AND condition = {condition_hash}
+                AND date >= toDate({date_from})
         """
 
         return cast(
@@ -962,28 +948,14 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
         query_str = f"""
             SELECT
-                pdi2.person_id as id
-            FROM
-            (
-                SELECT distinct_id, count() as event_count
-                FROM precalculated_events
-                WHERE
-                    team_id = {{team_id}}
-                    AND condition = {{condition_hash}}
-                    AND date >= toDate({{date_from}})
-                GROUP BY distinct_id
-                HAVING event_count {sql_operator} {{min_matches}}
-            ) AS pfe
-            INNER JOIN
-            (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) as person_id
-                FROM raw_person_distinct_ids
-                WHERE team_id = {{team_id}}
-                GROUP BY distinct_id
-                HAVING argMax(is_deleted, version) = 0
-            ) AS pdi2 ON pdi2.distinct_id = pfe.distinct_id
+                person_id as id
+            FROM precalculated_events
+            WHERE
+                team_id = {{team_id}}
+                AND condition = {{condition_hash}}
+                AND date >= toDate({{date_from}})
+            GROUP BY person_id
+            HAVING count() {sql_operator} {{min_matches}}
         """
 
         return cast(
@@ -1041,37 +1013,21 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """
         query_str = """
             SELECT
-                pdi2.person_id as id
+                person_id as id
             FROM
             (
                 SELECT
-                    distinct_id,
-                    countIf(latest_matches = 1) as matching_count
-                FROM
-                (
-                    SELECT
-                        distinct_id,
-                        condition,
-                        argMax(matches, _timestamp) as latest_matches
-                    FROM precalculated_person_properties
-                    WHERE
-                        team_id = {team_id}
-                        AND condition IN {condition_hashes}
-                    GROUP BY distinct_id, condition
-                )
-                GROUP BY distinct_id
-                HAVING matching_count >= 1
-            ) AS ppp
-            INNER JOIN
-            (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) as person_id
-                FROM raw_person_distinct_ids
-                WHERE team_id = {team_id}
-                GROUP BY distinct_id
-                HAVING argMax(is_deleted, version) = 0
-            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+                    person_id,
+                    condition,
+                    argMax(matches, _timestamp) as latest_matches
+                FROM precalculated_person_properties
+                WHERE
+                    team_id = {team_id}
+                    AND condition IN {condition_hashes}
+                GROUP BY person_id, condition
+            )
+            GROUP BY person_id
+            HAVING countIf(latest_matches = 1) >= 1
         """
 
         return cast(
@@ -1100,37 +1056,21 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """
         query_str = """
             SELECT
-                pdi2.person_id as id
+                person_id as id
             FROM
             (
                 SELECT
-                    distinct_id,
-                    countIf(latest_matches = 1) as matching_count
-                FROM
-                (
-                    SELECT
-                        distinct_id,
-                        condition,
-                        argMax(matches, _timestamp) as latest_matches
-                    FROM precalculated_person_properties
-                    WHERE
-                        team_id = {team_id}
-                        AND condition IN {condition_hashes}
-                    GROUP BY distinct_id, condition
-                )
-                GROUP BY distinct_id
-                HAVING matching_count = {num_conditions}
-            ) AS ppp
-            INNER JOIN
-            (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) as person_id
-                FROM raw_person_distinct_ids
-                WHERE team_id = {team_id}
-                GROUP BY distinct_id
-                HAVING argMax(is_deleted, version) = 0
-            ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+                    person_id,
+                    condition,
+                    argMax(matches, _timestamp) as latest_matches
+                FROM precalculated_person_properties
+                WHERE
+                    team_id = {team_id}
+                    AND condition IN {condition_hashes}
+                GROUP BY person_id, condition
+            )
+            GROUP BY person_id
+            HAVING countIf(latest_matches = 1) = {num_conditions}
         """
 
         return cast(
@@ -1183,29 +1123,13 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
             query_str = """
                 SELECT
-                    pdi2.person_id as id
-                FROM
-                (
-                    SELECT
-                        distinct_id,
-                        argMax(matches, _timestamp) as latest_matches
-                    FROM precalculated_person_properties
-                    WHERE
-                        team_id = {team_id}
-                        AND condition = {condition_hash}
-                    GROUP BY distinct_id
-                    HAVING latest_matches = 1
-                ) AS ppp
-                INNER JOIN
-                (
-                    SELECT
-                        distinct_id,
-                        argMax(person_id, version) as person_id
-                    FROM raw_person_distinct_ids
-                    WHERE team_id = {team_id}
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0
-                ) AS pdi2 ON pdi2.distinct_id = ppp.distinct_id
+                    person_id as id
+                FROM precalculated_person_properties
+                WHERE
+                    team_id = {team_id}
+                    AND condition = {condition_hash}
+                GROUP BY person_id
+                HAVING argMax(matches, _timestamp) = 1
             """
 
             return cast(

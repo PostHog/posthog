@@ -1,4 +1,3 @@
-import re
 import json
 import datetime
 from math import ceil
@@ -37,7 +36,6 @@ from posthog.constants import (
     EXCLUSIONS,
     EXPLICIT_DATE,
     FILTER_TEST_ACCOUNTS,
-    FORMULA,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -58,9 +56,6 @@ from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
-
-# When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
-ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-*^0-9+/().]+)"
 
 
 class SmoothingIntervalsMixin(BaseParamMixin):
@@ -123,19 +118,6 @@ class FilterTestAccountsMixin(BaseParamMixin):
     @include_dict
     def filter_out_team_members_to_dict(self):
         return {"filter_test_accounts": self.filter_test_accounts} if self.filter_test_accounts else {}
-
-
-class FormulaMixin(BaseParamMixin):
-    @cached_property
-    def formula(self) -> Optional[str]:
-        formula = self._data.get(FORMULA, None)
-        if not formula:
-            return None
-        return "".join(re.findall(ALLOWED_FORMULA_CHARACTERS, formula))
-
-    @include_dict
-    def formula_to_dict(self):
-        return {"formula": self.formula} if self.formula else {}
 
 
 class BreakdownMixin(BaseParamMixin):

@@ -608,7 +608,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
 ]
 
 export const WEB_SAFE_FONTS = [
-    { value: 'inherit', label: 'inherit (uses your website font)' },
+    { value: 'inherit', label: 'inherit (your website font)' },
     { value: 'system-ui', label: 'system-ui' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Verdana', label: 'Verdana' },

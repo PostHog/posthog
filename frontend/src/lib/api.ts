@@ -674,6 +674,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
     }
 
+    public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('has_logs')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -1821,6 +1825,15 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
+        async getSuggestions(id: number, context?: string): Promise<any> {
+            if (context) {
+                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
+            }
+            return await new ApiRequest().insight(id).withAction('suggestions').get()
+        },
+        async analyze(id: number): Promise<{ result: string }> {
+            return await new ApiRequest().insight(id).withAction('analyze').get()
+        },
     },
 
     endpoint: {
@@ -2285,6 +2298,12 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async hasLogs(): Promise<boolean> {
+            return new ApiRequest()
+                .logsHasLogs()
+                .get()
+                .then((response) => Boolean(response.hasLogs))
         },
     },
 

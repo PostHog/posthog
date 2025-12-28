@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration, time::Instant};
 
 use anyhow::{Context, Result};
 use axum::async_trait;
@@ -10,8 +10,9 @@ use rayon::prelude::*;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::{
     duplicate_event::DuplicateEvent,
@@ -20,7 +21,9 @@ use crate::{
     metrics::MetricsHelper,
     metrics_const::{
         DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
-        DUPLICATE_EVENTS_TOTAL_COUNTER, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
+        DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
+        PARTITION_BATCH_PROCESSING_DURATION_MS, ROCKSDB_MULTI_GET_DURATION_MS,
+        ROCKSDB_PUT_BATCH_DURATION_MS, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
         TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
         TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
         TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
@@ -54,8 +57,8 @@ pub struct DeduplicationConfig {
 
 #[derive(Clone)]
 pub struct DuplicateEventProducerWrapper {
-    producer: Arc<FutureProducer<KafkaContext>>,
-    topic: String,
+    pub producer: Arc<FutureProducer<KafkaContext>>,
+    pub topic: String,
 }
 
 impl DuplicateEventProducerWrapper {
@@ -63,31 +66,36 @@ impl DuplicateEventProducerWrapper {
         Ok(Self { producer, topic })
     }
 
-    pub async fn send(
-        &self,
+    /// Send a duplicate event (static version for concurrent execution)
+    ///
+    /// Takes owned values so it can be collected into a Vec of futures and executed with join_all.
+    pub async fn send_static(
+        producer: Arc<FutureProducer<KafkaContext>>,
+        topic: String,
         duplicate_event: DuplicateEvent,
-        kafka_key: &str,
+        kafka_key: String,
         timeout: Duration,
-        metrics: &MetricsHelper,
+        partition_topic: String,
+        partition_number: i32,
     ) -> Result<()> {
         let payload =
             serde_json::to_vec(&duplicate_event).context("Failed to serialize duplicate event")?;
 
-        let delivery_result = self
-            .producer
+        let delivery_result = producer
             .send(
-                FutureRecord::to(&self.topic)
-                    .key(kafka_key)
-                    .payload(&payload),
+                FutureRecord::to(&topic).key(&kafka_key).payload(&payload),
                 Timeout::After(timeout),
             )
             .await;
+
+        let metrics = MetricsHelper::with_partition(&partition_topic, partition_number)
+            .with_label("service", "kafka-deduplicator");
 
         match delivery_result {
             Ok(_) => {
                 metrics
                     .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
-                    .with_label("topic", &self.topic)
+                    .with_label("topic", &topic)
                     .with_label("status", "success")
                     .increment(1);
                 Ok(())
@@ -95,13 +103,13 @@ impl DuplicateEventProducerWrapper {
             Err((e, _)) => {
                 metrics
                     .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
-                    .with_label("topic", &self.topic)
+                    .with_label("topic", &topic)
                     .with_label("status", "failure")
                     .increment(1);
 
                 error!(
                     "Failed to publish duplicate event to topic {}: {}",
-                    self.topic, e
+                    topic, e
                 );
                 Ok(())
             }
@@ -129,6 +137,9 @@ pub struct BatchDeduplicationProcessor {
 
     /// Store manager that handles concurrent store creation and access
     store_manager: Arc<StoreManager>,
+
+    /// Offset tracker for recording producer offsets (used for checkpointing)
+    offset_tracker: Option<Arc<OffsetTracker>>,
 }
 
 #[async_trait]
@@ -173,6 +184,24 @@ impl BatchDeduplicationProcessor {
             producer,
             duplicate_producer,
             store_manager,
+            offset_tracker: None,
+        })
+    }
+
+    /// Create a new deduplication processor with offset tracking for checkpointing
+    pub fn new_with_offset_tracker(
+        config: DeduplicationConfig,
+        store_manager: Arc<StoreManager>,
+        producer: Option<Arc<FutureProducer<KafkaContext>>>,
+        duplicate_producer: Option<DuplicateEventProducerWrapper>,
+        offset_tracker: Arc<OffsetTracker>,
+    ) -> Result<Self> {
+        Ok(Self {
+            config,
+            producer,
+            duplicate_producer,
+            store_manager,
+            offset_tracker: Some(offset_tracker),
         })
     }
 
@@ -181,11 +210,17 @@ impl BatchDeduplicationProcessor {
         partition: Partition,
         messages: Vec<&KafkaMessage<CapturedEvent>>,
     ) -> Result<()> {
+        let batch_start = Instant::now();
+        let message_count = messages.len();
+
         // Parse events in parallel (CPU-bound work - good use of rayon)
         // Use block_in_place to avoid blocking the async runtime thread pool
+        let parsing_start = Instant::now();
         let parsed_events: Vec<Result<RawEvent>> = tokio::task::block_in_place(|| {
             messages.par_iter().map(Self::parse_raw_event).collect()
         });
+        let parsing_duration = parsing_start.elapsed();
+        metrics::histogram!(EVENT_PARSING_DURATION_MS).record(parsing_duration.as_millis() as f64);
 
         // Collect successful parses and extract metadata sequentially
         // This avoids cloning the entire message - we just copy the small pieces we need
@@ -227,65 +262,105 @@ impl BatchDeduplicationProcessor {
             .deduplicate_batch(partition.topic(), partition.partition_number(), events)
             .await?;
 
-        // Process results: emit metrics and publish events
+        // Process results: emit metrics and collect publish futures
+        // We batch all Kafka sends and execute them concurrently for better throughput
+        let mut unique_event_futures = Vec::new();
+        let mut duplicate_event_futures = Vec::new();
+
         for (idx, result) in dedup_results.iter().enumerate() {
             let payload = &payloads[idx];
             let headers = &headers_vec[idx];
             let key = &keys[idx];
 
-            // Emit deduplication result metrics
+            // Emit deduplication result metrics (synchronous, fast)
             self.emit_deduplication_result_metrics(
                 partition.topic(),
                 partition.partition_number(),
                 result,
             );
 
-            // Publish duplicate event if configured
+            // Collect duplicate event publish futures
             if let Some(ref duplicate_producer) = self.duplicate_producer {
                 if self.should_publish_duplicate_event(result) {
                     if let Some(original_event) = result.get_original_event() {
-                        let metrics = MetricsHelper::with_partition(
-                            partition.topic(),
-                            partition.partition_number(),
-                        )
-                        .with_label("service", "kafka-deduplicator");
-
-                        if let Err(e) = self
-                            .publish_duplicate_event(
-                                duplicate_producer,
-                                original_event,
-                                result,
-                                key,
-                                &metrics,
-                            )
-                            .await
-                        {
-                            error!("Failed to publish duplicate event: {}", e);
+                        let duplicate_event = DuplicateEvent::from_result(original_event, result);
+                        if let Some(event) = duplicate_event {
+                            duplicate_event_futures.push(
+                                DuplicateEventProducerWrapper::send_static(
+                                    duplicate_producer.producer.clone(),
+                                    duplicate_producer.topic.clone(),
+                                    event,
+                                    key.clone(),
+                                    self.config.producer_send_timeout,
+                                    partition.topic().to_string(),
+                                    partition.partition_number(),
+                                ),
+                            );
                         }
                     }
                 }
             }
 
-            // Publish non-duplicate events to output topic
+            // Collect unique event publish futures
             if !result.is_duplicate() {
                 if let Some(ref producer) = self.producer {
                     if let Some(ref output_topic) = self.config.output_topic {
-                        if let Err(e) = self
-                            .publish_event(
-                                producer,
-                                payload,
-                                headers.as_ref(),
-                                key.to_string(),
-                                output_topic,
-                            )
-                            .await
-                        {
-                            error!("Failed to publish non-duplicate event: {}", e);
-                            return Err(e);
-                        }
+                        unique_event_futures.push(Self::publish_event_static(
+                            producer.clone(),
+                            payload.clone(),
+                            headers.clone(),
+                            key.clone(),
+                            output_topic.clone(),
+                            self.config.producer_send_timeout,
+                        ));
                     }
                 }
             }
+        }
+
+        // Execute all duplicate event publishes concurrently (fire-and-forget, errors logged inside)
+        if !duplicate_event_futures.is_empty() {
+            join_all(duplicate_event_futures).await;
+        }
+
+        // Execute all unique event publishes concurrently
+        if !unique_event_futures.is_empty() {
+            let results = join_all(unique_event_futures).await;
+            // Track max producer offset and check for errors
+            let mut max_producer_offset: Option<i64> = None;
+            for result in results {
+                match result {
+                    Ok(offset) => {
+                        max_producer_offset =
+                            Some(max_producer_offset.map_or(offset, |current| current.max(offset)));
+                    }
+                    Err(e) => {
+                        error!("Failed to publish non-duplicate event: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            // Record the max producer offset for this input partition (for checkpointing)
+            if let (Some(ref tracker), Some(offset)) = (&self.offset_tracker, max_producer_offset) {
+                tracker.mark_produced(&partition, offset);
+            }
+        }
+
+        // Record total partition batch processing time
+        let batch_duration = batch_start.elapsed();
+        metrics::histogram!(PARTITION_BATCH_PROCESSING_DURATION_MS)
+            .record(batch_duration.as_millis() as f64);
+
+        // Warn on slow partition batches (>= 2 seconds indicates potential issues)
+        if batch_duration >= Duration::from_secs(2) {
+            warn!(
+                topic = partition.topic(),
+                partition = partition.partition_number(),
+                message_count = message_count,
+                duration_ms = batch_duration.as_millis(),
+                parsing_duration_ms = parsing_duration.as_millis(),
+                "Slow partition batch processing"
+            );
         }
 
         Ok(())
@@ -340,7 +415,11 @@ impl BatchDeduplicationProcessor {
             .map(|e| e.timestamp_key_bytes.as_slice())
             .collect();
 
+        let ts_read_start = Instant::now();
         let timestamp_results = store.multi_get_timestamp_records(timestamp_keys_refs)?;
+        let ts_read_duration = ts_read_start.elapsed();
+        metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "timestamp")
+            .record(ts_read_duration.as_millis() as f64);
 
         // Step 3: Batch read for UUID-based deduplication (only for events with UUIDs that pass timestamp check)
         let uuid_keys_to_check: Vec<(usize, &[u8])> = enriched_events
@@ -361,7 +440,12 @@ impl BatchDeduplicationProcessor {
         let uuid_keys_refs: Vec<&[u8]> = uuid_keys_to_check.iter().map(|(_, key)| *key).collect();
 
         let uuid_results = if !uuid_keys_refs.is_empty() {
-            store.multi_get_uuid_records(uuid_keys_refs)?
+            let uuid_read_start = Instant::now();
+            let results = store.multi_get_uuid_records(uuid_keys_refs)?;
+            let uuid_read_duration = uuid_read_start.elapsed();
+            metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "uuid")
+                .record(uuid_read_duration.as_millis() as f64);
+            results
         } else {
             vec![]
         };
@@ -495,7 +579,11 @@ impl BatchDeduplicationProcessor {
                     value: value.as_slice(),
                 })
                 .collect();
+            let ts_write_start = Instant::now();
             store.put_timestamp_records_batch(entries)?;
+            let ts_write_duration = ts_write_start.elapsed();
+            metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "timestamp")
+                .record(ts_write_duration.as_millis() as f64);
         }
 
         // UUID writes need to also update the timestamp index
@@ -508,7 +596,11 @@ impl BatchDeduplicationProcessor {
                     timestamp: *timestamp,
                 })
                 .collect();
+            let uuid_write_start = Instant::now();
             store.put_uuid_records_batch(entries)?;
+            let uuid_write_duration = uuid_write_start.elapsed();
+            metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "uuid")
+                .record(uuid_write_duration.as_millis() as f64);
         }
 
         Ok(dedup_results)
@@ -521,33 +613,6 @@ impl BatchDeduplicationProcessor {
             DeduplicationResult::ConfirmedDuplicate(_, _, _, _)
                 | DeduplicationResult::PotentialDuplicate(_, _, _)
         )
-    }
-
-    /// Publish duplicate event to the duplicate events topic
-    async fn publish_duplicate_event(
-        &self,
-        producer_wrapper: &DuplicateEventProducerWrapper,
-        source_event: &RawEvent,
-        deduplication_result: &DeduplicationResult,
-        kafka_key: &str,
-        metrics: &MetricsHelper,
-    ) -> Result<()> {
-        // Create the duplicate event
-        let duplicate_event = match DuplicateEvent::from_result(source_event, deduplication_result)
-        {
-            Some(event) => event,
-            None => return Ok(()), // Couldn't create duplicate event
-        };
-
-        // Send using the wrapper's send method
-        producer_wrapper
-            .send(
-                duplicate_event,
-                kafka_key,
-                self.config.producer_send_timeout,
-                metrics,
-            )
-            .await
     }
 
     /// Emit metrics for deduplication results
@@ -591,31 +656,37 @@ impl BatchDeduplicationProcessor {
         }
     }
 
-    /// Publish event to output topic
-    async fn publish_event(
-        &self,
-        producer: &FutureProducer<KafkaContext>,
-        payload: &[u8],
-        headers: Option<&rdkafka::message::OwnedHeaders>,
+    /// Publish event to output topic (static version for concurrent execution)
+    ///
+    /// Takes owned values so it can be collected into a Vec of futures and executed with join_all.
+    /// Returns the producer offset on success, which is used for checkpoint tracking.
+    async fn publish_event_static(
+        producer: Arc<FutureProducer<KafkaContext>>,
+        payload: Vec<u8>,
+        headers: Option<rdkafka::message::OwnedHeaders>,
         key: String,
-        output_topic: &str,
-    ) -> Result<()> {
-        let mut record = FutureRecord::to(output_topic).key(&key).payload(payload);
+        output_topic: String,
+        timeout: Duration,
+    ) -> Result<i64> {
+        let mut record = FutureRecord::to(&output_topic).key(&key).payload(&payload);
 
-        if let Some(h) = headers {
+        if let Some(ref h) = headers {
             record = record.headers(h.clone());
         }
 
-        match producer
-            .send(record, Timeout::After(self.config.producer_send_timeout))
-            .await
-        {
-            Ok(_) => {
+        let send_start = Instant::now();
+        let result = producer.send(record, Timeout::After(timeout)).await;
+        let send_duration = send_start.elapsed();
+        metrics::histogram!(KAFKA_PRODUCER_SEND_DURATION_MS)
+            .record(send_duration.as_millis() as f64);
+
+        match result {
+            Ok((_partition, offset)) => {
                 debug!(
-                    "Successfully published non-duplicate event with key {} to {}",
-                    key, output_topic
+                    "Successfully published non-duplicate event with key {} to {} at offset {}",
+                    key, output_topic, offset
                 );
-                Ok(())
+                Ok(offset)
             }
             Err((e, _)) => {
                 error!(
@@ -1017,6 +1088,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         // Create a batch of new events
@@ -1063,6 +1135,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid1 = Uuid::new_v4();
@@ -1107,6 +1180,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid = Uuid::new_v4();
@@ -1157,6 +1231,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid1 = Uuid::new_v4();
@@ -1209,6 +1284,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         // First batch - events without UUIDs
@@ -1249,6 +1325,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         // Create a large batch of unique events
@@ -1308,6 +1385,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid1 = Uuid::new_v4();
@@ -1360,6 +1438,7 @@ mod tests {
             producer: None,
             duplicate_producer: None,
             store_manager,
+            offset_tracker: None,
         };
 
         let uuid = Uuid::new_v4();

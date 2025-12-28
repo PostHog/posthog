@@ -187,6 +187,7 @@ __API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
 __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+__MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 
 
 def get_api_team_rate_limiter():
@@ -314,6 +315,39 @@ def get_web_analytics_api_rate_limiter():
             ttl=600,
         )
     return __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM
+
+
+def get_materialized_endpoints_rate_limiter():
+    """
+    Limits the number of concurrent materialized endpoint queries per team.
+
+    Materialized endpoint queries read from pre-computed S3 tables,
+    so they can handle higher concurrency than inline queries.
+    """
+    global __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM
+
+    def __applicable(
+        *args,
+        team_id: Optional[int] = None,
+        is_materialized_endpoint: Optional[bool] = None,
+        **kwargs,
+    ) -> bool:
+        return bool(not TEST and team_id and is_materialized_endpoint)
+
+    if __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM is None:
+        __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM = RateLimit(
+            max_concurrency=10,
+            applicable=__applicable,
+            limit_name="materialized_endpoints_per_team",
+            get_task_name=lambda *args, **kwargs: f"materialized_endpoints:query:per-team:{kwargs.get('team_id')}",
+            get_task_id=lambda *args, **kwargs: (
+                current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
+            ),
+            ttl=600,
+            retry=0.134,
+            retry_timeout=30.0,
+        )
+    return __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM
 
 
 class ConcurrencyLimitExceeded(Exception):
