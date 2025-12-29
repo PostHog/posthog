@@ -25,4 +25,6 @@
 
 <!-- If publishing, your PR must include a 1-3 sentence description of the feature plus a screenshot or screen recording if applicable. 🙏 -->
 
+<!-- Write "no" to expicitly opt-out of posting to #changelog -->
+
 <!-- Check #changelog in Slack for more details. -->
