@@ -190,3 +190,13 @@ class TestTeam(BaseTest):
         subsequent = Team.objects.increment_id_sequence()
 
         self.assertEqual(subsequent, initial + 1)
+
+    def test_create_team_sets_default_recorder_script(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        self.assertEqual(team.extra_settings, {"recorder_script": "posthog-recorder"})
+
+    def test_create_team_preserves_existing_extra_settings(self):
+        team = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, extra_settings={"other_setting": "value"}
+        )
+        self.assertEqual(team.extra_settings, {"other_setting": "value", "recorder_script": "posthog-recorder"})
