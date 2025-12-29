@@ -90,11 +90,19 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 githubIssueDescription: '',
                 githubUsername: '',
                 githubRepoName: '',
+                githubAssignees: '',
+                githubLabels: '',
+                githubProjects: '',
+                githubMilestone: '',
             } as FormWithTime & {
                 githubIssueTitle: string
                 githubIssueDescription: string
                 githubUsername: string
                 githubRepoName: string
+                githubAssignees: string
+                githubLabels: string
+                githubProjects: string
+                githubMilestone: string
             },
             errors: ({ time, includeTime }) => ({
                 time:
@@ -158,16 +166,41 @@ export const playerShareLogic = kea<playerShareLogicType>([
             },
         ],
         githubUrl: [
-            (s) => [s.githubQueryParams],
-            (githubQueryParams) => {
+            (s) => [s.githubQueryParams, s.githubLinkForm],
+            (
+                githubQueryParams: { username: string; repoName: string; title: string; description: string },
+                githubLinkForm: FormWithTime & {
+                    githubIssueTitle: string
+                    githubIssueDescription: string
+                    githubUsername: string
+                    githubRepoName: string
+                    githubAssignees: string
+                    githubLabels: string
+                    githubProjects: string
+                    githubMilestone: string
+                }
+            ) => {
                 const { username, repoName, title, description } = githubQueryParams
                 if (!username || !repoName) {
                     return ''
                 }
-                return combineUrl(`https://github.com/${username}/${repoName}/issues/new`, {
+                const params: Record<string, string> = {
                     title,
                     body: description,
-                }).url
+                }
+                if (githubLinkForm.githubAssignees) {
+                    params.assignees = githubLinkForm.githubAssignees
+                }
+                if (githubLinkForm.githubLabels) {
+                    params.labels = githubLinkForm.githubLabels
+                }
+                if (githubLinkForm.githubProjects) {
+                    params.projects = githubLinkForm.githubProjects
+                }
+                if (githubLinkForm.githubMilestone) {
+                    params.milestone = githubLinkForm.githubMilestone
+                }
+                return combineUrl(`https://github.com/${username}/${repoName}/issues/new`, params).url
             },
         ],
     })),
