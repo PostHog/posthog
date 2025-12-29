@@ -259,6 +259,8 @@ export interface SceneConfig {
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Team slug for changelog - appended as ?team= to the changelog URL in the side panel */
     changelogTeamSlug?: string
+    /** Category for changelog - appended as ?category= to the changelog URL in the side panel */
+    changelogCategory?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
     /** Custom icon for the tabs */

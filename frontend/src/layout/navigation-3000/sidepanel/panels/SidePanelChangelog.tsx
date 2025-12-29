@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -17,8 +17,17 @@ export function SidePanelChangelog(): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
     const [ready, setReady] = useState(false)
 
-    const teamSlug = sceneConfig?.changelogTeamSlug
-    const changelogUrl = teamSlug ? `${CHANGELOG_BASE_URL}?team=${encodeURIComponent(teamSlug)}` : CHANGELOG_BASE_URL
+    const changelogUrl = useMemo(() => {
+        const params = new URLSearchParams()
+        if (sceneConfig?.changelogTeamSlug) {
+            params.set('team', sceneConfig.changelogTeamSlug)
+        }
+        if (sceneConfig?.changelogCategory) {
+            params.set('category', sceneConfig.changelogCategory)
+        }
+        const queryString = params.toString()
+        return queryString ? `${CHANGELOG_BASE_URL}?${queryString}` : CHANGELOG_BASE_URL
+    }, [sceneConfig?.changelogTeamSlug, sceneConfig?.changelogCategory])
 
     return (
         <>
