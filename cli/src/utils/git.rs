@@ -190,7 +190,7 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
 }
 
 fn get_env_variable(name: &str) -> Option<String> {
-    let env_variable = std::env::var(name).ok()?;
+    let env_variable = std::env::var(name).ok()?.trim().to_string();
     match env_variable.as_ref() {
         "" => None,
         _ => Some(env_variable),
