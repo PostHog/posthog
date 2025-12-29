@@ -15,10 +15,11 @@ import {
     IconSupport,
 } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
-import { cn } from 'lib/utils/css-classes'
+
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { cn } from 'lib/utils/css-classes'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -134,8 +135,15 @@ export const SIDE_PANEL_TABS: Record<
 
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_BAR_WIDTH = 40
+const SIDE_PANEL_MIN_WIDTH = 448 // Match --side-panel-min-width (28rem)
 
-export function SidePanel({ className, contentClassName }: { className?: string, contentClassName?: string }): JSX.Element | null {
+export function SidePanel({
+    className,
+    contentClassName,
+}: {
+    className?: string
+    contentClassName?: string
+}): JSX.Element | null {
     const { theme } = useValues(themeLogic)
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
@@ -162,7 +170,6 @@ export function SidePanel({ className, contentClassName }: { className?: string,
     const { setMainContentRect, setSidePanelWidth } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
 
-
     useEffect(() => {
         setSidePanelAvailable(true)
         return () => {
@@ -177,17 +184,19 @@ export function SidePanel({ className, contentClassName }: { className?: string,
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
-    if (!visibleTabs.length) {
-        return null
-    }
-
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
-    const sidePanelWidth = sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : SIDE_PANEL_BAR_WIDTH
+    const sidePanelWidth = sidePanelOpenAndAvailable
+        ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
+        : SIDE_PANEL_BAR_WIDTH
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
         setSidePanelWidth(sidePanelWidth)
     }, [sidePanelWidth, setSidePanelWidth])
+
+    if (!visibleTabs.length) {
+        return null
+    }
 
     const menuOptions: LemonMenuItems | undefined = extraTabs
         ? [
@@ -237,9 +246,12 @@ export function SidePanel({ className, contentClassName }: { className?: string,
             }}
             id="side-panel"
         >
-            <Resizer {...resizerLogicProps} className={cn("top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4", {
-                'left-0': sidePanelOpenAndAvailable,
-            })}/>
+            <Resizer
+                {...resizerLogicProps}
+                className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
+                    'left-0': sidePanelOpenAndAvailable,
+                })}
+            />
             <div className="SidePanel3000__bar">
                 <div className="SidePanel3000__tabs">
                     <div className="SidePanel3000__tabs-content">
