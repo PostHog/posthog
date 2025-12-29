@@ -4539,6 +4539,32 @@ export enum MarketingAnalyticsHelperForColumnNames {
     CostPer = 'Cost per',
 }
 
+/** Category for core events (lifecycle stages) */
+export enum CoreEventCategory {
+    Acquisition = 'acquisition',
+    Activation = 'activation',
+    Monetization = 'monetization',
+    Expansion = 'expansion',
+    Referral = 'referral',
+    Retention = 'retention',
+    Churn = 'churn',
+    Reactivation = 'reactivation',
+}
+
+/** Unified core event stored in Team settings */
+export interface CoreEvent {
+    /** Unique identifier */
+    id: string
+    /** Display name */
+    name: string
+    /** Optional description */
+    description?: string
+    /** Category (acquisition, activation, retention, referral, revenue) */
+    category: CoreEventCategory
+    /** Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.) */
+    filter: EventsNode | ActionsNode | DataWarehouseNode
+}
+
 export interface SourceFieldSSHTunnelConfig {
     type: 'ssh-tunnel'
     label: string
