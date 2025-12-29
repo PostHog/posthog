@@ -1472,7 +1472,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             'should produce ingestion warnings for messages over 1MB',
             {},
             async (ingester, hub, team) => {
-                // For this we basically want the plugin-server to try and produce a new
+                // For this we basically want the processor to try and produce a new
                 // message larger than 1MB. We do this by creating a person with a lot of
                 // properties. We will end up denormalizing the person properties onto the
                 // event, which already has the properties as $set therefore resulting in a

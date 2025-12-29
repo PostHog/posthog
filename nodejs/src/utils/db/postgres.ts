@@ -205,7 +205,8 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
             typeof queryString === 'string'
                 ? {
                       // Annotate query string to give context when looking at DB logs
-                      text: `/* plugin-server:${tag} */ ${queryString}`,
+                      // TODO: Use the plugin-server-mode tag to be extra specific
+                      text: `/* nodejs:${tag} */ ${queryString}`,
                       values,
                   }
                 : queryString

@@ -26,7 +26,7 @@ export function initSuperProperties(): void {
 
         try {
             // Docker containers should have a commit.txt file in the base directory with the git
-            // commit hash used to generate them. `plugin-server` runs from a child directory, so we
+            // commit hash used to generate them. `nodejs` runs from a child directory, so we
             // need to look up one level.
             superProperties['release'] = fs.readFileSync('../commit.txt', 'utf8')
         } catch (error) {

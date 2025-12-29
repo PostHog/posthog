@@ -34,7 +34,7 @@ export const initTracing = (): void => {
 
     sdk = new NodeSDK({
         resource: resourceFromAttributes({
-            [ATTR_SERVICE_NAME]: `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'plugin-server'}`,
+            [ATTR_SERVICE_NAME]: `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'nodejs'}`,
             [ATTR_SERVICE_VERSION]: process.env.COMMIT_SHA ?? 'dev',
         }),
         traceExporter,
