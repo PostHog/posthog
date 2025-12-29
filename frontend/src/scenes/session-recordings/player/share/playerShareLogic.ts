@@ -28,7 +28,7 @@ export function makePrivateLink(id: string, formWithTime: FormWithTime): string 
 export type PlayerShareLogicProps = {
     seconds: number | null
     id: string
-    shareType?: 'private' | 'public' | 'linear'
+    shareType?: 'private' | 'public' | 'linear' | 'github'
     expandMoreOptions?: boolean
 }
 
@@ -82,6 +82,30 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 alwaysShowErrors: true,
             },
         },
+        githubLinkForm: {
+            defaults: {
+                includeTime: true,
+                time: colonDelimitedDuration(props.seconds, null),
+                issueTitle: '',
+                issueDescription: '',
+            } as FormWithTime & {
+                issueTitle: string
+                issueDescription: string
+            },
+            errors: ({ time, includeTime }) => ({
+                time:
+                    time && includeTime && reverseColonDelimitedDuration(time || undefined) === null
+                        ? 'Set a valid time like 02:30 (minutes:seconds)'
+                        : undefined,
+            }),
+            options: {
+                // whether we show errors after touch (true) or submit (false)
+                showErrorsOnTouch: true,
+
+                // show errors even without submitting first
+                alwaysShowErrors: true,
+            },
+        },
     })),
 
     selectors(({ props }) => ({
@@ -114,6 +138,23 @@ export const playerShareLogic = kea<playerShareLogicType>([
             (s) => [s.linearQueryParams],
             (linearQueryParams) => {
                 return combineUrl('https://linear.app/new', linearQueryParams).url
+            },
+        ],
+        githubQueryParams: [
+            (s) => [s.linearLinkForm],
+            (githubLinkForm) => {
+                return {
+                    title: githubLinkForm.issueTitle,
+                    description:
+                        githubLinkForm.issueDescription +
+                        `\n\nPostHog recording: ${makePrivateLink(props.id, githubLinkForm)}`,
+                }
+            },
+        ],
+        githubUrl: [
+            (s) => [s.githubQueryParams],
+            (githubQueryParams) => {
+                return combineUrl('https://github.com/', githubQueryParams).url
             },
         ],
     })),
