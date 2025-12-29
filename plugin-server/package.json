@@ -40,11 +40,8 @@
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
     },
-    "bin": {
-        "posthog-plugin-server": "bin/posthog-plugin-server"
-    },
     "author": "PostHog <hey@posthog.com>",
-    "repository": "https://github.com/PostHog/posthog-plugin-server",
+    "repository": "https://github.com/PostHog/posthog",
     "license": "MIT",
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
