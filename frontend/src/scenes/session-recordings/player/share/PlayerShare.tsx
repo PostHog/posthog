@@ -148,7 +148,7 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
     const { githubLinkForm, githubUrl, githubLinkFormHasErrors } = useValues(logic)
-    const { setGithubLinkFormValue } = useActions(logic)
+    const { setGithubLinkFormValue, submitGithubLinkForm } = useActions(logic)
 
     return (
         <>
@@ -233,9 +233,14 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
-                        to={githubUrl}
-                        targetBlank={true}
-                        disabledReason={githubLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
+                        onClick={(e) => {
+                            submitGithubLinkForm()
+                            if (githubLinkFormHasErrors || !githubUrl) {
+                                e.preventDefault()
+                            } else {
+                                window.open(githubUrl, '_blank')
+                            }
+                        }}
                     >
                         Create issue
                     </LemonButton>
