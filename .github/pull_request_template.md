@@ -28,4 +28,4 @@
 
 <!-- If publishing, your PR must include a 1-3 sentence description of the feature plus a screenshot or screen recording if applicable. 🙏 -->
 
-<!-- Check #changelog in Slack for more details -->
+<!-- Check #changelog in Slack for more details. -->
