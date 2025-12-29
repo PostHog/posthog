@@ -17,7 +17,7 @@ import { IconRobot } from '../icons'
 export interface ProfilePictureProps {
     user?:
         | (Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> & {
-              hedgehog_config?: MinimalHedgehogConfig | Partial<HedgehogConfig>
+              hedgehog_config?: MinimalHedgehogConfig | HedgehogConfig
           })
         | null
     name?: string
