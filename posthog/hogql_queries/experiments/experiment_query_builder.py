@@ -262,10 +262,20 @@ class ExperimentQueryBuilder:
         # Check if we have DW steps and find the events_join_key if so
         has_dw_steps = any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
         if has_dw_steps:
-            # For DW funnels, use the events_join_key from the first DW step as the entity_id
-            # This ensures all UNION branches use the same join key
-            dw_step = next(step for step in self.metric.series if isinstance(step, ExperimentDataWarehouseNode))
-            entity_key_expr = parse_expr(dw_step.events_join_key)
+            # For DW funnels, use the events_join_key from the first DW step as the entity_id.
+            # All DW steps must use the same events_join_key for the funnel to work correctly.
+            dw_steps = [step for step in self.metric.series if isinstance(step, ExperimentDataWarehouseNode)]
+            first_dw_step = dw_steps[0]
+
+            # Validate that all DW steps use the same events_join_key
+            for dw_step in dw_steps[1:]:
+                if dw_step.events_join_key != first_dw_step.events_join_key:
+                    raise ValueError(
+                        f"All data warehouse steps in a funnel must use the same events_join_key. "
+                        f"Found '{first_dw_step.events_join_key}' and '{dw_step.events_join_key}'."
+                    )
+
+            entity_key_expr = parse_expr(first_dw_step.events_join_key)
         else:
             entity_key_expr = parse_expr(self.entity_key)
 
