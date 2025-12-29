@@ -5,13 +5,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import {
+    IconBook,
     IconEllipsis,
     IconGear,
     IconInfo,
     IconLock,
     IconLogomark,
     IconNotebook,
-    IconSparkles,
     IconSupport,
 } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
@@ -78,7 +78,7 @@ export const SIDE_PANEL_TABS: Record<
     },
     [SidePanelTab.Changelog]: {
         label: 'Changelog',
-        Icon: IconSparkles,
+        Icon: IconBook,
         Content: SidePanelChangelog,
         noModalSupport: true,
     },

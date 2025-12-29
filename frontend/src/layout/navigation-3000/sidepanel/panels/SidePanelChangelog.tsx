@@ -1,33 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { sceneLogic } from 'scenes/sceneLogic'
-
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
-import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { SidePanelDocsSkeleton } from './SidePanelDocs'
-
-const CHANGELOG_BASE_URL = 'https://posthog.com/changelog'
+import { sidePanelChangelogLogic } from './sidePanelChangelogLogic'
 
 export function SidePanelChangelog(): JSX.Element {
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
-    const { sceneConfig } = useValues(sceneLogic)
-    const [ready, setReady] = useState(false)
-
-    const changelogUrl = useMemo(() => {
-        const params = new URLSearchParams()
-        if (sceneConfig?.changelogTeamSlug) {
-            params.set('team', sceneConfig.changelogTeamSlug)
-        }
-        if (sceneConfig?.changelogCategory) {
-            params.set('category', sceneConfig.changelogCategory)
-        }
-        const queryString = params.toString()
-        return queryString ? `${CHANGELOG_BASE_URL}?${queryString}` : CHANGELOG_BASE_URL
-    }, [sceneConfig?.changelogTeamSlug, sceneConfig?.changelogCategory])
+    const { changelogUrl, iframeReady } = useValues(sidePanelChangelogLogic)
+    const { closeSidePanel, setIframeReady } = useActions(sidePanelChangelogLogic)
 
     return (
         <>
@@ -48,10 +30,10 @@ export function SidePanelChangelog(): JSX.Element {
                 <iframe
                     src={changelogUrl}
                     title="Changelog"
-                    className={clsx('w-full h-full', !ready && 'hidden')}
-                    onLoad={() => setReady(true)}
+                    className={clsx('w-full h-full', !iframeReady && 'hidden')}
+                    onLoad={() => setIframeReady(true)}
                 />
-                {!ready && <SidePanelDocsSkeleton />}
+                {!iframeReady && <SidePanelDocsSkeleton />}
             </div>
         </>
     )
