@@ -3,16 +3,25 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useMemo, useState } from 'react'
+import React, { Suspense, lazy, useMemo, useState } from 'react'
 
-import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'
 
+import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { IconRobot } from '../icons'
+
+const LazyHedgehogModeProfile =
+    typeof window !== 'undefined'
+        ? lazy(() =>
+              import('lib/components/HedgehogMode/HedgehogModeStatic').then((module) => ({
+                  default: module.HedgehogModeProfile,
+              }))
+          )
+        : () => null
 
 export interface ProfilePictureProps {
     user?:
@@ -62,7 +71,9 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     const pictureComponent = (
         <span className={clsx('ProfilePicture ph-no-capture', size, className)} ref={ref}>
             {hedgehogProfile && user.hedgehog_config ? (
-                <HedgehogModeProfile config={user.hedgehog_config} size="100%" />
+                <Suspense fallback={<LemonSkeleton className="w-full h-full rounded-full" />}>
+                    <LazyHedgehogModeProfile config={user.hedgehog_config} size="100%" />
+                </Suspense>
             ) : (
                 gravatarLoaded !== true && (
                     <>

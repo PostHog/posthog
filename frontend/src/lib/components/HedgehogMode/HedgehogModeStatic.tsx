@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 
-import { StaticHedgehogRenderer } from '@posthog/hedgehog-mode'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
@@ -12,31 +11,44 @@ export type HedgehogModeStaticProps = {
     direction?: 'left' | 'right'
 }
 
-const staticHedgehogRenderer = new StaticHedgehogRenderer({
-    assetsUrl: '/static/hedgehog-mode/',
-})
+let staticHedgehogRenderer: any = null
+let StaticHedgehogRendererClass: any = null
 const CACHE = new Map<string, Promise<string | null>>()
 
-const renderHedgehog = (
+// Lazy load the StaticHedgehogRenderer class
+const getStaticHedgehogRenderer = async (): Promise<any> => {
+    if (!staticHedgehogRenderer && typeof window !== 'undefined') {
+        const module = await import('@posthog/hedgehog-mode')
+        StaticHedgehogRendererClass = module.StaticHedgehogRenderer
+        staticHedgehogRenderer = new StaticHedgehogRendererClass({
+            assetsUrl: '/static/hedgehog-mode/',
+        })
+    }
+    return staticHedgehogRenderer
+}
+
+const renderHedgehog = async (
     skin: HedgehogConfig['actor_options']['skin'],
     accessories: HedgehogConfig['actor_options']['accessories'],
     color: HedgehogConfig['actor_options']['color']
 ): Promise<string | null> => {
     const key = JSON.stringify({ skin, accessories, color })
     if (!CACHE.has(key)) {
-        const promise = staticHedgehogRenderer
-            .render({
-                id: JSON.stringify({
+        const promise = getStaticHedgehogRenderer()
+            .then((renderer) =>
+                renderer.render({
+                    id: JSON.stringify({
+                        skin,
+                        accessories: accessories,
+                        color: color,
+                    }),
                     skin,
-                    accessories: accessories,
-                    color: color,
-                }),
-                skin,
-                accessories,
-                color,
-            })
-            .then((src) => src)
-            .catch((e) => {
+                    accessories,
+                    color,
+                })
+            )
+            .then((src: any) => src)
+            .catch((e: any) => {
                 console.error('Error rendering hedgehog', e)
                 return null
             })
