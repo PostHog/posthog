@@ -278,7 +278,7 @@ class ExperimentQueryBuilder:
         }
 
         # Build metric_events CTE (handles DW vs non-DW internally, injects step columns via AST)
-        metric_events_cte, _has_dw_steps = self._build_funnel_metric_events_cte(events_placeholders)
+        metric_events_cte = self._build_funnel_metric_events_cte(events_placeholders)
 
         # Build remaining placeholders for the outer query
         placeholders = self._get_funnel_query_placeholders(is_unordered, metric_events_cte)
@@ -396,7 +396,7 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_metric_events_cte(
         self, placeholders: dict[str, ast.Expr]
-    ) -> tuple[ast.SelectQuery | ast.SelectSetQuery, bool]:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         """
         Builds the metric_events CTE for funnel queries.
 
@@ -421,7 +421,7 @@ class ExperimentQueryBuilder:
         events_query.select.extend(step_columns)
 
         if not has_dw_steps:
-            return events_query, False
+            return events_query
 
         # Build DW subqueries and combine with UNION ALL
         queries: list[ast.SelectQuery] = [events_query]
@@ -433,7 +433,7 @@ class ExperimentQueryBuilder:
         # Combine with UNION ALL using SelectSetQuery
         union_query = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
         assert isinstance(union_query, ast.SelectSetQuery)  # Always true since len(queries) > 1
-        return union_query, True
+        return union_query
 
     def _get_funnel_query_ctes(self, is_unordered: bool) -> str:
         """
