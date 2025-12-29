@@ -198,6 +198,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
             "query_method": get_query_method(request=request, team=team),
             "filter": get_filter(request=request, team=team),
             "was_impersonated": is_impersonated_session(request),
+            "user_agent": request.headers.get("user-agent"),
         }
 
         posthoganalytics.capture(
