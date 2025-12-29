@@ -14,8 +14,8 @@ export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/ho
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
 
 // NOTE: These are controlled via the api so are more of a sanity fallback
-const MASKER_MAX_TTL = 60 * 60 * 24
-const MASKER_MAX_TTL_FLOW = 60 * 60 * 24 * 365 * 3 // 3 years
+const MASKER_MAX_TTL_HOG_FUNCTION = 60 * 60 * 24
+const MASKER_MAX_TTL_HOG_FLOW = 60 * 60 * 24 * 365 * 3 // 3 years
 const MASKER_MIN_TTL = 1
 
 type MaskContext = {
@@ -79,7 +79,7 @@ function getEntityId(invocation: CyclotronJobInvocation): string {
 }
 
 function getTtl(invocation: CyclotronJobInvocation, maskingConfig: HogFunctionMasking): number {
-    const maxTtl = isHogFlowInvocation(invocation) ? MASKER_MAX_TTL_FLOW : MASKER_MAX_TTL
+    const maxTtl = isHogFlowInvocation(invocation) ? MASKER_MAX_TTL_HOG_FLOW : MASKER_MAX_TTL_HOG_FUNCTION
     return Math.max(MASKER_MIN_TTL, Math.min(maxTtl, maskingConfig.ttl ?? maxTtl))
 }
 
