@@ -9,6 +9,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
 )
 
 
+@pytest.mark.requires_secrets
 class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db
     @pytest.mark.parametrize(
