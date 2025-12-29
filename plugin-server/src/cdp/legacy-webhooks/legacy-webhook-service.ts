@@ -22,11 +22,6 @@ import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
-/**
- * This consumer processes webhook events from the legacy webhooks system - this is the "hooks" table that used to be filled via Zapier.
- * Now the only path for creation is via a hog function but this just exists for now to keep non-migrated webhooks working.
- */
-
 export class LegacyWebhookService {
     protected actionManager: ActionManager
     protected actionMatcher: ActionMatcher
