@@ -16,7 +16,10 @@ pub struct GlobalRateLimiter {
 }
 
 impl GlobalRateLimiter {
-    pub fn new(config: &Config, redis: Arc<dyn Client + Send + Sync>) -> Self {
+    pub fn new(
+        config: &Config,
+        redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
+    ) -> anyhow::Result<Self> {
         let redis_prefix = format!(
             "@posthog/capture/global_rate_limiter/{}",
             config.capture_mode.as_tag()
@@ -30,9 +33,17 @@ impl GlobalRateLimiter {
             ..Default::default()
         };
 
-        Self {
-            limiter: Box::new(CommonGlobalRateLimiterImpl::new(grl_config, redis)),
-        }
+        let limiter = match CommonGlobalRateLimiterImpl::new(grl_config, redis_instances) {
+            Ok(l) => l,
+            Err(e) => {
+                error!(error = %e, "Failed to initialize GlobalRateLimiter");
+                return Err(e);
+            }
+        };
+
+        Ok(Self {
+            limiter: Box::new(limiter),
+        })
     }
 
     /// Evaluate key for global rate limit. Response with metadata is returned if limited.

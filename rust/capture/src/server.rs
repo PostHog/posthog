@@ -242,10 +242,10 @@ where
     );
 
     let global_rate_limiter = if config.global_rate_limit_enabled {
-        Some(Arc::new(GlobalRateLimiter::new(
-            &config,
-            redis_client.clone(),
-        )))
+        Some(Arc::new(
+            GlobalRateLimiter::new(&config, vec![redis_client.clone()])
+                .expect("failed to create global rate limiter"),
+        ))
     } else {
         None
     };
