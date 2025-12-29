@@ -27,6 +27,7 @@ Manual operations:
 
 import time
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -35,6 +36,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -376,6 +378,33 @@ def _get_team_ids_with_flags() -> set[int]:
     return result
 
 
+def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have flags updated within the grace period.
+
+    When a flag is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that have recently updated flags (should skip fix)
+    """
+    grace_period_minutes = settings.FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
 # Initialize hypercache management config after update_flags_cache is defined
 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=flags_hypercache,
@@ -383,6 +412,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_team_ids_needing_full_verification_fn=_get_team_ids_with_flags,
     empty_cache_value={"flags": []},
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
 )
 
 

@@ -18,6 +18,7 @@ from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
+    _get_team_ids_with_recently_updated_flags,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
@@ -1793,3 +1794,118 @@ class TestServiceFlagsGuards(BaseTest):
         clear_flags_cache(self.team)
 
         # Should complete without error (nothing to verify as it's a no-op)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5)
+class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
+    """Test _get_team_ids_with_recently_updated_flags batch helper for grace period logic."""
+
+    def test_returns_empty_set_for_team_with_no_flags(self):
+        """Test returns empty set for team with no flags."""
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_returns_team_id_for_recently_updated_flag(self):
+        """Test returns team ID for team with recently updated flag."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == {self.team.id}
+
+    def test_returns_empty_set_for_old_flag(self):
+        """Test returns empty set for team with flag updated outside grace period."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Manually set updated_at to outside grace period
+        FeatureFlag.objects.filter(id=flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
+    def test_returns_empty_set_when_grace_period_is_zero(self):
+        """Test returns empty set when grace period is disabled (0 minutes)."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_returns_empty_set_for_empty_team_ids_list(self):
+        """Test returns empty set when given empty list of team IDs."""
+        result = _get_team_ids_with_recently_updated_flags([])
+        assert result == set()
+
+    def test_returns_team_id_if_any_flag_is_recent(self):
+        """Test returns team ID if ANY flag is recent (OR logic across team flags)."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Old flag outside grace period
+        old_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        # Recent flag within grace period
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Should return team ID because at least one flag is recent
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == {self.team.id}
+
+    def test_batch_returns_only_teams_with_recent_flags(self):
+        """Test batch query returns only team IDs that have recently updated flags."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        # Create second team
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        # Team 1 has a recent flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="recent-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Team 2 has an old flag
+        old_flag = FeatureFlag.objects.create(
+            team=team2,
+            key="old-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=old_flag.id).update(updated_at=timezone.now() - timedelta(minutes=10))
+
+        # Query both teams - should only return team 1
+        result = _get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
+        assert result == {self.team.id}
