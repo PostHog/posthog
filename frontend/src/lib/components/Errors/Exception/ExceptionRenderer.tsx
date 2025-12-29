@@ -46,7 +46,7 @@ export function ExceptionRenderer({
             return false
         }
 
-        if (stackTrace.frames.some((frame) => typeof frame !== 'object' || frame === null)) {
+        if (stackTrace.frames.some((frame) => frame === null || typeof frame !== 'object')) {
             return false
         }
 
