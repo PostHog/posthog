@@ -86,11 +86,15 @@ export const playerShareLogic = kea<playerShareLogicType>([
             defaults: {
                 includeTime: true,
                 time: colonDelimitedDuration(props.seconds, null),
-                issueTitle: '',
-                issueDescription: '',
+                githubIssueTitle: '',
+                githubIssueDescription: '',
+                githubUsername: '',
+                githubRepoName: '',
             } as FormWithTime & {
-                issueTitle: string
-                issueDescription: string
+                githubIssueTitle: string
+                githubIssueDescription: string
+                githubUsername: string
+                githubRepoName: string
             },
             errors: ({ time, includeTime }) => ({
                 time:
@@ -141,20 +145,29 @@ export const playerShareLogic = kea<playerShareLogicType>([
             },
         ],
         githubQueryParams: [
-            (s) => [s.linearLinkForm],
+            (s) => [s.githubLinkForm],
             (githubLinkForm) => {
                 return {
-                    title: githubLinkForm.issueTitle,
+                    title: githubLinkForm.githubIssueTitle,
                     description:
-                        githubLinkForm.issueDescription +
+                        githubLinkForm.githubIssueDescription +
                         `\n\nPostHog recording: ${makePrivateLink(props.id, githubLinkForm)}`,
+                    username: githubLinkForm.githubUsername,
+                    repoName: githubLinkForm.githubRepoName,
                 }
             },
         ],
         githubUrl: [
             (s) => [s.githubQueryParams],
             (githubQueryParams) => {
-                return combineUrl('https://github.com/', githubQueryParams).url
+                const { username, repoName, title, description } = githubQueryParams
+                if (!username || !repoName) {
+                    return ''
+                }
+                return combineUrl(`https://github.com/${username}/${repoName}/issues/new`, {
+                    title,
+                    body: description,
+                }).url
             },
         ],
     })),
