@@ -14,7 +14,7 @@ export function ScenePanelLayout(): JSX.Element {
     const { scenePanelOpen, scenePanelIsRelative, forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
     const { setForceScenePanelClosedWhenRelative, setScenePanelOpen, registerScenePanelElement } =
         useActions(sceneLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
 
     if (!scenePanelIsRelative) {
         return <div ref={registerScenePanelElement} />
@@ -29,7 +29,7 @@ export function ScenePanelLayout(): JSX.Element {
                         hidden: !scenePanelOpen,
                         'col-start-2 col-span-1 row-start-1 row-span-2':
                             scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                        'z-1': isLayoutPanelVisible && !isLayoutPanelPinned,
+                        'z-1': isLayoutPanelVisible,
                     }
                 )}
             >

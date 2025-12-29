@@ -9,6 +9,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
@@ -18,7 +19,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -73,7 +73,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
     const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
-    const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const simplerAppLayout = useFeatureFlag('SIMPLER_APP_LAYOUT')
@@ -100,13 +100,11 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                 </div>
             )}
 
-{simplerAppLayout ? (
-    <>{children}</>
-): (
-            <div
-                className={cn(
-                    'relative p-4 min-h-[calc(100vh-var(--scene-layout-header-height))] rounded-lg',
-                    {
+            {simplerAppLayout ? (
+                <>{children}</>
+            ) : (
+                <div
+                    className={cn('relative p-4 min-h-[calc(100vh-var(--scene-layout-header-height))] rounded-lg', {
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
                             scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
@@ -114,13 +112,11 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
                         'h-[calc(100vh-var(--scene-layout-header-height))]':
                             sceneConfig?.layout === 'app-full-scene-height',
-                    }
-                )}
-            >
-                {children}
-            </div>
-
-)}
+                    })}
+                >
+                    {children}
+                </div>
+            )}
 
             {scenePanelIsPresent && (
                 <>
@@ -131,7 +127,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                                 hidden: !scenePanelOpen,
                                 'col-start-2 col-span-1 row-start-1 row-span-2':
                                     scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                                'z-1': isLayoutPanelVisible && !isLayoutPanelPinned,
+                                'z-1': isLayoutPanelVisible,
                             }
                         )}
                     >
