@@ -1534,7 +1534,7 @@ class ExperimentQueryBuilder:
         Filters by timestamp range and data warehouse node conditions.
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
-        timestamp_field_chain = [step.table_name, step.timestamp_field]
+        timestamp_field_chain: list[str | int] = [step.table_name, step.timestamp_field]
 
         return parse_expr(
             """
@@ -1576,7 +1576,7 @@ class ExperimentQueryBuilder:
 
         # If there are no event/action steps, return False (no funnel steps in events table)
         if not event_action_steps:
-            steps_filter = ast.Constant(value=False)
+            steps_filter: ast.Expr = ast.Constant(value=False)
         else:
             steps_filter = funnel_steps_to_filter(self.team, event_action_steps)
 
