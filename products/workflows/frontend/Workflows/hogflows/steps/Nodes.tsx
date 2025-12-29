@@ -7,6 +7,7 @@ import { IconCopy, IconPlus } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
+import type { HogFlowActionNode } from '../types'
 import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
 
@@ -65,7 +66,8 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const shouldWiggleCopyingNode = isCopyingNode && nodeToBeAdded?.id === props.id
+    const shouldWiggleCopyingNode =
+        isCopyingNode && nodeToBeAdded && 'id' in nodeToBeAdded && (nodeToBeAdded as HogFlowActionNode).id === props.id
 
     return (
         <div className={clsx('transition-all hover:translate-y-[-2px]', shouldWiggleCopyingNode && 'animate-bounce')}>

@@ -514,10 +514,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             if (values.nodeToBeAdded && dropzoneNode) {
                 const edgeToInsertNodeInto = dropzoneNode?.data.edge
-                const partialNewAction = values.nodeToBeAdded
+
+                // Check if nodeToBeAdded is a HogFlowActionNode (has 'data' property) or CreateActionType
+                const isHogFlowActionNode = 'data' in values.nodeToBeAdded
+                const partialNewAction = isHogFlowActionNode
+                    ? (values.nodeToBeAdded as HogFlowActionNode).data
+                    : (values.nodeToBeAdded as CreateActionType)
 
                 const newAction = {
-                    id: `action_${partialNewAction.type}_${uuid()}`,
+                    id: isHogFlowActionNode
+                        ? (values.nodeToBeAdded as HogFlowActionNode).id
+                        : `action_${partialNewAction.type}_${uuid()}`,
                     type: partialNewAction.type,
                     name: partialNewAction.name,
                     description: partialNewAction.description,
@@ -528,7 +535,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
-                const branchEdges = partialNewAction.branchEdges ?? 0
+                const branchEdges = isHogFlowActionNode ? 0 : ((partialNewAction as CreateActionType).branchEdges ?? 0)
                 const isBranchJoinDropzone = dropzoneNode?.data.isBranchJoinDropzone ?? false
 
                 if (!step) {
