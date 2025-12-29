@@ -2,6 +2,8 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     CompareFilter,
@@ -152,6 +154,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [webAnalyticsLogic, ['setDates']],
     },
@@ -476,7 +480,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         tiles: [
-            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter],
+            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter, s.featureFlags],
             (
                 queries: Record<string, QuerySchema | undefined>,
                 pageUrl: string | null,
@@ -484,7 +488,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 combinedMetricsQuery: (
                     dateFilter: typeof webAnalyticsLogic.values.dateFilter
                 ) => InsightVizNode<TrendsQuery>,
-                dateFilter: typeof webAnalyticsLogic.values.dateFilter
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                featureFlags: Record<string, boolean | string>
             ): SectionTile[] => {
                 if (!pageUrl) {
                     return []
@@ -542,7 +547,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                     description: 'Key metrics for this page over time',
                                 },
                             },
-                            queries.avgTimeOnPageTrendQuery
+                            queries.avgTimeOnPageTrendQuery &&
+                            featureFlags[FEATURE_FLAGS.PAGE_REPORTS_AVERAGE_PAGE_VIEW]
                                 ? {
                                       kind: 'query',
                                       tileId: TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND,
