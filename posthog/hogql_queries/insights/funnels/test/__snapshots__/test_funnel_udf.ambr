@@ -1153,6 +1153,432 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestFunnelBreakdownUDF.test_funnels_mixed_breakdown
+  '''
+  SELECT sum(step_1) AS step_1,
+         sum(step_2) AS step_2,
+         arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
+         arrayMap(x -> if(isNaN(x), NULL, x), [medianArrayOrNull(step_1_conversion_times)])[1] AS step_1_median_conversion_time,
+         groupArray(row_number) AS row_number,
+         final_prop AS final_prop
+  FROM
+    (SELECT countIf(ifNull(notEquals(bitAnd(steps_bitfield, 1), 0), 1)) AS step_1,
+            countIf(ifNull(notEquals(bitAnd(steps_bitfield, 2), 0), 1)) AS step_2,
+            groupArrayIf(timings[1], ifNull(greater(timings[1], 0), 0)) AS step_1_conversion_times,
+            rowNumberInAllBlocks() AS row_number,
+            if(ifNull(less(row_number, 25), 0), breakdown, ['Other']) AS final_prop
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT e.timestamp AS timestamp,
+                  e.aggregation_target AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.step_0 AS step_0,
+                  e.step_1 AS step_1,
+                  e.prop_basic AS prop_basic,
+                  e.prop AS prop
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     0 AS step_1,
+                     [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                     prop_basic AS prop
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
+              UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
+                               accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
+                               (accurateCastOrNull(e.id, 'UUID') AS uuid) AS uuid,
+                               NULL AS `$session_id`,
+                               NULL AS `$window_id`,
+                               0 AS step_0,
+                               if(1, 1, 0) AS step_1,
+                               [] AS prop_basic,
+                               prop_basic AS prop
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     GROUP BY breakdown
+     ORDER BY step_2 DESC, step_1 DESC)
+  GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 26 SETTINGS join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFunnelBreakdownUDF.test_funnels_mixed_breakdown.1
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT e.timestamp AS timestamp,
+                  e.aggregation_target AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.step_0 AS step_0,
+                  e.step_1 AS step_1,
+                  e.prop_basic AS prop_basic,
+                  e.prop AS prop
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     0 AS step_1,
+                     [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                     prop_basic AS prop
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
+              UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
+                               accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
+                               (accurateCastOrNull(e.id, 'UUID') AS uuid) AS uuid,
+                               NULL AS `$session_id`,
+                               NULL AS `$window_id`,
+                               0 AS step_0,
+                               if(1, 1, 0) AS step_1,
+                               [] AS prop_basic,
+                               prop_basic AS prop
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('Chrome'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('Chrome')))))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFunnelBreakdownUDF.test_funnels_mixed_breakdown.2
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT e.timestamp AS timestamp,
+                  e.aggregation_target AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.step_0 AS step_0,
+                  e.step_1 AS step_1,
+                  e.prop_basic AS prop_basic,
+                  e.prop AS prop
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     0 AS step_1,
+                     [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                     prop_basic AS prop
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
+              UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
+                               accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
+                               (accurateCastOrNull(e.id, 'UUID') AS uuid) AS uuid,
+                               NULL AS `$session_id`,
+                               NULL AS `$window_id`,
+                               0 AS step_0,
+                               if(1, 1, 0) AS step_1,
+                               [] AS prop_basic,
+                               prop_basic AS prop
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('Chrome'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('Chrome')))))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFunnelBreakdownUDF.test_funnels_mixed_breakdown.3
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT e.timestamp AS timestamp,
+                  e.aggregation_target AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.step_0 AS step_0,
+                  e.step_1 AS step_1,
+                  e.prop_basic AS prop_basic,
+                  e.prop AS prop
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     0 AS step_1,
+                     [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                     prop_basic AS prop
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
+              UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
+                               accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
+                               (accurateCastOrNull(e.id, 'UUID') AS uuid) AS uuid,
+                               NULL AS `$session_id`,
+                               NULL AS `$window_id`,
+                               0 AS step_0,
+                               if(1, 1, 0) AS step_1,
+                               [] AS prop_basic,
+                               prop_basic AS prop
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('Firefox'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('Firefox')))))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFunnelBreakdownUDF.test_funnels_mixed_breakdown.4
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, arrayMap(x -> ifNull(x, ''), prop_basic), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic))) AS prop,
+               arrayJoin(aggregate_funnel_array(2, 1209600, 'first_touch', 'ordered', [if(empty(prop), [''], prop)], [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT e.timestamp AS timestamp,
+                  e.aggregation_target AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  e.step_0 AS step_0,
+                  e.step_1 AS step_1,
+                  e.prop_basic AS prop_basic,
+                  e.prop AS prop
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
+                     0 AS step_1,
+                     [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                     prop_basic AS prop
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
+              UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
+                               accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
+                               (accurateCastOrNull(e.id, 'UUID') AS uuid) AS uuid,
+                               NULL AS `$session_id`,
+                               NULL AS `$window_id`,
+                               0 AS step_0,
+                               if(1, 1, 0) AS step_1,
+                               [] AS prop_basic,
+                               prop_basic AS prop
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `user_id` String, `event_name` String, `properties` Nullable(String)') AS e
+              WHERE and(and(greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), ifNull(equals(step_1, 1), 0))) AS e)
+        GROUP BY aggregation_target
+        HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+     WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('Firefox'))), isNull(arrayFlatten(array(breakdown)))
+                                                  and isNull(arrayFlatten(array('Firefox')))))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
   SELECT sum(step_1) AS step_1,
