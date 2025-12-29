@@ -11,6 +11,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import {
     CyclotronJobInvocation,
@@ -60,6 +61,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
 
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
     private legacyPluginExecutor: LegacyPluginExecutorService
+    private legacyWebhookService: LegacyWebhookService
 
     private appMetrics: LegacyPluginAppMetrics
 
@@ -72,6 +74,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
         })
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(hub)
+        this.legacyWebhookService = new LegacyWebhookService(hub)
 
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',
@@ -324,6 +327,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
+        await this.legacyWebhookService.start()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -331,10 +335,11 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             })
 
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                const { backgroundTask } = await this.processBatch(invocationGlobals)
-
-                return { backgroundTask }
+                const [webhookBatch, pluginBatch] = await Promise.all([
+                    this.legacyWebhookService.processBatch(messages),
+                    this._parseKafkaBatch(messages).then((invocations) => this.processBatch(invocations)),
+                ])
+                return { backgroundTask: Promise.all([webhookBatch.backgroundTask, pluginBatch.backgroundTask]) }
             })
         })
     }
@@ -342,6 +347,8 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        logger.info('💤', 'Stopping legacy webhook service...')
+        await this.legacyWebhookService.stop()
         logger.info('💤', 'Flushing app metrics before stopping...')
         await this.appMetrics.flush()
         // IMPORTANT: super always comes last

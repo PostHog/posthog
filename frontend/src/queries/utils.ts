@@ -556,6 +556,8 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
         return query.trendsFilter?.goalLines
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.goalLines
+    } else if (isRetentionQuery(query)) {
+        return query.retentionFilter?.goalLines
     }
 
     return undefined

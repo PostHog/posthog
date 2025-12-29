@@ -9,8 +9,6 @@ import React, { ReactNode, useEffect, useState } from 'react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,7 +20,6 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
-import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
     isSticky?: boolean
@@ -45,15 +42,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         contextDisplaySize,
         isThreadVisible,
         topActions,
-        bottomActions,
         textAreaRef,
         containerClassName,
         onSubmit,
     },
     ref
 ) {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -63,7 +58,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         inputDisabled,
         submissionDisabledReason,
         isSharedThread,
-        deepResearchMode,
         cancelLoading,
         pendingPrompt,
         isImpersonatingExistingConversation,
@@ -244,14 +238,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
-                    <ToolsDisplay
-                        isFloating={isThreadVisible}
-                        tools={tools}
-                        bottomActions={bottomActions}
-                        deepResearchMode={deepResearchMode}
-                    />
-                )}
                 {/* Info banner for conversations created during impersonation (marked as internal) */}
                 {isImpersonatedInternalConversation && (
                     <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
