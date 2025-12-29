@@ -33,6 +33,7 @@
 - [Data warehouse](https://posthog.com/data-warehouse): Sync data from external tools like Stripe, Hubspot, your data warehouse, and more. Query it alongside your product data.
 - [Data pipelines](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time or batch export large amounts to your warehouse.
 - [LLM analytics](https://posthog.com/docs/llm-analytics): Capture traces, generations, latency, and cost for your LLM-powered app.
+- [Workflows](https://posthog.com/docs/workflows): Create workflows that automate actions or send messages to your users.
 
 Best of all, all of this is free to use with a [generous monthly free tier](https://posthog.com/pricing) for each product. Get started by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
 
