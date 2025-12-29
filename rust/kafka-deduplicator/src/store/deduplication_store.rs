@@ -536,6 +536,30 @@ impl DeduplicationStore {
         Ok(timestamp_size + uuid_size + index_size)
     }
 
+    /// Get the age of the oldest data in seconds (current time - oldest timestamp)
+    /// Returns None if the store is empty
+    pub fn get_oldest_data_age_seconds(&self) -> Result<Option<u64>> {
+        let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
+
+        // Get first (oldest) key
+        let mut first_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
+        let oldest_timestamp = if let Some(Ok((first_key, _))) = first_iter.next() {
+            let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
+            first_key_parsed.timestamp
+        } else {
+            return Ok(None); // Empty store
+        };
+        drop(first_iter);
+
+        // Calculate age using wall clock
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        Ok(Some(now.saturating_sub(oldest_timestamp)))
+    }
+
     /// Flush the store to disk
     pub fn flush(&self) -> Result<()> {
         self.store.flush_all_cf()

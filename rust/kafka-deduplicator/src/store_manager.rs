@@ -14,6 +14,7 @@ use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
     CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
+use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 
 /// Information about folder sizes on disk
@@ -538,9 +539,21 @@ impl StoreManager {
             .collect();
 
         let mut total_size = 0u64;
+        let mut max_oldest_data_age: Option<u64> = None;
         for store in &stores {
             if let Ok(size) = store.get_total_size() {
                 total_size += size;
+            }
+            // Emit per-partition oldest data age metric and track max
+            if let Ok(Some(age)) = store.get_oldest_data_age_seconds() {
+                metrics::gauge!(
+                    ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE,
+                    "topic" => store.get_topic().to_string(),
+                    "partition" => store.get_partition().to_string()
+                )
+                .set(age as f64);
+                max_oldest_data_age =
+                    Some(max_oldest_data_age.map_or(age, |current| current.max(age)));
             }
         }
 
@@ -548,8 +561,8 @@ impl StoreManager {
         let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
 
         info!(
-            "Total size of all stores: {} bytes, cleanup threshold: {} bytes, max capacity: {} bytes",
-            total_size, cleanup_threshold, self.store_config.max_capacity
+            "Total size of all stores: {} bytes, cleanup threshold: {} bytes, max capacity: {} bytes, oldest data age: {}s",
+            total_size, cleanup_threshold, self.store_config.max_capacity, max_oldest_data_age.unwrap_or(0)
         );
         total_size > cleanup_threshold
     }
