@@ -62,7 +62,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { RecentItemsMenu } from './ProjectTree/menus/RecentItemsMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
+    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -75,7 +75,13 @@ const navBarStyles = cva({
     },
 })
 
-export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
+export function PanelLayoutNavBar({
+    children,
+    isSimplerAppLayout = false,
+}: {
+    children: React.ReactNode
+    isSimplerAppLayout?: boolean
+}): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const {
@@ -634,7 +640,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                 {children}
 
-                {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && (
+                {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && !isSimplerAppLayout && (
                     <div
                         onClick={() => {
                             showLayoutNavBar(false)
@@ -644,7 +650,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     />
                 )}
 
-                {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && (
+                {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && !isSimplerAppLayout && (
                     <div
                         onClick={() => {
                             showLayoutPanel(false)
