@@ -165,6 +165,15 @@ export class HogTransformerService {
         teamHogFunctions: HogFunctionType[]
     ): Promise<TransformationResult> {
         hogTransformationInvocations.inc()
+
+        // Early return if no transformations to run
+        if (teamHogFunctions.length === 0) {
+            return {
+                event,
+                invocationResults: [],
+            }
+        }
+
         const results: CyclotronJobInvocationResult[] = []
         const transformationsSucceeded: string[] = []
         const transformationsFailed: string[] = []
@@ -172,9 +181,10 @@ export class HogTransformerService {
 
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
-        for (const hogFunction of teamHogFunctions) {
-            const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
+        // Create globals once and update the event properties after each transformation
+        const globals = this.createInvocationGlobals(event)
 
+        for (const hogFunction of teamHogFunctions) {
             // Check if function is in a degraded state, but only if hogwatcher is enabled
             if (shouldRunHogWatcher) {
                 const functionState = this.cachedStates[hogFunction.id]
@@ -195,7 +205,11 @@ export class HogTransformerService {
                 }
             }
 
-            const globals = this.createInvocationGlobals(event)
+            // Create identifier after the disabled check passes to avoid string allocation for skipped functions
+            const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
+
+            // Create filterGlobals for each iteration - it references globals.event.properties
+            // which gets updated after each successful transformation
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
             // Check if function has filters - if not, always apply
@@ -260,10 +274,7 @@ export class HogTransformerService {
                 continue
             }
 
-            event.properties = {
-                ...transformedEvent.properties,
-            }
-
+            event.properties = transformedEvent.properties as Record<string, any>
             event.ip = event.properties.$ip ?? null
 
             if ('event' in transformedEvent) {
@@ -290,27 +301,29 @@ export class HogTransformerService {
                 event.distinct_id = transformedEvent.distinct_id
             }
 
+            // Update globals so the next transformation sees the changes
+            globals.event.properties = event.properties
+            globals.event.event = event.event
+            globals.event.distinct_id = event.distinct_id
+
             transformationsSucceeded.push(transformationIdentifier)
         }
 
-        if (transformationsFailed.length > 0) {
-            event.properties = {
-                ...event.properties,
-                $transformations_failed: transformationsFailed,
+        // Use direct property assignment instead of spreading to avoid copying the entire object
+        if (
+            transformationsFailed.length > 0 ||
+            transformationsSkipped.length > 0 ||
+            transformationsSucceeded.length > 0
+        ) {
+            event.properties = event.properties || {}
+            if (transformationsFailed.length > 0) {
+                event.properties.$transformations_failed = transformationsFailed
             }
-        }
-
-        if (transformationsSkipped.length > 0) {
-            event.properties = {
-                ...event.properties,
-                $transformations_skipped: transformationsSkipped,
+            if (transformationsSkipped.length > 0) {
+                event.properties.$transformations_skipped = transformationsSkipped
             }
-        }
-
-        if (transformationsSucceeded.length > 0) {
-            event.properties = {
-                ...event.properties,
-                $transformations_succeeded: transformationsSucceeded,
+            if (transformationsSucceeded.length > 0) {
+                event.properties.$transformations_succeeded = transformationsSucceeded
             }
         }
 
