@@ -109,7 +109,10 @@ fn create_limiter(
     config: GlobalRateLimiterConfig,
     redis: Arc<common_redis::RedisClient>,
 ) -> GlobalRateLimiterImpl {
-    rt.block_on(async { GlobalRateLimiterImpl::new(config, redis) })
+    rt.block_on(async {
+        GlobalRateLimiterImpl::new(config, vec![redis])
+            .expect("failed to create limiter for benchmark")
+    })
 }
 
 /// Prime Redis with bucket data for a key so MGET returns real values.
@@ -572,7 +575,10 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
             async move {
                 // Create 20 independent limiters (simulating 20 processes)
                 let limiters: Vec<_> = (0..NUM_PROCESSES)
-                    .map(|_| GlobalRateLimiterImpl::new(config_clone.clone(), redis_clone.clone()))
+                    .map(|_| {
+                        GlobalRateLimiterImpl::new(config_clone.clone(), vec![redis_clone.clone()])
+                            .expect("failed to create limiter for simulation")
+                    })
                     .collect();
 
                 // Spawn 20 concurrent tasks, each processing 1000 requests

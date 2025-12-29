@@ -4778,6 +4778,7 @@ dependencies = [
  "common-redis",
  "criterion",
  "dashmap 6.1.0",
+ "futures",
  "governor",
  "metrics",
  "moka",

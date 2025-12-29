@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -147,6 +149,21 @@ fn bucket_from_timestamp(timestamp: DateTime<Utc>, bucket_interval: Duration) ->
     unix - (unix % bucket_secs)
 }
 
+/// Select a Redis client from the pool based on consistent key hashing.
+/// Returns (client_ref, index) tuple for metric tagging.
+fn select_redis_client(
+    key: &str,
+    clients: &[Arc<dyn Client + Send + Sync>],
+) -> (Arc<dyn Client + Send + Sync>, usize) {
+    if clients.len() == 1 {
+        return (clients[0].clone(), 0);
+    }
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    let idx = (hasher.finish() as usize) % clients.len();
+    (clients[idx].clone(), idx)
+}
+
 /// Computed window parameters for rate limit evaluation from Redis
 #[derive(Debug, Clone)]
 struct ReadWindowParams {
@@ -240,7 +257,7 @@ pub enum EvalResult {
 #[derive(Clone)]
 pub struct GlobalRateLimiterImpl {
     config: GlobalRateLimiterConfig,
-    redis: Arc<dyn Client + Send + Sync>,
+    redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     cache: Cache<String, CacheEntry>,
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
 }
@@ -277,7 +294,17 @@ impl GlobalRateLimiterImpl {
     /// Create a new GlobalRateLimiterImpl
     ///
     /// This spawns a background task for batching updates to Redis.
-    pub fn new(config: GlobalRateLimiterConfig, redis: Arc<dyn Client + Send + Sync>) -> Self {
+    /// Returns an error if `redis_instances` is empty.
+    pub fn new(
+        config: GlobalRateLimiterConfig,
+        redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
+    ) -> anyhow::Result<Self> {
+        if redis_instances.is_empty() {
+            return Err(anyhow::anyhow!(
+                "GlobalRateLimiterImpl requires at least one Redis instance"
+            ));
+        }
+
         let cache = Cache::builder()
             .max_capacity(config.local_cache_max_entries)
             .time_to_live(config.local_cache_ttl)
@@ -287,15 +314,15 @@ impl GlobalRateLimiterImpl {
 
         let limiter = Self {
             config: config.clone(),
-            redis: redis.clone(),
+            redis_instances: redis_instances.clone(),
             cache: cache.clone(),
             update_tx: Some(update_tx),
         };
 
         // Spawn background task
-        Self::spawn_background_task(config, redis, update_rx);
+        Self::spawn_background_task(config, redis_instances, update_rx);
 
-        limiter
+        Ok(limiter)
     }
 
     /// Evaluate a key for rate limiting locally and enqueue an update to the global cache
@@ -456,12 +483,14 @@ impl GlobalRateLimiterImpl {
         timestamp: DateTime<Utc>,
     ) -> Result<CacheEntry, FailOpenReason> {
         let wp = ReadWindowParams::new(&self.config, key, timestamp);
+        let (redis, redis_idx) = select_redis_client(key, &self.redis_instances);
+        let redis_idx_str = redis_idx.to_string();
 
         // MGET with timeout
         let read_start = Instant::now();
         let counts = match tokio::time::timeout(
             self.config.global_read_timeout,
-            self.redis.mget(wp.bucket_keys.clone()),
+            redis.mget(wp.bucket_keys.clone()),
         )
         .await
         {
@@ -469,10 +498,14 @@ impl GlobalRateLimiterImpl {
                 metrics::counter!(
                     GLOBAL_RATE_LIMITER_RECORDS_COUNTER,
                     "op" => "redis_read",
+                    "redis_idx" => redis_idx_str.clone(),
                 )
                 .increment(counts.len() as u64);
-                metrics::histogram!(GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM)
-                    .record(read_start.elapsed().as_millis() as f64);
+                metrics::histogram!(
+                    GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM,
+                    "redis_idx" => redis_idx_str.clone(),
+                )
+                .record(read_start.elapsed().as_millis() as f64);
                 counts
             }
             Ok(Err(e)) => {
@@ -480,9 +513,10 @@ impl GlobalRateLimiterImpl {
                     GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                     "step" => "fetch_from_global",
                     "cause" => "redis_error",
+                    "redis_idx" => redis_idx_str.clone(),
                 )
                 .increment(1);
-                warn!(key = key, error = %e, "Failed to fetch rate limit from Redis");
+                warn!(key = key, redis_idx = redis_idx, error = %e, "Failed to fetch rate limit from Redis");
                 return Err(FailOpenReason::RedisError);
             }
             Err(_) => {
@@ -490,9 +524,14 @@ impl GlobalRateLimiterImpl {
                     GLOBAL_RATE_LIMITER_ERROR_COUNTER,
                     "step" => "fetch_from_global",
                     "cause" => "timeout",
+                    "redis_idx" => redis_idx_str.clone(),
                 )
                 .increment(1);
-                warn!(key = key, "Redis read timeout in fetch_from_global");
+                warn!(
+                    key = key,
+                    redis_idx = redis_idx,
+                    "Redis read timeout in fetch_from_global"
+                );
                 return Err(FailOpenReason::RedisTimeout);
             }
         };
@@ -522,7 +561,7 @@ impl GlobalRateLimiterImpl {
     /// the GlobalRateLimiter is dropped), flushing any remaining batch first.
     fn spawn_background_task(
         config: GlobalRateLimiterConfig,
-        redis: Arc<dyn Client + Send + Sync>,
+        redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         mut update_rx: mpsc::Receiver<UpdateRequest>,
     ) {
         tokio::spawn(async move {
@@ -540,13 +579,13 @@ impl GlobalRateLimiterImpl {
                                 key_counter += 1;
                                 *batch.entry((req.key, req.bucket_id)).or_insert(0) += req.count;
                                 if key_counter >= config.batch_max_update_count || batch.len() >= config.batch_max_key_cardinality {
-                                    Self::flush_batch(&config, &redis, &mut key_counter, &mut batch).await;
+                                    Self::flush_batch(&config, &redis_instances, &mut key_counter, &mut batch).await;
                                 }
                             }
                             None => {
                                 // Channel closed (sender dropped), flush remaining and exit
                                 if !batch.is_empty() {
-                                    Self::flush_batch(&config, &redis, &mut key_counter, &mut batch).await;
+                                    Self::flush_batch(&config, &redis_instances, &mut key_counter, &mut batch).await;
                                 }
                                 break;
                             }
@@ -554,7 +593,7 @@ impl GlobalRateLimiterImpl {
                     }
                     _ = flush_interval.tick() => {
                         if !batch.is_empty() {
-                            Self::flush_batch(&config, &redis, &mut key_counter, &mut batch).await;
+                            Self::flush_batch(&config, &redis_instances, &mut key_counter, &mut batch).await;
                         }
                     }
                 }
@@ -562,10 +601,10 @@ impl GlobalRateLimiterImpl {
         });
     }
 
-    /// Flush a batch of updates to Redis
+    /// Flush a batch of updates to Redis, partitioned by target instance
     async fn flush_batch(
         config: &GlobalRateLimiterConfig,
-        redis: &Arc<dyn Client + Send + Sync>,
+        redis_instances: &[Arc<dyn Client + Send + Sync>],
         key_counter: &mut usize,
         batch: &mut HashMap<(String, i64), u64>,
     ) {
@@ -577,56 +616,74 @@ impl GlobalRateLimiterImpl {
         // Take ownership of batch, leaving empty HashMap in place
         let aggregated = std::mem::take(batch);
 
-        // Prepare items for batch_incr_by_expire
-        let items: Vec<(String, i64)> = aggregated
-            .iter()
-            .map(|((key, bucket_id), count)| {
-                let redis_key = format!("{}:{}:{}", config.redis_key_prefix, key, bucket_id);
-                (redis_key, *count as i64)
+        // Partition items by target Redis instance
+        let mut partitions: Vec<Vec<(String, i64)>> = vec![Vec::new(); redis_instances.len()];
+        for ((key, bucket_id), count) in aggregated {
+            let (_, idx) = select_redis_client(&key, redis_instances);
+            let redis_key = format!("{}:{}:{}", config.redis_key_prefix, key, bucket_id);
+            partitions[idx].push((redis_key, count as i64));
+        }
+
+        // Flush partitions in parallel
+        let futures: Vec<_> = partitions
+            .into_iter()
+            .enumerate()
+            .filter(|(_, items)| !items.is_empty())
+            .map(|(idx, items)| {
+                let redis = redis_instances[idx].clone();
+                let ttl = config.global_cache_ttl.as_secs() as usize;
+                let timeout = config.global_write_timeout;
+                let redis_idx_str = idx.to_string();
+                let write_records_count = items.len();
+
+                async move {
+                    let write_batch_start = Instant::now();
+                    match tokio::time::timeout(timeout, redis.batch_incr_by_expire(items, ttl)).await
+                    {
+                        Ok(Ok(_)) => {
+                            metrics::counter!(
+                                GLOBAL_RATE_LIMITER_RECORDS_COUNTER,
+                                "op" => "redis_write",
+                                "redis_idx" => redis_idx_str.clone(),
+                            )
+                            .increment(write_records_count as u64);
+
+                            metrics::histogram!(
+                                GLOBAL_RATE_LIMITER_BATCH_WRITE_HISTOGRAM,
+                                "redis_idx" => redis_idx_str.clone(),
+                            )
+                            .record(write_batch_start.elapsed().as_millis() as f64);
+                        }
+                        Ok(Err(e)) => {
+                            metrics::counter!(
+                                GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                                "step" => "flush_batch",
+                                "cause" => "redis_write",
+                                "redis_idx" => redis_idx_str.clone(),
+                            )
+                            .increment(1);
+                            warn!(error = %e, records = write_records_count, redis_idx = idx, "Failed to write rate limit batch to Redis");
+                        }
+                        Err(_) => {
+                            metrics::counter!(
+                                GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                                "step" => "flush_batch",
+                                "cause" => "timeout",
+                                "redis_idx" => redis_idx_str.clone(),
+                            )
+                            .increment(1);
+                            warn!(
+                                records = write_records_count,
+                                redis_idx = idx,
+                                "Redis write timeout in flush_batch"
+                            );
+                        }
+                    }
+                }
             })
             .collect();
-        let write_records_count = items.len();
 
-        // Send batch to Redis with TTL and timeout
-        let write_batch_start = Instant::now();
-        match tokio::time::timeout(
-            config.global_write_timeout,
-            redis.batch_incr_by_expire(items, config.global_cache_ttl.as_secs() as usize),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
-                metrics::counter!(
-                    GLOBAL_RATE_LIMITER_RECORDS_COUNTER,
-                    "op" => "redis_write",
-                )
-                .increment(write_records_count as u64);
-
-                metrics::histogram!(GLOBAL_RATE_LIMITER_BATCH_WRITE_HISTOGRAM)
-                    .record(write_batch_start.elapsed().as_millis() as f64);
-            }
-            Ok(Err(e)) => {
-                metrics::counter!(
-                    GLOBAL_RATE_LIMITER_ERROR_COUNTER,
-                    "step" => "flush_batch",
-                    "cause" => "redis_write",
-                )
-                .increment(1);
-                warn!(error = %e, records = write_records_count, "Failed to write rate limit batch to Redis");
-            }
-            Err(_) => {
-                metrics::counter!(
-                    GLOBAL_RATE_LIMITER_ERROR_COUNTER,
-                    "step" => "flush_batch",
-                    "cause" => "timeout",
-                )
-                .increment(1);
-                warn!(
-                    records = write_records_count,
-                    "Redis write timeout in flush_batch"
-                );
-            }
-        }
+        futures::future::join_all(futures).await;
     }
 }
 
@@ -766,7 +823,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config(); // limit = 10
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Pre-populate cache with count under the limit
         let now = Utc::now();
@@ -795,7 +852,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config(); // limit = 10
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Pre-populate cache with count at the limit
         let now = Utc::now();
@@ -823,7 +880,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config(); // limit=10, window=60s, bucket=10s
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         let now = Utc::now();
         let window_start = now - chrono::Duration::seconds(60);
@@ -862,7 +919,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Don't populate cache - cache miss triggers Redis fetch which returns empty data
         // Empty Redis response means count=0 which is under threshold (Allowed)
@@ -880,7 +937,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiterImpl::new(config.clone(), client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![client.clone()]).unwrap();
 
         // Manually populate cache
         let now = Utc::now();
@@ -917,7 +974,7 @@ mod tests {
         let client = Arc::new(client);
         let config = test_config();
 
-        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client.clone()]).unwrap();
 
         // Manually set cache to be at limit
         let now = Utc::now();
@@ -980,7 +1037,7 @@ mod tests {
         let mut config = test_config();
         config.custom_keys.insert("known_key".to_string(), 5);
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Unknown key in Custom mode should return NotApplicable immediately
         let result = limiter
@@ -1001,7 +1058,7 @@ mod tests {
         // Set a custom limit of 5 for this key (global limit is 10)
         config.custom_keys.insert("custom_key".to_string(), 5);
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Manually set cache to 5 (at custom limit of 5)
         let now = Utc::now();
@@ -1032,7 +1089,7 @@ mod tests {
         // Set a custom limit of 10 for this key
         config.custom_keys.insert("custom_key".to_string(), 10);
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Manually set cache to 5 (under custom limit of 10)
         let now = Utc::now();
@@ -1063,7 +1120,7 @@ mod tests {
         config.custom_keys.insert("custom_a".to_string(), 5);
         config.custom_keys.insert("custom_b".to_string(), 10);
 
-        let limiter = GlobalRateLimiterImpl::new(config, client);
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Pre-populate cache so we get deterministic results
         let now = Utc::now();
@@ -1109,7 +1166,7 @@ mod tests {
         config.batch_max_key_cardinality = 100;
         config.batch_interval = Duration::from_secs(60); // Long interval so it won't trigger
 
-        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client.clone()]).unwrap();
 
         // Pre-populate cache so update_eval_key_internal doesn't block on Redis fetch
         let now = Utc::now();
@@ -1152,7 +1209,7 @@ mod tests {
         config.batch_max_key_cardinality = 3;
         config.batch_interval = Duration::from_secs(60); // Long interval so it won't trigger
 
-        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client.clone()]).unwrap();
 
         // Pre-populate cache for multiple keys
         let now = Utc::now();
@@ -1197,7 +1254,7 @@ mod tests {
         config.batch_max_key_cardinality = 10;
         config.batch_interval = Duration::from_secs(60);
 
-        let limiter = GlobalRateLimiterImpl::new(config, client.clone());
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client.clone()]).unwrap();
 
         // Pre-populate cache
         let now = Utc::now();
@@ -1231,6 +1288,72 @@ mod tests {
         assert!(
             !batch_calls.is_empty(),
             "Should have flushed batch when update count reached before cardinality"
+        );
+    }
+
+    #[test]
+    fn test_new_returns_error_for_empty_redis_instances() {
+        let config = test_config();
+        let result = GlobalRateLimiterImpl::new(config, vec![]);
+        assert!(result.is_err());
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("Expected error for empty redis_instances"),
+        };
+        assert!(
+            err.to_string()
+                .contains("requires at least one Redis instance"),
+            "Error message should mention Redis instance requirement, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_select_redis_client_single_instance() {
+        let client = Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>;
+        let clients = vec![client];
+
+        let (_, idx) = select_redis_client("any_key", &clients);
+        assert_eq!(idx, 0, "Single instance should always return index 0");
+
+        let (_, idx) = select_redis_client("another_key", &clients);
+        assert_eq!(idx, 0, "Single instance should always return index 0");
+    }
+
+    #[test]
+    fn test_select_redis_client_consistent_mapping() {
+        let clients: Vec<Arc<dyn Client + Send + Sync>> = (0..3)
+            .map(|_| Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>)
+            .collect();
+
+        let key = "test_key_for_consistency";
+
+        // Call multiple times with same key
+        let (_, idx1) = select_redis_client(key, &clients);
+        let (_, idx2) = select_redis_client(key, &clients);
+        let (_, idx3) = select_redis_client(key, &clients);
+
+        assert_eq!(idx1, idx2, "Same key should always map to same instance");
+        assert_eq!(idx2, idx3, "Same key should always map to same instance");
+    }
+
+    #[test]
+    fn test_select_redis_client_distributes_keys() {
+        let clients: Vec<Arc<dyn Client + Send + Sync>> = (0..3)
+            .map(|_| Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>)
+            .collect();
+
+        let mut indices = std::collections::HashSet::new();
+        // Try enough keys that we should hit multiple instances
+        for i in 0..100 {
+            let key = format!("key_{i}");
+            let (_, idx) = select_redis_client(&key, &clients);
+            indices.insert(idx);
+        }
+
+        // With 100 keys and 3 instances, we should hit all 3
+        assert!(
+            indices.len() > 1,
+            "Multiple keys should distribute across instances"
         );
     }
 }
