@@ -7,6 +7,7 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -154,10 +155,10 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
             <p>Add an issue to your Github repository with a link to this recording.</p>
 
             <Form logic={playerShareLogic} props={props} formKey="githubLinkForm" className="flex flex-col gap-2">
-                <LemonField className="gap-1" name="githubUsername" label="Github Username or Organization Name">
+                <LemonField className="gap-1" name="githubUsername" label="Username or Organization Name">
                     <LemonInput fullWidth />
                 </LemonField>
-                <LemonField className="gap-1" name="githubRepoName" label="Github Respository Name">
+                <LemonField className="gap-1" name="githubRepoName" label="Respository Name">
                     <LemonInput fullWidth />
                 </LemonField>
                 <LemonField className="gap-1" name="githubIssueTitle" label="Issue Title">
@@ -185,6 +186,50 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                         />
                     </LemonField>
                 </div>
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'more-options',
+                            header: 'More options',
+                            content: (
+                                <div className="flex flex-col gap-2">
+                                    <LemonField
+                                        className="gap-1"
+                                        name="githubAssignees"
+                                        label="Assignees"
+                                        help={<span>Comma-separated GitHub usernames to assign</span>}
+                                    >
+                                        <LemonInput fullWidth placeholder="user1, user2" />
+                                    </LemonField>
+                                    <LemonField
+                                        className="gap-1"
+                                        name="githubLabels"
+                                        label="Labels"
+                                        help={<span>Comma-separated labels to add to the issue</span>}
+                                    >
+                                        <LemonInput fullWidth placeholder="bug, enhancement" />
+                                    </LemonField>
+                                    <LemonField
+                                        className="gap-1"
+                                        name="githubProjects"
+                                        label="Projects"
+                                        help={<span>Comma-separated project names</span>}
+                                    >
+                                        <LemonInput fullWidth placeholder="Project 1, Project 2" />
+                                    </LemonField>
+                                    <LemonField
+                                        className="gap-1"
+                                        name="githubMilestone"
+                                        label="Milestone"
+                                        help={<span>Milestone name or number</span>}
+                                    >
+                                        <LemonInput fullWidth placeholder="v1.0" />
+                                    </LemonField>
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
