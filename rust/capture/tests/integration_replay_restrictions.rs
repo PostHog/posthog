@@ -142,6 +142,85 @@ fn create_recording_payload(token: &str, session_id: &str, distinct_id: &str) ->
     })
 }
 
+use capture::v0_request::DataType;
+use serde_json::Value;
+
+struct ExpectedEvent<'a> {
+    // CapturedEvent fields
+    token: &'a str,
+    distinct_id: &'a str,
+    event_name: &'a str,
+    session_id: &'a str,
+    // ProcessedEventMetadata fields
+    data_type: DataType,
+    force_overflow: bool,
+    skip_person_processing: bool,
+    redirect_to_dlq: bool,
+    // Properties to verify in the event data
+    expected_properties: Option<Value>,
+}
+
+fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
+    // Assert CapturedEvent fields
+    assert_eq!(event.event.token, expected.token, "token mismatch");
+    assert_eq!(
+        event.event.distinct_id, expected.distinct_id,
+        "distinct_id mismatch"
+    );
+    assert_eq!(
+        event.event.event, expected.event_name,
+        "event name mismatch"
+    );
+    assert_eq!(
+        event.event.session_id.as_deref(),
+        Some(expected.session_id),
+        "session_id mismatch"
+    );
+    assert!(!event.event.ip.is_empty(), "ip should not be empty");
+    assert!(!event.event.now.is_empty(), "now should not be empty");
+    assert!(!event.event.data.is_empty(), "data should not be empty");
+
+    // Assert ProcessedEventMetadata fields
+    assert_eq!(
+        event.metadata.data_type, expected.data_type,
+        "data_type mismatch"
+    );
+    assert_eq!(
+        event.metadata.event_name, expected.event_name,
+        "metadata.event_name mismatch"
+    );
+    assert_eq!(
+        event.metadata.session_id.as_deref(),
+        Some(expected.session_id),
+        "metadata.session_id mismatch"
+    );
+    assert_eq!(
+        event.metadata.force_overflow, expected.force_overflow,
+        "force_overflow mismatch"
+    );
+    assert_eq!(
+        event.metadata.skip_person_processing, expected.skip_person_processing,
+        "skip_person_processing mismatch"
+    );
+    assert_eq!(
+        event.metadata.redirect_to_dlq, expected.redirect_to_dlq,
+        "redirect_to_dlq mismatch"
+    );
+
+    // Assert properties in event data
+    if let Some(expected_props) = &expected.expected_properties {
+        let data: Value =
+            serde_json::from_str(&event.event.data).expect("event.data should be valid JSON");
+        let actual_props = data
+            .get("properties")
+            .expect("event data should have properties");
+        for (key, expected_value) in expected_props.as_object().unwrap() {
+            let actual_value = actual_props.get(key).unwrap_or(&Value::Null);
+            assert_eq!(actual_value, expected_value, "property '{key}' mismatch");
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_recordings_drop_event_restriction() {
     let restricted_token = "phc_restricted_drop_token";
@@ -194,9 +273,21 @@ async fn test_recordings_redirect_to_dlq_restriction() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert!(
-        events[0].metadata.redirect_to_dlq,
-        "Event should have redirect_to_dlq flag set"
+    assert_event(
+        &events[0],
+        &ExpectedEvent {
+            token: restricted_token,
+            distinct_id: "test_user",
+            event_name: "$snapshot_items",
+            session_id: &session_id,
+            data_type: DataType::SnapshotMain,
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: true,
+            expected_properties: Some(json!({
+                "$session_id": session_id
+            })),
+        },
     );
 }
 
@@ -223,9 +314,21 @@ async fn test_recordings_force_overflow_restriction() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert!(
-        events[0].metadata.force_overflow,
-        "Event should have force_overflow flag set"
+    assert_event(
+        &events[0],
+        &ExpectedEvent {
+            token: restricted_token,
+            distinct_id: "test_user",
+            event_name: "$snapshot_items",
+            session_id: &session_id,
+            data_type: DataType::SnapshotMain,
+            force_overflow: true,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            expected_properties: Some(json!({
+                "$session_id": session_id
+            })),
+        },
     );
 }
 
@@ -254,9 +357,21 @@ async fn test_recordings_skip_person_processing_restriction() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
-    assert!(
-        events[0].metadata.skip_person_processing,
-        "Event should have skip_person_processing flag set"
+    assert_event(
+        &events[0],
+        &ExpectedEvent {
+            token: restricted_token,
+            distinct_id: "test_user",
+            event_name: "$snapshot_items",
+            session_id: &session_id,
+            data_type: DataType::SnapshotMain,
+            force_overflow: false,
+            skip_person_processing: true,
+            redirect_to_dlq: false,
+            expected_properties: Some(json!({
+                "$session_id": session_id
+            })),
+        },
     );
 }
 
@@ -286,5 +401,21 @@ async fn test_recordings_restriction_does_not_apply_to_other_tokens() {
         events.len(),
         1,
         "Event should be published for non-restricted token"
+    );
+    assert_event(
+        &events[0],
+        &ExpectedEvent {
+            token: "phc_not_restricted_token",
+            distinct_id: "test_user",
+            event_name: "$snapshot_items",
+            session_id: &session_id,
+            data_type: DataType::SnapshotMain,
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            expected_properties: Some(json!({
+                "$session_id": session_id
+            })),
+        },
     );
 }
