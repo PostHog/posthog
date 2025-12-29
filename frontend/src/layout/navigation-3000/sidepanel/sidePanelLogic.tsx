@@ -26,6 +26,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Exports,
     SidePanelTab.SdkDoctor,
     SidePanelTab.Health,
+    SidePanelTab.Changelog,
 ]
 
 const TABS_REQUIRING_A_TEAM = [
