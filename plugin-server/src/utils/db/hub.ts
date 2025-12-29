@@ -20,7 +20,7 @@ import { logger } from '../logger'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { PostgresRouter } from './postgres'
-import { createRedisPool } from './redis'
+import { createRedisPoolFromConfig } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -65,15 +65,45 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)
-    const redisPool = createRedisPool(serverConfig, 'ingestion')
+    const redisPool = createRedisPoolFromConfig({
+        connection: serverConfig.INGESTION_REDIS_HOST
+            ? { url: serverConfig.INGESTION_REDIS_HOST, options: { port: serverConfig.INGESTION_REDIS_PORT } }
+            : serverConfig.POSTHOG_REDIS_HOST
+              ? {
+                    url: serverConfig.POSTHOG_REDIS_HOST,
+                    options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
+                }
+              : { url: serverConfig.REDIS_URL },
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
     logger.info('👍', `Ingestion Redis ready`)
 
     logger.info('🤔', `Connecting to cookieless Redis...`)
-    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    const cookielessRedisPool = createRedisPoolFromConfig({
+        connection: serverConfig.COOKIELESS_REDIS_HOST
+            ? { url: serverConfig.COOKIELESS_REDIS_HOST, options: { port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379 } }
+            : { url: serverConfig.REDIS_URL },
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
     logger.info('👍', `Cookieless Redis ready`)
 
     const teamManager = new TeamManager(postgres)
-    const pubSub = new PubSub(serverConfig)
+    logger.info('🤔', `Connecting to PostHog Redis...`)
+    const posthogRedisPool = createRedisPoolFromConfig({
+        connection: serverConfig.POSTHOG_REDIS_HOST
+            ? {
+                  url: serverConfig.POSTHOG_REDIS_HOST,
+                  options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
+              }
+            : { url: serverConfig.REDIS_URL },
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
+    logger.info('👍', `PostHog Redis ready`)
+
+    const pubSub = new PubSub(redisPool)
     await pubSub.start()
 
     const groupRepository = new PostgresGroupRepository(postgres)
@@ -90,13 +120,14 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
-    const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
+    const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)
 
     const hub: Hub = {
         ...serverConfig,
         postgres,
         redisPool,
+        posthogRedisPool,
         kafkaProducer,
         groupTypeManager,
         teamManager,
@@ -119,8 +150,14 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     logger.info('💤', 'Closing hub...')
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.posthogRedisPool.drain(),
+        hub.postgres?.end(),
+    ])
     await hub.redisPool.clear()
+    await hub.posthogRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 

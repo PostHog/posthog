@@ -448,6 +448,7 @@ export interface Hub extends PluginsServerConfig {
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
+    posthogRedisPool: GenericPool<Redis>
     kafkaProducer: KafkaProducerWrapper
     // tools
     teamManager: TeamManager
