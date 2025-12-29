@@ -1886,7 +1886,6 @@
         "AssistantTool": {
             "enum": [
                 "search_session_recordings",
-                "generate_hogql_query",
                 "fix_hogql_query",
                 "analyze_user_interviews",
                 "create_and_query_insight",
@@ -1900,7 +1899,6 @@
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
-                "session_summarization",
                 "create_dashboard",
                 "edit_current_dashboard",
                 "read_taxonomy",
@@ -2516,6 +2514,9 @@
                     "$ref": "#/definitions/integer"
                 },
                 "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_path_cleaning": {
                     "type": "boolean"
                 },
                 "breakdown_type": {
@@ -21255,6 +21256,7 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "logs_docs_viewed",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -26511,6 +26513,12 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
+                },
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
                 },
                 "meanRetentionCalculation": {
                     "enum": ["simple", "weighted", "none"],

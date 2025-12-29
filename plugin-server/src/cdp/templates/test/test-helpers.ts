@@ -1,5 +1,5 @@
 import Chance from 'chance'
-import merge from 'deepmerge'
+import { merge as mergeDeep } from 'lodash'
 import { Settings } from 'luxon'
 
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
@@ -381,7 +381,7 @@ export const createAdDestinationPayload = (
         },
     }
 
-    defaultPayload = merge(defaultPayload, globals ?? {})
+    defaultPayload = mergeDeep(defaultPayload, globals ?? {})
 
     return defaultPayload
 }

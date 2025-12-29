@@ -1478,6 +1478,7 @@ export type RetentionFilter = {
     showTrendLines?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
+    goalLines?: GoalLine[]
 }
 
 export interface RetentionValue {
@@ -3637,6 +3638,7 @@ export interface BreakdownFilter {
     breakdown_limit?: integer
     breakdown?: string | integer | (string | integer)[] | null
     breakdown_normalize_url?: boolean
+    breakdown_path_cleaning?: boolean
     /**
      * @maxLength 3
      */
@@ -5030,6 +5032,9 @@ export enum ProductIntentContext {
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+
+    // Logs
+    LOGS_DOCS_VIEWED = 'logs_docs_viewed',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
