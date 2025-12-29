@@ -64,8 +64,9 @@ pub async fn handle_event_payload(
     // Extract body with optional chunk timeout
     let body = extract_body_with_timeout(
         body,
-        state.event_size_limit,
+        state.event_payload_size_limit,
         state.body_chunk_read_timeout,
+        state.body_read_chunk_size_kb,
         path.as_str(),
     )
     .await?;
@@ -90,7 +91,7 @@ pub async fn handle_event_payload(
         data,
         compression,
         metadata.request_id,
-        state.event_size_limit,
+        state.event_payload_size_limit,
         path.as_str().to_string(),
     )?;
 

@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 
 import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -62,6 +63,8 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     )
 
     const isPrevious = !!item.compare && item.compare_label === 'previous'
+    const showPathCleaningHighlight =
+        breakdownFilter?.breakdown_path_cleaning && typeof formattedBreakdownValue === 'string'
 
     const themeColor = getTrendsColor(item)
     const isHidden = getTrendsHidden(item)
@@ -77,17 +80,33 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                     onChange={() => toggleResultHidden(item)}
                     fullWidth
                     label={
-                        <InsightLabel
-                            key={item.id}
-                            seriesColor={mainColor}
-                            action={item.action}
-                            fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                            hasMultipleSeries={!isSingleSeries}
-                            breakdownValue={formattedBreakdownValue}
-                            compareValue={isPrevious ? formatCompareLabel(item) : undefined}
-                            pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                            hideIcon
-                        />
+                        showPathCleaningHighlight ? (
+                            <div className="flex items-center gap-2">
+                                <InsightLabel
+                                    key={item.id}
+                                    seriesColor={mainColor}
+                                    action={item.action}
+                                    fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                    hasMultipleSeries={!isSingleSeries}
+                                    hideBreakdown
+                                    compareValue={isPrevious ? formatCompareLabel(item) : undefined}
+                                    hideIcon
+                                />
+                                {parseAliasToReadable(formattedBreakdownValue)}
+                            </div>
+                        ) : (
+                            <InsightLabel
+                                key={item.id}
+                                seriesColor={mainColor}
+                                action={item.action}
+                                fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                hasMultipleSeries={!isSingleSeries}
+                                breakdownValue={formattedBreakdownValue}
+                                compareValue={isPrevious ? formatCompareLabel(item) : undefined}
+                                pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                                hideIcon
+                            />
+                        )
                     }
                     disabledReason={editingDisabledReason}
                 />

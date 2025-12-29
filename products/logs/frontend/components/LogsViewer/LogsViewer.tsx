@@ -203,9 +203,10 @@ function LogsViewerContent({
         }
     }, [linkToLogId, logsCount, setCursorToLogId])
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
         formatTime: 'HH:mm:ss.SSS',
+        displayTimezone: timezone,
     }
 
     const handleMoveDown = useCallback(

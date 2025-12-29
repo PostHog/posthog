@@ -23,7 +23,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                 experimentId: null,
                 productTourId: null,
             }),
-            ['authorizedUrls as authorizedDomains'],
+            ['authorizedUrls as rawAuthorizedUrls'],
         ],
     })),
     actions({
@@ -164,6 +164,34 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
     }),
     selectors({
         hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
+        authorizedDomains: [
+            (s) => [s.rawAuthorizedUrls],
+            (rawAuthorizedUrls: string[]): string[] => {
+                // Normalize URLs to domains:
+                // - Convert URLs to domains using url.origin
+                // - Deduplicate by hostname+port
+                // - Prefer https over http
+                const urlsByDomain = new Map<string, URL[]>()
+
+                for (const urlStr of rawAuthorizedUrls) {
+                    try {
+                        const url = new URL(urlStr)
+                        const key = url.host
+                        if (!urlsByDomain.has(key)) {
+                            urlsByDomain.set(key, [])
+                        }
+                        urlsByDomain.get(key)!.push(url)
+                    } catch {
+                        // Skip URLs that can't be parsed
+                    }
+                }
+
+                return Array.from(urlsByDomain.values()).map((urls) => {
+                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
+                    return preferredUrl.origin
+                })
+            },
+        ],
         validatedDomainFilter: [
             (s) => [s.domainFilter, s.authorizedDomains],
             (domainFilter: string | null, authorizedDomains: string[]): string | null => {

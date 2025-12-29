@@ -2518,6 +2518,9 @@
                 "breakdown_normalize_url": {
                     "type": "boolean"
                 },
+                "breakdown_path_cleaning": {
+                    "type": "boolean"
+                },
                 "breakdown_type": {
                     "anyOf": [
                         {
@@ -21255,6 +21258,7 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "logs_docs_viewed",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -21291,6 +21295,12 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "customer_analytics_dashboard_business_mode_changed",
+                "customer_analytics_dashboard_configuration_button_clicked",
+                "customer_analytics_dashboard_filters_changed",
+                "customer_analytics_dashboard_events_saved",
+                "customer_analytics_viewed",
+                "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "vercel_integration"

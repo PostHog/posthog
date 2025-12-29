@@ -176,7 +176,6 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         trendsFilter=TrendsFilter(
             display=filter.display,
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
-            formula=filter.formula,
             smoothingIntervals=filter.smoothing_intervals,
         ),
         compareFilter=CompareFilter(compare=filter.compare, compare_to=filter.compare_to),

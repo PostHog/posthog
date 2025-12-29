@@ -17,6 +17,9 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -584,14 +587,23 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    to={urls.llmAnalyticsEvaluationTemplates()}
-                    data-attr="create-evaluation-button"
+                <AppShortcut
+                    name="NewLLMEvaluation"
+                    keybind={[keyBinds.new]}
+                    intent="Create evaluation"
+                    interaction="click"
+                    scope={Scene.LLMAnalytics}
                 >
-                    Create Evaluation
-                </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        to={urls.llmAnalyticsEvaluationTemplates()}
+                        data-attr="create-evaluation-button"
+                        tooltip="Create evaluation"
+                    >
+                        Create Evaluation
+                    </LemonButton>
+                </AppShortcut>
             </div>
 
             {/* Metrics Visualization */}
@@ -599,15 +611,23 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
             {/* Search */}
             <div className="flex items-center gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search evaluations..."
-                    value={evaluationsFilter}
-                    data-attr="evaluations-search-input"
-                    onChange={setEvaluationsFilter}
-                    prefix={<IconSearch />}
-                    className="max-w-sm"
-                />
+                <AppShortcut
+                    name="SearchLLMEvaluations"
+                    keybind={[keyBinds.filter]}
+                    intent="Search evaluations"
+                    interaction="click"
+                    scope={Scene.LLMAnalytics}
+                >
+                    <LemonInput
+                        type="search"
+                        placeholder="Search evaluations..."
+                        value={evaluationsFilter}
+                        data-attr="evaluations-search-input"
+                        onChange={setEvaluationsFilter}
+                        prefix={<IconSearch />}
+                        className="max-w-sm"
+                    />
+                </AppShortcut>
             </div>
 
             {/* Table */}
@@ -629,6 +649,41 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+
+    // Tab switching shortcuts
+    useAppShortcut({
+        name: 'LLMAnalyticsTab1',
+        keybind: [keyBinds.tab1],
+        intent: 'Go to Dashboard',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsDashboard(), searchParams).url),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab2',
+        keybind: [keyBinds.tab2],
+        intent: 'Go to Traces',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsTraces(), searchParams).url),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab3',
+        keybind: [keyBinds.tab3],
+        intent: 'Go to Generations',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsGenerations(), searchParams).url),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab4',
+        keybind: [keyBinds.tab4],
+        intent: 'Go to Users',
+        interaction: 'function',
+        callback: () => push(combineUrl(urls.llmAnalyticsUsers(), searchParams).url),
+        scope: Scene.LLMAnalytics,
+    })
 
     const tabs: LemonTab<string>[] = [
         {
@@ -697,6 +752,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
@@ -721,6 +777,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    // TODO: Once we are out of beta, should add to the shortcuts list at the top of the component
     tabs.push({
         key: 'playground',
         label: (
@@ -736,6 +793,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         'data-attr': 'playground-tab',
     })
 
+    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
         tabs.push({
             key: 'evaluations',
@@ -753,6 +811,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
         tabs.push({
             key: 'datasets',
@@ -770,6 +829,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS]) {
         tabs.push({
             key: 'prompts',
@@ -787,6 +847,7 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
         tabs.push({
             key: 'settings',

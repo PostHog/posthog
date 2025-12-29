@@ -93,6 +93,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             breakdownType,
             normalizeBreakdownURL,
         }),
+        setPathCleaningEnabled: (breakdown: string | number, breakdownType: string, pathCleaningEnabled: boolean) => ({
+            breakdown,
+            breakdownType,
+            pathCleaningEnabled,
+        }),
         toggleBreakdownOptions: (opened: boolean) => ({
             opened,
         }),
@@ -117,6 +122,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             true as boolean,
             {
                 setNormalizeBreakdownURL: (_, { normalizeBreakdownURL }) => normalizeBreakdownURL,
+            },
+        ],
+        localPathCleaningEnabled: [
+            false as boolean,
+            {
+                setPathCleaningEnabled: (_, { pathCleaningEnabled }) => pathCleaningEnabled,
             },
         ],
         localBreakdownHideOtherAggregation: [
@@ -192,6 +203,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],
             (breakdownFilter, localNormalizeBreakdownURL) =>
                 localNormalizeBreakdownURL ?? breakdownFilter.breakdown_normalize_url ?? true,
+        ],
+        pathCleaningEnabled: [
+            (s) => [s.breakdownFilter, s.localPathCleaningEnabled],
+            (breakdownFilter, localPathCleaningEnabled) =>
+                localPathCleaningEnabled ?? breakdownFilter.breakdown_path_cleaning ?? false,
         ],
         breakdownHideOtherAggregation: [
             (s) => [s.breakdownFilter, s.localBreakdownHideOtherAggregation],
@@ -456,6 +472,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     breakdown_normalize_url: normalizeBreakdownURL,
                 })
             }
+        },
+        setPathCleaningEnabled: ({ pathCleaningEnabled }) => {
+            props.updateBreakdownFilter?.({
+                breakdown_path_cleaning: pathCleaningEnabled,
+            })
         },
         setHistogramBinsUsed: ({ binsUsed, binCount, breakdown, breakdownType }) => {
             if (values.isMultipleBreakdownsEnabled && !isSingleBreakdown(values.breakdownFilter)) {

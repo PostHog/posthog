@@ -44,7 +44,7 @@ export interface LogRowProps {
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
     onToggleExpand: () => void
     onSetCursor: () => void

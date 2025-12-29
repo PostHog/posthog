@@ -37,13 +37,14 @@ pub struct State {
     pub redis: Arc<dyn Client + Send + Sync>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
-    pub event_size_limit: usize,
+    pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
+    pub body_read_chunk_size_kb: usize,
 }
 
 #[derive(Clone)]
@@ -117,7 +118,7 @@ pub fn router<
     capture_mode: CaptureMode,
     deploy_role: String,
     concurrency_limit: Option<usize>,
-    event_size_limit: usize,
+    event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
     is_mirror_deploy: bool,
@@ -126,13 +127,14 @@ pub fn router<
     ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     request_timeout_seconds: Option<u64>,
     body_chunk_read_timeout_ms: Option<u64>,
+    body_read_chunk_size_kb: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
         quota_limiter: Arc::new(quota_limiter),
-        event_size_limit,
+        event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
@@ -143,6 +145,7 @@ pub fn router<
         ai_max_sum_of_parts_bytes,
         ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
+        body_read_chunk_size_kb,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -491,7 +494,7 @@ mod tests {
 
         // Use a short chunk timeout
         let timeout = Some(StdDuration::from_millis(100));
-        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, "/test").await;
+        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, 256, "/test").await;
 
         // Should get a BodyReadTimeout error
         assert!(matches!(
@@ -507,7 +510,7 @@ mod tests {
 
         // Normal body with no timeout
         let body = Body::from(r#"{"event": "test"}"#);
-        let result = extract_body_with_timeout(body, 1024 * 1024, None, "/test").await;
+        let result = extract_body_with_timeout(body, 1024 * 1024, None, 256, "/test").await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), r#"{"event": "test"}"#.as_bytes());

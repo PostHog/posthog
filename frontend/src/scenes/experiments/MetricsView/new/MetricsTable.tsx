@@ -9,7 +9,6 @@ import {
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
-import { insertMetricIntoOrderingArray } from '../../utils'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
@@ -32,7 +31,7 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics, setExperiment, updateMetricBreakdown, removeMetricBreakdown } =
+    const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
         useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
@@ -98,21 +97,7 @@ export function MetricsTable({
                                     }
 
                                     const newUuid = crypto.randomUUID()
-
                                     duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
-
-                                    const newOrderingArray = insertMetricIntoOrderingArray(
-                                        experiment,
-                                        newUuid,
-                                        metric.uuid,
-                                        isSecondary
-                                    )
-                                    setExperiment({
-                                        [isSecondary
-                                            ? 'secondary_metrics_ordered_uuids'
-                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
-                                    })
-
                                     updateExperimentMetrics()
                                 }}
                                 onBreakdownChange={(breakdown) => {

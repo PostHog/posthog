@@ -1,6 +1,5 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
@@ -33,14 +32,11 @@ import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
-import { ActionManager } from './worker/ingestion/action-manager'
-import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
-import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { PluginInstance } from './worker/vm/lazy'
@@ -67,7 +63,6 @@ export enum KafkaSaslMechanism {
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
-    async_webhooks = 'async-webhooks',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
@@ -343,9 +338,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
 
-    // Consumer specific settings (deprecated but cant be removed until legacy onevent consumer is removed)
-    KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
-    KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
@@ -364,13 +356,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     TEMPORAL_CLIENT_ROOT_CA: string | undefined
     TEMPORAL_CLIENT_CERT: string | undefined
     TEMPORAL_CLIENT_KEY: string | undefined
-    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
-    KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
@@ -384,10 +374,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
-    RUSTY_HOOK_FOR_TEAMS: string
-    RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
-    RUSTY_HOOK_URL: string
-    HOG_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
@@ -491,7 +477,6 @@ export interface Hub extends PluginsServerConfig {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     cookielessRedisPool: GenericPool<Redis>
-    kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
@@ -505,11 +490,8 @@ export interface Hub extends PluginsServerConfig {
     teamManager: TeamManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
-    actionManager: ActionManager
     actionManagerCDP: ActionManagerCDP
-    actionMatcher: ActionMatcher
     appMetrics: AppMetrics
-    rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     clickhouseGroupRepository: ClickhouseGroupRepository
@@ -533,7 +515,6 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
-    processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean

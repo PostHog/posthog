@@ -22,7 +22,7 @@ use crate::{
     checkpoint_manager::CheckpointManager,
     config::Config,
     kafka::{
-        batch_consumer::BatchConsumer, ConsumerConfigBuilder, PartitionRouter,
+        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
         PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
     processor_rebalance_handler::ProcessorRebalanceHandler,
@@ -247,15 +247,27 @@ impl KafkaDeduplicatorService {
                 channel_buffer_size: self.config.partition_worker_channel_buffer_size,
             },
         };
-        let router = Arc::new(PartitionRouter::new(processor, router_config));
+
+        // Create offset tracker for tracking processed offsets
+        let offset_tracker = Arc::new(OffsetTracker::new());
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            router_config,
+        ));
 
         // Create routing processor that distributes messages to partition workers
-        let routing_processor = Arc::new(RoutingProcessor::new(router.clone()));
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
 
         // Create rebalance handler with the router for partition worker management
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
             self.store_manager.clone(),
             router,
+            offset_tracker.clone(),
         ));
 
         // Create consumer config using the kafka module's builder
@@ -330,6 +342,7 @@ impl KafkaDeduplicatorService {
             &consumer_config,
             rebalance_handler,
             routing_processor,
+            offset_tracker,
             shutdown_rx,
             &self.config.kafka_consumer_topic,
             self.config.kafka_consumer_batch_size,

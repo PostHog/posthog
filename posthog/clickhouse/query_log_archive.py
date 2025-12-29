@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_org_id String, -- comment 'log_comment[org_id]',
     lc_team_id Int64, -- comment 'log_comment[team_id]',
     lc_user_id Int64, -- comment 'log_comment[user_id]',
+    lc_is_impersonated Bool, -- comment 'log_comment[is_impersonated]',
     lc_session_id String, -- comment 'log_comment[session_id]',
 
     lc_dashboard_id Int64, -- comment 'log_comment[dashboard_id]',
@@ -193,6 +194,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_org_id String,
     team_id Int64, -- renamed from lc_team_id, no longer an alias
     lc_user_id Int64,
+    lc_is_impersonated Bool,
     lc_session_id String,
 
     lc_dashboard_id Int64,
@@ -310,6 +312,7 @@ SELECT
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
     JSONExtractInt(log_comment, 'team_id') as team_id,
     JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+    JSONExtractBool(log_comment, 'is_impersonated') as lc_is_impersonated,
     JSONExtractString(log_comment, 'session_id') as lc_session_id,
 
     JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
@@ -393,3 +396,10 @@ ALTER TABLE query_log_archive_mv MODIFY QUERY
 ADD_EXCEPTION_NAME_SQL = """
 ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS exception_name String ALIAS errorCodeToName(exception_code) AFTER exception_code
 """
+
+
+# V6 - adding lc_is_impersonated for tracking impersonation in queries
+def QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return """
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_is_impersonated Bool AFTER lc_user_id
+    """.format(table=table)
