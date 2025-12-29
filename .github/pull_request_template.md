@@ -27,6 +27,6 @@
 
 <!-- Removing this section or leaving it blank means this feature will probably remain unpublished. -->
 
-<!-- If publishing, please make sure your PR includes a 1-3 sentence description of the feature. Screenshots or screen recordings are very encouraged! 🙏 -->
+<!-- If publishing, please make sure your PR includes a 1-3 sentence description of the feature, plus a screenshot or screen recording if it helps 🙏 -->
 
 <!-- Check #changelog in Slack for more details -->
