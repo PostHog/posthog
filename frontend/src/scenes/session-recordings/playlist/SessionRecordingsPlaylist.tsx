@@ -64,7 +64,7 @@ function HorizontalLayout({
         logicKey: 'playlist-resizer-horizontal',
         containerRef: playlistRef,
         persistent: true,
-        persistPrefix: '2024-12-29',
+        persistPrefix: '2025-12-29',
         placement: 'right',
     }
 
@@ -106,7 +106,7 @@ function VerticalLayout({
         logicKey: 'playlist-resizer-vertical',
         containerRef: playerRef,
         persistent: true,
-        persistPrefix: '2024-12-29',
+        persistPrefix: '2025-12-29',
         placement: 'bottom',
     }
 
