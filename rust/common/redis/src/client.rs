@@ -416,13 +416,53 @@ impl Client for RedisClient {
         Ok(result)
     }
 
-    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
         if keys.is_empty() {
             return Ok(vec![]);
         }
         let mut conn = self.connection.clone();
         let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
+        Ok(results
+            .into_iter()
+            .map(|opt| {
+                opt.and_then(|bytes| {
+                    std::str::from_utf8(&bytes)
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                })
+            })
+            .collect())
+    }
+
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for k in &keys {
+            pipe.scard(k);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<u64> = pipe.query_async(&mut conn).await?;
         Ok(results)
+    }
+
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut pipe = redis::pipe();
+        for (k, member) in items {
+            pipe.sadd(&k, &member).ignore();
+            pipe.cmd("EXPIRE").arg(&k).arg(ttl_seconds).arg("NX").ignore();
+        }
+        let mut conn = self.connection.clone();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
     }
 }
 
