@@ -9,7 +9,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -160,7 +160,7 @@ export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps):
                         <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
                     </span>
                     <span className="hidden min-[660px]:inline">
-                        {activeRecordings === 1 ? 'recently active recording' : 'recently active recordings'}
+                        recently active {pluralize(activeRecordings, 'recording', undefined, false)}
                     </span>
                 </div>
             </Tooltip>
