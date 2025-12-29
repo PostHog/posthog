@@ -682,7 +682,7 @@ class WebauthnBackend(BaseBackend):
                 expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
-                require_user_verification=False,
+                require_user_verification=True,
             )
 
             # Update sign count

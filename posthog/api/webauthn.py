@@ -150,7 +150,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
                 expected_challenge=expected_challenge,
                 expected_rp_id=get_webauthn_rp_id(),
                 expected_origin=get_webauthn_rp_origin(),
-                require_user_verification=False,  # refers to authenticator behavior, NOT whether posthog has verified the credential
+                require_user_verification=True,  # refers to authenticator behavior, NOT whether posthog has verified the credential
                 supported_pub_key_algs=SUPPORTED_PUB_KEY_ALGS,
             )
 
@@ -276,7 +276,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
                 expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
-                require_user_verification=False,
+                require_user_verification=True,
             )
 
             # Mark credential as verified
@@ -615,7 +615,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
                 expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
-                require_user_verification=False,
+                require_user_verification=True,
             )
 
             # Mark credential as verified
