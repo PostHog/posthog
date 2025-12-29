@@ -286,6 +286,7 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION_BUTTON: 'max-session-summarization-button', // owner: #team-signals
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
+    PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PHAI_WEB_SEARCH: 'phai-web-search', // owner: @Twixes #team-posthog-ai
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
