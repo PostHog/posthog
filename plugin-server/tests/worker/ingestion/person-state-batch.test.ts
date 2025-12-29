@@ -3150,7 +3150,7 @@ describe('PersonState.processEvent()', () => {
                 if (attemptCount === 1) {
                     throw new TargetPersonNotFoundError('Target person no longer exists')
                 }
-                return originalMoveDistinctIds.call(hub.postgres, ...args)
+                return originalMoveDistinctIds.call(personRepository, ...args)
             })
 
             jest.spyOn(personRepository, 'fetchPerson')
