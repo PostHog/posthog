@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { TeamManager } from '~/utils/team-manager'
 
-import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
+import { eventDroppedCounter } from '../../common/metrics'
 import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, ok } from '../pipelines/results'

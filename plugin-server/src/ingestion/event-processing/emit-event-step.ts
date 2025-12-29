@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { ingestionLagGauge, ingestionLagHistogram } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, RawKafkaEvent } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'

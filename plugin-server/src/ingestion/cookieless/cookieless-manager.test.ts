@@ -7,7 +7,7 @@ import type { PluginEvent } from '@posthog/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
-import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
+import { cookielessRedisErrorCounter } from '../../common/metrics'
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
 import { closeHub, createHub } from '../../utils/db/hub'

@@ -13,7 +13,7 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
+import { cookielessRedisErrorCounter } from '../../common/metrics'
 import {
     CookielessServerHashMode,
     EventHeaders,
