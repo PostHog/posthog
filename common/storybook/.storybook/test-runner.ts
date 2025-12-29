@@ -181,13 +181,17 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add(`storybook-test-runner--${layout}`)
     }, storyContext.parameters?.layout || 'padded')
 
-    const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
+    const {
+        waitForLoadersToDisappear = true,
+        waitForSelector,
+        waitForTimeout = 5000,
+    } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
         // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
         // Timeout is 5000ms to account for slower CI environments while still catching stuck elements
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 5000 })
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: waitForTimeout })
     }
 
     if (typeof waitForSelector === 'string') {

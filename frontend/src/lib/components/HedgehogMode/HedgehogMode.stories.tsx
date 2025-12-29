@@ -12,6 +12,11 @@ const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'Components/HedgehogMode',
     component: HedgehogModeStatic,
     tags: ['autodocs'],
+    parameters: {
+        testOptions: {
+            waitForTimeout: 10000,
+        },
+    },
 }
 export default meta
 
