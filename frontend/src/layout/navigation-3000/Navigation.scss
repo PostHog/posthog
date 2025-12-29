@@ -1,15 +1,19 @@
 @import '../../styles/vars';
 
+// These are used in SceneLayout.css
+:root {
+    --scene-layout-panel-width: 300px;
+    --scene-layout-header-height: 40px;
+    --scene-title-section-height: 50px;
+    --side-panel-min-width: 28rem;
+}
+
 .Navigation3000 {
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
-    // These are used in SceneLayout.css
-    --scene-layout-panel-width: 300px;
-    --scene-layout-header-height: 40px;
-    --scene-title-section-height: 50px;
 
     position: relative;
     display: flex;
@@ -695,4 +699,36 @@
     z-index: 1; // Show above .SidebarListItem::after gradient
     display: none; // Only show on hover/focus or for current page
     transform: translateY(-50%);
+}
+
+.app-layout {
+    height: 100vh;
+    display: grid;
+    /* 3 columns: left | content | right */
+    grid-template-columns: var(--project-navbar-width) 1fr var(--side-panel-width);
+
+    /* 2 rows: top | rest */
+    grid-template-rows: var(--scene-layout-header-height) 1fr;
+
+    grid-template-areas:
+        "left top right"
+        "left content right";
+    overflow: hidden;
+}
+
+
+.left-nav {
+    grid-area: left;
+}
+
+.top-nav {
+    grid-area: top;
+}
+
+.right-nav {
+    grid-area: right;
+}
+
+.main-content-container {
+    grid-area: content;
 }

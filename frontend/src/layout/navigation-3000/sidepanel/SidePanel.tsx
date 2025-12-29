@@ -15,7 +15,7 @@ import {
     IconSupport,
 } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
-
+import { cn } from 'lib/utils/css-classes'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -133,8 +133,9 @@ export const SIDE_PANEL_TABS: Record<
 }
 
 const DEFAULT_WIDTH = 512
+const SIDE_PANEL_BAR_WIDTH = 40
 
-export function SidePanel(): JSX.Element | null {
+export function SidePanel({ className, contentClassName }: { className?: string, contentClassName?: string }): JSX.Element | null {
     const { theme } = useValues(themeLogic)
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
@@ -158,8 +159,9 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
-    const { setMainContentRect } = useActions(panelLayoutLogic)
+    const { setMainContentRect, setSidePanelWidth } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
+
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -180,6 +182,12 @@ export function SidePanel(): JSX.Element | null {
     }
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
+    const sidePanelWidth = sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : SIDE_PANEL_BAR_WIDTH
+
+    // Update sidepanel width in panelLayoutLogic
+    useEffect(() => {
+        setSidePanelWidth(sidePanelWidth)
+    }, [sidePanelWidth, setSidePanelWidth])
 
     const menuOptions: LemonMenuItems | undefined = extraTabs
         ? [
@@ -217,18 +225,21 @@ export function SidePanel(): JSX.Element | null {
         <div
             className={clsx(
                 'SidePanel3000',
-                sidePanelOpenAndAvailable && 'SidePanel3000--open',
-                isResizeInProgress && 'SidePanel3000--resizing'
+                sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
+                isResizeInProgress && 'SidePanel3000--resizing',
+                className
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : undefined,
+                width: sidePanelWidth,
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"
         >
-            <Resizer {...resizerLogicProps} />
+            <Resizer {...resizerLogicProps} className={cn("top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4", {
+                'left-0': sidePanelOpenAndAvailable,
+            })}/>
             <div className="SidePanel3000__bar">
                 <div className="SidePanel3000__tabs">
                     <div className="SidePanel3000__tabs-content">
@@ -239,7 +250,7 @@ export function SidePanel(): JSX.Element | null {
                             const button = (
                                 <LemonButton
                                     key={tab}
-                                    icon={<Icon />}
+                                    icon={<Icon className="size-5" />}
                                     onClick={() =>
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
@@ -249,6 +260,7 @@ export function SidePanel(): JSX.Element | null {
                                     type="secondary"
                                     status="alt"
                                     tooltip={label}
+                                    size="xsmall"
                                 >
                                     {label}
                                 </LemonButton>
@@ -283,7 +295,7 @@ export function SidePanel(): JSX.Element | null {
             </div>
 
             {PanelContent ? (
-                <div className="SidePanel3000__content">
+                <div className={cn('SidePanel3000__content', contentClassName)}>
                     <ErrorBoundary>
                         <PanelContent />
                     </ErrorBoundary>
