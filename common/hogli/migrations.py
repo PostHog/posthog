@@ -278,7 +278,7 @@ def _run_django_migrate(app: str, target: str) -> bool:
     """Run Django migrate command. Returns True on success."""
     try:
         subprocess.run(
-            [sys.executable, "manage.py", "migrate", app, target, "--no-input", "--skip-checks"],
+            [sys.executable, "manage.py", "migrate", app, target, "--no-input", "--skip-checks", "--skip-orphan-check"],
             cwd=REPO_ROOT,
             env=_get_subprocess_env(),
             check=True,
@@ -410,7 +410,13 @@ def _get_database_url() -> str:
     password = os.environ.get("PGPASSWORD", "posthog")
     database = os.environ.get("PGDATABASE", "posthog")
 
-    return f"postgresql://{user}:{quote(password, safe='')}@{host}:{port}/{database}"
+    # URL-encode all components to handle special characters
+    encoded_user = quote(user, safe="")
+    encoded_password = quote(password, safe="")
+    encoded_host = quote(host, safe="")
+    encoded_database = quote(database, safe="")
+
+    return f"postgresql://{encoded_user}:{encoded_password}@{encoded_host}:{port}/{encoded_database}"
 
 
 def _get_migrations_in_db() -> dict[str, set[str]]:
