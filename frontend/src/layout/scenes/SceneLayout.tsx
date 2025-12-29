@@ -18,6 +18,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -75,6 +76,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const simplerAppLayout = useFeatureFlag('SIMPLER_APP_LAYOUT')
 
     // Set layout config
     useEffect(() => {
@@ -85,20 +87,25 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
     return (
         <>
-            <div
-                className={cn(
-                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
-                    {
-                        'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                    }
-                )}
-            >
-                <SceneTabs />
-            </div>
+            {!simplerAppLayout && (
+                <div
+                    className={cn(
+                        'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
+                        {
+                            'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
+                        }
+                    )}
+                >
+                    <SceneTabs />
+                </div>
+            )}
 
+{simplerAppLayout ? (
+    <>{children}</>
+): (
             <div
                 className={cn(
-                    'flex flex-col relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    'relative p-4 min-h-[calc(100vh-var(--scene-layout-header-height))] rounded-lg',
                     {
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
@@ -112,6 +119,8 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
             >
                 {children}
             </div>
+
+)}
 
             {scenePanelIsPresent && (
                 <>
