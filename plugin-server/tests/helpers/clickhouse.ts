@@ -80,7 +80,6 @@ export class Clickhouse {
 
         await Promise.allSettled([
             this.truncate('person_static_cohort'),
-            this.truncate('sharded_session_recording_events'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
             this.truncate('ingestion_warnings'),
@@ -95,7 +94,6 @@ export class Clickhouse {
         for (let i = 0; i < maxDelayCount; i++) {
             try {
                 await this.query('SELECT 1')
-                console.log(`ClickHouse healthy after ${Math.round((performance.now() - timer) / 100) / 10}s`)
                 return
             } catch (error) {
                 console.log(

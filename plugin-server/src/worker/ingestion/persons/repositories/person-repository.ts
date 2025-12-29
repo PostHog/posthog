@@ -66,7 +66,8 @@ export interface PersonRepository {
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
 
     /**
-     * Batch update multiple persons in a single query using UNNEST.
+     * Batch update multiple persons in a single query using UNNEST (NO_ASSERT mode).
+     * Does NOT check versions - always overwrites with provided values.
      * Returns results indexed by person UUID, each containing:
      * - success: boolean indicating if the update succeeded
      * - version: the new version if successful
@@ -74,6 +75,19 @@ export interface PersonRepository {
      * - error: error details if the update failed
      */
     updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
+
+    /**
+     * Batch update multiple persons with version assertion (ASSERT_VERSION mode).
+     * Only updates rows where the version matches the expected version.
+     * Returns results indexed by person UUID, each containing:
+     * - success: boolean indicating if the update succeeded (version matched)
+     * - version: the new version if successful
+     * - kafkaMessage: the Kafka message to send if successful
+     * - error: error details if the update failed (version mismatch or other error)
+     */
+    updatePersonsBatchAssertVersion(
         personUpdates: PersonUpdate[]
     ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
 

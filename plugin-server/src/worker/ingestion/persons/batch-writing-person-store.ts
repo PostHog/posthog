@@ -20,6 +20,7 @@ import { BatchWritingStore } from '../stores/batch-writing-store'
 import { captureIngestionWarning } from '../utils'
 import {
     observeLatencyByVersion,
+    personBatchRetryAttemptsHistogram,
     personCacheOperationsCounter,
     personDatabaseOperationsPerBatchHistogram,
     personFallbackOperationsCounter,
@@ -275,8 +276,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     break
                 }
                 case 'ASSERT_VERSION': {
-                    // Use individual updates for ASSERT_VERSION mode (requires per-person retry logic)
-                    allKafkaMessages = await this.flushIndividualAssertVersion(updateEntries)
+                    // Use batch updates with version assertion and batch retry for version mismatches
+                    allKafkaMessages = await this.flushBatchAssertVersion(updateEntries)
                     break
                 }
             }
@@ -320,6 +321,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const allKafkaMessages: FlushResult[] = []
         const failedUpdates: PersonUpdate[] = []
+        let hasPropertiesSizeViolation = false
 
         // Process batch results
         for (const update of updates) {
@@ -337,28 +339,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     outcome: 'success',
                 })
             } else {
-                // Handle specific error types
+                // Check if this is a properties size violation (affects whole batch)
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
-                    await captureIngestionWarning(
-                        this.kafkaProducer,
-                        update.team_id,
-                        'person_properties_size_violation',
-                        {
-                            personId: update.id,
-                            distinctId: update.distinct_id,
-                            teamId: update.team_id,
-                            message: 'Person properties exceeds size limit and was rejected',
-                        }
-                    )
-                    personWriteMethodAttemptCounter.inc({
-                        db_write_mode: this.options.dbWriteMode,
-                        method: 'batch',
-                        outcome: 'properties_size_violation',
-                    })
-                    // Don't retry size violations - they will never succeed
-                    continue
+                    hasPropertiesSizeViolation = true
                 }
-
                 // Queue for individual retry
                 failedUpdates.push(update)
             }
@@ -366,82 +350,300 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Fallback to individual updates for failed persons
         if (failedUpdates.length > 0) {
-            logger.warn('⚠️', `Batch update had ${failedUpdates.length} failures, falling back to individual updates`, {
+            const fallbackReason = hasPropertiesSizeViolation ? 'properties_size_violation' : 'batch_partial_failure'
+
+            logger.warn('⚠️', `Batch update failed, falling back to individual updates`, {
+                reason: fallbackReason,
                 failedCount: failedUpdates.length,
                 totalCount: updates.length,
             })
 
-            personFallbackOperationsCounter.inc({
-                db_write_mode: this.options.dbWriteMode,
-                fallback_reason: 'batch_partial_failure',
-            })
-
-            const limit = pLimit(this.options.maxConcurrentUpdates)
-            const fallbackResults = await Promise.all(
-                failedUpdates.map((update) =>
-                    limit(async (): Promise<FlushResult[]> => {
-                        try {
-                            const result = await this.withMergeRetry(
-                                update,
-                                this.updatePersonNoAssert.bind(this),
-                                'updatePersonNoAssert',
-                                this.options.maxOptimisticUpdateRetries,
-                                this.options.optimisticUpdateRetryInterval
-                            )
-                            personWriteMethodAttemptCounter.inc({
-                                db_write_mode: this.options.dbWriteMode,
-                                method: 'fallback',
-                                outcome: 'success',
-                            })
-                            return result.messages.map((message) => ({
-                                topicMessage: message,
-                                teamId: update.team_id,
-                                uuid: update.uuid,
-                                distinctId: update.distinct_id,
-                            }))
-                        } catch (error) {
-                            return this.handleIndividualUpdateError(error, update)
-                        }
-                    })
-                )
+            const fallbackResults = await this.fallbackToIndividualUpdates(
+                failedUpdates,
+                this.updatePersonNoAssert.bind(this),
+                fallbackReason
             )
-            allKafkaMessages.push(...fallbackResults.flat())
+            allKafkaMessages.push(...fallbackResults)
         }
 
         return allKafkaMessages
     }
 
     /**
-     * Flush all person updates using individual queries with version assertion (ASSERT_VERSION mode).
-     * This mode requires per-person retry logic for version conflicts.
+     * Flush all person updates using batch queries with version assertion (ASSERT_VERSION mode).
+     * For version mismatches, batch re-fetches persons and retries as a batch.
+     * Falls back to individual updates only after max batch retries are exhausted.
+     *
+     * Key invariant: Successfully updated persons are NEVER retried. Only persons that
+     * failed due to version mismatch are included in subsequent batch retry attempts.
      */
-    private async flushIndividualAssertVersion(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
-        const limit = pLimit(this.options.maxConcurrentUpdates)
+    private async flushBatchAssertVersion(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
+        const pendingUpdates = new Map<string, PersonUpdate>(updateEntries.map(([_, update]) => [update.uuid, update]))
+        const allKafkaMessages: FlushResult[] = []
+        let attempt = 0
 
-        const results = await Promise.all(
-            updateEntries.map(([cacheKey, update]) =>
+        personWriteMethodAttemptCounter.inc({
+            db_write_mode: this.options.dbWriteMode,
+            method: 'batch',
+            outcome: 'attempt',
+        })
+
+        while (pendingUpdates.size > 0 && attempt <= this.options.maxOptimisticUpdateRetries) {
+            const updates = Array.from(pendingUpdates.values())
+            const batchResults = await this.personRepository.updatePersonsBatchAssertVersion(updates)
+
+            const { successResults, failedUuids, hasPropertiesSizeViolation } = this.processBatchResults(
+                updates,
+                batchResults,
+                pendingUpdates
+            )
+            allKafkaMessages.push(...successResults)
+
+            // Properties size violation requires immediate fallback
+            if (hasPropertiesSizeViolation) {
+                personBatchRetryAttemptsHistogram.observe({ outcome: 'fallback' }, attempt)
+                const fallbackResults = await this.handleBatchFallback(
+                    pendingUpdates,
+                    'properties_size_violation',
+                    updateEntries.length
+                )
+                allKafkaMessages.push(...fallbackResults)
+                break
+            }
+
+            // All updates succeeded
+            if (failedUuids.length === 0) {
+                personBatchRetryAttemptsHistogram.observe({ outcome: 'success' }, attempt)
+                break
+            }
+
+            attempt++
+
+            // Retry with refreshed data or fall back to individual updates
+            if (attempt <= this.options.maxOptimisticUpdateRetries) {
+                const shouldContinue = await this.prepareRetryWithRefreshedData(pendingUpdates, failedUuids, attempt)
+                if (!shouldContinue) {
+                    personBatchRetryAttemptsHistogram.observe({ outcome: 'success' }, attempt)
+                    break
+                }
+            } else {
+                personBatchRetryAttemptsHistogram.observe({ outcome: 'fallback' }, attempt)
+                const fallbackResults = await this.handleBatchFallback(
+                    pendingUpdates,
+                    'batch_max_retries_exceeded',
+                    updateEntries.length,
+                    attempt
+                )
+                allKafkaMessages.push(...fallbackResults)
+                break
+            }
+        }
+
+        return allKafkaMessages
+    }
+
+    /**
+     * Process batch update results, separating successes from failures.
+     */
+    private processBatchResults(
+        updates: PersonUpdate[],
+        batchResults: Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>,
+        pendingUpdates: Map<string, PersonUpdate>
+    ): { successResults: FlushResult[]; failedUuids: string[]; hasPropertiesSizeViolation: boolean } {
+        const successResults: FlushResult[] = []
+        const failedUuids: string[] = []
+        let hasPropertiesSizeViolation = false
+
+        for (const update of updates) {
+            const result = batchResults.get(update.uuid)
+            if (result?.success && result.kafkaMessage) {
+                pendingUpdates.delete(update.uuid)
+                successResults.push({
+                    topicMessage: result.kafkaMessage,
+                    teamId: update.team_id,
+                    uuid: update.uuid,
+                    distinctId: update.distinct_id,
+                })
+                personWriteMethodAttemptCounter.inc({
+                    db_write_mode: this.options.dbWriteMode,
+                    method: 'batch',
+                    outcome: 'success',
+                })
+            } else {
+                if (result?.error instanceof PersonPropertiesSizeViolationError) {
+                    hasPropertiesSizeViolation = true
+                }
+                failedUuids.push(update.uuid)
+            }
+        }
+
+        return { successResults, failedUuids, hasPropertiesSizeViolation }
+    }
+
+    /**
+     * Handle fallback to individual updates when batch fails.
+     */
+    private async handleBatchFallback(
+        pendingUpdates: Map<string, PersonUpdate>,
+        reason: string,
+        totalCount: number,
+        attempts?: number
+    ): Promise<FlushResult[]> {
+        const remainingUpdates = Array.from(pendingUpdates.values())
+
+        logger.warn('⚠️', `Batch update failed, falling back to individual updates`, {
+            reason,
+            failedCount: remainingUpdates.length,
+            totalCount,
+            ...(attempts !== undefined && { attempts }),
+        })
+
+        return this.fallbackToIndividualUpdates(remainingUpdates, this.updatePersonAssertVersion.bind(this), reason)
+    }
+
+    /**
+     * Prepare for retry by refreshing failed persons with fresh data.
+     * Returns true if retry should continue, false if all persons were merged/deleted.
+     */
+    private async prepareRetryWithRefreshedData(
+        pendingUpdates: Map<string, PersonUpdate>,
+        failedUuids: string[],
+        attempt: number
+    ): Promise<boolean> {
+        const failedUpdates = failedUuids.map((uuid) => pendingUpdates.get(uuid)!).filter(Boolean)
+        const refreshedUpdates = await this.batchRefreshPersonsAfterVersionMismatch(failedUpdates)
+
+        // Remove persons that no longer exist (merged/deleted)
+        const refreshedUuids = new Set(refreshedUpdates.map((u) => u.uuid))
+        for (const uuid of failedUuids) {
+            if (!refreshedUuids.has(uuid)) {
+                pendingUpdates.delete(uuid)
+            }
+        }
+
+        // Update pending with refreshed data
+        for (const refreshed of refreshedUpdates) {
+            pendingUpdates.set(refreshed.uuid, refreshed)
+        }
+
+        if (pendingUpdates.size === 0) {
+            return false
+        }
+
+        logger.debug('Batch version mismatch, retrying with refreshed data', {
+            attempt,
+            maxRetries: this.options.maxOptimisticUpdateRetries,
+            failedCount: failedUuids.length,
+            refreshedCount: refreshedUpdates.length,
+            pendingCount: pendingUpdates.size,
+        })
+
+        personOptimisticUpdateConflictsPerBatchCounter.inc()
+        await new Promise((resolve) => setTimeout(resolve, this.options.optimisticUpdateRetryInterval))
+
+        return true
+    }
+
+    /**
+     * Batch re-fetch persons after version mismatch to get fresh data for retry.
+     * Returns updated PersonUpdate objects with fresh version and properties.
+     * Handles merged/deleted persons by excluding them from the returned list.
+     */
+    private async batchRefreshPersonsAfterVersionMismatch(failedUpdates: PersonUpdate[]): Promise<PersonUpdate[]> {
+        // Batch fetch fresh person data by distinct_id
+        const teamPersons = failedUpdates.map((update) => ({
+            teamId: update.team_id,
+            distinctId: update.distinct_id,
+        }))
+
+        const freshPersons = await this.personRepository.fetchPersonsByDistinctIds(teamPersons, false)
+
+        // Build a lookup map by team_id + distinct_id
+        const freshPersonsByKey = new Map<string, (typeof freshPersons)[number]>()
+        for (const person of freshPersons) {
+            const key = `${person.team_id}|${person.distinct_id}`
+            freshPersonsByKey.set(key, person)
+        }
+
+        const refreshedUpdates: PersonUpdate[] = []
+
+        for (const update of failedUpdates) {
+            const key = `${update.team_id}|${update.distinct_id}`
+            const freshPerson = freshPersonsByKey.get(key)
+
+            if (!freshPerson) {
+                // Person was deleted or merged away, nothing to update
+                logger.debug('Person no longer exists after version mismatch, skipping', {
+                    teamId: update.team_id,
+                    distinctId: update.distinct_id,
+                    personId: update.id,
+                })
+                continue
+            }
+
+            // Clear the old person ID from cache if it changed (merge happened)
+            if (freshPerson.id !== update.id) {
+                this.clearPersonCacheForPersonId(update.team_id, update.id)
+                this.setDistinctIdToPersonId(update.team_id, update.distinct_id, freshPerson.id)
+            }
+
+            // Create updated PersonUpdate with fresh data but preserving pending changes
+            const refreshedUpdate: PersonUpdate = {
+                id: freshPerson.id,
+                team_id: update.team_id,
+                uuid: freshPerson.uuid,
+                distinct_id: update.distinct_id,
+                properties: freshPerson.properties,
+                properties_last_updated_at: update.properties_last_updated_at,
+                properties_last_operation: update.properties_last_operation,
+                created_at: freshPerson.created_at,
+                version: freshPerson.version,
+                is_identified: freshPerson.is_identified || update.is_identified,
+                is_user_id: update.is_user_id,
+                needs_write: update.needs_write,
+                properties_to_set: update.properties_to_set,
+                properties_to_unset: update.properties_to_unset,
+                original_is_identified: update.original_is_identified,
+                original_created_at: update.original_created_at,
+            }
+
+            refreshedUpdates.push(refreshedUpdate)
+        }
+
+        return refreshedUpdates
+    }
+
+    /**
+     * Fall back to individual updates for a list of person updates.
+     * Used when batch updates fail or need to be retried individually.
+     */
+    private async fallbackToIndividualUpdates(
+        updates: PersonUpdate[],
+        updateFn: (update: PersonUpdate) => Promise<PersonUpdateResult>,
+        fallbackReason: string
+    ): Promise<FlushResult[]> {
+        personFallbackOperationsCounter.inc({
+            db_write_mode: this.options.dbWriteMode,
+            fallback_reason: fallbackReason,
+        })
+
+        const limit = pLimit(this.options.maxConcurrentUpdates)
+        const fallbackResults = await Promise.all(
+            updates.map((update) =>
                 limit(async (): Promise<FlushResult[]> => {
                     try {
-                        personWriteMethodAttemptCounter.inc({
-                            db_write_mode: this.options.dbWriteMode,
-                            method: this.options.dbWriteMode,
-                            outcome: 'attempt',
-                        })
-
                         const result = await this.withMergeRetry(
                             update,
-                            this.updatePersonAssertVersion.bind(this),
-                            'updatePersonAssertVersion',
+                            updateFn,
+                            updateFn.name,
                             this.options.maxOptimisticUpdateRetries,
                             this.options.optimisticUpdateRetryInterval
                         )
-
                         personWriteMethodAttemptCounter.inc({
                             db_write_mode: this.options.dbWriteMode,
-                            method: this.options.dbWriteMode,
+                            method: 'fallback',
                             outcome: 'success',
                         })
-
                         return result.messages.map((message) => ({
                             topicMessage: message,
                             teamId: update.team_id,
@@ -451,28 +653,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     } catch (error) {
                         return this.handleIndividualUpdateError(error, update)
                     }
-                }).catch((error) => {
-                    logger.error('Failed to update person after max retries and direct update fallback', {
-                        error,
-                        cacheKey,
-                        teamId: update.team_id,
-                        personId: update.id,
-                        distinctId: update.distinct_id,
-                        errorMessage: error instanceof Error ? error.message : String(error),
-                        errorStack: error instanceof Error ? error.stack : undefined,
-                    })
-
-                    personWriteMethodAttemptCounter.inc({
-                        db_write_mode: this.options.dbWriteMode,
-                        method: 'fallback',
-                        outcome: 'error',
-                    })
-                    throw error
                 })
             )
         )
-
-        return results.flat()
+        return fallbackResults.flat()
     }
 
     /**

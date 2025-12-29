@@ -212,8 +212,12 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
     }
 }
 
-describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: true }])(
-    'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED)',
+describe.each([
+    { PERSONS_PREFETCH_ENABLED: false, PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT' as const },
+    { PERSONS_PREFETCH_ENABLED: true, PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT' as const },
+    { PERSONS_PREFETCH_ENABLED: true, PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' as const },
+])(
+    'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED, dbWriteMode=$PERSON_BATCH_WRITING_DB_WRITE_MODE)',
     (prefetchConfig) => {
         const testWithTeamIngester = createTestWithTeamIngester(prefetchConfig)
         let clickhouse: Clickhouse
@@ -1621,353 +1625,347 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             return queryResult.map((warning: any) => ({ ...warning, details: parseJSON(warning.details) }))
         }
 
-        // TODO: Re-enable after re-adding FK constraints to posthog_persondistinctid
-        // testWithTeamIngester('alias events ordering scenario 1: original order', {}, async (ingester, hub, team) => {
-        //     const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
-        //     const user1DistinctId = 'user1-distinct-id'
-        //     const user2DistinctId = 'user2-distinct-id'
-        //     const user3DistinctId = 'user3-distinct-id'
+        testWithTeamIngester('alias events ordering scenario 1: original order', {}, async (ingester, hub, team) => {
+            const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+            const user1DistinctId = 'user1-distinct-id'
+            const user2DistinctId = 'user2-distinct-id'
+            const user3DistinctId = 'user3-distinct-id'
 
-        //     const events = [
-        //         // User 1 creation
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     name: 'User 1',
-        //                     email: `user1-${user1DistinctId}@example.com`,
-        //                     age: 30,
-        //                     test_name: testName,
-        //                 },
-        //             })
-        //             .build(),
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     new_name: 'User 1 - Updated',
-        //                 },
-        //             })
-        //             .build(),
-        //         // User 2 creation
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     name: 'User 2',
-        //                     email: `user2-${user2DistinctId}@example.com`,
-        //                     age: 30,
-        //                     test_name: testName,
-        //                 },
-        //             })
-        //             .build(),
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     new_name: 'User 2 - Updated',
-        //                 },
-        //             })
-        //             .build(),
-        //         // Merge users: alias user1 -> user2
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$create_alias')
-        //             .withProperties({
-        //                 distinct_id: user1DistinctId,
-        //                 alias: user2DistinctId,
-        //             })
-        //             .build(),
+            const events = [
+                // User 1 creation
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 1',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 1 - Updated',
+                        },
+                    })
+                    .build(),
+                // User 2 creation
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 2',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 2 - Updated',
+                        },
+                    })
+                    .build(),
+                // Merge users: alias user1 -> user2
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user1DistinctId,
+                        alias: user2DistinctId,
+                    })
+                    .build(),
 
-        //         // Create alias for user2 -> user3
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$create_alias')
-        //             .withProperties({
-        //                 distinct_id: user2DistinctId,
-        //                 alias: user3DistinctId,
-        //             })
-        //             .build(),
-        //     ]
+                // Create alias for user2 -> user3
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user2DistinctId,
+                        alias: user3DistinctId,
+                    })
+                    .build(),
+            ]
 
-        //     await ingester.handleKafkaBatch(createKafkaMessages(events))
-        //     await waitForKafkaMessages(hub)
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
 
-        //     await waitForExpect(async () => {
-        //         const events = await fetchEvents(hub, team.id)
-        //         expect(events.length).toBe(6)
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(6)
 
-        //         // TODO: Add specific assertions based on expected behavior
-        //         // All events should be processed without errors
-        //         expect(events).toBeDefined()
-        //     })
+                // All events should be processed without errors
+                expect(events).toBeDefined()
+            })
 
-        //     // fetch the person properties
-        //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.db, team.id)
-        //         expect(persons.length).toBe(1)
-        //         const personsClickhouse = await fetchPersons(hub, team.id)
-        //         expect(personsClickhouse.length).toBe(1)
-        //         expect(persons[0].properties).toMatchObject(
-        //             expect.objectContaining({
-        //                 name: 'User 1',
-        //                 new_name: 'User 1 - Updated',
-        //                 email: `user1-${user1DistinctId}@example.com`,
-        //                 age: 30,
-        //                 test_name: testName,
-        //             })
-        //         )
-        //         expect(personsClickhouse[0].properties).toMatchObject(
-        //             expect.objectContaining({
-        //                 name: 'User 1',
-        //                 new_name: 'User 1 - Updated',
-        //                 email: `user1-${user1DistinctId}@example.com`,
-        //                 age: 30,
-        //                 test_name: testName,
-        //             })
-        //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
-        //             id: persons[0].id,
-        //             team_id: team.id,
-        //         } as InternalPerson)
-        //         expect(distinctIdsPersons.length).toBe(3)
-        //         // Except distinctids to match the ids, in any order
-        //         expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
-        //             expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
-        //         )
-        //     })
-        // })
+            // fetch the person properties
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(1)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(1)
+                expect(persons[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        new_name: 'User 1 - Updated',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    })
+                )
+                expect(personsClickhouse[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        new_name: 'User 1 - Updated',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    })
+                )
+                const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+                    id: persons[0].id,
+                    team_id: team.id,
+                } as InternalPerson)
+                expect(distinctIdsPersons.length).toBe(3)
+                // Expect distinctids to match the ids, in any order
+                expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
+                )
+            })
+        })
 
-        // TODO: Re-enable after re-adding FK constraints to posthog_persondistinctid
-        // testWithTeamIngester('alias events ordering scenario 2: alias first', {}, async (ingester, hub, team) => {
-        //     const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
-        //     const user1DistinctId = 'user1-distinct-id'
-        //     const user2DistinctId = 'user2-distinct-id'
-        //     const user3DistinctId = 'user3-distinct-id'
+        testWithTeamIngester('alias events ordering scenario 2: alias first', {}, async (ingester, hub, team) => {
+            const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+            const user1DistinctId = 'user1-distinct-id'
+            const user2DistinctId = 'user2-distinct-id'
+            const user3DistinctId = 'user3-distinct-id'
 
-        //     const events = [
-        //         // User 1 creation
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     name: 'User 1',
-        //                     email: `user1-${user1DistinctId}@example.com`,
-        //                     age: 30,
-        //                     test_name: testName,
-        //                 },
-        //             })
-        //             .build(),
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     new_name: 'User 1 - Updated',
-        //                 },
-        //             })
-        //             .build(),
-        //         // User 2 creation
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withProperties({
-        //                 anon_distinct_id: user2DistinctId,
-        //                 $set: {
-        //                     name: 'User 2',
-        //                     email: `user2-${user2DistinctId}@example.com`,
-        //                     age: 30,
-        //                     test_name: testName,
-        //                 },
-        //             })
-        //             .build(),
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     new_name: 'User 2 - Updated',
-        //                 },
-        //             })
-        //             .build(),
+            const events = [
+                // User 1 creation
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 1',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 1 - Updated',
+                        },
+                    })
+                    .build(),
+                // User 2 creation
+                new EventBuilder(team, user2DistinctId)
+                    .withProperties({
+                        anon_distinct_id: user2DistinctId,
+                        $set: {
+                            name: 'User 2',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 2 - Updated',
+                        },
+                    })
+                    .build(),
 
-        //         // Create alias for user2 -> user3
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$create_alias')
-        //             .withProperties({
-        //                 distinct_id: user2DistinctId,
-        //                 alias: user3DistinctId,
-        //             })
-        //             .build(),
+                // Create alias for user2 -> user3
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user2DistinctId,
+                        alias: user3DistinctId,
+                    })
+                    .build(),
 
-        //         // Merge users: alias user1 -> user2
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$create_alias')
-        //             .withProperties({
-        //                 distinct_id: user1DistinctId,
-        //                 alias: user2DistinctId,
-        //             })
-        //             .build(),
-        //     ]
+                // Merge users: alias user1 -> user2
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user1DistinctId,
+                        alias: user2DistinctId,
+                    })
+                    .build(),
+            ]
 
-        //     await ingester.handleKafkaBatch(createKafkaMessages(events))
-        //     await waitForKafkaMessages(hub)
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
 
-        //     await waitForExpect(async () => {
-        //         const events = await fetchEvents(hub, team.id)
-        //         expect(events.length).toBe(6)
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(6)
 
-        //         // TODO: Add specific assertions based on expected behavior
-        //         // All events should be processed without errors
-        //         expect(events).toBeDefined()
-        //     })
+                // All events should be processed without errors
+                expect(events).toBeDefined()
+            })
 
-        //     // fetch the person properties
-        //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.db, team.id)
-        //         expect(persons.length).toBe(1)
-        //         const personsClickhouse = await fetchPersons(hub, team.id)
-        //         expect(personsClickhouse.length).toBe(1)
-        //         expect(persons[0].properties).toMatchObject(
-        //             expect.objectContaining({
-        //                 name: 'User 1',
-        //                 new_name: 'User 1 - Updated',
-        //                 email: `user1-${user1DistinctId}@example.com`,
-        //                 age: 30,
-        //                 test_name: testName,
-        //             })
-        //         )
-        //         expect(personsClickhouse[0].properties).toMatchObject(
-        //             expect.objectContaining({
-        //                 name: 'User 1',
-        //                 new_name: 'User 1 - Updated',
-        //                 email: `user1-${user1DistinctId}@example.com`,
-        //                 age: 30,
-        //                 test_name: testName,
-        //             })
-        //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
-        //             id: persons[0].id,
-        //             team_id: team.id,
-        //         } as InternalPerson)
-        //         expect(distinctIdsPersons.length).toBe(3)
-        //         // Except distinctids to match the ids, in any order
-        //         expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
-        //             expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
-        //         )
-        //     })
-        // })
+            // fetch the person properties
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(1)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(1)
+                expect(persons[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        new_name: 'User 1 - Updated',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    })
+                )
+                expect(personsClickhouse[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        new_name: 'User 1 - Updated',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    })
+                )
+                const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+                    id: persons[0].id,
+                    team_id: team.id,
+                } as InternalPerson)
+                expect(distinctIdsPersons.length).toBe(3)
+                // Expect distinctids to match the ids, in any order
+                expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
+                )
+            })
+        })
 
-        // TODO: Re-enable after re-adding FK constraints to posthog_persondistinctid
-        // testWithTeamIngester('alias events ordering scenario 2: user 2 first', {}, async (ingester, hub, team) => {
-        //     const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
-        //     const user1DistinctId = 'user1-distinct-id'
-        //     const user2DistinctId = 'user2-distinct-id'
-        //     const user3DistinctId = 'user3-distinct-id'
+        testWithTeamIngester('alias events ordering scenario 2: user 2 first', {}, async (ingester, hub, team) => {
+            const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+            const user1DistinctId = 'user1-distinct-id'
+            const user2DistinctId = 'user2-distinct-id'
+            const user3DistinctId = 'user3-distinct-id'
 
-        //     const events = [
-        //         // User 2 creation
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withProperties({
-        //                 anon_distinct_id: user2DistinctId,
-        //                 $set: {
-        //                     name: 'User 2',
-        //                     email: `user2-${user2DistinctId}@example.com`,
-        //                     age: 30,
-        //                     test_name: testName,
-        //                 },
-        //             })
-        //             .build(),
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     new_name: 'User 2 - Updated',
-        //                 },
-        //             })
-        //             .build(),
+            const events = [
+                // User 2 creation
+                new EventBuilder(team, user2DistinctId)
+                    .withProperties({
+                        anon_distinct_id: user2DistinctId,
+                        $set: {
+                            name: 'User 2',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 2 - Updated',
+                        },
+                    })
+                    .build(),
 
-        //         // Create alias for user2 -> user3
-        //         new EventBuilder(team, user2DistinctId)
-        //             .withEvent('$create_alias')
-        //             .withProperties({
-        //                 distinct_id: user2DistinctId,
-        //                 alias: user3DistinctId,
-        //             })
-        //             .build(),
+                // Create alias for user2 -> user3
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user2DistinctId,
+                        alias: user3DistinctId,
+                    })
+                    .build(),
 
-        //         // User 1 creation
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     name: 'User 1',
-        //                     email: `user1-${user1DistinctId}@example.com`,
-        //                     age: 30,
-        //                     test_name: testName,
-        //                 },
-        //             })
-        //             .build(),
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$identify')
-        //             .withProperties({
-        //                 $set: {
-        //                     new_name: 'User 1 - Updated',
-        //                 },
-        //             })
-        //             .build(),
+                // User 1 creation
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 1',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 1 - Updated',
+                        },
+                    })
+                    .build(),
 
-        //         // Merge users: alias user1 -> user2
-        //         new EventBuilder(team, user1DistinctId)
-        //             .withEvent('$create_alias')
-        //             .withProperties({
-        //                 distinct_id: user1DistinctId,
-        //                 alias: user2DistinctId,
-        //             })
-        //             .build(),
-        //     ]
+                // Merge users: alias user1 -> user2
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user1DistinctId,
+                        alias: user2DistinctId,
+                    })
+                    .build(),
+            ]
 
-        //     await ingester.handleKafkaBatch(createKafkaMessages(events))
-        //     await waitForKafkaMessages(hub)
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
 
-        //     await waitForExpect(async () => {
-        //         const events = await fetchEvents(hub, team.id)
-        //         expect(events.length).toBe(6)
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(6)
 
-        //         // TODO: Add specific assertions based on expected behavior
-        //         // All events should be processed without errors
-        //         expect(events).toBeDefined()
-        //     })
+                // All events should be processed without errors
+                expect(events).toBeDefined()
+            })
 
-        //     // fetch the person properties
-        //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.db, team.id)
-        //         expect(persons.length).toBe(1)
-        //         const personsClickhouse = await fetchPersons(hub, team.id)
-        //         expect(personsClickhouse.length).toBe(1)
-        //         expect(persons[0].properties).toMatchObject(
-        //             expect.objectContaining({
-        //                 name: 'User 1',
-        //                 new_name: 'User 1 - Updated',
-        //                 email: `user1-${user1DistinctId}@example.com`,
-        //                 age: 30,
-        //                 test_name: testName,
-        //             })
-        //         )
-        //         expect(personsClickhouse[0].properties).toMatchObject(
-        //             expect.objectContaining({
-        //                 name: 'User 1',
-        //                 new_name: 'User 1 - Updated',
-        //                 email: `user1-${user1DistinctId}@example.com`,
-        //                 age: 30,
-        //                 test_name: testName,
-        //             })
-        //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
-        //             id: persons[0].id,
-        //             team_id: team.id,
-        //         } as InternalPerson)
-        //         expect(distinctIdsPersons.length).toBe(3)
-        //         // Except distinctids to match the ids, in any order
-        //         expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
-        //             expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
-        //         )
-        //     })
-        // })
+            // fetch the person properties
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(1)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(1)
+                expect(persons[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        new_name: 'User 1 - Updated',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    })
+                )
+                expect(personsClickhouse[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        new_name: 'User 1 - Updated',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    })
+                )
+                const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+                    id: persons[0].id,
+                    team_id: team.id,
+                } as InternalPerson)
+                expect(distinctIdsPersons.length).toBe(3)
+                // Expect distinctids to match the ids, in any order
+                expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
+                )
+            })
+        })
 
         testWithTeamIngester(
             'alias events ordering scenario 2: user 2 first, separate batch',
