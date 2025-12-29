@@ -35,9 +35,6 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-MAX_STEP_COLUMN = 0
-COUNT_COLUMN = 1
-PERSON_ID_COLUMN = 2
 
 
 def get_actors_legacy_filters(
