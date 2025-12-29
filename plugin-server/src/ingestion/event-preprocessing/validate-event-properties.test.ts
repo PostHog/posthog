@@ -3,7 +3,7 @@ import { drop, ok } from '../pipelines/results'
 import { createValidateEventPropertiesStep } from './validate-event-properties'
 
 // Mock the dependencies
-jest.mock('../../main/ingestion-queues/metrics', () => ({
+jest.mock('~/common/metrics', () => ({
     eventDroppedCounter: {
         labels: jest.fn().mockReturnThis(),
         inc: jest.fn(),

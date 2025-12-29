@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Counter, Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
@@ -7,7 +8,6 @@ import { captureIngestionWarning } from '~/worker/ingestion/utils'
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     EventHeaders,
     HealthCheckResult,
@@ -74,6 +74,18 @@ const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
         setUsageInNonPersonEventsCounter.inc()
     }
 }
+
+const latestOffsetTimestampGauge = new Gauge({
+    name: 'latest_processed_timestamp_ms',
+    help: 'Timestamp of the latest offset that has been committed.',
+    labelNames: ['topic', 'partition', 'groupId'],
+    aggregator: 'max',
+})
+
+const setUsageInNonPersonEventsCounter = new Counter({
+    name: 'set_usage_in_non_person_events',
+    help: 'Count of events where $set usage was found in non-person events',
+})
 
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'

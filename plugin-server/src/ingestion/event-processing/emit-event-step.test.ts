@@ -2,8 +2,8 @@ import { Message } from 'node-rdkafka'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { ingestionLagGauge, ingestionLagHistogram } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, ProjectId, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { castTimestampOrNow } from '../../utils/utils'
@@ -25,7 +25,7 @@ jest.mock('../../worker/ingestion/event-pipeline/metrics', () => ({
 }))
 
 // Mock the ingestion lag metrics
-jest.mock('../../main/ingestion-queues/metrics', () => ({
+jest.mock('~/common/metrics', () => ({
     ingestionLagGauge: {
         labels: jest.fn().mockReturnValue({
             set: jest.fn(),

@@ -24,11 +24,11 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
+import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
-import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
-import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { SessionRecordingIngester } from './session-recording/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -144,7 +144,7 @@ export class PluginServer {
                     const postgres = actualHub.postgres
                     const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(actualHub, false, postgres, producer)
+                    const ingester = new SessionRecordingIngester(actualHub, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -156,7 +156,7 @@ export class PluginServer {
                     const postgres = actualHub.postgres
                     const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(actualHub, true, postgres, producer)
+                    const ingester = new SessionRecordingIngester(actualHub, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
