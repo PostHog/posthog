@@ -252,16 +252,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     )}
                 </LemonField>
                 {survey.questions.length > 1 && (
-                    <LemonField name="optional" className="my-2">
+                    <LemonField name="optional">
                         <LemonCheckbox label="Optional" checked={!!question.optional} />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Open && (
-                    <LemonField
-                        name="validation"
-                        label="Validation rules"
-                        info="Add validation rules to ensure responses meet specific requirements. Requires posthog-js v1.X.X+ and is not supported on mobile SDKs."
-                    >
+                    <LemonField name="validation">
                         {({ value, onChange }) => (
                             <ValidationRulesEditor
                                 value={(question as BasicSurveyQuestion).validation ?? value}

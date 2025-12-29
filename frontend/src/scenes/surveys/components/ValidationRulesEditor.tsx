@@ -53,8 +53,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
 
     return (
         <div className="flex flex-row items-center gap-2">
-            <LemonCheckbox checked={hasLengthLimit} onChange={toggleLengthLimit} />
-            <span>Message length</span>
+            <LemonCheckbox label="Validate message length" checked={hasLengthLimit} onChange={toggleLengthLimit} />
             <LemonInput
                 type="number"
                 min={1}
