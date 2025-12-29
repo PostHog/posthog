@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { mutatePostIngestionEventWithElementsList } from '~/utils/event'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/utils/utils'
 
 import {
@@ -13,7 +14,6 @@ import {
     Team,
 } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { counterParseError } from '../consumers/metrics'

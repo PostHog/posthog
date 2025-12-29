@@ -336,10 +336,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
 
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
                 const [webhookBatch, pluginBatch] = await Promise.all([
-                    // NOTE: Temporary code to allow us to swap over
-                    this.hub.CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS
-                        ? this.legacyWebhookService.processBatch(messages)
-                        : Promise.resolve({ backgroundTask: Promise.resolve() }),
+                    this.legacyWebhookService.processBatch(messages),
                     this._parseKafkaBatch(messages).then((invocations) => this.processBatch(invocations)),
                 ])
                 return { backgroundTask: Promise.all([webhookBatch.backgroundTask, pluginBatch.backgroundTask]) }
