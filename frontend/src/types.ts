@@ -3306,7 +3306,6 @@ export interface ProductTourDisplayConditions {
         }[]
     } | null
     events?: {
-        repeatedActivation?: boolean
         values: SurveyEventsWithProperties[]
     } | null
     cancelEvents?: {
@@ -3314,9 +3313,22 @@ export interface ProductTourDisplayConditions {
     } | null
 }
 
+export interface ProductTourAppearance {
+    backgroundColor?: string
+    textColor?: string
+    buttonColor?: string
+    borderRadius?: number
+    buttonBorderRadius?: number
+    borderColor?: string
+    fontFamily?: string
+    boxShadow?: string
+    showOverlay?: boolean
+    whiteLabel?: boolean
+}
+
 export interface ProductTourContent {
     steps: ProductTourStep[]
-    appearance?: Record<string, any>
+    appearance?: ProductTourAppearance
     conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
@@ -3424,6 +3436,8 @@ export type SurveyQuestionDescriptionContentType = 'html' | 'text'
 
 export interface SurveyAppearance {
     backgroundColor?: string
+    // Optional override for main survey text color. If not set, auto-calculated from backgroundColor.
+    textColor?: string
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
@@ -3454,6 +3468,7 @@ export interface SurveyAppearance {
     maxWidth?: string
     textSubtleColor?: string
     inputBackground?: string
+    // Optional override for input and rating button text color. If not set, auto-calculated from inputBackground.
     inputTextColor?: string
     boxPadding?: string
     boxShadow?: string
@@ -4728,8 +4743,10 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
+    | 'insight_variable'
     | 'integration'
     | 'live_debugger'
+    | 'llm_gateway'
     | 'llm_prompt'
     | 'llm_provider_key'
     | 'logs'
@@ -4759,6 +4776,7 @@ export type APIScopeAction = 'read' | 'write'
 
 export type APIScope = {
     key: APIScopeObject
+    objectName: string
     objectPlural: string
     info?: string | JSX.Element
     disabledActions?: APIScopeAction[]
@@ -6303,6 +6321,90 @@ export interface QuickFilter {
     type: QuickFilterType
     options: QuickFilterOption[]
     contexts: QuickFilterContext[]
+    created_at: string
+    updated_at: string
+}
+
+// Approval Workflows
+export enum ChangeRequestState {
+    Pending = 'pending',
+    Approved = 'approved',
+    Applied = 'applied',
+    Rejected = 'rejected',
+    Expired = 'expired',
+    Failed = 'failed',
+}
+
+export enum ApprovalDecision {
+    Approved = 'approved',
+    Rejected = 'rejected',
+}
+
+export enum ValidationStatus {
+    Valid = 'valid',
+    Invalid = 'invalid',
+    Expired = 'expired',
+    Stale = 'stale',
+}
+
+export interface Approval {
+    id: string
+    created_by: UserBasicType
+    decision: ApprovalDecision
+    reason: string
+    created_at: string
+}
+
+export interface DecisionAnalysis {
+    status: ChangeRequestState
+    summary: string
+    details: string
+    votes: {
+        approved: number
+        rejected: number
+        total: number
+        quorum: number
+    }
+}
+
+export interface ChangeRequest {
+    id: string
+    action_key: string
+    action_version: number
+    resource_type: string
+    resource_id: string | null
+    intent: Record<string, any>
+    intent_display: Record<string, any>
+    policy_snapshot: Record<string, any>
+    validation_status: ValidationStatus
+    validation_errors: Record<string, any> | null
+    validated_at: string | null
+    state: ChangeRequestState
+    created_by: UserBasicType
+    applied_by: UserBasicType | null
+    created_at: string
+    updated_at: string
+    expires_at: string
+    applied_at: string | null
+    apply_error: string
+    result_data: Record<string, any> | null
+    approvals: Approval[]
+    can_approve: boolean
+    can_cancel: boolean
+    is_requester: boolean
+    user_decision: string | null
+}
+
+export interface ApprovalPolicy {
+    id: string
+    action_key: string
+    conditions: Record<string, any>
+    approver_config: Record<string, any>
+    allow_self_approve: boolean
+    bypass_roles: string[]
+    expires_after: string
+    enabled: boolean
+    created_by: UserBasicType
     created_at: string
     updated_at: string
 }

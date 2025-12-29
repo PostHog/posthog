@@ -32,6 +32,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
@@ -62,7 +63,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import BreakGlassBurstThrottle, BreakGlassSustainedThrottle, ClickHouseBurstRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
@@ -134,14 +135,24 @@ def get_person_name_helper(
     return str(person_pk)
 
 
-class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+class PersonsWebBurstThrottle(UserOrEmailRateThrottle):
     scope = "persons_burst"
     rate = "180/minute"
 
 
-class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
+class PersonsWebSustainedThrottle(UserOrEmailRateThrottle):
     scope = "persons_sustained"
     rate = "1200/hour"
+
+
+class PersonsDeleteBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "persons_delete_burst"
+    rate = "480/minute"
+
+
+class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "persons_delete_sustained"
+    rate = "4800/hour"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -224,12 +235,23 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [
-        ClickHouseBurstRateThrottle,
-        PersonsBreakGlassBurstThrottle,
-        PersonsBreakGlassSustainedThrottle,
-    ]
     lifecycle_class = Lifecycle
+
+    def get_throttles(self):
+        # API is commonly used for data deletion, so we want to throttle that less aggressively
+        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if self.action in ("destroy", "bulk_delete", "delete_events", "delete_recordings"):
+                return [PersonsDeleteBurstThrottle(), PersonsDeleteSustainedThrottle()]
+            else:
+                return [ClickHouseBurstRateThrottle()]
+
+        # We have seen issues in the past with the app hammering the API so for app authenticated requests
+        # we still want some throttle protection
+        return [
+            PersonsWebBurstThrottle(),
+            PersonsWebSustainedThrottle(),
+        ]
+
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
@@ -340,6 +362,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @extend_schema(
+        exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         parameters=[
             OpenApiParameter(
                 "delete_events",
@@ -355,25 +378,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            person_id = person.id
-            delete_person(person=person)
-            self.perform_destroy(person)
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=person_id,
-                scope="Person",
-                activity="deleted",
-                detail=Detail(name=str(person.uuid)),
+            # Convert query params to request data format expected by bulk_delete
+            self._bulk_delete_persons(
+                request=request,
+                ids=[str(person.uuid)],
+                delete_events="delete_events" in request.GET,
+                delete_recordings="delete_recordings" in request.GET,
+                keep_person="keep_person" in request.GET,
             )
-            # Once the person is deleted, queue deletion of associated data, if that was requested
-            if "delete_events" in request.GET:
-                self._queue_event_deletion(person)
-            if "delete_recordings" in request.GET:
-                self._queue_delete_recordings(person)
             return response.Response(status=202)
+
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
@@ -383,6 +397,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "delete_events",
                 OpenApiTypes.BOOL,
                 description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                default=False,
+            ),
+            OpenApiParameter(
+                "delete_recordings",
+                OpenApiTypes.BOOL,
+                description="If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday",
+                default=False,
+            ),
+            OpenApiParameter(
+                "keep_person",
+                OpenApiTypes.BOOL,
+                description="If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them",
                 default=False,
             ),
             OpenApiParameter(
@@ -402,38 +428,74 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
         """
-        if distinct_ids := request.data.get("distinct_ids"):
+
+        delete_events = bool(request.data.get("delete_events"))
+        delete_recordings = bool(request.data.get("delete_recordings"))
+        keep_person = bool(request.data.get("keep_person"))
+
+        self._bulk_delete_persons(
+            request=request,
+            distinct_ids=request.data.get("distinct_ids"),
+            ids=request.data.get("ids"),
+            delete_events=delete_events,
+            delete_recordings=delete_recordings,
+            keep_person=keep_person,
+        )
+
+        return response.Response(status=202)
+
+    def _bulk_delete_persons(
+        self,
+        request: request.Request,
+        distinct_ids: builtins.list[str] | None = None,
+        ids: builtins.list[str] | None = None,
+        delete_events: bool = False,
+        delete_recordings: bool = False,
+        keep_person: bool = False,
+    ) -> None:
+        """
+        This method is meant to be the canonical way to delete anything via the Persons API.
+        """
+
+        if distinct_ids:
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
             # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
             person_ids = PersonDistinctId.objects.filter(
                 team_id=self.team_id, distinct_id__in=distinct_ids
             ).values_list("person_id", flat=True)
-            persons = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
-        elif ids := request.data.get("ids"):
+            persons_queryset = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
+        elif ids:
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
+            persons_queryset = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
-        for person in persons:
-            delete_person(person=person)
-            self.perform_destroy(person)
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=person.pk,
-                scope="Person",
-                activity="deleted",
-                detail=Detail(name=str(person.uuid)),
-            )
-            # Once the person is deleted, queue deletion of associated data, if that was requested
-            if request.data.get("delete_events"):
-                self._queue_event_deletion(person)
-        return response.Response(status=202)
+        # Materialize queryset once before any deletions to avoid re-evaluating
+        # after records are deleted (which would return empty results)
+        persons = list(persons_queryset)
+
+        if not keep_person:
+            for person in persons:
+                delete_person(person=person)
+                self.perform_destroy(person)
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team_id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=person.pk,
+                    scope="Person",
+                    activity="deleted",
+                    detail=Detail(name=str(person.uuid)),
+                )
+
+        if delete_events:
+            self._queue_event_deletion(persons)
+
+        if delete_recordings:
+            self._queue_delete_recordings(persons)
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
@@ -879,68 +941,35 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
-    def _queue_delete_recordings(self, person: Person) -> None:
-        temporal = sync_connect()
-        input = RecordingsWithPersonInput(
-            distinct_ids=person.distinct_ids,
-            team_id=self.team_id,
-        )
-        workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
-
-        asyncio.run(
-            temporal.start_workflow(
-                "delete-recordings-with-person",
-                input,
-                id=workflow_id,
-                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                retry_policy=common.RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(minutes=1),
-                ),
-            )
-        )
-
     @extend_schema(
+        exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         description="Queue deletion of all recordings associated with this person.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_recordings(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         """
-        Queue deletion of all recordings for a person without deleting the person record itself.
+        [DEPRECATED] Queue deletion of all recordings for a person without deleting the person record itself.
         """
         try:
             person = self.get_object()
-            self._queue_delete_recordings(person)
+            self._queue_delete_recordings([person])
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    def _queue_event_deletion(self, person: Person) -> None:
-        """Helper to queue deletion of all events for a person."""
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Person,
-                    team_id=self.team_id,
-                    key=str(person.uuid),
-                    created_by=cast(User, self.request.user),
-                )
-            ],
-            ignore_conflicts=True,
-        )
-
     @extend_schema(
+        exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
         description="Queue deletion of all events associated with this person. The task runs during non-peak hours.",
     )
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_events(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         """
-        Queue deletion of all events for a person without deleting the person record itself.
+        [DEPRECATED] Queue deletion of all events for a person without deleting the person record itself.
         The deletion task runs during non-peak hours.
         """
         try:
             person = self.get_object()
-            self._queue_event_deletion(person)
+            self._queue_event_deletion([person])
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -957,6 +986,51 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reset_deleted_person_distinct_ids(self.team_id, distinct_id)
 
         return response.Response(status=202)
+
+    def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
+        """Helper to queue deletion of all events for a person."""
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(
+                    deletion_type=DeletionType.Person,
+                    team_id=self.team_id,
+                    key=str(person.uuid),
+                    created_by=cast(User, self.request.user),
+                )
+                for person in persons
+            ],
+            ignore_conflicts=True,
+        )
+
+    def _queue_delete_recordings(self, persons: builtins.list[Person]) -> None:
+        if not persons:
+            return
+
+        temporal = sync_connect()
+
+        async def start_all_workflows():
+            tasks = []
+            for person in persons:
+                workflow_input = RecordingsWithPersonInput(
+                    distinct_ids=person.distinct_ids,
+                    team_id=self.team_id,
+                )
+                workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
+                tasks.append(
+                    temporal.start_workflow(
+                        "delete-recordings-with-person",
+                        workflow_input,
+                        id=workflow_id,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
+                )
+            await asyncio.gather(*tasks)
+
+        asyncio.run(start_all_workflows())
 
 
 def paginated_result(

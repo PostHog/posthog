@@ -1886,7 +1886,6 @@
         "AssistantTool": {
             "enum": [
                 "search_session_recordings",
-                "generate_hogql_query",
                 "fix_hogql_query",
                 "analyze_user_interviews",
                 "create_and_query_insight",
@@ -1900,7 +1899,6 @@
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
-                "session_summarization",
                 "create_dashboard",
                 "edit_current_dashboard",
                 "read_taxonomy",
@@ -1925,7 +1923,8 @@
                 "filter_session_recordings",
                 "create_insight",
                 "create_form",
-                "task"
+                "task",
+                "upsert_dashboard"
             ],
             "type": "string"
         },
@@ -2515,6 +2514,9 @@
                     "$ref": "#/definitions/integer"
                 },
                 "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_path_cleaning": {
                     "type": "boolean"
                 },
                 "breakdown_type": {
@@ -10655,6 +10657,7 @@
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
+                "revenue_analytics_mrr",
                 "revenue_analytics_product",
                 "revenue_analytics_revenue_item",
                 "revenue_analytics_subscription"
@@ -21253,6 +21256,7 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "logs_docs_viewed",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -21285,6 +21289,16 @@
                 "revenue_analytics_onboarding_completed",
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
+                "marketing_analytics_source_configured",
+                "marketing_analytics_settings_updated",
+                "marketing_analytics_dashboard_interaction",
+                "marketing_analytics_ads_integration_visited",
+                "customer_analytics_dashboard_business_mode_changed",
+                "customer_analytics_dashboard_configuration_button_clicked",
+                "customer_analytics_dashboard_filters_changed",
+                "customer_analytics_dashboard_events_saved",
+                "customer_analytics_viewed",
+                "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "vercel_integration"
@@ -26499,6 +26513,12 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
+                },
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
                 },
                 "meanRetentionCalculation": {
                     "enum": ["simple", "weighted", "none"],

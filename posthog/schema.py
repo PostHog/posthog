@@ -284,7 +284,6 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
@@ -298,7 +297,6 @@ class AssistantTool(StrEnum):
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
     READ_TAXONOMY = "read_taxonomy"
@@ -324,6 +322,7 @@ class AssistantTool(StrEnum):
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
     TASK = "task"
+    UPSERT_DASHBOARD = "upsert_dashboard"
 
 
 class AssistantToolCall(BaseModel):
@@ -964,6 +963,7 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
+    REVENUE_ANALYTICS_MRR = "revenue_analytics_mrr"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
     REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
@@ -2619,6 +2619,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    LOGS_DOCS_VIEWED = "logs_docs_viewed"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2651,6 +2652,18 @@ class ProductIntentContext(StrEnum):
     REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
     REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
+    MARKETING_ANALYTICS_SOURCE_CONFIGURED = "marketing_analytics_source_configured"
+    MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
+    MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
+    MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = "marketing_analytics_ads_integration_visited"
+    CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = "customer_analytics_dashboard_business_mode_changed"
+    CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = (
+        "customer_analytics_dashboard_configuration_button_clicked"
+    )
+    CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = "customer_analytics_dashboard_filters_changed"
+    CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED = "customer_analytics_dashboard_events_saved"
+    CUSTOMER_ANALYTICS_VIEWED = "customer_analytics_viewed"
+    CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = "customer_analytics_usage_metric_created"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     VERCEL_INTEGRATION = "vercel_integration"
@@ -4238,6 +4251,7 @@ class BreakdownFilter(BaseModel):
     breakdown_histogram_bin_count: int | None = None
     breakdown_limit: int | None = None
     breakdown_normalize_url: bool | None = None
+    breakdown_path_cleaning: bool | None = None
     breakdown_type: BreakdownType | None = BreakdownType.EVENT
     breakdowns: list[Breakdown] | None = Field(default=None, max_length=3)
 
@@ -12092,6 +12106,7 @@ class RetentionFilter(BaseModel):
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
+    goalLines: list[GoalLine] | None = None
     meanRetentionCalculation: MeanRetentionCalculation | None = None
     minimumOccurrences: int | None = None
     period: RetentionPeriod | None = RetentionPeriod.DAY

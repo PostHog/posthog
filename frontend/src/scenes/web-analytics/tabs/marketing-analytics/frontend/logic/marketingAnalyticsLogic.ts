@@ -21,6 +21,8 @@ import {
     MarketingAnalyticsColumnsSchemaNames,
     NativeMarketingSource,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     SourceMap,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
@@ -180,6 +182,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
             ['addOrUpdateConversionGoal'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
@@ -219,8 +223,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
+        setInitialized: true,
     }),
     reducers({
+        initialized: [
+            false,
+            {
+                setInitialized: () => true,
+            },
+        ],
         draftConversionGoal: [
             null as ConversionGoalFilter | null,
             {
@@ -707,64 +718,99 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     // Note: We don't use urlToAction here to avoid sync loops.
     // URL params are read once on mount in afterMount instead.
-    listeners(({ actions, values }) => ({
-        applyConversionGoal: () => {
-            const goal = {
-                ...values.conversionGoalInput,
-                conversion_goal_name: values.uniqueConversionGoalName,
+    listeners(({ actions, values }) => {
+        const trackDashboardInteraction = (): void => {
+            // Only track after initialization to avoid tracking initial render/setup
+            if (!values.initialized) {
+                return
             }
-            actions.setDraftConversionGoal(goal)
-            actions.setConversionGoalInput(goal)
-            actions.hideConversionGoalModal()
-        },
-        saveConversionGoal: () => {
-            // First save the draft goal to the conversion_goals list
-            if (values.draftConversionGoal) {
-                actions.addOrUpdateConversionGoal(values.draftConversionGoal)
-            }
-            // Then clear the draft and input state (resets UI)
-            actions.setDraftConversionGoal(null)
-            actions.setConversionGoalInput({
-                ...defaultConversionGoalFilter,
-                conversion_goal_id: uuid(),
-                conversion_goal_name: '',
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_DASHBOARD_INTERACTION,
             })
-            actions.hideConversionGoalModal()
-        },
-        clearConversionGoal: () => {
-            actions.setDraftConversionGoal(null)
-            actions.setConversionGoalInput({
-                ...defaultConversionGoalFilter,
-                conversion_goal_id: uuid(),
-                conversion_goal_name: '',
-            })
-            actions.hideConversionGoalModal()
-        },
-        loadConversionGoal: ({ goal }) => {
-            // Generate new ID so changes are always detected when applying
-            actions.setConversionGoalInput({
-                ...goal,
-                conversion_goal_id: uuid(),
-            })
-        },
-        loadSourcesSuccess: () => {
-            // Clean up integrationFilter if it contains IDs of sources that no longer exist
-            const currentFilter = values.integrationFilter
-            if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
-                const availableSourceIds = values.allAvailableSources.map((s) => s.id)
-                const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
-                    availableSourceIds.includes(id)
-                )
+        }
 
-                if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
-                    actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+        return {
+            // Track dashboard interactions for filters and chart controls
+            setDates: trackDashboardInteraction,
+            setInterval: trackDashboardInteraction,
+            setCompareFilter: trackDashboardInteraction,
+            setIntegrationFilter: trackDashboardInteraction,
+            setChartDisplayType: trackDashboardInteraction,
+            setTileColumnSelection: trackDashboardInteraction,
+            reloadAll: trackDashboardInteraction,
+            applyConversionGoal: [
+                () => {
+                    const goal = {
+                        ...values.conversionGoalInput,
+                        conversion_goal_name: values.uniqueConversionGoalName,
+                    }
+                    actions.setDraftConversionGoal(goal)
+                    actions.setConversionGoalInput(goal)
+                    actions.hideConversionGoalModal()
+                },
+                trackDashboardInteraction,
+            ],
+            saveConversionGoal: [
+                () => {
+                    // First save the draft goal to the conversion_goals list
+                    if (values.draftConversionGoal) {
+                        actions.addOrUpdateConversionGoal(values.draftConversionGoal)
+                    }
+                    // Then clear the draft and input state (resets UI)
+                    actions.setDraftConversionGoal(null)
+                    actions.setConversionGoalInput({
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    })
+                    actions.hideConversionGoalModal()
+                },
+                trackDashboardInteraction,
+            ],
+            clearConversionGoal: [
+                () => {
+                    actions.setDraftConversionGoal(null)
+                    actions.setConversionGoalInput({
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    })
+                    actions.hideConversionGoalModal()
+                },
+                trackDashboardInteraction,
+            ],
+            loadConversionGoal: ({ goal }) => {
+                // Generate new ID so changes are always detected when applying
+                actions.setConversionGoalInput({
+                    ...goal,
+                    conversion_goal_id: uuid(),
+                })
+            },
+            loadSourcesSuccess: () => {
+                // Clean up integrationFilter if it contains IDs of sources that no longer exist
+                const currentFilter = values.integrationFilter
+                if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
+                    const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                    const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
+                        availableSourceIds.includes(id)
+                    )
+
+                    if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
+                        actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                    }
                 }
-            }
 
-            // Reload all queries to reflect the updated sources
-            actions.reloadAll()
-        },
-    })),
+                // Reload all queries to reflect the updated sources
+                actions.reloadAll()
+
+                // Mark as initialized after initial data load to enable interaction tracking
+                if (!values.initialized) {
+                    actions.setInitialized()
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         // Read URL params on initial mount (one-time sync from URL)
         const searchParams = new URLSearchParams(window.location.search)

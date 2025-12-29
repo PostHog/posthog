@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { handleApprovalRequired } from 'lib/approvals/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -1128,7 +1129,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
-        updateFeatureFlagActiveFailure: ({ error }) => {
+        updateFeatureFlagActiveFailure: ({ error, errorObject }) => {
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                return
+            }
+
             lemonToast.error(`Failed to toggle flag: ${error}`)
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
@@ -1137,6 +1142,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+        },
+        saveFeatureFlagFailure: ({ error, errorObject }) => {
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                // Redirect to detail page so user can see the CR banner
+                router.actions.replace(urls.featureFlag(values.featureFlag.id))
+                actions.editFeatureFlag(false)
+                return
+            }
+
+            lemonToast.error(`Failed to save flag: ${error}`)
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {

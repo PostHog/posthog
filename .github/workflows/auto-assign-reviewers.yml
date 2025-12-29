@@ -16,7 +16,6 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     assign-reviewers:
@@ -24,27 +23,31 @@ jobs:
         if: github.event.pull_request.draft == false
 
         steps:
+            # GitHub app token is required because GITHUB_TOKEN can't assign team members as reviewers (requires org-level permission)
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
             - name: Checkout master branch
               uses: actions/checkout@v6
               with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  # this value MUST be set to `master` to avoid executing untrusted code.
+                  # we execute assign-reviewers.js below from whatever branch is checked out
                   ref: master
-
-            # We're always running against master branch, but the PR might not be against master
-            # so we need to fetch both the head and base branches.
-            - name: Fetch head and base branches
-              run: |
-                  git fetch origin ${{ github.event.pull_request.head.sha }}
-                  git fetch origin ${{ github.event.pull_request.base.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: '20'
+                  node-version: '24'
 
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script
               env:
-                  GITHUB_TOKEN: ${{ github.token }}
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
