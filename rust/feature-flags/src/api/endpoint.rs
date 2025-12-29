@@ -298,9 +298,10 @@ pub async fn flags(
     // Guard auto-emits on early return
     if !state.ip_rate_limiter.allow_request(&ip_string) {
         guard.log_mut().rate_limited = true;
-        guard.log_mut().http_status = 429;
-        guard.log_mut().error_code = Some("ip_rate_limited".to_string());
-        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+        guard
+            .log_mut()
+            .emit_for_error(&FlagError::ClientFacing(ClientFacingError::IpRateLimited));
+        return Err(FlagError::ClientFacing(ClientFacingError::IpRateLimited));
     }
 
     // Check token-based rate limit
@@ -310,9 +311,10 @@ pub async fn flags(
         decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
     if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
         guard.log_mut().rate_limited = true;
-        guard.log_mut().http_status = 429;
-        guard.log_mut().error_code = Some("token_rate_limited".to_string());
-        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+        guard.log_mut().emit_for_error(&FlagError::ClientFacing(
+            ClientFacingError::TokenRateLimited,
+        ));
+        return Err(FlagError::ClientFacing(ClientFacingError::TokenRateLimited));
     }
 
     // Parse version from query params

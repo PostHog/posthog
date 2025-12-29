@@ -27,6 +27,10 @@ pub enum ClientFacingError {
     Unauthorized(String),
     #[error("Rate limited")]
     RateLimited,
+    #[error("IP rate limited")]
+    IpRateLimited,
+    #[error("Token rate limited")]
+    TokenRateLimited,
     #[error("billing limit reached")]
     BillingLimit,
     #[error("Service unavailable")]
@@ -114,6 +118,8 @@ impl FlagError {
             FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => "bad_request",
             FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => "unauthorized",
             FlagError::ClientFacing(ClientFacingError::RateLimited) => "rate_limited",
+            FlagError::ClientFacing(ClientFacingError::IpRateLimited) => "ip_rate_limited",
+            FlagError::ClientFacing(ClientFacingError::TokenRateLimited) => "token_rate_limited",
             FlagError::ClientFacing(ClientFacingError::BillingLimit) => "billing_limit",
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => "service_unavailable",
             FlagError::Internal(_) => "internal_error",
@@ -151,7 +157,9 @@ impl FlagError {
         match self {
             FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => 400,
             FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => 401,
-            FlagError::ClientFacing(ClientFacingError::RateLimited) => 429,
+            FlagError::ClientFacing(ClientFacingError::RateLimited)
+            | FlagError::ClientFacing(ClientFacingError::IpRateLimited)
+            | FlagError::ClientFacing(ClientFacingError::TokenRateLimited) => 429,
             FlagError::ClientFacing(ClientFacingError::BillingLimit) => 402,
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => 503,
             FlagError::RequestDecodingError(_)
@@ -233,7 +241,9 @@ impl IntoResponse for FlagError {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
                 ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
-                ClientFacingError::RateLimited => {
+                ClientFacingError::RateLimited
+                | ClientFacingError::IpRateLimited
+                | ClientFacingError::TokenRateLimited => {
                     let response = AuthenticationErrorResponse {
                         error_type: "validation_error".to_string(),
                         code: "rate_limit_exceeded".to_string(),
@@ -241,7 +251,7 @@ impl IntoResponse for FlagError {
                         attr: None,
                     };
                     return (StatusCode::TOO_MANY_REQUESTS, Json(response)).into_response();
-                },
+                }
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },
             FlagError::Internal(msg) => {
@@ -586,6 +596,8 @@ mod tests {
             FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())),
             FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())),
             FlagError::ClientFacing(ClientFacingError::RateLimited),
+            FlagError::ClientFacing(ClientFacingError::IpRateLimited),
+            FlagError::ClientFacing(ClientFacingError::TokenRateLimited),
             FlagError::ClientFacing(ClientFacingError::BillingLimit),
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
             FlagError::Internal("test".to_string()),

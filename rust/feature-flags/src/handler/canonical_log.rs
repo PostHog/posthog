@@ -86,12 +86,15 @@ impl CanonicalLogLine {
         // Truncate distinct_id to prevent log line explosion from long IDs.
         let distinct_id = self.distinct_id.as_ref().map(|d| truncate_chars(d, 64));
 
+        // Truncate user_agent to prevent log bloat from very long headers (some bots send KB+).
+        let user_agent = self.user_agent.as_ref().map(|ua| truncate_chars(ua, 512));
+
         tracing::info!(
             request_id = %self.request_id,
             team_id = ?self.team_id,
             distinct_id = ?distinct_id,
             ip = %self.ip,
-            user_agent = ?self.user_agent,
+            user_agent = ?user_agent,
             lib = ?self.lib,
             lib_version = ?self.lib_version,
             api_version = ?self.api_version,
