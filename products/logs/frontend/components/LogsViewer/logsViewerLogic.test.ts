@@ -593,6 +593,63 @@ describe('logsViewerLogic', () => {
         })
     })
 
+    describe('attribute columns', () => {
+        beforeEach(() => {
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
+            logic.mount()
+        })
+
+        describe('moveAttributeColumn', () => {
+            beforeEach(async () => {
+                // Set up initial columns: [A, B, C]
+                logic.actions.toggleAttributeColumn('A')
+                logic.actions.toggleAttributeColumn('B')
+                logic.actions.toggleAttributeColumn('C')
+                await expectLogic(logic).toFinishAllListeners()
+            })
+
+            it('moves column left', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('B', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['B', 'A', 'C'],
+                })
+            })
+
+            it('moves column right', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('B', 'right')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'C', 'B'],
+                })
+            })
+
+            it('does nothing when moving first column left', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('A', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+
+            it('does nothing when moving last column right', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('C', 'right')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+
+            it('does nothing for non-existent column', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.moveAttributeColumn('Z', 'left')
+                }).toMatchValues({
+                    attributeColumns: ['A', 'B', 'C'],
+                })
+            })
+        })
+    })
+
     describe('per-row prettification', () => {
         beforeEach(() => {
             logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
