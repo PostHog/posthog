@@ -233,7 +233,7 @@ def _parse_migration_error(stderr: str, stdout: str) -> MigrationResult:
         failed_migration = (match.group(1), match.group(2))
 
     # Check for duplicate column error
-    if "DuplicateColumn" in stderr or 'column "' in stderr and "already exists" in stderr:
+    if ("DuplicateColumn" in stderr) or ('column "' in stderr and "already exists" in stderr):
         return MigrationResult(
             success=False,
             error_type="duplicate_column",
@@ -242,7 +242,7 @@ def _parse_migration_error(stderr: str, stdout: str) -> MigrationResult:
         )
 
     # Check for duplicate table/relation error
-    if "DuplicateTable" in stderr or 'relation "' in stderr and "already exists" in stderr:
+    if ("DuplicateTable" in stderr) or ('relation "' in stderr and "already exists" in stderr):
         return MigrationResult(
             success=False,
             error_type="duplicate_table",
