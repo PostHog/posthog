@@ -310,16 +310,21 @@ export class HogTransformerService {
         }
 
         // Use direct property assignment instead of spreading to avoid copying the entire object
-        if (transformationsFailed.length > 0) {
-            event.properties!.$transformations_failed = transformationsFailed
-        }
-
-        if (transformationsSkipped.length > 0) {
-            event.properties!.$transformations_skipped = transformationsSkipped
-        }
-
-        if (transformationsSucceeded.length > 0) {
-            event.properties!.$transformations_succeeded = transformationsSucceeded
+        if (
+            transformationsFailed.length > 0 ||
+            transformationsSkipped.length > 0 ||
+            transformationsSucceeded.length > 0
+        ) {
+            event.properties = event.properties || {}
+            if (transformationsFailed.length > 0) {
+                event.properties.$transformations_failed = transformationsFailed
+            }
+            if (transformationsSkipped.length > 0) {
+                event.properties.$transformations_skipped = transformationsSkipped
+            }
+            if (transformationsSucceeded.length > 0) {
+                event.properties.$transformations_succeeded = transformationsSucceeded
+            }
         }
 
         return {
