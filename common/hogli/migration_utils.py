@@ -119,16 +119,15 @@ def cache_migration_file(app: str, name: str, source_path: Path) -> bool:
         True if caching succeeded, False if app name is invalid
 
     Raises:
-        OSError: If the file copy operation fails
+        OSError: If creating the cache directory or copying the file fails
     """
     try:
         cache_path = get_cache_path(app, name)
     except ValueError:
         return False
 
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-
     try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, cache_path)
         return True
     except OSError as e:
