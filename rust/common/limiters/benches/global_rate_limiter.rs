@@ -182,14 +182,14 @@ fn bench_local_cache_hit(c: &mut Criterion) {
 
     // Pre-populate the local cache by doing an initial evaluation (reads from Redis)
     rt.block_on(async {
-        let _ = limiter.update_eval_key("cache_hit_key", 1, None).await;
+        let _ = limiter.check_limit("cache_hit_key", 1, None).await;
         tokio::time::sleep(Duration::from_millis(10)).await;
     });
 
     c.bench_function("local_cache_hit", |b| {
         b.to_async(&rt).iter(|| async {
             black_box(track_result(
-                limiter.update_eval_key("cache_hit_key", 1, None).await,
+                limiter.check_limit("cache_hit_key", 1, None).await,
             ))
         });
     });
@@ -231,11 +231,7 @@ fn bench_redis_cache_miss(c: &mut Criterion) {
             key_counter = (key_counter + 1) % PRIMED_KEY_COUNT;
             let key = format!("primed_miss_key_{key_counter}");
             let limiter_ref = &limiter;
-            async move {
-                black_box(track_result(
-                    limiter_ref.update_eval_key(&key, 1, None).await,
-                ))
-            }
+            async move { black_box(track_result(limiter_ref.check_limit(&key, 1, None).await)) }
         });
     });
 
@@ -307,9 +303,7 @@ fn bench_high_cardinality(c: &mut Criterion) {
                 async move {
                     for i in 0..n {
                         let key = format!("hc_key_{i}");
-                        black_box(track_result(
-                            limiter_ref.update_eval_key(&key, 1, None).await,
-                        ));
+                        black_box(track_result(limiter_ref.check_limit(&key, 1, None).await));
                     }
                 }
             });
@@ -343,9 +337,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
     // Warm up local cache for cache_hot keys
     rt.block_on(async {
         for i in 0..100 {
-            let _ = limiter
-                .update_eval_key(&format!("e2e_key_{i}"), 1, None)
-                .await;
+            let _ = limiter.check_limit(&format!("e2e_key_{i}"), 1, None).await;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     });
@@ -360,11 +352,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
             counter = (counter + 1) % 100;
             let key = format!("e2e_key_{counter}");
             let limiter_ref = &limiter;
-            async move {
-                black_box(track_result(
-                    limiter_ref.update_eval_key(&key, 1, None).await,
-                ))
-            }
+            async move { black_box(track_result(limiter_ref.check_limit(&key, 1, None).await)) }
         });
     });
 
@@ -389,11 +377,7 @@ fn bench_update_eval_key_e2e(c: &mut Criterion) {
             counter = (counter + 1) % COLD_KEY_COUNT;
             let key = format!("e2e_cold_key_{counter}");
             let limiter_ref = &cold_limiter;
-            async move {
-                black_box(track_result(
-                    limiter_ref.update_eval_key(&key, 1, None).await,
-                ))
-            }
+            async move { black_box(track_result(limiter_ref.check_limit(&key, 1, None).await)) }
         });
     });
 
@@ -432,7 +416,7 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..100 {
             let _ = limiter
-                .update_eval_custom_key(&format!("registered_key_{i}"), 1, None)
+                .check_custom_limit(&format!("registered_key_{i}"), 1, None)
                 .await;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -447,7 +431,7 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
             async move {
                 black_box(track_result(
                     limiter_ref
-                        .update_eval_custom_key("unregistered_key", 1, None)
+                        .check_custom_limit("unregistered_key", 1, None)
                         .await,
                 ))
             }
@@ -463,7 +447,7 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
             let limiter_ref = &limiter;
             async move {
                 black_box(track_result(
-                    limiter_ref.update_eval_custom_key(&key, 1, None).await,
+                    limiter_ref.check_custom_limit(&key, 1, None).await,
                 ))
             }
         });
@@ -595,7 +579,7 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                                 let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
                                 let key = format!("sim_key_{key_id}");
 
-                                let result = limiter.update_eval_key(&key, 1, None).await;
+                                let result = limiter.check_limit(&key, 1, None).await;
 
                                 match result {
                                     EvalResult::Allowed => local_results.0 += 1,

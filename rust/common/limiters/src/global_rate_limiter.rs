@@ -22,7 +22,7 @@ const GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM: &str = "global_rate_limiter_batc
 /// Trait for global rate limiting
 #[async_trait]
 pub trait GlobalRateLimiter: Send + Sync {
-    /// Evaluate if a key is rate limited:
+    /// Check if a key is rate limited, recording the count for this request.
     ///
     /// - Consult and refresh the local cache if needed
     /// - Enqueue an update to the key's count for async batch submission
@@ -30,22 +30,23 @@ pub trait GlobalRateLimiter: Send + Sync {
     /// - Fail open if the local cache is stale or global cache unavailable
     ///
     /// Returns `EvalResult` indicating whether the request is allowed, limited, or failed open
-    async fn update_eval_key(
+    async fn check_limit(
         &self,
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
     ) -> EvalResult;
 
-    /// Evaluate if a "custom key" is rate limited. The operation is the same as
-    /// as update_eval_key, other than how the key and threshold are determined:
+    /// Check if a "custom key" is rate limited, recording the count for this request.
+    /// The operation is the same as `check_limit`, other than how the key and threshold
+    /// are determined:
     ///
     /// - Custom keys are defined in the custom_keys map, associated with an override value
     /// - If the key is present in the map, the override threshold value is applied
     /// - If the key is not present in the map, it is not subject to rate limiting
     ///
     /// Returns `EvalResult` indicating whether the request is allowed, limited, not applicable, or failed open
-    async fn update_eval_custom_key(
+    async fn check_custom_limit(
         &self,
         key: &str,
         count: u64,
@@ -264,23 +265,23 @@ pub struct GlobalRateLimiterImpl {
 
 #[async_trait]
 impl GlobalRateLimiter for GlobalRateLimiterImpl {
-    async fn update_eval_key(
+    async fn check_limit(
         &self,
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
     ) -> EvalResult {
-        self.update_eval_key_internal(CheckMode::Global, key, count, timestamp)
+        self.check_limit_internal(CheckMode::Global, key, count, timestamp)
             .await
     }
 
-    async fn update_eval_custom_key(
+    async fn check_custom_limit(
         &self,
         key: &str,
         count: u64,
         timestamp: Option<DateTime<Utc>>,
     ) -> EvalResult {
-        self.update_eval_key_internal(CheckMode::Custom, key, count, timestamp)
+        self.check_limit_internal(CheckMode::Custom, key, count, timestamp)
             .await
     }
 
@@ -325,7 +326,7 @@ impl GlobalRateLimiterImpl {
         Ok(limiter)
     }
 
-    /// Evaluate a key for rate limiting locally and enqueue an update to the global cache
+    /// Check if a key is rate limited and enqueue a count update to the global cache.
     ///
     /// Returns:
     /// - `EvalResult::Limited(response)` if the key is rate limited, with metadata suitable for 429 responses
@@ -334,7 +335,7 @@ impl GlobalRateLimiterImpl {
     /// - `EvalResult::FailOpen { reason }` on Redis error or timeout
     ///
     /// Updates are always queued to the background task regardless of the return value.
-    async fn update_eval_key_internal(
+    async fn check_limit_internal(
         &self,
         mode: CheckMode,
         key: &str,
@@ -838,7 +839,7 @@ mod tests {
         );
 
         // Should not be limited when count is under limit
-        let result = limiter.update_eval_key("test_key", 1, None).await;
+        let result = limiter.check_limit("test_key", 1, None).await;
 
         assert!(
             matches!(result, EvalResult::Allowed),
@@ -866,7 +867,7 @@ mod tests {
             },
         );
 
-        let result = limiter.update_eval_key("test_key", 1, None).await;
+        let result = limiter.check_limit("test_key", 1, None).await;
 
         assert!(
             matches!(result, EvalResult::Limited(_)),
@@ -894,7 +895,7 @@ mod tests {
             },
         );
 
-        let result = limiter.update_eval_key("test_key", 1, None).await;
+        let result = limiter.check_limit("test_key", 1, None).await;
 
         let response = match result {
             EvalResult::Limited(r) => r,
@@ -923,7 +924,7 @@ mod tests {
 
         // Don't populate cache - cache miss triggers Redis fetch which returns empty data
         // Empty Redis response means count=0 which is under threshold (Allowed)
-        let result = limiter.update_eval_key("unknown_key", 1000, None).await;
+        let result = limiter.check_limit("unknown_key", 1000, None).await;
 
         assert!(
             matches!(result, EvalResult::Allowed),
@@ -952,7 +953,7 @@ mod tests {
         );
 
         // This should use cache and not hit Redis
-        let result = limiter.update_eval_key("cached_key", 1, None).await;
+        let result = limiter.check_limit("cached_key", 1, None).await;
 
         assert!(
             matches!(result, EvalResult::Allowed),
@@ -989,7 +990,7 @@ mod tests {
         );
 
         // This should be limited but still queue an update
-        let result = limiter.update_eval_key("limited_key", 1, None).await;
+        let result = limiter.check_limit("limited_key", 1, None).await;
 
         assert!(
             matches!(result, EvalResult::Limited(_)),
@@ -1040,9 +1041,7 @@ mod tests {
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         // Unknown key in Custom mode should return NotApplicable immediately
-        let result = limiter
-            .update_eval_custom_key("unknown_key", 100, None)
-            .await;
+        let result = limiter.check_custom_limit("unknown_key", 100, None).await;
 
         assert!(
             matches!(result, EvalResult::NotApplicable),
@@ -1073,7 +1072,7 @@ mod tests {
         );
 
         // count 5 >= limit 5, should be limited
-        let result = limiter.update_eval_custom_key("custom_key", 1, None).await;
+        let result = limiter.check_custom_limit("custom_key", 1, None).await;
 
         assert!(
             matches!(result, EvalResult::Limited(_)),
@@ -1104,7 +1103,7 @@ mod tests {
         );
 
         // count 5 < limit 10, should not be limited
-        let result = limiter.update_eval_custom_key("custom_key", 1, None).await;
+        let result = limiter.check_custom_limit("custom_key", 1, None).await;
 
         assert!(
             matches!(result, EvalResult::Allowed),
@@ -1135,21 +1134,21 @@ mod tests {
         );
 
         // custom_a is in custom_keys, should be evaluated and limited (count 10 >= limit 5)
-        let result = limiter.update_eval_custom_key("custom_a", 1, None).await;
+        let result = limiter.check_custom_limit("custom_a", 1, None).await;
         assert!(
             matches!(result, EvalResult::Limited(_)),
             "custom_a should be Limited, got {result:?}"
         );
 
         // unknown_key is NOT in custom_keys, should return NotApplicable immediately
-        let result = limiter.update_eval_custom_key("unknown_key", 1, None).await;
+        let result = limiter.check_custom_limit("unknown_key", 1, None).await;
         assert!(
             matches!(result, EvalResult::NotApplicable),
             "unknown_key should return NotApplicable (not in custom_keys), got {result:?}"
         );
 
         // empty key is NOT in custom_keys, should return NotApplicable immediately
-        let result = limiter.update_eval_custom_key("", 1, None).await;
+        let result = limiter.check_custom_limit("", 1, None).await;
         assert!(
             matches!(result, EvalResult::NotApplicable),
             "empty key should return NotApplicable (not in custom_keys), got {result:?}"
@@ -1182,7 +1181,7 @@ mod tests {
 
         // Send 3 updates to the same key - should trigger flush on update count
         for _ in 0..3 {
-            let _ = limiter.update_eval_key("key_a", 1, None).await;
+            let _ = limiter.check_limit("key_a", 1, None).await;
         }
 
         // Give background task time to process
@@ -1227,7 +1226,7 @@ mod tests {
 
         // Send updates to 3 different keys - should trigger flush on key cardinality
         for i in 0..3 {
-            let _ = limiter.update_eval_key(&format!("key_{i}"), 1, None).await;
+            let _ = limiter.check_limit(&format!("key_{i}"), 1, None).await;
         }
 
         // Give background task time to process
@@ -1271,11 +1270,11 @@ mod tests {
         }
 
         // Send 5 updates across 3 keys (under cardinality limit, at update count limit)
-        let _ = limiter.update_eval_key("key_0", 1, None).await;
-        let _ = limiter.update_eval_key("key_0", 1, None).await;
-        let _ = limiter.update_eval_key("key_1", 1, None).await;
-        let _ = limiter.update_eval_key("key_1", 1, None).await;
-        let _ = limiter.update_eval_key("key_2", 1, None).await;
+        let _ = limiter.check_limit("key_0", 1, None).await;
+        let _ = limiter.check_limit("key_0", 1, None).await;
+        let _ = limiter.check_limit("key_1", 1, None).await;
+        let _ = limiter.check_limit("key_1", 1, None).await;
+        let _ = limiter.check_limit("key_2", 1, None).await;
 
         // Give background task time to process
         tokio::time::sleep(Duration::from_millis(50)).await;
