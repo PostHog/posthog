@@ -5,7 +5,9 @@ use crate::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{decoding, process_request, CanonicalLogGuard, CanonicalLogLine, RequestContext},
+    handler::{
+        decoding, process_request, CanonicalLogGuard, CanonicalLogLine, RequestContext,
+    },
     router,
     utils::user_agent::UserAgentInfo,
 };
@@ -297,11 +299,11 @@ pub async fn flags(
     // Check IP-based rate limit first
     // Guard auto-emits on early return
     if !state.ip_rate_limiter.allow_request(&ip_string) {
-        guard.log_mut().rate_limited = true;
-        guard
-            .log_mut()
-            .emit_for_error(&FlagError::ClientFacing(ClientFacingError::IpRateLimited));
-        return Err(FlagError::ClientFacing(ClientFacingError::IpRateLimited));
+        let error = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
+        let log = guard.log_mut();
+        log.rate_limited = true;
+        log.set_error(&error);
+        return Err(error);
     }
 
     // Check token-based rate limit
@@ -310,11 +312,11 @@ pub async fn flags(
     let rate_limit_key =
         decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
     if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
-        guard.log_mut().rate_limited = true;
-        guard.log_mut().emit_for_error(&FlagError::ClientFacing(
-            ClientFacingError::TokenRateLimited,
-        ));
-        return Err(FlagError::ClientFacing(ClientFacingError::TokenRateLimited));
+        let error = FlagError::ClientFacing(ClientFacingError::TokenRateLimited);
+        let log = guard.log_mut();
+        log.rate_limited = true;
+        log.set_error(&error);
+        return Err(error);
     }
 
     // Parse version from query params

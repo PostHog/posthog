@@ -110,13 +110,19 @@ impl CanonicalLogLine {
         );
     }
 
-    /// Populate error fields from a FlagError and emit the log line.
+    /// Populate error fields from a FlagError without emitting.
     ///
-    /// This is a convenience method for error handling paths that reduces
-    /// repetitive code when returning errors.
-    pub fn emit_for_error(&mut self, error: &FlagError) {
+    /// Use this when the guard will emit on drop (e.g., early returns).
+    pub fn set_error(&mut self, error: &FlagError) {
         self.http_status = error.status_code();
         self.error_code = Some(error.error_code().to_string());
+    }
+
+    /// Populate error fields from a FlagError and emit the log line.
+    ///
+    /// Use this when manually managing the log (after `into_inner()`).
+    pub fn emit_for_error(&mut self, error: &FlagError) {
+        self.set_error(error);
         self.emit();
     }
 }
