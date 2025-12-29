@@ -11,12 +11,7 @@ describe('server', () => {
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
 
-        const testCode = `
-        async function processEvent (event) {
-            return event
-        }
-    `
-        await resetTestDatabase(testCode)
+        await resetTestDatabase()
     })
 
     afterEach(async () => {

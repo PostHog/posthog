@@ -9,7 +9,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 ingestionV2Combined: true,
-                processAsyncWebhooksHandlers: false,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
@@ -61,10 +60,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: true,
             }
 
-        case PluginServerMode.async_webhooks:
-            return {
-                processAsyncWebhooksHandlers: true,
-            }
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,

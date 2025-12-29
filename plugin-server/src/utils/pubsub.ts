@@ -1,22 +1,19 @@
 import { EventEmitter } from 'events'
 import { Redis } from 'ioredis'
 
-import { PluginsServerConfig } from '../types'
-import { createRedis } from './db/redis'
+import { RedisPool } from '../types'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 import { PromiseScheduler } from './promise-scheduler'
 
 export class PubSub {
     private eventEmitter: EventEmitter
-    private serverConfig: PluginsServerConfig
     private redisSubscriber?: Redis
-    private redisPublisher?: Promise<Redis>
+    private redisPublisher?: Redis
     private promises: PromiseScheduler
 
-    constructor(serverConfig: PluginsServerConfig) {
+    constructor(private redisPool: RedisPool) {
         this.eventEmitter = new EventEmitter()
-        this.serverConfig = serverConfig
         this.promises = new PromiseScheduler()
     }
 
@@ -24,10 +21,7 @@ export class PubSub {
         if (this.redisSubscriber) {
             throw new Error('Started PubSub cannot be started again!')
         }
-        this.redisSubscriber = await createRedis(this.serverConfig, 'ingestion').catch((error) => {
-            logger.error('🛑', 'Failed to create Redis subscriber', { error })
-            throw error
-        })
+        this.redisSubscriber = await this.redisPool.acquire()
 
         this.redisSubscriber.on('message', (channel: string, message: string) => {
             this.eventEmitter.emit(channel, message)
@@ -45,15 +39,13 @@ export class PubSub {
         await this.redisSubscriber.unsubscribe()
 
         if (this.redisSubscriber) {
-            this.redisSubscriber.disconnect()
+            this.redisSubscriber.removeAllListeners('message')
+            await this.redisPool.release(this.redisSubscriber)
         }
         this.redisSubscriber = undefined
 
         if (this.redisPublisher) {
-            const redisPublisher = await this.redisPublisher
-            if (redisPublisher) {
-                redisPublisher.disconnect()
-            }
+            await this.redisPool.release(this.redisPublisher)
             this.redisPublisher = undefined
         }
 
@@ -64,11 +56,10 @@ export class PubSub {
 
     public async publish(channel: string, message: string): Promise<void> {
         if (!this.redisPublisher) {
-            this.redisPublisher = createRedis(this.serverConfig, 'ingestion')
+            this.redisPublisher = await this.redisPool.acquire()
         }
 
-        const redisPublisher = await this.redisPublisher
-        await redisPublisher.publish(channel, message)
+        await this.redisPublisher.publish(channel, message)
     }
 
     public on<T extends Record<string, any>>(channel: string, listener: (message: T) => void): void {

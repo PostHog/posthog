@@ -2648,6 +2648,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    LOGS_DOCS_VIEWED = "logs_docs_viewed"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -4279,6 +4280,7 @@ class BreakdownFilter(BaseModel):
     breakdown_histogram_bin_count: int | None = None
     breakdown_limit: int | None = None
     breakdown_normalize_url: bool | None = None
+    breakdown_path_cleaning: bool | None = None
     breakdown_type: BreakdownType | None = BreakdownType.EVENT
     breakdowns: list[Breakdown] | None = Field(default=None, max_length=3)
 

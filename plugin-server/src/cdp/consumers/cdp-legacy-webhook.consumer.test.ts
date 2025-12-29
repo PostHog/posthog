@@ -85,7 +85,7 @@ describe('CdpLegacyWebhookConsumer', () => {
 
     describe('_parseKafkaBatch', () => {
         it('should parse events for teams with both webhooks and zapier', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
+            processor['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
@@ -98,7 +98,7 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should filter out events for teams without webhooks and without zapier', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(false)
+            processor['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(false)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
 
             const messages: Message[] = [
@@ -112,7 +112,7 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should filter out events for teams with zapier but without webhooks', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(false)
+            processor['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(false)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
@@ -123,7 +123,7 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should filter out events for teams with webhooks but without zapier', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
+            processor['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(false)
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
@@ -134,7 +134,7 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should handle multiple teams correctly', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockImplementation((teamId) => teamId === team.id)
+            processor['actionMatcher'].hasWebhooks = jest.fn().mockImplementation((teamId) => teamId === team.id)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const messages: Message[] = [
@@ -149,7 +149,7 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should enrich events with group properties when available', async () => {
-            hub.actionMatcher.hasWebhooks = jest.fn().mockReturnValue(true)
+            processor['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
             hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
                 project: 0,
@@ -201,14 +201,14 @@ describe('CdpLegacyWebhookConsumer', () => {
         it('should process events with matching actions', async () => {
             const hook = createMockHook(team.id)
             const action = createMockAction(team.id, { hooks: [hook] })
-            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
+            processor['actionMatcher'].match = jest.fn().mockReturnValue([action])
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const result = await processor.processBatch([event])
 
             await result.backgroundTask
 
-            expect(hub.actionMatcher.match).toHaveBeenCalledWith(event)
+            expect(processor['actionMatcher'].match).toHaveBeenCalledWith(event)
             expect(mockFetch).toHaveBeenCalledWith(
                 'https://hooks.zapier.com/test',
                 expect.objectContaining({
@@ -218,20 +218,20 @@ describe('CdpLegacyWebhookConsumer', () => {
         })
 
         it('should skip events without matching actions', async () => {
-            hub.actionMatcher.match = jest.fn().mockReturnValue([])
+            processor['actionMatcher'].match = jest.fn().mockReturnValue([])
 
             const result = await processor.processBatch([event])
 
             await result.backgroundTask
 
-            expect(hub.actionMatcher.match).toHaveBeenCalledWith(event)
+            expect(processor['actionMatcher'].match).toHaveBeenCalledWith(event)
             expect(mockFetch).not.toHaveBeenCalled()
         })
 
         it('should skip events when team not found', async () => {
             const hook = createMockHook(team.id)
             const action = createMockAction(team.id, { hooks: [hook] })
-            hub.actionMatcher.match = jest.fn().mockReturnValue([action])
+            processor['actionMatcher'].match = jest.fn().mockReturnValue([action])
             hub.teamManager.getTeam = jest.fn().mockResolvedValue(null)
 
             const result = await processor.processBatch([event])

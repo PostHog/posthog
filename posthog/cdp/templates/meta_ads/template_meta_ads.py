@@ -33,15 +33,27 @@ if (not empty(inputs.eventSourceUrl)) {
     body.data.1.event_source_url := inputs.eventSourceUrl
 }
 
+// Helper function to parse JSON arrays from string values
+fn parseValueIfArray(value) {
+    if (typeof(value) == 'string' and startsWith(trim(value), '[')) {
+        try {
+            return jsonParse(trim(value))
+        } catch {
+            return value
+        }
+    }
+    return value
+}
+
 for (let key, value in inputs.userData) {
     if (not empty(value)) {
-        body.data.1.user_data[key] := value
+        body.data.1.user_data[key] := parseValueIfArray(value)
     }
 }
 
 for (let key, value in inputs.customData) {
     if (not empty(value)) {
-        body.data.1.custom_data[key] := value
+        body.data.1.custom_data[key] := parseValueIfArray(value)
     }
 }
 

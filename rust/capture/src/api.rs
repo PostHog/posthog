@@ -159,7 +159,7 @@ impl IntoResponse for CaptureError {
                 (StatusCode::TOO_MANY_REQUESTS, self.to_string())
             }
 
-            CaptureError::BodyReadTimeout => (StatusCode::GATEWAY_TIMEOUT, self.to_string()),
+            CaptureError::BodyReadTimeout => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
         }
         .into_response()
     }

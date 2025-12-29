@@ -35,6 +35,7 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
+    "insight_variable",
     "integration",
     "link",
     "live_debugger",

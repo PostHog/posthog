@@ -7,12 +7,11 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { buildDashboardItemId } from '../../utils'
+import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 
 export function ActiveUsersInsights(): JSX.Element {
@@ -22,10 +21,7 @@ export function ActiveUsersInsights(): JSX.Element {
         : 'You are currently using the pageview event to define user activity. Consider using a more specific event or action to track activity accurately.'
 
     // Check if using pageview as default, with no properties filter
-    const isOnlyPageview =
-        isEventsNode(activityEvent) &&
-        activityEvent.event === '$pageview' &&
-        (!activityEvent.properties || activityEvent.properties.length === 0)
+    const isOnlyPageview = isPageviewWithoutFilters(activityEvent)
 
     return (
         <div className="space-y-2">
