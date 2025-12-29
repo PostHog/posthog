@@ -23,6 +23,6 @@
 
 <!-- For features only -->
 
-<!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will recieve a follow-up PR comment or notification. -->
+<!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will receive a follow-up PR comment or notification. -->
 
 <!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->
