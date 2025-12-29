@@ -23,9 +23,9 @@
 
 <!-- For features only. Check the box if this should go in our company changelog. -->
 
-- [ ] 🚀 Yes, publish to #changelog
-
 <!-- Removing this section or leaving it blank means this feature will probably remain unpublished. -->
+
+- [ ] 🚀 Yes, publish to #changelog
 
 <!-- If publishing, please make sure your PR includes a 1-3 sentence description of the feature, plus a screenshot or screen recording if it helps 🙏 -->
 
