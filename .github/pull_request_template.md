@@ -23,8 +23,6 @@
 
 <!-- For features only -->
 
-<!-- If publishing, your PR must include a 1-3 sentence description of the feature plus a screenshot or screen recording if applicable. 🙏 -->
+<!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will recieve a follow-up PR comment or notification. -->
 
-<!-- Write "no" to expicitly opt-out of posting to #changelog. Removing this section entirely will not prevent posting. -->
-
-<!-- Check #changelog in Slack for more details. -->
+<!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->
