@@ -10,7 +10,6 @@ import { withSpan } from '~/common/tracing/tracing-utils'
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
-    Action,
     Cohort,
     GroupKey,
     GroupTypeIndex,
@@ -26,7 +25,6 @@ import {
     RawPerson,
     Team,
 } from '../../types'
-import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
 import { captureException } from '../posthog'
@@ -512,16 +510,6 @@ export class DB {
             console.error('Failed to produce message', e, parsedEntry)
             return Promise.resolve()
         }
-    }
-
-    // Action & ActionStep & Action<>Event
-
-    public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-        return fetchAllActionsGroupedByTeam(this.postgres)
-    }
-
-    public async fetchAction(id: Action['id']): Promise<Action | null> {
-        return await fetchAction(this.postgres, id)
     }
 
     // Hook (EE)

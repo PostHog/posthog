@@ -1,8 +1,7 @@
-import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
 import { ClickHouseTimestamp, ProjectId, RawKafkaEvent } from '../types'
-import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from './event'
+import { normalizeEvent, parseRawClickHouseEvent } from './event'
 
 describe('normalizeEvent()', () => {
     describe('distinctId', () => {
@@ -97,103 +96,6 @@ describe('parseRawClickHouseEvent()', () => {
             group2_created_at: null,
             group3_created_at: null,
             group4_created_at: null,
-        })
-    })
-})
-
-describe('formPipelineEvent()', () => {
-    it('forms pluginEvent from a raw message', () => {
-        const message = {
-            value: Buffer.from(
-                JSON.stringify({
-                    uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
-                    distinct_id: 'some_distinct_id',
-                    ip: null,
-                    site_url: 'http://example.com',
-                    team_id: 2,
-                    now: '2020-02-23T02:15:00Z',
-                    sent_at: '2020-02-23T02:15:00Z',
-                    token: 'phc_sometoken',
-                    data: JSON.stringify({
-                        event: 'some-event',
-                        properties: { foo: 123 },
-                        timestamp: '2020-02-24T02:15:00Z',
-                        offset: 0,
-                        $set: {},
-                        $set_once: {},
-                    }),
-                })
-            ),
-        } as any as KafkaMessage
-
-        // @ts-expect-error TODO: Fix type mismatches
-        expect(formPipelineEvent(message)).toEqual({
-            uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
-            distinct_id: 'some_distinct_id',
-            ip: null,
-            site_url: 'http://example.com',
-            team_id: 2,
-            now: '2020-02-23T02:15:00Z',
-            sent_at: '2020-02-23T02:15:00Z',
-            token: 'phc_sometoken',
-            event: 'some-event',
-            properties: { foo: 123, $set: {}, $set_once: {}, $sent_at: '2020-02-23T02:15:00Z' },
-            timestamp: '2020-02-24T02:15:00Z',
-            offset: 0,
-            $set: {},
-            $set_once: {},
-        })
-    })
-
-    it('does not override risky values', () => {
-        const message = {
-            value: Buffer.from(
-                JSON.stringify({
-                    uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
-                    distinct_id: 'some_distinct_id',
-                    ip: null,
-                    site_url: 'http://example.com',
-                    team_id: 2,
-                    now: '2020-02-23T02:15:00Z',
-                    sent_at: '2020-02-23T02:15:00Z',
-                    token: 'phc_sometoken',
-                    data: JSON.stringify({
-                        // Risky overrides
-                        uuid: 'bad-uuid',
-                        distinct_id: 'bad long id',
-                        ip: '192.168.0.1',
-                        site_url: 'http://foo.com',
-                        team_id: 456,
-                        now: 'bad timestamp',
-                        sent_at: 'bad timestamp',
-                        // ...
-                        event: 'some-event',
-                        properties: { foo: 123 },
-                        timestamp: '2020-02-24T02:15:00Z',
-                        offset: 0,
-                        $set: {},
-                        $set_once: {},
-                    }),
-                })
-            ),
-        } as any as KafkaMessage
-
-        // @ts-expect-error TODO: Fix type mismatches
-        expect(formPipelineEvent(message)).toEqual({
-            uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
-            distinct_id: 'some_distinct_id',
-            ip: null,
-            site_url: 'http://example.com',
-            team_id: 2,
-            now: '2020-02-23T02:15:00Z',
-            sent_at: '2020-02-23T02:15:00Z',
-            token: 'phc_sometoken',
-            event: 'some-event',
-            properties: { foo: 123, $set: {}, $set_once: {}, $sent_at: '2020-02-23T02:15:00Z' },
-            timestamp: '2020-02-24T02:15:00Z',
-            offset: 0,
-            $set: {},
-            $set_once: {},
         })
     })
 })
