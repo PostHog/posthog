@@ -305,31 +305,21 @@ impl EventRestrictionService {
         redis: Arc<dyn RedisClient + Send + Sync>,
         refresh_interval: Duration,
     ) {
-        let manager = self.manager.clone();
-        let last_successful_refresh = self.last_successful_refresh.clone();
-        let pipeline = self.pipeline;
-        let pipeline_str = pipeline.as_str();
+        let service = self.clone();
+        let pipeline_str = self.pipeline.as_str();
 
         let mut interval = interval(refresh_interval);
 
         loop {
             interval.tick().await;
 
-            match RestrictionManager::fetch_from_redis(&redis, pipeline).await {
+            match RestrictionManager::fetch_from_redis(&redis, service.pipeline).await {
                 Ok(new_manager) => {
                     let total_restrictions: usize =
                         new_manager.restrictions.values().map(|v| v.len()).sum();
                     let total_tokens = new_manager.restrictions.len();
 
-                    // Update the manager
-                    {
-                        let mut guard = manager.write().await;
-                        *guard = new_manager;
-                    }
-
-                    // Update last successful refresh timestamp
-                    let now = chrono::Utc::now().timestamp();
-                    last_successful_refresh.store(now, Ordering::SeqCst);
+                    let now = service.update(new_manager).await;
 
                     // Update metrics
                     gauge!(
@@ -367,12 +357,13 @@ impl EventRestrictionService {
         }
     }
 
-    /// Manually update restrictions (useful for testing).
-    pub async fn update(&self, new_manager: RestrictionManager) {
+    /// Manually update restrictions (useful for testing). Returns the timestamp.
+    pub async fn update(&self, new_manager: RestrictionManager) -> i64 {
         let mut guard = self.manager.write().await;
         *guard = new_manager;
-        self.last_successful_refresh
-            .store(chrono::Utc::now().timestamp(), Ordering::SeqCst);
+        let now = chrono::Utc::now().timestamp();
+        self.last_successful_refresh.store(now, Ordering::SeqCst);
+        now
     }
 
     /// Check if the cache is stale (fail-open should be active).
