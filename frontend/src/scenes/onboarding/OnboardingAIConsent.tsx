@@ -29,8 +29,8 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     const isNotAdmin = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     // New accounts have `default=True` on the database, but older accounts may have null/false
-    const [isEnabledByDefault] = useState(!!currentOrganization?.is_ai_data_processing_approved)
-    const [aiEnabled, setAiEnabled] = useState(isEnabledByDefault)
+    const isEnabledForOrganization = !!currentOrganization?.is_ai_data_processing_approved
+    const [aiEnabled, setAiEnabled] = useState(isEnabledForOrganization)
 
     const [showFlappyHog, setShowFlappyHog] = useState(false)
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 50, duration: 2000 })
@@ -44,7 +44,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     return (
         <OnboardingStep
             stepKey={stepKey}
-            title={isEnabledByDefault ? 'PostHog AI is ready' : 'Activate PostHog AI'}
+            title={isEnabledForOrganization ? 'PostHog AI is ready' : 'Activate PostHog AI'}
             onContinue={handleContinue}
         >
             <HogfettiComponent />
@@ -93,7 +93,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     <div className="flex items-center justify-between gap-4">
                         <div>
                             <h4 className="font-semibold mb-1">
-                                {isEnabledByDefault ? 'PostHog AI is enabled' : 'Enable PostHog AI'}
+                                {isEnabledForOrganization ? 'PostHog AI is enabled' : 'Enable PostHog AI'}
                             </h4>
                             <p className="text-muted text-sm mb-0">
                                 It's free to get started, and you can always set spend limits anytime. PostHog AI uses
