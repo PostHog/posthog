@@ -950,11 +950,7 @@ function getFunnelWindowDetails(
     }
 }
 
-export function getInsightVizNodeQuery(
-    experiment: Experiment,
-    metric: ExperimentMetric,
-    variantKey: string
-): InsightVizNode | null {
+function getExposureNode(experiment: Experiment, variantKey: string): ExperimentFunnelMetricStep {
     const exposureEventNode: EventsNode = {
         kind: NodeKind.EventsNode,
         event: '$feature_flag_called',
@@ -968,15 +964,46 @@ export function getInsightVizNodeQuery(
         ],
     }
     const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (exposureConfig != null) {
-        if (exposureConfig.kind === NodeKind.ExperimentEventExposureConfig) {
+    if (exposureConfig == null) {
+        return exposureEventNode
+    }
+
+    switch (exposureConfig.kind) {
+        case NodeKind.ExperimentEventExposureConfig: {
             exposureEventNode.event = exposureConfig.event
             if (exposureConfig.properties && exposureConfig.properties.length > 0) {
                 const exposureEventNodeProperties = exposureEventNode.properties ?? []
                 exposureEventNode.properties = [...exposureConfig.properties, ...exposureEventNodeProperties]
             }
+            return exposureEventNode
+        }
+        case NodeKind.ActionsNode: {
+            const properties = exposureConfig?.properties ?? []
+            return {
+                ...exposureConfig,
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: `$feature/${experiment.feature_flag_key}`,
+                        operator: PropertyOperator.Exact,
+                        value: [variantKey],
+                    },
+                    ...properties,
+                ],
+            }
+        }
+        default: {
+            return exposureEventNode
         }
     }
+}
+
+export function getInsightVizNodeQuery(
+    experiment: Experiment,
+    metric: ExperimentMetric,
+    variantKey: string
+): InsightVizNode | null {
+    const exposureNode = getExposureNode(experiment, variantKey)
     switch (metric.metric_type) {
         case ExperimentMetricType.FUNNEL:
             const funnelWindowDetails = getFunnelWindowDetails(experiment, metric)
@@ -984,7 +1011,7 @@ export function getInsightVizNodeQuery(
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    series: [exposureEventNode, ...metric.series],
+                    series: [exposureNode, ...metric.series],
                     breakdownFilter: metric.breakdownFilter,
                     funnelsFilter: {
                         funnelOrderType: metric.funnel_order_type ?? StepOrderValue.ORDERED,
