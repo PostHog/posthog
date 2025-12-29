@@ -600,6 +600,7 @@ class WebauthnBackend(BaseBackend):
         self,
         request: Optional[Union[HttpRequest, Request]],
         credential_id: Optional[str] = None,
+        challenge: Optional[str] = None,
         response: Optional[WebAuthnAuthenticationResponse] = None,
         **kwargs: Any,
     ) -> Optional[User]:
@@ -613,20 +614,13 @@ class WebauthnBackend(BaseBackend):
             credential_id: The base64url-encoded credential ID (rawId)
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
-        if request is None or credential_id is None or response is None:
+        if challenge is None or credential_id is None or response is None:
             structlog_logger.warning(
                 "no request, response, or credential id while authenticating webauthn credential",
                 credential_id=credential_id,
-                request=request,
+                challenge=challenge,
                 response=response,
             )
-            return None
-
-        # Get challenge from session
-        challenge_b64 = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
-
-        if not challenge_b64:
-            structlog_logger.warning("webuathn login missing challenge")
             return None
 
         # Extract userHandle from response
@@ -675,7 +669,7 @@ class WebauthnBackend(BaseBackend):
             }
 
             # Verify the authentication response
-            expected_challenge = base64url_to_bytes(challenge_b64)
+            expected_challenge = base64url_to_bytes(challenge)
             verification = verify_authentication_response(
                 credential=credential_dict,
                 expected_challenge=expected_challenge,

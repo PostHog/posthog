@@ -344,9 +344,9 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         """
         from django.contrib.auth import authenticate
 
-        challenge_b64 = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
+        challenge = request.session.get(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
 
-        if not challenge_b64:
+        if not challenge:
             return Response(
                 {"error": "No login challenge found. Please start login again."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -362,8 +362,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        credential_id_b64 = request.data.get("rawId")
-        if not credential_id_b64:
+        credential_id = request.data.get("rawId")
+        if not credential_id:
             return Response(
                 {"error": "No credential ID in response."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -390,7 +390,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         try:
             user = authenticate(
                 request=request,
-                credential_id=credential_id_b64,
+                credential_id=credential_id,
+                challenge=challenge,
                 response=typed_response,
                 backend=WebauthnBackend,  # no reason to use password or social auth backends
             )
