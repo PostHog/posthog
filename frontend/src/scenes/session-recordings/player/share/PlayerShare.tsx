@@ -154,12 +154,18 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
             <p>Add an issue to your Github repository with a link to this recording.</p>
 
             <Form logic={playerShareLogic} props={props} formKey="githubLinkForm" className="flex flex-col gap-2">
-                <LemonField className="gap-1" name="issueTitle" label="Issue title">
+                <LemonField className="gap-1" name="githubUsername" label="Github Username or Organization Name">
+                    <LemonInput fullWidth />
+                </LemonField>
+                <LemonField className="gap-1" name="githubRepoName" label="Github Respository Name">
+                    <LemonInput fullWidth />
+                </LemonField>
+                <LemonField className="gap-1" name="githubIssueTitle" label="Issue Title">
                     <LemonInput fullWidth />
                 </LemonField>
                 <LemonField
                     className="gap-1"
-                    name="issueDescription"
+                    name="githubIssueDescription"
                     label="Issue description"
                     help={<span>We'll include a link to the recording in the description.</span>}
                 >
