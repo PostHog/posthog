@@ -1,7 +1,7 @@
 {
     "name": "@posthog/nodejs",
     "version": "1.10.5",
-    "description": "PostHog Plugin Server",
+    "description": "PostHog Node.js services",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
     "engines": {
