@@ -15,9 +15,9 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 ///
 /// Created at request start, populated during processing, emitted at request end.
 ///
-/// Use [`CanonicalLogGuard`] to ensure the log is always emitted, even on early returns.
+/// Use [`FlagsCanonicalLogGuard`] to ensure the log is always emitted, even on early returns.
 #[derive(Debug, Clone)]
-pub struct CanonicalLogLine {
+pub struct FlagsCanonicalLogLine {
     // Request identification
     pub request_id: Uuid,
     pub ip: String,
@@ -47,7 +47,7 @@ pub struct CanonicalLogLine {
     pub error_code: Option<String>,
 }
 
-impl Default for CanonicalLogLine {
+impl Default for FlagsCanonicalLogLine {
     fn default() -> Self {
         Self {
             request_id: Uuid::nil(),
@@ -70,7 +70,7 @@ impl Default for CanonicalLogLine {
     }
 }
 
-impl CanonicalLogLine {
+impl FlagsCanonicalLogLine {
     pub fn new(request_id: Uuid, ip: String) -> Self {
         Self {
             request_id,
@@ -134,7 +134,7 @@ impl CanonicalLogLine {
 ///
 /// # Example
 /// ```ignore
-/// let guard = CanonicalLogGuard::new(CanonicalLogLine {
+/// let guard = FlagsCanonicalLogGuard::new(FlagsCanonicalLogLine {
 ///     request_id,
 ///     ip: ip_string,
 ///     user_agent: Some("posthog-python/3.0.0".to_string()),
@@ -143,13 +143,13 @@ impl CanonicalLogLine {
 /// guard.log_mut().team_id = Some(123);  // Fields discovered during processing
 /// // Log is automatically emitted when guard goes out of scope
 /// ```
-pub struct CanonicalLogGuard {
-    log: CanonicalLogLine,
+pub struct FlagsCanonicalLogGuard {
+    log: FlagsCanonicalLogLine,
     emitted: bool,
 }
 
-impl CanonicalLogGuard {
-    pub fn new(log: CanonicalLogLine) -> Self {
+impl FlagsCanonicalLogGuard {
+    pub fn new(log: FlagsCanonicalLogLine) -> Self {
         Self {
             log,
             emitted: false,
@@ -157,18 +157,18 @@ impl CanonicalLogGuard {
     }
 
     /// Get a mutable reference to the underlying log line for populating fields.
-    pub fn log_mut(&mut self) -> &mut CanonicalLogLine {
+    pub fn log_mut(&mut self) -> &mut FlagsCanonicalLogLine {
         &mut self.log
     }
 
     /// Get an immutable reference to the underlying log line.
-    pub fn log(&self) -> &CanonicalLogLine {
+    pub fn log(&self) -> &FlagsCanonicalLogLine {
         &self.log
     }
 
     /// Consume the guard and return the inner log line without emitting.
     /// Use this when you need to pass the log through async boundaries.
-    pub fn into_inner(mut self) -> CanonicalLogLine {
+    pub fn into_inner(mut self) -> FlagsCanonicalLogLine {
         self.emitted = true; // Prevent double emission
         std::mem::take(&mut self.log)
     }
@@ -180,7 +180,7 @@ impl CanonicalLogGuard {
     }
 }
 
-impl Drop for CanonicalLogGuard {
+impl Drop for FlagsCanonicalLogGuard {
     fn drop(&mut self) {
         if !self.emitted {
             self.log.emit();
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn test_new_creates_with_defaults() {
         let request_id = Uuid::new_v4();
-        let log = CanonicalLogLine::new(request_id, "192.168.1.1".to_string());
+        let log = FlagsCanonicalLogLine::new(request_id, "192.168.1.1".to_string());
 
         assert_eq!(log.request_id, request_id);
         assert_eq!(log.ip, "192.168.1.1");
@@ -216,14 +216,14 @@ mod tests {
 
     #[test]
     fn test_emit_does_not_panic() {
-        let log = CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+        let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         // Should not panic
         log.emit();
     }
 
     #[test]
     fn test_emit_with_all_fields_populated() {
-        let mut log = CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.user_agent = Some("posthog-python/1.0.0".to_string());
         log.lib = Some("posthog-python");
         log.lib_version = Some("1.0.0".to_string());
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_emit_with_error() {
-        let mut log = CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.http_status = 429;
         log.rate_limited = true;
         log.error_code = Some("rate_limited".to_string());
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_long_distinct_id_is_truncated_in_emit() {
-        let mut log = CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         // Create a distinct_id longer than 64 characters
         log.distinct_id = Some("a".repeat(100));
         // Should not panic - truncation happens in emit()
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_distinct_id_truncation() {
-        let mut log = CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         // Create a distinct_id with multi-byte characters (emoji) longer than 64 chars
         // Each emoji is 4 bytes but counts as 1 character
         log.distinct_id = Some("🎉".repeat(100));
@@ -269,21 +269,21 @@ mod tests {
         log.emit();
     }
 
-    fn test_log() -> CanonicalLogLine {
-        CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string())
+    fn test_log() -> FlagsCanonicalLogLine {
+        FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string())
     }
 
     #[test]
     fn test_guard_emits_on_drop() {
         // We can't easily verify the log was emitted, but we can verify no panic
-        let guard = CanonicalLogGuard::new(test_log());
+        let guard = FlagsCanonicalLogGuard::new(test_log());
         drop(guard);
         // If we get here, the guard emitted successfully on drop
     }
 
     #[test]
     fn test_guard_log_mut_allows_modification() {
-        let mut guard = CanonicalLogGuard::new(test_log());
+        let mut guard = FlagsCanonicalLogGuard::new(test_log());
         guard.log_mut().team_id = Some(123);
         guard.log_mut().http_status = 200;
         assert_eq!(guard.log().team_id, Some(123));
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_guard_explicit_emit_prevents_double_emission() {
-        let mut guard = CanonicalLogGuard::new(test_log());
+        let mut guard = FlagsCanonicalLogGuard::new(test_log());
         guard.log_mut().http_status = 200;
         guard.emit(); // Explicit emit
                       // Guard is consumed, so no double emission on drop
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_guard_into_inner_prevents_emission() {
-        let mut guard = CanonicalLogGuard::new(test_log());
+        let mut guard = FlagsCanonicalLogGuard::new(test_log());
         guard.log_mut().team_id = Some(456);
         let log = guard.into_inner();
         // Guard is consumed without emitting, log can be used elsewhere
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_clone_preserves_all_fields() {
-        let mut log = CanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.user_agent = Some("posthog-python/1.0.0".to_string());
         log.lib = Some("posthog-python");
         log.lib_version = Some("1.0.0".to_string());

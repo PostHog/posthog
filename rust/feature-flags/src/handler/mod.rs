@@ -11,7 +11,7 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
-pub use canonical_log::{CanonicalLogGuard, CanonicalLogLine};
+pub use canonical_log::{FlagsCanonicalLogGuard, FlagsCanonicalLogLine};
 pub use types::*;
 
 use crate::{
@@ -38,8 +38,8 @@ use common_metrics::{histogram, inc};
 #[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(
     context: RequestContext,
-    mut canonical_log: CanonicalLogLine,
-) -> (Result<FlagsResponse, FlagError>, CanonicalLogLine) {
+    mut canonical_log: FlagsCanonicalLogLine,
+) -> (Result<FlagsResponse, FlagError>, FlagsCanonicalLogLine) {
     let start_time = std::time::Instant::now();
     let (result, metrics_data) = process_request_inner(context, &mut canonical_log).await;
     let total_duration = start_time.elapsed();
@@ -90,7 +90,7 @@ fn record_metrics(
 
 async fn process_request_inner(
     context: RequestContext,
-    canonical_log: &mut CanonicalLogLine,
+    canonical_log: &mut FlagsCanonicalLogLine,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
     let mut metrics_data = MetricsData {
         team_id: None,

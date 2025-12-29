@@ -6,7 +6,7 @@ use crate::{
         },
     },
     handler::{
-        decoding, process_request, CanonicalLogGuard, CanonicalLogLine, RequestContext,
+        decoding, process_request, FlagsCanonicalLogGuard, FlagsCanonicalLogLine, RequestContext,
     },
     router,
     utils::user_agent::UserAgentInfo,
@@ -249,7 +249,7 @@ pub async fn flags(
     // Initialize canonical log guard with all upfront request metadata.
     // The guard ensures the log is emitted even on early returns (e.g., rate limiting).
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via log_mut().
-    let mut guard = CanonicalLogGuard::new(CanonicalLogLine {
+    let mut guard = FlagsCanonicalLogGuard::new(FlagsCanonicalLogLine {
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
