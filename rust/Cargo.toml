@@ -25,10 +25,6 @@ members = [
     "common/compression",
     "common/hypercache",
     "feature-flags",
-    "hook-api",
-    "hook-common",
-    "hook-janitor",
-    "hook-worker",
     "cyclotron-core",
     "cyclotron-node",
     "cyclotron-janitor",
@@ -75,8 +71,6 @@ flate2 = "1.0"
 futures = { version = "0.3.29" }
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
-http = { version = "1.1.0" }
-http-body-util = "0.1.0"
 httpmock = "0.7.0"
 hyper = { version = "1.6", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
