@@ -1,12 +1,7 @@
 import { useMemo } from 'react'
 import { match } from 'ts-pattern'
 
-import {
-    ErrorTrackingException,
-    ErrorTrackingRawStackTrace,
-    ErrorTrackingResolvedStackTrace,
-    ErrorTrackingStackFrame,
-} from '../types'
+import { ErrorTrackingException, ErrorTrackingStackFrame } from '../types'
 import { KnownException, KnownExceptionRegistry } from './known-exceptions'
 
 type StackTraceRenderer = (
@@ -41,25 +36,22 @@ export function ExceptionRenderer({
 }: ExceptionRendererProps): JSX.Element {
     const knownException = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
 
-    const hasProperStackTrace = useMemo(
-        () =>
-            (stackTrace: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace | undefined): boolean => {
-                if (stackTrace === null || stackTrace === undefined) {
-                    return false
-                }
+    const hasProperStackTrace = useMemo(() => {
+        const stackTrace = exception.stacktrace
+        if (stackTrace === null || stackTrace === undefined) {
+            return false
+        }
 
-                if (!stackTrace.frames || stackTrace.frames.length === 0) {
-                    return false
-                }
+        if (!stackTrace.frames || stackTrace.frames.length === 0) {
+            return false
+        }
 
-                if (stackTrace.frames.some((frame) => typeof frame !== 'object' || frame === null)) {
-                    return false
-                }
+        if (stackTrace.frames.some((frame) => typeof frame !== 'object' || frame === null)) {
+            return false
+        }
 
-                return true
-            },
-        [exception]
-    )
+        return true
+    }, [exception])
 
     return (
         <div className={className}>
@@ -67,7 +59,7 @@ export function ExceptionRenderer({
             <div>
                 {match(exception.stacktrace)
                     .when(
-                        (stack) => !hasProperStackTrace(stack),
+                        () => !hasProperStackTrace,
                         () => renderUndefinedTrace(exception, knownException)
                     )
                     .when(
