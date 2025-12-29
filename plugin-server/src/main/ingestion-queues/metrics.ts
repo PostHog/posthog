@@ -1,5 +1,5 @@
 // Metrics that make sense across all Kafka consumers
-import { Counter, Gauge, Histogram, Summary } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 export const kafkaRebalancePartitionCount = new Gauge({
     name: 'kafka_rebalance_partition_count',
@@ -29,24 +29,6 @@ export const eventDroppedCounter = new Counter({
 export const setUsageInNonPersonEventsCounter = new Counter({
     name: 'set_usage_in_non_person_events',
     help: 'Count of events where $set usage was found in non-person events',
-})
-
-export const kafkaConsumerEventCounter = new Counter({
-    name: 'kafka_consumer_event_total',
-    help: 'Count of events emitted by the Kafka consumer by event type',
-    labelNames: ['event'],
-})
-
-export const kafkaConsumerEventRequestMsSummary = new Summary({
-    name: 'kafka_consumer_event_request_ms',
-    help: 'Duration of Kafka consumer event requests',
-    percentiles: [0.5, 0.9, 0.95, 0.99],
-})
-
-export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
-    name: 'kafka_consumer_event_request_pending_ms',
-    help: 'Pending duration of Kafka consumer event requests',
-    percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
 export const cookielessRedisErrorCounter = new Counter({
