@@ -85,10 +85,14 @@ def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     """Cache a migration file for later rollback with CLI feedback."""
     from hogli.migration_utils import cache_migration_file
 
-    if not cache_migration_file(app, name, source_path):
-        click.secho(f"  ⚠ Could not cache {app}.{name}", fg="yellow", err=True)
+    try:
+        if not cache_migration_file(app, name, source_path):
+            click.secho(f"  ⚠ Could not cache {app}.{name}", fg="yellow", err=True)
+            return False
+        return True
+    except OSError as e:
+        click.secho(f"  ⚠ {e}", fg="yellow", err=True)
         return False
-    return True
 
 
 def _find_migration_branch(app: str, name: str) -> str | None:

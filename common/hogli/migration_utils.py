@@ -116,7 +116,10 @@ def cache_migration_file(app: str, name: str, source_path: Path) -> bool:
         source_path: Path to the source migration file
 
     Returns:
-        True if caching succeeded, False otherwise
+        True if caching succeeded, False if app name is invalid
+
+    Raises:
+        OSError: If the file copy operation fails
     """
     try:
         cache_path = get_cache_path(app, name)
@@ -128,8 +131,8 @@ def cache_migration_file(app: str, name: str, source_path: Path) -> bool:
     try:
         shutil.copy2(source_path, cache_path)
         return True
-    except Exception:
-        return False
+    except OSError as e:
+        raise OSError(f"Failed to cache {app}.{name}: {e}") from e
 
 
 # Core PostHog apps that have migrations we manage
