@@ -83,16 +83,14 @@ impl FlagsCanonicalLogLine {
     pub fn emit(&self) {
         let duration_ms = self.start_time.elapsed().as_millis() as u64;
 
-        // Truncate distinct_id to prevent log line explosion from long IDs.
-        let distinct_id = self.distinct_id.as_ref().map(|d| truncate_chars(d, 64));
-
         // Truncate user_agent to prevent log bloat from very long headers (some bots send KB+).
+        // Note: distinct_id is already truncated at request parsing time (see MAX_DISTINCT_ID_LEN).
         let user_agent = self.user_agent.as_ref().map(|ua| truncate_chars(ua, 512));
 
         tracing::info!(
             request_id = %self.request_id,
             team_id = ?self.team_id,
-            distinct_id = ?distinct_id,
+            distinct_id = ?self.distinct_id,
             ip = %self.ip,
             user_agent = ?user_agent,
             lib = ?self.lib,
@@ -247,25 +245,6 @@ mod tests {
         log.rate_limited = true;
         log.error_code = Some("rate_limited".to_string());
         // Should not panic
-        log.emit();
-    }
-
-    #[test]
-    fn test_long_distinct_id_is_truncated_in_emit() {
-        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-        // Create a distinct_id longer than 64 characters
-        log.distinct_id = Some("a".repeat(100));
-        // Should not panic - truncation happens in emit()
-        log.emit();
-    }
-
-    #[test]
-    fn test_multibyte_distinct_id_truncation() {
-        let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-        // Create a distinct_id with multi-byte characters (emoji) longer than 64 chars
-        // Each emoji is 4 bytes but counts as 1 character
-        log.distinct_id = Some("🎉".repeat(100));
-        // Should not panic and should truncate by character count, not byte count
         log.emit();
     }
 
