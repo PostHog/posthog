@@ -49,11 +49,7 @@ impl GlobalRateLimiter {
     /// Evaluate key for global rate limit. Response with metadata is returned if limited.
     pub async fn is_limited(&self, key: &str, count: u64) -> Option<GlobalRateLimitResponse> {
         // call is instrumented internally
-        match self
-            .limiter
-            .update_eval_key(key, count, Some(Utc::now()))
-            .await
-        {
+        match self.limiter.check_limit(key, count, Some(Utc::now())).await {
             EvalResult::Limited(response) => Some(response),
             _ => None, // Allowed, NotApplicable, FailOpen all treated as "not limited"
         }
@@ -68,7 +64,7 @@ impl GlobalRateLimiter {
     ) -> Option<GlobalRateLimitResponse> {
         match self
             .limiter
-            .update_eval_custom_key(key, count, Some(Utc::now()))
+            .check_custom_limit(key, count, Some(Utc::now()))
             .await
         {
             EvalResult::Limited(response) => Some(response),
