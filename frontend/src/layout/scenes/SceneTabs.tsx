@@ -31,42 +31,13 @@ import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export function SceneTabs(): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { newTab, reorderTabs, removeTab } = useActions(sceneLogic)
+    const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const scrollRef = useRef<HTMLDivElement | null>(null)
-    const [removingTabId, setRemovingTabId] = useState<string | null>(null)
-    const [addingTabId, setAddingTabId] = useState<string | null>(null)
-    const prevTabIdsRef = useRef<string[]>([])
-
-    const handleRemoveTab = (tab: SceneTab): void => {
-        setRemovingTabId(tab.id)
-        setTimeout(() => {
-            removeTab(tab)
-            setRemovingTabId(null)
-        }, 150)
-    }
-
-    // Detect newly added tabs
-    useEffect(() => {
-        const currentTabIds = tabs.map((t) => t.id)
-        const prevTabIds = prevTabIdsRef.current
-
-        // Find new tab (exists in current but not in previous)
-        const newTabId = currentTabIds.find((id) => !prevTabIds.includes(id))
-
-        if (newTabId && prevTabIds.length > 0) {
-            setAddingTabId(newTabId)
-            setTimeout(() => {
-                setAddingTabId(null)
-            }, 150)
-        }
-
-        prevTabIdsRef.current = currentTabIds
-    }, [tabs])
 
     const activeTabId = tabs.find((tab) => tab.active)?.id
 
@@ -74,26 +45,9 @@ export function SceneTabs(): JSX.Element {
         if (!scrollRef.current || !activeTabId) {
             return
         }
-        const activeTabElement = scrollRef.current.querySelector(`[data-tab-id="${activeTabId}"]`) as HTMLElement
+        const activeTabElement = scrollRef.current.querySelector(`[data-tab-id="${activeTabId}"]`)
         if (activeTabElement) {
-            const container = scrollRef.current
-            const tabLeft = activeTabElement.offsetLeft
-            const tabRight = tabLeft + activeTabElement.offsetWidth
-            const scrollLeft = container.scrollLeft
-            const containerWidth = container.clientWidth
-
-            // Check if tab is fully visible
-            const isFullyVisible = tabLeft >= scrollLeft && tabRight <= scrollLeft + containerWidth
-
-            if (!isFullyVisible) {
-                // Scroll to show full tab with some padding
-                const padding = 8
-                if (tabLeft < scrollLeft) {
-                    container.scrollTo({ left: tabLeft - padding, behavior: 'smooth' })
-                } else {
-                    container.scrollTo({ left: tabRight - containerWidth + padding, behavior: 'smooth' })
-                }
-            }
+            activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
         }
     }, [activeTabId])
 
@@ -165,9 +119,6 @@ export function SceneTabs(): JSX.Element {
                                         index={index}
                                         sortableId={sortableId}
                                         onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
-                                        isRemoving={removingTabId === tab.id}
-                                        isAdding={addingTabId === tab.id}
-                                        onRemove={handleRemoveTab}
                                     />
                                     {isLastPinned && (
                                         <div
@@ -217,9 +168,6 @@ interface SortableSceneTabProps {
     sortableId: string
     containerClassName?: string
     onConfigurePinnedTabs: () => void
-    isRemoving: boolean
-    isAdding: boolean
-    onRemove: (tab: SceneTab) => void
 }
 
 function SortableSceneTab({
@@ -228,26 +176,18 @@ function SortableSceneTab({
     sortableId,
     containerClassName,
     onConfigurePinnedTabs,
-    isRemoving,
-    isAdding,
-    onRemove,
 }: SortableSceneTabProps): JSX.Element {
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
         id: sortableId,
         data: { index },
     })
-
-    const isPinned = !!tab.pinned
-    const isAnimating = isRemoving || isAdding
-
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
-        transition: isAnimating ? 'opacity 150ms ease-out, flex 150ms ease-out, min-width 150ms ease-out' : transition,
-        opacity: isDragging ? 0.5 : isRemoving ? 0 : undefined,
-        flex: isRemoving ? 0 : undefined,
-        minWidth: isRemoving ? 0 : undefined,
-        overflow: isAnimating ? 'hidden' : undefined,
+        transition,
+        opacity: isDragging ? 0.5 : undefined,
     }
+
+    const isPinned = !!tab.pinned
 
     return (
         <div
@@ -255,10 +195,7 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(
-                isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'flex-1 min-w-[100px]',
-                isAdding && 'scene-tab-adding'
-            )}
+            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'flex-1 min-w-[100px]')}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -267,7 +204,6 @@ function SortableSceneTab({
                     isDragging={isDragging}
                     containerClassName={containerClassName}
                     index={index}
-                    onRemove={onRemove}
                 />
             </SceneTabContextMenu>
         </div>
@@ -280,14 +216,13 @@ interface SceneTabProps {
     isDragging?: boolean
     containerClassName?: string
     index: number
-    onRemove: (tab: SceneTab) => void
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName, onRemove }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
-    const { clickOnTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
     const isEditing = editingTabId === tab.id
@@ -326,7 +261,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, onR
                             onClick={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
-                                onRemove(tab)
+                                removeTab(tab)
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
                             tooltipCloseDelayMs={0}
@@ -352,7 +287,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, onR
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
-                            onRemove(tab)
+                            removeTab(tab)
                         }
                     }}
                     onDoubleClick={(e) => {

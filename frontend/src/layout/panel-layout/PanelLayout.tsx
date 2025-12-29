@@ -24,10 +24,6 @@ const panelLayoutStyles = cva({
             true: 'block',
             false: 'hidden',
         },
-        isLayoutPanelPinned: {
-            true: '',
-            false: '',
-        },
         isMobileLayout: {
             true: 'absolute top-0 bottom-0 flex',
             false: 'grid',
@@ -66,55 +62,15 @@ const panelLayoutStyles = cva({
             isLayoutNavbarVisibleForMobile: false,
             className: 'hidden',
         },
-        // Tree mode
-        {
-            isMobileLayout: false,
-            isLayoutPanelVisible: true,
-            isLayoutPanelPinned: true,
-            isLayoutNavCollapsed: false,
-            projectTreeMode: 'tree',
-            className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
-        },
-        {
-            isMobileLayout: false,
-            isLayoutPanelVisible: true,
-            isLayoutPanelPinned: true,
-            isLayoutNavCollapsed: true,
-            projectTreeMode: 'tree',
-            className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
-        },
-        // Table mode
-        {
-            isMobileLayout: false,
-            isLayoutPanelVisible: true,
-            isLayoutPanelPinned: true,
-            isLayoutNavCollapsed: false,
-            projectTreeMode: 'table',
-            // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width
-            className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
-        },
-        {
-            isMobileLayout: false,
-            isLayoutPanelVisible: true,
-            isLayoutPanelPinned: true,
-            isLayoutNavCollapsed: true,
-            projectTreeMode: 'table',
-            // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width (collapsed)
-            className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
-        },
         // Navbar (collapsed)
         {
             isMobileLayout: false,
-            isLayoutPanelVisible: true,
-            isLayoutPanelPinned: false,
             isLayoutNavCollapsed: true,
             className: 'w-[var(--project-navbar-width-collapsed)]',
         },
         // Navbar (default)
         {
             isMobileLayout: false,
-            isLayoutPanelVisible: true,
-            isLayoutPanelPinned: false,
             isLayoutNavCollapsed: false,
             className: 'w-[var(--project-navbar-width)]',
         },
@@ -129,7 +85,6 @@ export function PanelLayout({
     isSimplerAppLayout?: boolean
 }): JSX.Element {
     const {
-        isLayoutPanelPinned,
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
         isLayoutNavbarVisibleForDesktop,
@@ -167,7 +122,6 @@ export function PanelLayout({
                     panelLayoutStyles({
                         isLayoutNavbarVisibleForMobile,
                         isLayoutNavbarVisibleForDesktop,
-                        isLayoutPanelPinned,
                         isLayoutPanelVisible,
                         isMobileLayout,
                         isLayoutNavCollapsed,
@@ -211,9 +165,9 @@ export function PanelLayout({
                 }}
                 className={cn(
                     'z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 dark:bg-black/80 overlay-fade',
-                    !(isLayoutPanelVisible && !isLayoutPanelPinned) && 'pointer-events-none opacity-0'
+                    !isLayoutPanelVisible && 'pointer-events-none opacity-0'
                 )}
-                aria-hidden={!(isLayoutPanelVisible && !isLayoutPanelPinned)}
+                aria-hidden={!isLayoutPanelVisible}
             />
 
             {/* Mobile overlay for new app-layout - outside transformed container so it fades instead of slides */}

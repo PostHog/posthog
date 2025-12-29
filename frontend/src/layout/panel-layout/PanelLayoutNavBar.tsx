@@ -96,7 +96,6 @@ export function PanelLayoutNavBar({
         activePanelIdentifier,
         activePanelIdentifierFromUrl,
         mainContentRef,
-        isLayoutPanelPinned,
         isLayoutNavCollapsed,
         isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
@@ -118,10 +117,8 @@ export function PanelLayoutNavBar({
     }
 
     function handleStaticNavbarItemClick(to?: string, isKeyboardAction = false): void {
-        if (!isLayoutPanelPinned) {
-            clearActivePanelIdentifier()
-            showLayoutPanel(false)
-        }
+        clearActivePanelIdentifier()
+        showLayoutPanel(false)
 
         if (isKeyboardAction) {
             mainContentRef?.current?.focus()
