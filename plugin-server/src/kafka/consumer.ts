@@ -13,7 +13,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import {
     EventHeaders,
@@ -28,7 +28,6 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -41,6 +40,18 @@ const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 const STATISTICS_INTERVAL_MS = 5000 // Emit internal metrics every 5 seconds
+
+const kafkaConsumerAssignment = new Gauge({
+    name: 'kafka_consumer_assignment',
+    help: 'Kafka consumer partition assignment status',
+    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
+})
+
+const kafkaHeaderStatusCounter = new Counter({
+    name: 'kafka_header_status_total',
+    help: 'Count of events by header name and presence status',
+    labelNames: ['header', 'status'],
+})
 
 const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
