@@ -10,7 +10,7 @@ import pyarrow as pa
 
 from posthog.models import Team
 from posthog.models.organization import Organization
-from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsIsMccAccountConfig, GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas,
@@ -286,3 +286,60 @@ class TestGoogleAdsSourceValidation:
         assert is_valid is False
         assert error is not None
         assert "Error validating credentials" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_mcc_success(self, mock_client):
+        mock_ga_service = mock.MagicMock()
+        mock_response = [mock.MagicMock()]
+        mock_ga_service.search.return_value = mock_response
+        mock_client.return_value.get_service.return_value = mock_ga_service
+
+        config = GoogleAdsSourceConfig(
+            customer_id="123-456-7890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(enabled=True, mcc_client_id="999-888-7777"),
+        )
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is True
+        assert error is None
+        mock_ga_service.search.assert_called_once()
+        call_kwargs = mock_ga_service.search.call_args[1]
+        assert call_kwargs["customer_id"] == "1234567890"
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_mcc_customer_not_found(self, mock_client):
+        mock_ga_service = mock.MagicMock()
+        mock_ga_service.search.side_effect = Exception("CUSTOMER_NOT_FOUND: Customer not found")
+        mock_client.return_value.get_service.return_value = mock_ga_service
+
+        config = GoogleAdsSourceConfig(
+            customer_id="123-456-7890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(enabled=True, mcc_client_id="999-888-7777"),
+        )
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "is not accessible" in error
+
+    @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
+    def test_validate_credentials_mcc_permission_denied(self, mock_client):
+        mock_ga_service = mock.MagicMock()
+        mock_ga_service.search.side_effect = Exception("USER_PERMISSION_DENIED: User does not have permission")
+        mock_client.return_value.get_service.return_value = mock_ga_service
+
+        config = GoogleAdsSourceConfig(
+            customer_id="123-456-7890",
+            google_ads_integration_id=1,
+            is_mcc_account=GoogleAdsIsMccAccountConfig(enabled=True, mcc_client_id="999-888-7777"),
+        )
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "is not accessible" in error

@@ -156,11 +156,37 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
 
         return is_valid, errors
 
+    def _validate_mcc_customer_access(self, client, config: GoogleAdsSourceConfig) -> tuple[bool, str | None]:
+        """Validate that a client account is accessible through a manager (MCC) account.
+
+        list_accessible_customers() only returns manager-level accounts, not client accounts
+        under those managers. We directly query the target customer - if the MCC login_customer_id
+        is configured correctly in the client, this will succeed.
+        """
+        cleaned_customer_id = clean_customer_id(config.customer_id)
+        ga_service = client.get_service("GoogleAdsService")
+        query = "SELECT customer.id FROM customer"
+        try:
+            response = ga_service.search(customer_id=cleaned_customer_id, query=query)
+            list(response)  # Consume the response to trigger any errors
+            return True, None
+        except Exception as e:
+            error_message = str(e)
+            if "CUSTOMER_NOT_FOUND" in error_message or "USER_PERMISSION_DENIED" in error_message:
+                return (
+                    False,
+                    f"Customer ID {config.customer_id} is not accessible. Please verify your customer ID and manager account settings.",
+                )
+            raise
+
     def validate_credentials(
         self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, team_id: int
     ) -> tuple[bool, str | None]:
         try:
             client = google_ads_client(config, team_id)
+
+            if isinstance(config, GoogleAdsSourceConfig) and config.is_mcc_account and config.is_mcc_account.enabled:
+                return self._validate_mcc_customer_access(client, config)
 
             customer_service = client.get_service("CustomerService")
             accessible_customers = customer_service.list_accessible_customers()
