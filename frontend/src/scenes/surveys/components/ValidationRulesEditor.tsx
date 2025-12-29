@@ -35,7 +35,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
 
     const setMinLength = (val: number | undefined): void => {
         const filtered = rules.filter((r) => r.type !== SurveyValidationType.MinLength)
-        if (val && val > 0) {
+        if (val !== undefined && val > 0) {
             updateRules([...filtered, { type: SurveyValidationType.MinLength, value: val }])
         } else {
             updateRules(filtered)
@@ -44,7 +44,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
 
     const setMaxLength = (val: number | undefined): void => {
         const filtered = rules.filter((r) => r.type !== SurveyValidationType.MaxLength)
-        if (val && val > 0) {
+        if (val !== undefined && val > 0) {
             updateRules([...filtered, { type: SurveyValidationType.MaxLength, value: val }])
         } else {
             updateRules(filtered)
