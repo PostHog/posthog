@@ -48,23 +48,21 @@ pub struct KafkaDeduplicatorService {
 
 impl KafkaDeduplicatorService {
     /// Reset the local checkpoint directory (remove if exists, then create fresh)
-    fn reset_checkpoint_directories(cfg: &CheckpointConfig) -> Result<()> {
-        for checkpoint_dir in [&cfg.local_checkpoint_dir, &cfg.local_checkpoint_import_dir] {
-            let path = std::path::Path::new(checkpoint_dir);
+    fn reset_checkpoint_directory(cfg: &CheckpointConfig) -> Result<()> {
+        let checkpoint_dir = &cfg.local_checkpoint_dir;
+        let path = std::path::Path::new(checkpoint_dir);
 
-            if path.exists() {
-                info!("Resetting local checkpoint directory: {checkpoint_dir}");
-                std::fs::remove_dir_all(path).with_context(|| {
-                    format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
-                })?;
-            }
-
-            std::fs::create_dir_all(path).with_context(|| {
-                format!("Failed to create checkpoint directory: {checkpoint_dir}")
+        if path.exists() {
+            info!("Resetting local checkpoint directory: {checkpoint_dir}");
+            std::fs::remove_dir_all(path).with_context(|| {
+                format!("Failed to remove existing checkpoint directory: {checkpoint_dir}",)
             })?;
-
-            info!("Local checkpoint directory ready: {checkpoint_dir}");
         }
+
+        std::fs::create_dir_all(path)
+            .with_context(|| format!("Failed to create checkpoint directory: {checkpoint_dir}"))?;
+
+        info!("Local checkpoint directory ready: {checkpoint_dir}");
         Ok(())
     }
 
@@ -105,7 +103,6 @@ impl KafkaDeduplicatorService {
             checkpoint_interval: config.checkpoint_interval(),
             checkpoint_full_upload_interval: config.checkpoint_full_upload_interval,
             local_checkpoint_dir: config.local_checkpoint_dir.clone(),
-            local_checkpoint_import_dir: config.checkpoint_import_local_temp_base_path.clone(),
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             aws_region: config.aws_region.clone(),
@@ -120,7 +117,7 @@ impl KafkaDeduplicatorService {
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
-        Self::reset_checkpoint_directories(&checkpoint_config)?;
+        Self::reset_checkpoint_directory(&checkpoint_config)?;
 
         // create exporter conditionally if S3 config is populated
         let exporter = if config.checkpoint_export_enabled() {
@@ -143,7 +140,8 @@ impl KafkaDeduplicatorService {
             );
             Some(Arc::new(CheckpointImporter::new(
                 downloader,
-                &checkpoint_config,
+                store_config.path.clone(),
+                config.checkpoint_import_attempt_depth,
             )))
         } else {
             None

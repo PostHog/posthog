@@ -1,4 +1,3 @@
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -66,178 +65,6 @@ where
         }
     }
 
-    async fn import_checkpoint_for_topic_partition(
-        &self,
-        topic: &str,
-        partition_number: i32,
-        store_base_path: &Path,
-    ) -> Result<Option<PathBuf>> {
-        if self.checkpoint_importer.is_none() {
-            metrics::counter!(
-                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                "result" => "skipped",
-                "reason" => "disabled",
-            )
-            .increment(1);
-            return Ok(None);
-        }
-
-        let tmp_path = match self
-            .checkpoint_importer
-            .as_ref()
-            .unwrap()
-            .import_checkpoint_for_topic_partition(topic, partition_number)
-            .await
-        {
-            Ok(path) => path,
-            Err(e) => {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "failed",
-                    "reason" => "import",
-                )
-                .increment(1);
-
-                return Err(e);
-            }
-        };
-
-        let store_full_path = store_base_path
-            .join(topic)
-            .join(partition_number.to_string());
-        if let Err(e) = std::fs::create_dir_all(&store_full_path) {
-            metrics::counter!(
-                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                "result" => "failed",
-                "reason" => "create_store_dir",
-            )
-            .increment(1);
-
-            error!(
-                store_full_path = %store_full_path.display()    ,
-                error = e.to_string(),
-                "Failed to create store directory for checkpoint import"
-            );
-
-            return Err(anyhow::anyhow!(
-                "Failed to create store directory for checkpoint import: {e}"
-            ));
-        };
-
-        // Copy files from tmp_path to store_full_path
-        let mut entries = match tokio::fs::read_dir(&tmp_path).await {
-            Ok(entries) => entries,
-            Err(e) => {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "failed",
-                    "reason" => "read_local_dir",
-                )
-                .increment(1);
-
-                error!(
-                    tmp_path = %tmp_path.display(),
-                    error = %e,
-                    "Failed to read checkpoint temp directory"
-                );
-
-                let _ = tokio::fs::remove_dir_all(&tmp_path).await;
-                let _ = tokio::fs::remove_dir_all(&store_full_path).await;
-
-                return Err(anyhow::anyhow!(
-                    "Failed to read checkpoint temp directory: {e}"
-                ));
-            }
-        };
-
-        let mut files_copied = 0u64;
-        while let Some(entry) = entries.next_entry().await.transpose() {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    metrics::counter!(
-                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                        "result" => "failed",
-                        "reason" => "read_local_file",
-                    )
-                    .increment(1);
-                    error!(
-                        tmp_path = %tmp_path.display(),
-                        store_full_path = %store_full_path.display(),
-                        files_copied,
-                        error = %e,
-                        "Failed to read directory entry during checkpoint import"
-                    );
-
-                    let _ = tokio::fs::remove_dir_all(&tmp_path).await;
-                    let _ = tokio::fs::remove_dir_all(&store_full_path).await;
-
-                    return Err(anyhow::anyhow!(
-                        "Failed to read directory entry during checkpoint import: {e}"
-                    ));
-                }
-            };
-
-            let file_name = entry.file_name();
-            let dest = store_full_path.join(&file_name);
-
-            if let Err(e) = tokio::fs::copy(entry.path(), &dest).await {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "failed",
-                    "reason" => "copy_local_file",
-                )
-                .increment(1);
-                error!(
-                    src = %entry.path().display(),
-                    dest = %dest.display(),
-                    files_copied,
-                    error = %e,
-                    "Failed to copy checkpoint file"
-                );
-
-                let _ = tokio::fs::remove_dir_all(&tmp_path).await;
-                let _ = tokio::fs::remove_dir_all(&store_full_path).await;
-
-                return Err(anyhow::anyhow!("Failed to copy checkpoint file: {e}"));
-            }
-            files_copied += 1;
-        }
-
-        // Clean up temp directory on success
-        if let Err(e) = tokio::fs::remove_dir_all(&tmp_path).await {
-            metrics::counter!(
-                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                "result" => "failed",
-                "reason" => "cleanup_tmp_dir",
-            )
-            .increment(1);
-
-            error!(
-                tmp_path = %tmp_path.display(),
-                error = %e,
-                "Failed to clean up checkpoint temp directory after successful import"
-            );
-            // Non-fatal - files are already copied
-        }
-
-        metrics::counter!(
-            REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-            "result" => "success",
-        )
-        .increment(1);
-
-        info!(
-            topic,
-            partition_number,
-            store_full_path = %store_full_path.display(),
-            files_copied,
-            "Imported checkpoint files"
-        );
-
-        Ok(Some(store_full_path))
-    }
-
     /// Set up a single partition: import checkpoint and create store.
     /// This is called concurrently for all assigned partitions.
     async fn async_setup_single_partition(&self, partition: &Partition) {
@@ -256,44 +83,69 @@ where
             return;
         }
 
-        // Import checkpoint from S3
-        match self
-            .import_checkpoint_for_topic_partition(
-                partition.topic(),
-                partition.partition_number(),
-                self.store_manager.base_path(),
+        // Try to import checkpoint from S3 directly into store directory
+        let checkpoint_imported = if let Some(ref importer) = self.checkpoint_importer {
+            match importer
+                .import_checkpoint_for_topic_partition(
+                    partition.topic(),
+                    partition.partition_number(),
+                )
+                .await
+            {
+                Ok(path) => {
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => "success",
+                    )
+                    .increment(1);
+                    info!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        path = %path.display(),
+                        "Imported checkpoint for partition"
+                    );
+                    true
+                }
+                Err(e) => {
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => "failed",
+                        "reason" => "import",
+                    )
+                    .increment(1);
+                    warn!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        error = %e,
+                        "Failed to import checkpoint for partition"
+                    );
+                    false
+                }
+            }
+        } else {
+            metrics::counter!(
+                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                "result" => "skipped",
+                "reason" => "disabled",
             )
-            .await
-        {
-            Ok(Some(path)) => {
-                info!(
-                    topic = partition.topic(),
-                    partition = partition.partition_number(),
-                    path = %path.display(),
-                    "Imported checkpoint for partition"
-                );
-            }
-            Ok(None) => {
-                // No checkpoint importer configured, skip
-            }
-            Err(e) => {
-                warn!(
-                    topic = partition.topic(),
-                    partition = partition.partition_number(),
-                    error = %e,
-                    "Failed to import checkpoint for partition"
-                );
-                // Non-fatal - store will be created fresh
-            }
-        }
+            .increment(1);
+            false
+        };
 
-        // Create the store
+        // Create the store (will use imported checkpoint files if present)
         match self
             .store_manager
             .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
             .await
         {
             Ok(_) => {
+                if !checkpoint_imported {
+                    metrics::counter!(
+                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                        "result" => "fallback",
+                    )
+                    .increment(1);
+                }
                 info!(
                     "Pre-created store for partition {}:{}",
                     partition.topic(),

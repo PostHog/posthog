@@ -28,14 +28,10 @@ const MINIO_ACCESS_KEY: &str = "object_storage_root_user";
 const MINIO_SECRET_KEY: &str = "object_storage_root_password";
 const TEST_BUCKET: &str = "test-kafka-deduplicator-checkpoints";
 
-fn create_test_checkpoint_config(
-    tmp_checkpoint_dir: &TempDir,
-    tmp_import_dir: &TempDir,
-) -> CheckpointConfig {
+fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConfig {
     CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-        local_checkpoint_import_dir: tmp_import_dir.path().to_string_lossy().to_string(),
         s3_bucket: TEST_BUCKET.to_string(),
         s3_key_prefix: "checkpoints".to_string(),
         aws_region: "us-east-1".to_string(),
@@ -159,7 +155,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     }
 
     // Create checkpoint config
-    let config = create_test_checkpoint_config(&tmp_checkpoint_dir, &tmp_import_dir);
+    let config = create_test_checkpoint_config(&tmp_checkpoint_dir);
 
     // Create S3Uploader for MinIO and wrap in exporter
     let uploader = S3Uploader::new_for_testing(config.clone()).await?;
@@ -272,8 +268,12 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         uploaded_info.metadata.files.len()
     );
 
-    // Test full import via CheckpointImporter
-    let importer = CheckpointImporter::new(Box::new(downloader), &config);
+    // Test full import via CheckpointImporter - downloads directly to store directory
+    let importer = CheckpointImporter::new(
+        Box::new(downloader),
+        tmp_import_dir.path().to_path_buf(),
+        config.checkpoint_import_attempt_depth,
+    );
     assert!(
         importer.is_available().await,
         "Importer should be available"
@@ -326,21 +326,21 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
             .collect::<Vec<_>>()
     );
 
-    // Verify import result is within the configured import directory
+    // Verify import result is within the store base directory
     assert!(
         import_result.starts_with(tmp_import_dir.path()),
-        "Imported checkpoint should be within tmp_import_dir: {import_result:?} not in {:?}",
+        "Imported checkpoint should be within store base dir: {import_result:?} not in {:?}",
         tmp_import_dir.path()
     );
 
-    // Verify import directory structure: <import_dir>/<topic>/<partition>/<checkpoint_id>/
-    let expected_import_parent = tmp_import_dir
+    // Verify store directory structure: <store_base>/<topic>/<partition>/
+    let expected_store_path = tmp_import_dir
         .path()
         .join(test_topic)
         .join(test_partition.to_string());
     assert!(
-        expected_import_parent.exists(),
-        "Import directory structure should exist: {expected_import_parent:?}"
+        expected_store_path.exists(),
+        "Store directory structure should exist: {expected_store_path:?}"
     );
 
     // Drop the original store to release RocksDB locks
@@ -349,9 +349,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     // Open a new store from the imported checkpoint to verify it's a valid RocksDB
     info!(path = ?import_result, "Opening store from imported checkpoint");
     let restored_store_config = DeduplicationStoreConfig {
-        // for simplicity, we supply the temp import dir directly for store verification.
-        // in production, the kafka rebalance handler copies successful imports into the
-        // production store directory tree.
+        // Checkpoint files are imported directly to the store directory
         path: import_result.clone(),
         max_capacity: 1_000_000,
     };

@@ -196,12 +196,6 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub checkpoint_import_attempt_depth: usize,
 
-    // Base temporary directory base for importing checkpoints from
-    // remote storage (S3) before copying into RocksDB store directory.
-    // cleaned up on success or failure
-    #[envconfig(default = "/tmp/checkpoint_imports")]
-    pub checkpoint_import_local_temp_base_path: String,
-
     // number of hours prior to "now" that the checkpoint import mechanism
     // will search for valid checkpoint attempts in a DR recovery scenario
     #[envconfig(default = "24")]

@@ -1,6 +1,7 @@
+use std::path::{Path, PathBuf};
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use tracing::info;
@@ -106,6 +107,15 @@ impl CheckpointMetadata {
     /// <topic_name>/<partition_number>/<checkpoint_id>
     pub fn get_attempt_path(&self) -> String {
         format!("{}/{}/{}", self.topic, self.partition, self.id)
+    }
+
+    /// Get the path (without attempt timestamp ID element) for the local store
+    /// directory checkpoints will be imported into, starting from the supplied
+    /// local base path. Example: <local_base_path>/<topic_name>/<partition_number>
+    pub fn get_store_path(&self, local_base_path: &Path) -> PathBuf {
+        local_base_path
+            .join(self.topic.clone())
+            .join(self.partition.to_string())
     }
 
     /// Get relative path to metadata file for this checkpoint attempt,
@@ -425,5 +435,35 @@ mod tests {
         assert!(id.ends_with('Z'));
         assert!(id.len() > 15); // Rough length check
         assert_eq!(id, expected_id);
+    }
+
+    #[test]
+    fn test_get_store_path() {
+        let attempt_timestamp = Utc::now();
+        let topic = "events";
+        let partition = 5;
+
+        let metadata = CheckpointMetadata::new(
+            topic.to_string(),
+            partition,
+            attempt_timestamp,
+            1234567890,
+            100,
+            50,
+        );
+
+        let base_path = Path::new("/data/stores");
+        let store_path = metadata.get_store_path(base_path);
+
+        // Store path should be <base>/<topic>/<partition>
+        assert_eq!(store_path, Path::new("/data/stores/events/5"));
+
+        // Works with different base paths
+        let tmp_base = Path::new("/tmp/deduplication-store");
+        let tmp_store_path = metadata.get_store_path(tmp_base);
+        assert_eq!(
+            tmp_store_path,
+            Path::new("/tmp/deduplication-store/events/5")
+        );
     }
 }

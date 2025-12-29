@@ -14,10 +14,6 @@ pub struct CheckpointConfig {
     /// Base directory for local checkpoints
     pub local_checkpoint_dir: String,
 
-    /// Base temp directory for local checkpoint imports. successful
-    /// imports from remote will be copied into local store directory
-    pub local_checkpoint_import_dir: String,
-
     /// S3 bucket for checkpoint uploads
     pub s3_bucket: String,
 
@@ -68,7 +64,6 @@ impl Default for CheckpointConfig {
             checkpoint_interval: Duration::from_secs(300),
             checkpoint_full_upload_interval: 10, // create a full checkpoint every 10 attempts per partition
             local_checkpoint_dir: "./checkpoints".to_string(),
-            local_checkpoint_import_dir: "./checkpoint_imports".to_string(),
             s3_bucket: "".to_string(),
             s3_key_prefix: "deduplication-checkpoints".to_string(),
             aws_region: "us-east-1".to_string(),
