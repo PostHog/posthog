@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashSet;
+use futures::future::join_all;
 use rdkafka::TopicPartitionList;
 use tracing::{error, info, warn};
 
@@ -236,6 +237,80 @@ where
 
         Ok(Some(store_full_path))
     }
+
+    /// Set up a single partition: import checkpoint and create store.
+    /// This is called concurrently for all assigned partitions.
+    async fn async_setup_single_partition(&self, partition: &Partition) {
+        // Skip if store already exists
+        if self
+            .store_manager
+            .get(partition.topic(), partition.partition_number())
+            .is_some()
+        {
+            metrics::counter!(
+                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                "result" => "skipped",
+                "reason" => "store_exists",
+            )
+            .increment(1);
+            return;
+        }
+
+        // Import checkpoint from S3
+        match self
+            .import_checkpoint_for_topic_partition(
+                partition.topic(),
+                partition.partition_number(),
+                self.store_manager.base_path(),
+            )
+            .await
+        {
+            Ok(Some(path)) => {
+                info!(
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    path = %path.display(),
+                    "Imported checkpoint for partition"
+                );
+            }
+            Ok(None) => {
+                // No checkpoint importer configured, skip
+            }
+            Err(e) => {
+                warn!(
+                    topic = partition.topic(),
+                    partition = partition.partition_number(),
+                    error = %e,
+                    "Failed to import checkpoint for partition"
+                );
+                // Non-fatal - store will be created fresh
+            }
+        }
+
+        // Create the store
+        match self
+            .store_manager
+            .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    "Pre-created store for partition {}:{}",
+                    partition.topic(),
+                    partition.partition_number()
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to pre-create store for partition {}:{}: {}",
+                    partition.topic(),
+                    partition.partition_number(),
+                    e
+                );
+                // Don't fail - the processor will retry on first message
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -332,85 +407,18 @@ where
             .collect();
 
         info!(
-            "Cleaning up {} assigned partitions (async)",
+            "Setting up {} assigned partitions (async)",
             partition_infos.len()
         );
 
-        // TODO: We should download the checkpoint from S3 here
-        // We should not allow the processor to start until the checkpoint is downloaded
-
-        // Pre-create stores for assigned partitions
+        // Pre-create stores for assigned partitions in parallel
         // This reduces latency on the first message batch by having the store ready
         // If messages arrive before this completes, get_or_create in the processor
         // will handle it and emit a warning (indicating pre-creation didn't complete in time)
-        for partition in &partition_infos {
-            if self
-                .store_manager
-                .get(partition.topic(), partition.partition_number())
-                .is_none()
-            {
-                match self
-                    .import_checkpoint_for_topic_partition(
-                        partition.topic(),
-                        partition.partition_number(),
-                        self.store_manager.base_path(),
-                    )
-                    .await
-                {
-                    Ok(Some(path)) => {
-                        // import successful, replaced old checkpoint store directory and files
-                        info!(
-                            topic = partition.topic(),
-                            partition = partition.partition_number(),
-                            path = %path.display(),
-                            "Imported checkpoint for partition"
-                        );
-                    }
-                    Ok(None) => {
-                        // No checkpoint importer configured, skip
-                    }
-                    Err(e) => {
-                        warn!(
-                            topic = partition.topic(),
-                            partition = partition.partition_number(),
-                            error = %e,
-                            "Failed to import checkpoint for partition"
-                        );
-                        // Non-fatal - store will be created fresh
-                    }
-                }
-            } else {
-                metrics::counter!(
-                    REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                    "result" => "skipped",
-                    "reason" => "store_exists",
-                )
-                .increment(1);
-            }
-
-            match self
-                .store_manager
-                .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
-                .await
-            {
-                Ok(_) => {
-                    info!(
-                        "Pre-created store for partition {}:{}",
-                        partition.topic(),
-                        partition.partition_number()
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        "Failed to pre-create store for partition {}:{}: {}",
-                        partition.topic(),
-                        partition.partition_number(),
-                        e
-                    );
-                    // Don't fail the whole cleanup - the processor will retry on first message
-                }
-            }
-        }
+        let setup_futures = partition_infos
+            .iter()
+            .map(|p| self.async_setup_single_partition(p));
+        join_all(setup_futures).await;
 
         Ok(())
     }
