@@ -526,7 +526,7 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                 prime_redis_buckets(&redis, &config, &key, 100).await;
             }
             if batch_start % 10000 == 0 {
-                eprintln!("  Primed {batch_start}/{KEYS_CARDINALITY } keys...");
+                eprintln!("  Primed {batch_start}/{KEYS_CARDINALITY} keys...");
             }
         }
     });
