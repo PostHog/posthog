@@ -8166,6 +8166,58 @@
                 }
             ]
         },
+        "CoreEvent": {
+            "additionalProperties": false,
+            "description": "Unified core event stored in Team settings",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/CoreEventCategory",
+                    "description": "Category (acquisition, activation, retention, referral, revenue)"
+                },
+                "description": {
+                    "description": "Optional description",
+                    "type": "string"
+                },
+                "filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/DataWarehouseNode"
+                        }
+                    ],
+                    "description": "Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.)"
+                },
+                "id": {
+                    "description": "Unique identifier",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "category", "filter"],
+            "type": "object"
+        },
+        "CoreEventCategory": {
+            "description": "Category for core events (lifecycle stages)",
+            "enum": [
+                "acquisition",
+                "activation",
+                "monetization",
+                "expansion",
+                "referral",
+                "retention",
+                "churn",
+                "reactivation"
+            ],
+            "type": "string"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
