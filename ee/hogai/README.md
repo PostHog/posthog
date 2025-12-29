@@ -70,7 +70,10 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
    }
    ```
 
-For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
+For an example, see `ee/hogai/tools`:
+
+- `execute_sql` – SQL generation and execution.
+- `upsert_dashboard` – creating and editing dashboards.
 
 ### Mounting
 
