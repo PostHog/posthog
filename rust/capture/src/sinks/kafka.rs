@@ -368,9 +368,13 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                                 }
                             }
                             OverflowLimiterResult::NotLimited => {
-                                // event_key is "<token>:<distinct_id>" for std events or
-                                // "<token>:<ip_addr>" for cookieless events
-                                (&self.topics.main_topic, Some(event_key.as_str()))
+                                // Drop partition key if skip_person_processing is set
+                                let key = if skip_person_processing {
+                                    None
+                                } else {
+                                    Some(event_key.as_str())
+                                };
+                                (&self.topics.main_topic, key)
                             }
                         }
                     }
@@ -791,12 +795,14 @@ mod tests {
             }
         }
 
-        fn create_test_event(
+        struct EventInput {
             data_type: DataType,
             force_overflow: bool,
             skip_person_processing: bool,
             redirect_to_dlq: bool,
-        ) -> ProcessedEvent {
+        }
+
+        fn create_test_event(input: &EventInput) -> ProcessedEvent {
             let event = CapturedEvent {
                 uuid: uuid_v7(),
                 distinct_id: "test_user".to_string(),
@@ -813,13 +819,13 @@ mod tests {
             };
 
             let metadata = ProcessedEventMetadata {
-                data_type,
+                data_type: input.data_type,
                 session_id: Some("session123".to_string()),
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),
-                force_overflow,
-                skip_person_processing,
-                redirect_to_dlq,
+                force_overflow: input.force_overflow,
+                skip_person_processing: input.skip_person_processing,
+                redirect_to_dlq: input.redirect_to_dlq,
             };
 
             ProcessedEvent { event, metadata }
@@ -831,40 +837,42 @@ mod tests {
             force_disable_person_processing: Option<bool>,
         }
 
-        async fn assert_routing(
-            data_type: DataType,
-            force_overflow: bool,
-            skip_person_processing: bool,
-            redirect_to_dlq: bool,
-            expected: ExpectedRouting<'_>,
-        ) {
+        async fn assert_routing(input: EventInput, expected: ExpectedRouting<'_>) {
             let producer = MockKafkaProducer::new();
             let sink =
                 KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
 
-            let event = create_test_event(
-                data_type,
-                force_overflow,
-                skip_person_processing,
-                redirect_to_dlq,
-            );
+            let event = create_test_event(&input);
             sink.send(event).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
             assert_eq!(
-                records[0].topic, expected.topic,
-                "Wrong topic for {data_type:?} (overflow={force_overflow}, skip_person={skip_person_processing}, dlq={redirect_to_dlq})"
+                records[0].topic,
+                expected.topic,
+                "Wrong topic for {:?} (overflow={}, skip_person={}, dlq={})",
+                input.data_type,
+                input.force_overflow,
+                input.skip_person_processing,
+                input.redirect_to_dlq
             );
             assert_eq!(
                 records[0].key.is_some(),
                 expected.has_key,
-                "Wrong key presence for {data_type:?} (overflow={force_overflow}, skip_person={skip_person_processing}, dlq={redirect_to_dlq})"
+                "Wrong key presence for {:?} (overflow={}, skip_person={}, dlq={})",
+                input.data_type,
+                input.force_overflow,
+                input.skip_person_processing,
+                input.redirect_to_dlq
             );
             assert_eq!(
                 records[0].headers.force_disable_person_processing,
                 expected.force_disable_person_processing,
-                "Wrong header for {data_type:?} (overflow={force_overflow}, skip_person={skip_person_processing}, dlq={redirect_to_dlq})"
+                "Wrong header for {:?} (overflow={}, skip_person={}, dlq={})",
+                input.data_type,
+                input.force_overflow,
+                input.skip_person_processing,
+                input.redirect_to_dlq
             );
         }
 
@@ -873,10 +881,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_main_normal() {
             assert_routing(
-                DataType::AnalyticsMain,
-                false,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: true,
@@ -889,10 +899,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_main_force_overflow() {
             assert_routing(
-                DataType::AnalyticsMain,
-                true,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: true,
@@ -906,10 +918,12 @@ mod tests {
         async fn analytics_main_force_overflow_with_skip_person() {
             // Key should be dropped when both force_overflow and skip_person_processing are set
             assert_routing(
-                DataType::AnalyticsMain,
-                true,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: OVERFLOW_TOPIC,
                     has_key: false,
@@ -921,14 +935,17 @@ mod tests {
 
         #[tokio::test]
         async fn analytics_main_skip_person_only() {
+            // Key should be dropped when skip_person_processing is set, even without overflow
             assert_routing(
-                DataType::AnalyticsMain,
-                false,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
-                    has_key: true,
+                    has_key: false,
                     force_disable_person_processing: Some(true),
                 },
             )
@@ -938,10 +955,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_main_redirect_to_dlq() {
             assert_routing(
-                DataType::AnalyticsMain,
-                false,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -955,10 +974,12 @@ mod tests {
         async fn analytics_main_dlq_priority_over_overflow() {
             // DLQ takes priority over force_overflow
             assert_routing(
-                DataType::AnalyticsMain,
-                true,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -971,10 +992,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_main_dlq_with_skip_person() {
             assert_routing(
-                DataType::AnalyticsMain,
-                false,
-                true,
-                true,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -988,10 +1011,12 @@ mod tests {
         async fn analytics_main_all_flags() {
             // DLQ takes priority, skip_person still sets header
             assert_routing(
-                DataType::AnalyticsMain,
-                true,
-                true,
-                true,
+                EventInput {
+                    data_type: DataType::AnalyticsMain,
+                    force_overflow: true,
+                    skip_person_processing: true,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1007,10 +1032,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_historical_normal() {
             assert_routing(
-                DataType::AnalyticsHistorical,
-                false,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsHistorical,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
@@ -1024,10 +1051,12 @@ mod tests {
         async fn analytics_historical_ignores_force_overflow() {
             // Historical events should ignore force_overflow
             assert_routing(
-                DataType::AnalyticsHistorical,
-                true,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsHistorical,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
@@ -1040,10 +1069,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_historical_skip_person() {
             assert_routing(
-                DataType::AnalyticsHistorical,
-                false,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::AnalyticsHistorical,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: HISTORICAL_TOPIC,
                     has_key: true,
@@ -1056,10 +1087,12 @@ mod tests {
         #[tokio::test]
         async fn analytics_historical_redirect_to_dlq() {
             assert_routing(
-                DataType::AnalyticsHistorical,
-                false,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::AnalyticsHistorical,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1073,10 +1106,12 @@ mod tests {
         async fn analytics_historical_all_flags() {
             // DLQ takes priority, historical ignores overflow, skip_person sets header
             assert_routing(
-                DataType::AnalyticsHistorical,
-                true,
-                true,
-                true,
+                EventInput {
+                    data_type: DataType::AnalyticsHistorical,
+                    force_overflow: true,
+                    skip_person_processing: true,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1091,10 +1126,12 @@ mod tests {
         #[tokio::test]
         async fn snapshot_normal() {
             assert_routing(
-                DataType::SnapshotMain,
-                false,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: true,
@@ -1107,10 +1144,12 @@ mod tests {
         #[tokio::test]
         async fn snapshot_force_overflow() {
             assert_routing(
-                DataType::SnapshotMain,
-                true,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
                     has_key: true,
@@ -1124,10 +1163,12 @@ mod tests {
         async fn snapshot_force_overflow_with_skip_person() {
             // Unlike AnalyticsMain, SnapshotMain does NOT drop key with skip_person_processing
             assert_routing(
-                DataType::SnapshotMain,
-                true,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: true,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: REPLAY_OVERFLOW_TOPIC,
                     has_key: true,
@@ -1140,10 +1181,12 @@ mod tests {
         #[tokio::test]
         async fn snapshot_skip_person_only() {
             assert_routing(
-                DataType::SnapshotMain,
-                false,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: MAIN_TOPIC,
                     has_key: true,
@@ -1156,10 +1199,12 @@ mod tests {
         #[tokio::test]
         async fn snapshot_redirect_to_dlq() {
             assert_routing(
-                DataType::SnapshotMain,
-                false,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1172,10 +1217,12 @@ mod tests {
         #[tokio::test]
         async fn snapshot_dlq_priority_over_overflow() {
             assert_routing(
-                DataType::SnapshotMain,
-                true,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::SnapshotMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1191,10 +1238,12 @@ mod tests {
         #[tokio::test]
         async fn heatmap_normal() {
             assert_routing(
-                DataType::HeatmapMain,
-                false,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::HeatmapMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
                     has_key: true,
@@ -1207,10 +1256,12 @@ mod tests {
         #[tokio::test]
         async fn heatmap_ignores_force_overflow() {
             assert_routing(
-                DataType::HeatmapMain,
-                true,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::HeatmapMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
                     has_key: true,
@@ -1223,10 +1274,12 @@ mod tests {
         #[tokio::test]
         async fn heatmap_skip_person() {
             assert_routing(
-                DataType::HeatmapMain,
-                false,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::HeatmapMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: HEATMAPS_TOPIC,
                     has_key: true,
@@ -1239,10 +1292,12 @@ mod tests {
         #[tokio::test]
         async fn heatmap_redirect_to_dlq() {
             assert_routing(
-                DataType::HeatmapMain,
-                false,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::HeatmapMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1258,10 +1313,12 @@ mod tests {
         #[tokio::test]
         async fn exception_normal() {
             assert_routing(
-                DataType::ExceptionMain,
-                false,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::ExceptionMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
                     has_key: true,
@@ -1274,10 +1331,12 @@ mod tests {
         #[tokio::test]
         async fn exception_ignores_force_overflow() {
             assert_routing(
-                DataType::ExceptionMain,
-                true,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::ExceptionMain,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
                     has_key: true,
@@ -1290,10 +1349,12 @@ mod tests {
         #[tokio::test]
         async fn exception_skip_person() {
             assert_routing(
-                DataType::ExceptionMain,
-                false,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::ExceptionMain,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: EXCEPTIONS_TOPIC,
                     has_key: true,
@@ -1306,10 +1367,12 @@ mod tests {
         #[tokio::test]
         async fn exception_redirect_to_dlq() {
             assert_routing(
-                DataType::ExceptionMain,
-                false,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::ExceptionMain,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
@@ -1325,10 +1388,12 @@ mod tests {
         #[tokio::test]
         async fn client_ingestion_warning_normal() {
             assert_routing(
-                DataType::ClientIngestionWarning,
-                false,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::ClientIngestionWarning,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
                     has_key: true,
@@ -1341,10 +1406,12 @@ mod tests {
         #[tokio::test]
         async fn client_ingestion_warning_ignores_force_overflow() {
             assert_routing(
-                DataType::ClientIngestionWarning,
-                true,
-                false,
-                false,
+                EventInput {
+                    data_type: DataType::ClientIngestionWarning,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
                     has_key: true,
@@ -1357,10 +1424,12 @@ mod tests {
         #[tokio::test]
         async fn client_ingestion_warning_skip_person() {
             assert_routing(
-                DataType::ClientIngestionWarning,
-                false,
-                true,
-                false,
+                EventInput {
+                    data_type: DataType::ClientIngestionWarning,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                },
                 ExpectedRouting {
                     topic: CLIENT_INGESTION_WARNING_TOPIC,
                     has_key: true,
@@ -1373,10 +1442,12 @@ mod tests {
         #[tokio::test]
         async fn client_ingestion_warning_redirect_to_dlq() {
             assert_routing(
-                DataType::ClientIngestionWarning,
-                false,
-                false,
-                true,
+                EventInput {
+                    data_type: DataType::ClientIngestionWarning,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                },
                 ExpectedRouting {
                     topic: DLQ_TOPIC,
                     has_key: true,
