@@ -212,9 +212,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                     "auth": {
                         "selection": existing_auth.get("type", None),
                         "username": existing_auth.get("username", None),
-                        "password": None,
-                        "passphrase": None,
-                        "private_key": None,
+                        # Note: password, passphrase, private_key intentionally omitted
+                        # to prevent them being sent back as null and overwriting stored values
                     },
                 }
                 job_inputs["ssh_tunnel"] = ssh_tunnel
@@ -272,15 +271,40 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
-        existing_job_inputs = instance.job_inputs
+        existing_job_inputs = instance.job_inputs or {}
+        incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
 
-        if existing_job_inputs:
-            new_job_inputs = {**existing_job_inputs, **validated_data.get("job_inputs", {})}
-        else:
-            new_job_inputs = validated_data.get("job_inputs", {})
+        # Shallow merge at top level
+        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+
+        # Preserve top-level sensitive credentials if not explicitly provided in update
+        # This handles the case where API response omits password (not in allowed_keys)
+        # and frontend sends null - we don't want to lose stored credentials
+        for key in ("password",):
+            if existing_job_inputs.get(key) and (key not in incoming_job_inputs or incoming_job_inputs[key] is None):
+                new_job_inputs[key] = existing_job_inputs[key]
+
+        # Preserve SSH tunnel auth credentials if not explicitly provided in update
+        # This handles the case where API response omits sensitive fields (password, etc.)
+        # and frontend echoes back the response - we don't want to lose stored credentials
+        if "ssh_tunnel" in existing_job_inputs and "ssh_tunnel" in incoming_job_inputs:
+            # Use `or {}` to handle case where ssh_tunnel value is explicitly None
+            existing_auth = (existing_job_inputs.get("ssh_tunnel") or {}).get("auth") or {}
+            existing_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel") or {}
+            incoming_auth = existing_ssh_tunnel.get("auth") or existing_ssh_tunnel.get("auth_type") or {}
+
+            # Use setdefault to ensure we're modifying the actual dict in new_job_inputs
+            new_ssh_tunnel = new_job_inputs.setdefault("ssh_tunnel", {})
+            new_auth = new_ssh_tunnel.setdefault("auth", {})
+
+            # Preserve each sensitive field if missing or explicitly None
+            # Empty string credentials are invalid and should fail validation
+            for key in ("password", "passphrase", "private_key"):
+                if existing_auth.get(key) and (key not in incoming_auth or incoming_auth[key] is None):
+                    new_auth[key] = existing_auth[key]
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
