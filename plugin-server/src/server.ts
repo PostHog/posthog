@@ -38,8 +38,6 @@ import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
-import { teardownPlugins } from './worker/plugins/teardown'
-import { initPlugins as _initPlugins } from './worker/tasks'
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
@@ -96,17 +94,7 @@ export class PluginServer {
         this.nodeInstrumentation.setupThreadPerformanceInterval()
 
         const capabilities = getPluginServerCapabilities(this.config)
-        const hub = (this.hub = await createHub(this.config, capabilities))
-
-        let _initPluginsPromise: Promise<void> | undefined
-
-        const initPlugins = (): Promise<void> => {
-            if (!_initPluginsPromise) {
-                _initPluginsPromise = _initPlugins(hub)
-            }
-
-            return _initPluginsPromise
-        }
+        const hub = (this.hub = await createHub(this.config))
 
         try {
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -208,7 +196,6 @@ export class PluginServer {
 
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const consumer = new CdpLegacyEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
@@ -225,7 +212,6 @@ export class PluginServer {
 
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const api = new CdpApi(hub)
                     this.expressApp.use('/', api.router())
                     await api.start()
@@ -234,7 +220,6 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                await initPlugins()
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorker(hub)
                     await worker.start()
@@ -375,10 +360,6 @@ export class PluginServer {
         ])
 
         if (this.hub) {
-            logger.info('💤', ' Shutting down plugins...')
-            // Wait *up to* 5 seconds to shut down VMs.
-            await Promise.race([teardownPlugins(this.hub), delay(5000)])
-
             logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])

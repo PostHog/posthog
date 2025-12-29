@@ -62,7 +62,7 @@ async function createPerson(
     primaryDistinctId: { distinctId: string; version?: number },
     extraDistinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
-    const personRepository = new PostgresPersonRepository(hub.db.postgres)
+    const personRepository = new PostgresPersonRepository(hub.postgres)
     const result = await personRepository.createPerson(
         createdAt,
         properties,
@@ -78,14 +78,14 @@ async function createPerson(
     if (!result.success) {
         throw new Error('Failed to create person')
     }
-    await hub.db.kafkaProducer.queueMessages(result.messages)
+    await hub.kafkaProducer.queueMessages(result.messages)
     return result.person
 }
 
 async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<void>) {
     const kafkaMessages = await personStore.flush()
-    await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
-    await hub.db.kafkaProducer.flush()
+    await hub.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
+    await hub.kafkaProducer.flush()
     await kafkaAcks
     return kafkaMessages
 }
@@ -122,11 +122,11 @@ describe('PersonState.processEvent()', () => {
         clickhouse = Clickhouse.create()
         await clickhouse.exec('SYSTEM STOP MERGES')
 
-        organizationId = await createOrganization(hub.db.postgres)
+        organizationId = await createOrganization(hub.postgres)
     })
 
     beforeEach(async () => {
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        teamId = await createTeam(hub.postgres, organizationId)
         mainTeam = (await getTeam(hub, teamId))!
         timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
         timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
@@ -137,7 +137,7 @@ describe('PersonState.processEvent()', () => {
         firstUserUuid = uuidFromDistinctId(teamId, firstUserDistinctId)
         secondUserUuid = uuidFromDistinctId(teamId, secondUserDistinctId)
 
-        personRepository = new PostgresPersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.postgres)
         jest.spyOn(personRepository, 'fetchPerson')
         jest.spyOn(personRepository, 'createPerson')
         jest.spyOn(personRepository, 'updatePerson')
@@ -175,7 +175,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             personRepository,
-            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer
         )
 
         const context = new PersonContext(
@@ -184,7 +184,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
             personsStore,
             0,
             createDefaultSyncMergeMode()
@@ -213,7 +213,7 @@ describe('PersonState.processEvent()', () => {
 
         const personsStore = new BatchWritingPersonsStore(
             personRepository,
-            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer
         )
 
         const context = new PersonContext(
@@ -222,7 +222,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
             personsStore,
             0,
             createDefaultSyncMergeMode()
@@ -247,9 +247,8 @@ describe('PersonState.processEvent()', () => {
         }
 
         const personsStore = new BatchWritingPersonsStore(
-            customPersonRepository ??
-                (customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository),
-            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
+            customPersonRepository ?? (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer
         )
 
         const context = new PersonContext(
@@ -258,7 +257,7 @@ describe('PersonState.processEvent()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
+            customHub ? customHub.kafkaProducer : hub.kafkaProducer,
             personsStore,
             0,
             mergeMode
@@ -269,7 +268,7 @@ describe('PersonState.processEvent()', () => {
     const sortPersons = (persons: InternalPerson[]) => persons.sort((a, b) => Number(a.id) - Number(b.id))
 
     async function fetchPostgresPersonsH() {
-        return await fetchPostgresPersons(hub.db, teamId)
+        return await fetchPostgresPersons(hub.postgres, teamId)
     }
 
     async function fetchPersonsRows() {
@@ -318,7 +317,7 @@ describe('PersonState.processEvent()', () => {
                 uuid: event_uuid,
             }).updateProperties()
 
-            const otherTeamId = await createTeam(hub.db.postgres, organizationId)
+            const otherTeamId = await createTeam(hub.postgres, organizationId)
             const otherTeam = (await getTeam(hub, otherTeamId))!
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personPropertyService(
@@ -333,7 +332,7 @@ describe('PersonState.processEvent()', () => {
                 otherTeam
             ).updateProperties()
 
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
             await kafkaAcksOther
 
@@ -353,7 +352,7 @@ describe('PersonState.processEvent()', () => {
                 distinctId: newUserDistinctId,
             })
 
-            const personRepository = new PostgresPersonRepository(hub.db.postgres)
+            const personRepository = new PostgresPersonRepository(hub.postgres)
             await personRepository.addPersonlessDistinctId(teamId, 'new2')
 
             const hubParam = undefined
@@ -386,7 +385,7 @@ describe('PersonState.processEvent()', () => {
                 processPerson
             ).processEvent()
 
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
             await kafkaAcks2
 
@@ -418,7 +417,7 @@ describe('PersonState.processEvent()', () => {
                 // `null_byte` validates that `sanitizeJsonbValue` is working as expected
                 properties: { $set: { null_byte: '\u0000' } },
             }).updateProperties()
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -441,7 +440,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toEqual(person)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
@@ -458,7 +457,7 @@ describe('PersonState.processEvent()', () => {
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
             }).handleUpdate()
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             // if creation fails we should return the person that another thread already created
@@ -479,7 +478,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toEqual(person)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, person)
             expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
@@ -545,7 +544,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, person)
             expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
@@ -558,7 +557,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 3, c: 4 },
                 },
             }).updateProperties()
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -579,7 +578,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toEqual(person)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
     })
@@ -639,7 +638,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { b: 4, toString: 1, null_byte: '\u0000' },
                 },
             }).updateProperties()
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -670,7 +669,7 @@ describe('PersonState.processEvent()', () => {
                     $set: { $current_url: 4 },
                 },
             }).updateProperties()
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -1189,7 +1188,7 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
@@ -1290,7 +1289,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
@@ -1299,7 +1298,7 @@ describe('PersonState.processEvent()', () => {
             // $identify events with different $set properties are processed in the same batch,
             // all $set properties from all events should be applied to the merged person.
 
-            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
 
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
                 const fullEvent = {
@@ -1313,7 +1312,7 @@ describe('PersonState.processEvent()', () => {
                     distinctId,
                     timestamp,
                     true,
-                    hub.db.kafkaProducer,
+                    hub.kafkaProducer,
                     sharedPersonsStore,
                     0,
                     createDefaultSyncMergeMode()
@@ -1419,8 +1418,8 @@ describe('PersonState.processEvent()', () => {
 
             // Flush all at once
             const kafkaMessages = await sharedPersonsStore.flush()
-            await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((m) => m.topicMessage))
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.queueMessages(kafkaMessages.map((m) => m.topicMessage))
+            await hub.kafkaProducer.flush()
 
             // Verify Postgres person
             const persons = await fetchPostgresPersonsH()
@@ -1453,7 +1452,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // Verify both distinct_ids are linked
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
@@ -1462,7 +1461,7 @@ describe('PersonState.processEvent()', () => {
             // person updates for that distinctId, causing pending property updates to be lost
             // when the batch is flushed.
 
-            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
 
             // Helper to create processor with shared store
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1477,7 +1476,7 @@ describe('PersonState.processEvent()', () => {
                     distinctId,
                     timestamp,
                     true,
-                    hub.db.kafkaProducer,
+                    hub.kafkaProducer,
                     sharedPersonsStore,
                     0,
                     createDefaultSyncMergeMode()
@@ -1570,7 +1569,7 @@ describe('PersonState.processEvent()', () => {
             // by another concurrent operation before caching null. If the cache now has data,
             // it returns the cached person instead of overwriting with null.
 
-            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
 
             // Helper to create processor with shared store
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1585,7 +1584,7 @@ describe('PersonState.processEvent()', () => {
                     distinctId,
                     timestamp,
                     true,
-                    hub.db.kafkaProducer,
+                    hub.kafkaProducer,
                     sharedPersonsStore,
                     0,
                     createDefaultSyncMergeMode()
@@ -1729,7 +1728,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
@@ -1781,7 +1780,7 @@ describe('PersonState.processEvent()', () => {
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             expect(getPersonEventsFromKafka().filter((x) => x.version >= 1).length).toEqual(2)
@@ -1864,7 +1863,7 @@ describe('PersonState.processEvent()', () => {
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
@@ -1917,7 +1916,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(personS.getUpdateIsIdentified()).toBeTruthy()
@@ -1948,9 +1947,9 @@ describe('PersonState.processEvent()', () => {
             expect(persons[1]).toEqual(person)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
-            const distinctIds2 = await fetchDistinctIdValues(hub.db.postgres, persons[1])
+            const distinctIds2 = await fetchDistinctIdValues(hub.postgres, persons[1])
             expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
@@ -1974,7 +1973,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toEqual(
@@ -2009,9 +2008,9 @@ describe('PersonState.processEvent()', () => {
             })
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId]))
-            const distinctIds2 = await fetchDistinctIdValues(hub.db.postgres, persons[1])
+            const distinctIds2 = await fetchDistinctIdValues(hub.postgres, persons[1])
             expect(distinctIds2).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
 
@@ -2064,7 +2063,7 @@ describe('PersonState.processEvent()', () => {
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
@@ -2162,7 +2161,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
         })
     })
@@ -2289,7 +2288,7 @@ describe('PersonState.processEvent()', () => {
             expect([newUserUuid, oldUserUuid]).toContain(persons[0].uuid)
 
             // verify Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
             // verify ClickHouse persons
@@ -2445,13 +2444,13 @@ describe('PersonState.processEvent()', () => {
             )
 
             // existing overrides
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: anonPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'example_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'multivariate-flag',
@@ -2479,10 +2478,10 @@ describe('PersonState.processEvent()', () => {
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
-            expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
@@ -2533,19 +2532,19 @@ describe('PersonState.processEvent()', () => {
 
             // existing overrides for both anonPerson and identifiedPerson
             // which implies a clash when they are merged
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: anonPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'anon_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'identified_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: anonPerson.id,
                 feature_flag_key: 'multivariate-flag',
@@ -2574,10 +2573,10 @@ describe('PersonState.processEvent()', () => {
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
-            expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
@@ -2625,13 +2624,13 @@ describe('PersonState.processEvent()', () => {
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
                 { distinctId: 'new_distinct_id' }
             )
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'example_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'multivariate-flag',
@@ -2656,10 +2655,10 @@ describe('PersonState.processEvent()', () => {
 
             const [person] = await fetchPostgresPersonsH()
             expect([identifiedPerson.id, anonPerson.id]).toContain(person.id)
-            expect(await fetchDistinctIdValues(hub.db.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
+            expect(await fetchDistinctIdValues(hub.postgres, person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
@@ -2688,7 +2687,7 @@ describe('PersonState.processEvent()', () => {
 
         beforeEach(async () => {
             hub = await createHub({})
-            personRepository = new PostgresPersonRepository(hub.db.postgres)
+            personRepository = new PostgresPersonRepository(hub.postgres)
 
             jest.spyOn(personRepository, 'fetchPerson')
             jest.spyOn(personRepository, 'updatePerson')
@@ -2718,7 +2717,7 @@ describe('PersonState.processEvent()', () => {
             )
 
             const state: PersonMergeService = personMergeService({}, hub)
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             const result = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
             expect(result.success).toBe(true)
             if (!result.success) {
@@ -2726,7 +2725,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             expect(person).toMatchObject({
@@ -2738,7 +2737,7 @@ describe('PersonState.processEvent()', () => {
                 is_identified: true,
             })
             expect(personRepository.updatePerson).not.toHaveBeenCalled()
-            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
         })
 
         it(`postgres and clickhouse get updated`, async () => {
@@ -2751,7 +2750,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             const mergeService: PersonMergeService = personMergeService({}, hub, personRepository)
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             const result = await mergeService.mergePeople({
                 mergeInto: first,
                 mergeIntoDistinctId: firstUserDistinctId,
@@ -2779,7 +2778,7 @@ describe('PersonState.processEvent()', () => {
 
             // Batch mode uses updatePersonsBatch instead of updatePerson
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledTimes(1)
-            expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(2)
+            expect(hub.kafkaProducer.queueMessages).toHaveBeenCalledTimes(2)
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
@@ -2794,7 +2793,7 @@ describe('PersonState.processEvent()', () => {
 
             // verify Postgres distinct_ids
             expect(person).toBeDefined()
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
             expect(distinctIds).toEqual(expect.arrayContaining([firstUserDistinctId, secondUserDistinctId]))
 
             // verify ClickHouse persons
@@ -2832,7 +2831,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // Add more distinct IDs to source so that limit < total
-            const repo = new PostgresPersonRepository(hub.db.postgres)
+            const repo = new PostgresPersonRepository(hub.postgres)
             await repo.addDistinctId(second, 'second-2', 1)
             await repo.addDistinctId(second, 'second-3', 1)
 
@@ -2866,7 +2865,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons.find((p) => p.uuid === secondUserUuid)).toBeTruthy()
 
             // Distinct IDs should remain on source (we added 2 extra)
-            const sourceDistinctIds = await fetchDistinctIdValues(hub.db.postgres, second)
+            const sourceDistinctIds = await fetchDistinctIdValues(hub.postgres, second)
             expect(sourceDistinctIds).toEqual(expect.arrayContaining([secondUserDistinctId, 'second-2', 'second-3']))
         })
 
@@ -2881,7 +2880,7 @@ describe('PersonState.processEvent()', () => {
             })
 
             // Add one more distinct ID on source so total equals limit (2)
-            const repo = new PostgresPersonRepository(hub.db.postgres)
+            const repo = new PostgresPersonRepository(hub.postgres)
             await repo.addDistinctId(second, 'second-2', 1)
 
             const mergeService: PersonMergeService = personMergeService(
@@ -2935,10 +2934,10 @@ describe('PersonState.processEvent()', () => {
             const state: PersonMergeService = personMergeService({}, hub)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-            jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(() => {
+            jest.spyOn(hub.postgres, 'transaction').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             await expect(
                 state.mergePeople({
                     mergeInto: first,
@@ -2947,11 +2946,11 @@ describe('PersonState.processEvent()', () => {
                     otherPersonDistinctId: secondUserDistinctId,
                 })
             ).rejects.toThrow(error)
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
 
-            expect(hub.db.postgres.transaction).toHaveBeenCalledTimes(1)
-            jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
-            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.postgres.transaction).toHaveBeenCalledTimes(1)
+            jest.spyOn(hub.postgres, 'transaction').mockRestore()
+            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -2989,16 +2988,16 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             await expect(state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)).rejects.toThrow(
                 error
             )
 
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3045,13 +3044,13 @@ describe('PersonState.processEvent()', () => {
             jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             await state.handleIdentifyOrAlias()
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
+            expect(hub.kafkaProducer.queueMessages).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -3094,10 +3093,10 @@ describe('PersonState.processEvent()', () => {
                 if (attemptCount === 1) {
                     throw new SourcePersonNotFoundError('Source person no longer exists')
                 }
-                return originalMoveDistinctIds.call(hub.db, ...args)
+                return originalMoveDistinctIds.call(personRepository, ...args)
             })
 
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
             jest.spyOn(personRepository, 'fetchPerson')
 
             // Should succeed after retry
@@ -3108,7 +3107,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
@@ -3151,11 +3150,11 @@ describe('PersonState.processEvent()', () => {
                 if (attemptCount === 1) {
                     throw new TargetPersonNotFoundError('Target person no longer exists')
                 }
-                return originalMoveDistinctIds.call(hub.db, ...args)
+                return originalMoveDistinctIds.call(personRepository, ...args)
             })
 
             jest.spyOn(personRepository, 'fetchPerson')
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
             // Should succeed after retry
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3165,7 +3164,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was called twice (initial + retry)
@@ -3229,7 +3228,7 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Should not retry when person no longer exists')
             })
 
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
             // Should return target person without error
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3239,7 +3238,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
@@ -3292,7 +3291,7 @@ describe('PersonState.processEvent()', () => {
                 throw new Error('Should not retry when person no longer exists')
             })
 
-            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer, 'queueMessages')
 
             // Should return target person without error
             const result = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3302,7 +3301,7 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
             const kafkaAcks = result.kafkaAck
-            await hub.db.kafkaProducer.flush()
+            await hub.kafkaProducer.flush()
             await kafkaAcks
 
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
@@ -3415,7 +3414,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0].uuid).toBe(secondUserUuid)
 
             // Verify the distinct ID is now pointing to the target person
-            const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.db, person2.id)
+            const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.postgres, person2.id)
             expect(distinctIds.length).toEqual(3)
             expect(distinctIds).toMatchObject(
                 expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'person3-distinct-id'])
@@ -3496,7 +3495,7 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0].uuid).toBe(secondUserUuid)
 
             // Verify the distinct ID is now pointing to the target person
-            const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.db, person2.id)
+            const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.postgres, person2.id)
             expect(distinctIds.length).toEqual(5)
             expect(distinctIds).toMatchObject(
                 expect.arrayContaining([
@@ -3519,7 +3518,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 // Add a few more distinct IDs to the source person
-                const repo = new PostgresPersonRepository(hub.db.postgres)
+                const repo = new PostgresPersonRepository(hub.postgres)
                 await repo.addDistinctId(second, 'second-2', 0)
                 await repo.addDistinctId(second, 'second-3', 0)
 
@@ -3529,7 +3528,7 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 5,
                 })
 
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3553,7 +3552,7 @@ describe('PersonState.processEvent()', () => {
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
 
                 // Verify all distinct IDs were moved
-                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                 expect(distinctIds).toEqual(
                     expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'second-2', 'second-3'])
                 )
@@ -3569,7 +3568,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 // Add several distinct IDs to the source person
-                const repo = new PostgresPersonRepository(hub.db.postgres)
+                const repo = new PostgresPersonRepository(hub.postgres)
                 await repo.addDistinctId(second, 'second-2', 0)
                 await repo.addDistinctId(second, 'second-3', 0)
                 await repo.addDistinctId(second, 'second-4', 0)
@@ -3581,7 +3580,7 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 2,
                 })
 
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3605,7 +3604,7 @@ describe('PersonState.processEvent()', () => {
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3) // 5 distinct IDs / 2 batch size = 3 calls (2+2+1)
 
                 // Verify all distinct IDs were moved despite batching
-                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                 expect(distinctIds).toEqual(
                     expect.arrayContaining([
                         firstUserDistinctId,
@@ -3628,7 +3627,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 // Add one more distinct ID to the source person
-                const repo = new PostgresPersonRepository(hub.db.postgres)
+                const repo = new PostgresPersonRepository(hub.postgres)
                 await repo.addDistinctId(second, 'second-2', 0)
 
                 // Use SYNC mode with batch size of 1
@@ -3637,7 +3636,7 @@ describe('PersonState.processEvent()', () => {
                     batchSize: 1,
                 })
 
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3660,7 +3659,7 @@ describe('PersonState.processEvent()', () => {
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
 
                 // Verify all distinct IDs were moved
-                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                 expect(distinctIds).toEqual(
                     expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'second-2'])
                 )
@@ -3676,7 +3675,7 @@ describe('PersonState.processEvent()', () => {
                 })
 
                 // Add several distinct IDs to the source person
-                const repo = new PostgresPersonRepository(hub.db.postgres)
+                const repo = new PostgresPersonRepository(hub.postgres)
                 await repo.addDistinctId(second, 'second-2', 0)
                 await repo.addDistinctId(second, 'second-3', 0)
                 await repo.addDistinctId(second, 'second-4', 0)
@@ -3687,7 +3686,7 @@ describe('PersonState.processEvent()', () => {
                     batchSize: undefined,
                 })
 
-                jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+                jest.spyOn(hub.kafkaProducer, 'queueMessages')
                 jest.spyOn(repo, 'moveDistinctIds')
 
                 const result = await mergeService.mergePeople({
@@ -3711,7 +3710,7 @@ describe('PersonState.processEvent()', () => {
                 expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
 
                 // Verify all distinct IDs were moved
-                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                 expect(distinctIds).toEqual(
                     expect.arrayContaining([
                         firstUserDistinctId,
@@ -3730,7 +3729,7 @@ describe('PersonState.processEvent()', () => {
 
             beforeEach(async () => {
                 hub = await createHub({})
-                personRepository = new PostgresPersonRepository(hub.db.postgres)
+                personRepository = new PostgresPersonRepository(hub.postgres)
                 jest.spyOn(personRepository, 'fetchPerson')
                 jest.spyOn(personRepository, 'updatePerson')
             })
@@ -3752,7 +3751,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add many distinct IDs to the source person
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     for (let i = 2; i <= 10; i++) {
                         await repo.addDistinctId(second, `second-${i}`, 0)
                     }
@@ -3791,7 +3790,7 @@ describe('PersonState.processEvent()', () => {
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(1)
 
                     // Verify all distinct IDs were moved
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(11) // 1 original + 10 added
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -3809,7 +3808,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add 7 more distinct IDs to the source person (total 8 to move)
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     for (let i = 2; i <= 8; i++) {
                         await repo.addDistinctId(second, `second-${i}`, 0)
                     }
@@ -3848,7 +3847,7 @@ describe('PersonState.processEvent()', () => {
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(3)
 
                     // Verify all distinct IDs were moved
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(9) // 1 original + 8 moved
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -3866,7 +3865,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add exactly 2 more distinct IDs to match batch size of 3
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     await repo.addDistinctId(second, 'second-2', 0)
                     await repo.addDistinctId(second, 'second-3', 0)
 
@@ -3904,7 +3903,7 @@ describe('PersonState.processEvent()', () => {
                     expect(repo.moveDistinctIds).toHaveBeenCalledTimes(2)
 
                     // Verify all distinct IDs were moved
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(4) // 1 original + 3 moved
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -3923,7 +3922,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add 2 more distinct IDs to the source person (total 3 to move)
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     await repo.addDistinctId(second, 'second-2', 0)
                     await repo.addDistinctId(second, 'second-3', 0)
 
@@ -3957,7 +3956,7 @@ describe('PersonState.processEvent()', () => {
                     await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(4) // 1 original + 3 moved
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -3974,7 +3973,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add 4 more distinct IDs to the source person (total 5 to move)
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     for (let i = 2; i <= 5; i++) {
                         await repo.addDistinctId(second, `second-${i}`, 0)
                     }
@@ -4010,7 +4009,7 @@ describe('PersonState.processEvent()', () => {
                     expect(persons.find((p) => p.uuid === secondUserUuid)).toBeTruthy()
 
                     // Verify distinct IDs remain with source person
-                    const sourceDistinctIds = await fetchDistinctIdValues(hub.db.postgres, second)
+                    const sourceDistinctIds = await fetchDistinctIdValues(hub.postgres, second)
                     expect(sourceDistinctIds.length).toBe(5)
                     expect(sourceDistinctIds).toContain(secondUserDistinctId)
                     for (let i = 2; i <= 5; i++) {
@@ -4027,7 +4026,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add exactly 2 more distinct IDs to match limit of 3
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     await repo.addDistinctId(second, 'second-2', 0)
                     await repo.addDistinctId(second, 'second-3', 0)
 
@@ -4061,7 +4060,7 @@ describe('PersonState.processEvent()', () => {
                     await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved (exactly at limit)
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(4) // 1 original + 3 moved
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -4080,7 +4079,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add 1 more distinct ID to the source person (total 2 to move)
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     await repo.addDistinctId(second, 'second-2', 0)
 
                     // Use ASYNC mode with limit of 5 (more than the 2 we have)
@@ -4113,7 +4112,7 @@ describe('PersonState.processEvent()', () => {
                     await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved (same as SYNC when under limit)
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(3) // 1 original + 2 moved
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -4129,7 +4128,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add 4 more distinct IDs to the source person (total 5 to move)
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     for (let i = 2; i <= 5; i++) {
                         await repo.addDistinctId(second, `second-${i}`, 0)
                     }
@@ -4165,7 +4164,7 @@ describe('PersonState.processEvent()', () => {
                     expect(persons.find((p) => p.uuid === secondUserUuid)).toBeTruthy()
 
                     // Verify distinct IDs remain with source person
-                    const sourceDistinctIds = await fetchDistinctIdValues(hub.db.postgres, second)
+                    const sourceDistinctIds = await fetchDistinctIdValues(hub.postgres, second)
                     expect(sourceDistinctIds.length).toBe(5)
                     expect(sourceDistinctIds).toContain(secondUserDistinctId)
                     for (let i = 2; i <= 5; i++) {
@@ -4182,7 +4181,7 @@ describe('PersonState.processEvent()', () => {
                     })
 
                     // Add exactly 2 more distinct IDs to match limit of 3
-                    const repo = new PostgresPersonRepository(hub.db.postgres)
+                    const repo = new PostgresPersonRepository(hub.postgres)
                     await repo.addDistinctId(second, 'second-2', 0)
                     await repo.addDistinctId(second, 'second-3', 0)
 
@@ -4216,7 +4215,7 @@ describe('PersonState.processEvent()', () => {
                     await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
 
                     // Verify all distinct IDs were moved (exactly at limit, same as SYNC when under limit)
-                    const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person!)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, person!)
                     expect(distinctIds.length).toBe(4) // 1 original + 3 moved
                     expect(distinctIds).toContain(firstUserDistinctId)
                     expect(distinctIds).toContain(secondUserDistinctId)
@@ -4233,7 +4232,7 @@ describe('PersonState.processEvent()', () => {
                         ...event,
                     }
 
-                    const personsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+                    const personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
 
                     const context = new PersonContext(
                         fullEvent as any,
@@ -4241,7 +4240,7 @@ describe('PersonState.processEvent()', () => {
                         event.distinct_id!,
                         timestamp,
                         true, // processPerson
-                        hub.db.kafkaProducer,
+                        hub.kafkaProducer,
                         personsStore,
                         0,
                         mergeMode

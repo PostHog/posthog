@@ -230,7 +230,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
-        cols.extend(self._get_breakdown_select_prop())
+        cols.extend(self._get_breakdown_select_prop(source_kind))
 
         return cols
 
@@ -364,7 +364,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
-    def _get_breakdown_select_prop(self) -> list[ast.Expr]:
+    def _get_breakdown_select_prop(self, source_kind: SourceTableKind) -> list[ast.Expr]:
+        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
+
         breakdown, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
             self.context.breakdownAttributionType,
@@ -375,14 +377,17 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return []
 
         # breakdown prop
-        prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
+        prop_basic: ast.Expr
+        if source_kind == SourceTableKind.EVENTS:
+            prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
+        else:
+            prop_basic = parse_expr(f"{default_breakdown_selector} as prop_basic")
 
         # breakdown attribution
         if (
             breakdownAttributionType == BreakdownAttributionType.STEP
             and funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
         ):
-            default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
             prop = parse_expr(
                 f"if(step_{funnelsFilter.breakdownAttributionValue} = 1, prop_basic, {default_breakdown_selector}) as prop"
             )

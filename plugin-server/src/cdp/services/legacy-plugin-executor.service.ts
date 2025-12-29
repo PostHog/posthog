@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
@@ -17,8 +17,7 @@ import {
     LegacyTransformationPluginMeta,
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch } from './hog-executor.service'
 
@@ -27,6 +26,12 @@ const pluginExecutionDuration = new Histogram({
     help: 'Processing time and success status of plugins',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const setupPromiseCacheCounter = new Counter({
+    name: 'cdp_plugin_setup_promise_cache_total',
+    help: 'The number of times we have cached a setup promise',
+    labelNames: ['result'],
 })
 
 export type PluginState = {
@@ -55,7 +60,7 @@ export class LegacyPluginExecutorService {
         }
 
         const get = async (key: string, defaultValue: unknown): Promise<unknown> => {
-            const result = await this.hub.db.postgres.query(
+            const result = await this.hub.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 `SELECT * FROM posthog_pluginstorage as ps 
                    JOIN posthog_pluginconfig as pc ON ps."plugin_config_id" = pc."id" 
@@ -72,7 +77,7 @@ export class LegacyPluginExecutorService {
 
             if (typeof pluginConfigCheckCache[cacheKey] === 'undefined') {
                 // Check if the plugin config for that team exists
-                const result = await this.hub.db.postgres.query(
+                const result = await this.hub.postgres.query(
                     PostgresUse.COMMON_READ,
                     `SELECT * FROM posthog_pluginconfig as pc 
                    WHERE pc."team_id" = $1 AND pc."id" = $2
@@ -88,7 +93,7 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin config ${pluginConfigId} for team ${teamId} not found`)
             }
 
-            await this.hub.db.postgres.query(
+            await this.hub.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 `
                     INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value")
@@ -108,7 +113,8 @@ export class LegacyPluginExecutorService {
     }
 
     public async execute(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        shouldMockFetch = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
@@ -157,6 +163,8 @@ export class LegacyPluginExecutorService {
 
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
+
+            setupPromiseCacheCounter.labels({ result: state ? 'hit' : 'miss' }).inc()
 
             if (!state) {
                 if (!this.cachedGeoIp) {
@@ -216,7 +224,7 @@ export class LegacyPluginExecutorService {
                 // Additionally we don't do real fetches for test functions
                 const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
 
-                if (isTestFunction && method.toUpperCase() !== 'GET') {
+                if ((shouldMockFetch || isTestFunction) && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests
                     addLog('info', 'Fetch called but mocked due to test function', {
                         url: args[0],

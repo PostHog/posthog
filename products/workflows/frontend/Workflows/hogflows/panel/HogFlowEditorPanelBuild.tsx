@@ -149,10 +149,10 @@ function HogFlowEditorToolbarNode({
     onDragStart?: (event: React.DragEvent) => void
     children?: React.ReactNode
 }): JSX.Element | null {
-    const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
+    const { setNodeToBeAdded } = useActions(hogFlowEditorLogic)
 
     const onDragStart = (event: React.DragEvent): void => {
-        setNewDraggingNode(action)
+        setNodeToBeAdded(action)
         event.dataTransfer.setData('application/reactflow', action.type)
         event.dataTransfer.effectAllowed = 'move'
         onDragStartProp?.(event)

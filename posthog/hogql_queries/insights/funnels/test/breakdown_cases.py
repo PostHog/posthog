@@ -1,9 +1,12 @@
 import ast
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from string import ascii_lowercase
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast, overload
+from uuid import UUID
 
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     _create_action,
@@ -14,11 +17,20 @@ from posthog.test.base import (
 )
 from unittest import skip
 
-from posthog.schema import BaseMathType, FunnelsQuery
+from posthog.schema import (
+    BaseMathType,
+    BreakdownFilter,
+    BreakdownType,
+    DataWarehouseNode,
+    DateRange,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors, get_actors_legacy_filters
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -26,6 +38,10 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+
+TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases"
 
 
 @dataclass(frozen=True)
@@ -35,15 +51,39 @@ class FunnelStepResult:
     breakdown: Union[list[str], str]
     average_conversion_time: Optional[float] = None
     median_conversion_time: Optional[float] = None
-    type: Literal["events", "actions"] = "events"
+    type: Literal["events", "actions", "data_warehouse"] = "events"
     action_id: Optional[str] = None
 
 
 def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdown(APIBaseTest):
-        def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            actors = get_actors_legacy_filters(
-                filter,
+        @overload
+        def _get_actor_ids_at_step(
+            self,
+            filters_or_query: dict[str, Any],
+            funnel_step: int,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
+        ) -> list[str]: ...
+        @overload
+        def _get_actor_ids_at_step(
+            self,
+            filters_or_query: FunnelsQuery,
+            funnel_step: int,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
+        ) -> list[str]: ...
+        def _get_actor_ids_at_step(
+            self,
+            filters_or_query: dict[str, Any] | FunnelsQuery,
+            funnel_step: int,
+            breakdown_value: Optional[str | float | list[str | float]] = None,
+        ) -> list[str]:
+            funnels_query = (
+                cast(FunnelsQuery, filter_to_query(filters_or_query))
+                if isinstance(filters_or_query, dict)
+                else filters_or_query
+            )
+            actors = get_actors(
+                funnels_query,
                 self.team,
                 funnel_step=funnel_step,
                 funnel_step_breakdown=breakdown_value,
@@ -79,6 +119,27 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 step_results.append(funnel_result(step_result, index))
 
             assert_funnel_results_equal(result, step_results)
+
+        def teardown_method(self, method) -> None:
+            if getattr(self, "cleanUpDataWarehouse", None):
+                self.cleanUpDataWarehouse()
+
+        def setup_data_warehouse(self):
+            table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+                csv_path=Path(__file__).parent / "funnels_data.csv",
+                table_name="test_table_1",
+                table_columns={
+                    "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                    "event_name": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                    "properties": {"hogql": "StringJSONDatabaseField", "clickhouse": "Nullable(String)"},
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
+
+            return table.name
 
         @also_test_with_materialized_columns(["$browser", "$browser_version"])
         def test_funnel_step_multi_property_breakdown_event(self):
@@ -2735,6 +2796,146 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self._get_actor_ids_at_step(filters, 2, "Safari"),
                 [people["person1"].uuid],
             )
+
+        @snapshot_clickhouse_queries
+        def test_funnels_mixed_breakdown(self):
+            table_name = self.setup_data_warehouse()
+            with freeze_time("2025-11-07"):
+                _create_person(
+                    distinct_ids=["person1"], team_id=self.team.pk, uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539"
+                )
+                _create_person(
+                    distinct_ids=["person2"], team_id=self.team.pk, uuid="c3e8c9b4-7f2e-4a6f-9b5d-6f2c1a8e3d47"
+                )
+                people = journeys_for(
+                    {
+                        "person1": [
+                            {
+                                "event": "$pageview",
+                                "timestamp": datetime(2025, 11, 1, 0, 0, 0),
+                                "properties": {"$browser": "Chrome"},
+                            },
+                        ],
+                        "person2": [
+                            {
+                                "event": "$pageview",
+                                "timestamp": datetime(2025, 11, 2, 0, 0, 0),
+                                "properties": {"$browser": "Firefox"},
+                            },
+                        ],
+                    },
+                    self.team,
+                    create_people=False,
+                )
+
+                funnels_query = FunnelsQuery(
+                    kind="FunnelsQuery",
+                    dateRange=DateRange(date_from="2025-11-01"),
+                    series=[
+                        EventsNode(event="$pageview"),
+                        DataWarehouseNode(
+                            id=table_name,
+                            table_name=table_name,
+                            id_field="id",
+                            distinct_id_field="user_id",
+                            timestamp_field="created",
+                        ),
+                    ],
+                    breakdownFilter=BreakdownFilter(
+                        breakdown_type=BreakdownType.EVENT,
+                        breakdown=["$browser"],
+                    ),
+                    funnelsFilter=FunnelsFilter(funnelOrderType=funnel_order_type),
+                )
+
+                runner = FunnelsQueryRunner(query=funnels_query, team=self.team)
+                response = runner.calculate()
+                results = response.results
+
+                breakdown_index = 0
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[breakdown_index],
+                    [
+                        FunnelStepResult(name="$pageview", count=1, breakdown=["Chrome"]),
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=1,
+                            breakdown=["Chrome"],
+                            type="data_warehouse",
+                            action_id=None,
+                            average_conversion_time=259200,
+                            median_conversion_time=259200,
+                        ),
+                    ],
+                )
+
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, "Chrome"),
+                    [people["person1"].uuid],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "Chrome"),
+                    [people["person1"].uuid],
+                )
+
+                # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
+                if funnel_order_type == FunnelOrderType.UNORDERED:
+                    breakdown_index = breakdown_index + 1
+                    self._assert_funnel_breakdown_result_is_correct(
+                        results[breakdown_index],
+                        [
+                            FunnelStepResult(
+                                name="",
+                                count=4,
+                                breakdown=[""],
+                            ),
+                            FunnelStepResult(
+                                name="",
+                                count=0,
+                                breakdown=[""],
+                                type="data_warehouse",
+                            ),
+                        ],
+                    )
+
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 1, ""),
+                        [
+                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
+                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                        ],
+                    )
+                    self.assertCountEqual(
+                        self._get_actor_ids_at_step(funnels_query, 2, ""),
+                        [],
+                    )
+
+                self._assert_funnel_breakdown_result_is_correct(
+                    results[breakdown_index + 1],
+                    [
+                        FunnelStepResult(name="$pageview", count=1, breakdown=["Firefox"]),
+                        FunnelStepResult(
+                            name="posthog_test_test_table_1.user_id",
+                            count=0,
+                            breakdown=["Firefox"],
+                            type="data_warehouse",
+                            action_id=None,
+                            average_conversion_time=None,
+                            median_conversion_time=None,
+                        ),
+                    ],
+                )
+
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 1, "Firefox"),
+                    [people["person2"].uuid],
+                )
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(funnels_query, 2, "Firefox"),
+                    [],
+                )
 
     return TestFunnelBreakdown
 

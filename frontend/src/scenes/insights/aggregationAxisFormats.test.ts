@@ -10,6 +10,7 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 3.944, filters: { aggregation_axis_format: 'percentage' }, expected: '3.94%' },
         { candidate: 3.956, filters: { aggregation_axis_format: 'percentage' }, expected: '3.96%' },
         { candidate: 3940, filters: { aggregation_axis_format: 'percentage' }, expected: '3,940%' },
+        { candidate: 2.5341, filters: { aggregation_axis_format: 'percentage', decimalPlaces: 3 }, expected: '2.534%' },
         { candidate: 34, filters: { aggregation_axis_format: 'numeric' }, expected: '34' },
         { candidate: 394, filters: { aggregation_axis_format: 'numeric' }, expected: '394' },
         { candidate: 3940, filters: { aggregation_axis_format: 'numeric' }, expected: '3,940' },

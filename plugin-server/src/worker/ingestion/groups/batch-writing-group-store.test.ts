@@ -2,7 +2,6 @@
 import { DateTime } from 'luxon'
 
 import { Group, ProjectId, TeamId } from '../../../types'
-import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { RaceConditionError } from '../../../utils/utils'
 
@@ -16,12 +15,12 @@ jest.mock('../utils', () => ({
     captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
+import { KafkaProducerWrapper } from '~/kafka/producer'
 import { captureIngestionWarning } from '../utils'
 
 // Mock the DB class
 
 describe('BatchWritingGroupStore', () => {
-    let db: DB
     let groupRepository: GroupRepository
     let groupStore: BatchWritingGroupStore
     let clickhouseGroupRepository: ClickhouseGroupRepository
@@ -46,9 +45,6 @@ describe('BatchWritingGroupStore', () => {
         }
 
         let dbCounter = 0
-        db = {
-            postgres: {},
-        } as unknown as DB
 
         // Create a mock GroupRepository
         groupRepository = {
@@ -110,7 +106,7 @@ describe('BatchWritingGroupStore', () => {
             upsertGroup: jest.fn().mockResolvedValue(undefined),
         } as unknown as ClickhouseGroupRepository
         groupStore = new BatchWritingGroupStore({
-            db,
+            kafkaProducer: {} as unknown as KafkaProducerWrapper,
             groupRepository,
             clickhouseGroupRepository,
         })

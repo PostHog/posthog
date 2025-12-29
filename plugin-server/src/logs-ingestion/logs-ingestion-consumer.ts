@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
@@ -98,7 +98,20 @@ export class LogsIngestionConsumer {
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
-        this.redis = createRedisV2Pool(hub, 'logs')
+        // Logs ingestion uses its own Redis instance with TLS support
+        this.redis = createRedisV2PoolFromConfig({
+            connection: hub.LOGS_REDIS_HOST
+                ? {
+                      url: hub.LOGS_REDIS_HOST,
+                      options: {
+                          port: hub.LOGS_REDIS_PORT,
+                          tls: hub.LOGS_REDIS_TLS ? {} : undefined,
+                      },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
         this.rateLimiter = new LogsRateLimiterService(hub, this.redis)
     }
 

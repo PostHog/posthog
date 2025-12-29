@@ -1,8 +1,8 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
-import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import { chainToElements } from './elements-chain'
 import { parseJSON } from './json-parse'
 import { clickHouseTimestampToDateTime } from './utils'
 

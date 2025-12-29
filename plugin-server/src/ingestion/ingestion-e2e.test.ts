@@ -26,7 +26,7 @@ jest.mock('~/utils/token-bucket', () => {
 })
 
 const waitForKafkaMessages = async (hub: Hub) => {
-    await hub.db.kafkaProducer.flush()
+    await hub.kafkaProducer.flush()
 }
 
 class EventBuilder {
@@ -153,7 +153,6 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
     ) => {
         test(name, async () => {
             const hub = await createHub({
-                PLUGINS_DEFAULT_LOG_LEVEL: 0,
                 APP_METRICS_FLUSH_FREQUENCY_MS: 0,
                 ...baseConfig,
                 ...config.pluginServerConfig,
@@ -176,7 +175,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const organizationMembershipId = new UUIDT().toString()
 
             await createUserTeamAndOrganization(
-                hub.db.postgres,
+                hub.postgres,
                 newTeam.id,
                 userId,
                 userUuid,
@@ -1702,7 +1701,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
         //     // fetch the person properties
         //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.db, team.id)
+        //         const persons = await fetchPostgresPersons(hub.postgres, team.id)
         //         expect(persons.length).toBe(1)
         //         const personsClickhouse = await fetchPersons(hub, team.id)
         //         expect(personsClickhouse.length).toBe(1)
@@ -1724,7 +1723,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1818,7 +1817,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
         //     // fetch the person properties
         //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.db, team.id)
+        //         const persons = await fetchPostgresPersons(hub.postgres, team.id)
         //         expect(persons.length).toBe(1)
         //         const personsClickhouse = await fetchPersons(hub, team.id)
         //         expect(personsClickhouse.length).toBe(1)
@@ -1840,7 +1839,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1935,7 +1934,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
         //     // fetch the person properties
         //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.db, team.id)
+        //         const persons = await fetchPostgresPersons(hub.postgres, team.id)
         //         expect(persons.length).toBe(1)
         //         const personsClickhouse = await fetchPersons(hub, team.id)
         //         expect(personsClickhouse.length).toBe(1)
@@ -1957,7 +1956,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -2059,7 +2058,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // fetch the person properties
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.db, team.id)
+                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
                     expect(persons.length).toBe(2)
                     const personsClickhouse = await fetchPersons(hub, team.id)
                     expect(personsClickhouse.length).toBe(2)
@@ -2101,7 +2100,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     )
                     const person1 = persons.find((person) => person.properties.name === 'User 1')!
                     const person2 = persons.find((person) => person.properties.name === 'User 2')!
-                    const distinctIdsPersons1 = await fetchDistinctIds(hub.db.postgres, {
+                    const distinctIdsPersons1 = await fetchDistinctIds(hub.postgres, {
                         id: person1.id,
                         team_id: team.id,
                     } as InternalPerson)
@@ -2110,7 +2109,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
                         expect.arrayContaining([user1DistinctId])
                     )
-                    const distinctIdsPersons2 = await fetchDistinctIds(hub.db.postgres, {
+                    const distinctIdsPersons2 = await fetchDistinctIds(hub.postgres, {
                         id: person2.id,
                         team_id: team.id,
                     } as InternalPerson)
@@ -2145,7 +2144,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(hub)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.db, team.id)
+                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
                     expect(persons.length).toBe(1)
                     const personsClickhouse = await fetchPersons(hub, team.id)
                     expect(personsClickhouse.length).toBe(1)
@@ -2176,7 +2175,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(hub)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.db, team.id)
+                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
                     expect(persons.length).toBe(1)
                     const personsClickhouse = await fetchPersons(hub, team.id)
                     expect(personsClickhouse.length).toBe(1)
@@ -2221,7 +2220,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.db, team.id)
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
                 expect(persons.length).toBe(1)
                 const personsClickhouse = await fetchPersons(hub, team.id)
                 expect(personsClickhouse.length).toBe(1)
@@ -2506,7 +2505,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //         await waitForKafkaMessages(hub)
 
         //         await waitForExpect(async () => {
-        //             const persons = await fetchPostgresPersons(hub.db, team.id)
+        //             const persons = await fetchPostgresPersons(hub.postgres, team.id)
         //             expect(persons.length).toBe(2)
 
         //             // Both persons should be identified
@@ -2573,7 +2572,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(hub)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.db, team.id)
+                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
                     expect(persons.length).toBe(2)
 
                     // Both persons should be identified
@@ -2639,7 +2638,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(hub)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.db, team.id)
+                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
                     expect(persons.length).toBe(2)
                     expect(persons.map((person) => person.is_identified)).toEqual([true, true])
                 })
@@ -2667,7 +2666,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(hub)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.db, team.id)
+                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
                     expect(persons.length).toBe(1)
 
                     // Make sure there is one identified person
@@ -2705,7 +2704,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
             // Verify batch 1 wrote correctly
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.db, team.id)
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
                 expect(persons.length).toBe(1)
                 expect(persons[0].properties).toMatchObject({
                     batch1_prop: 'value1',
@@ -2729,7 +2728,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
             // Verify batch 2 wrote correctly and merged with existing properties
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.db, team.id)
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
                 expect(persons.length).toBe(1)
                 // Should have properties from both batches, with batch2 overwriting shared_prop
                 expect(persons[0].properties).toMatchObject({
@@ -2753,7 +2752,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
-                const persons = await fetchPostgresPersons(hub.db, team.id)
+                const persons = await fetchPostgresPersons(hub.postgres, team.id)
                 expect(persons.length).toBe(1)
                 // Should have properties from all three batches
                 expect(persons[0].properties).toMatchObject({
