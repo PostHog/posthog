@@ -33,29 +33,14 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs, firstTabIsActive } = useValues(sceneLogic)
+    const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-
-    const pinnedCount = tabs.filter((tab) => tab.pinned).length
-    const unpinnedCount = tabs.length - pinnedCount
-    const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
-    let unpinnedColumns = ''
-    if (unpinnedCount === 1) {
-        unpinnedColumns = '100%'
-    } else if (unpinnedCount === 2) {
-        unpinnedColumns = 'repeat(2, 100%)'
-    } else if (unpinnedCount > 2) {
-        unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 100%))`
-    }
-    const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '100%'
-
-    const showRoundedCorner = (!isLayoutPanelVisible || !isLayoutPanelPinned) && !firstTabIsActive
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -182,8 +167,16 @@ function SortableSceneTab({
         opacity: isDragging ? 0.5 : undefined,
     }
 
+    const isPinned = !!tab.pinned
+
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="w-full">
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...listeners}
+            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'w-full min-w-0')}
+        >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
                 <SceneTabComponent
                     tab={tab}
@@ -204,7 +197,7 @@ interface SceneTabProps {
     index: number
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
@@ -285,7 +278,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         }
                     }}
                     forceVariant={true}
-                    variant={tab.active ? "panel" : "default"}
+                    variant={tab.active ? 'panel' : 'default'}
                     hasSideActionRight
                     className={cn(
                         'w-full order-first',

@@ -1,5 +1,6 @@
 .scene-tab-active-indicator {
     position: absolute;
+
     /* right: 50%; */
     bottom: -7px;
     z-index: 11;
@@ -33,13 +34,15 @@
 }
 
 .scene-tab-active-indicator--only {
-    &::before, &::after {
+    &::before,
+    &::after {
         display: none;
     }
 }
 
 .scene-tab-active-indicator--first {
     /* right: -11px; */
+
     /* width: calc(100% + 11px); */
     border-left: 1px solid var(--color-border-primary);
     transform: none;
@@ -51,6 +54,7 @@
 
 .scene-tab-active-indicator--last {
     /* right: 1px; */
+
     /* width: calc(100% + 11px); */
     border-left: 1px solid var(--color-border-primary);
     transform: none;
@@ -59,8 +63,9 @@
         display: none;
     }
 }
+
 .scene-tab--pinned {
-    min-width: 36px;
+    max-width: 36px;
     padding-right: 0.5rem;
     padding-left: 0.5rem;
 }

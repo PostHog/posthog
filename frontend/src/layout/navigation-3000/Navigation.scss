@@ -14,7 +14,6 @@
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
-
     position: relative;
     display: flex;
     width: 100%;
@@ -702,20 +701,20 @@
 }
 
 .app-layout {
-    height: 100vh;
+    --left-nav-width: var(--project-navbar-width); /* Default, overridden via inline style */
+
     display: grid;
-    /* 3 columns: left | content | right */
-    grid-template-columns: var(--project-navbar-width) 1fr var(--side-panel-width);
+    grid-template: 'left top right' var(--scene-layout-header-height) 'left content right' 1fr / var(
+            --left-nav-width
+        ) 1fr var(--side-panel-width);
 
     /* 2 rows: top | rest */
-    grid-template-rows: var(--scene-layout-header-height) 1fr;
 
-    grid-template-areas:
-        "left top right"
-        "left content right";
+    /* 3 columns: left | content | right */
+
+    height: 100vh;
     overflow: hidden;
 }
-
 
 .left-nav {
     grid-area: left;
