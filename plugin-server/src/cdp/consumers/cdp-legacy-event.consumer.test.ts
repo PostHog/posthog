@@ -5,14 +5,14 @@ import { DateTime } from 'luxon'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, PluginConfig, Team } from '../../types'
+import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { createHogExecutionGlobals } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionInvocationGlobals } from '../types'
-import { CdpLegacyEventsConsumer } from './cdp-legacy-event.consumer'
+import { CdpLegacyEventsConsumer, LightweightPluginConfig } from './cdp-legacy-event.consumer'
 
 jest.setTimeout(5000)
 
@@ -21,7 +21,7 @@ describe('CdpLegacyEventsConsumer', () => {
     let legacyPluginExecutor: LegacyPluginExecutorService
     let hub: Hub
     let team: Team
-    let pluginConfig: PluginConfig
+    let pluginConfig: LightweightPluginConfig
     let invocation: HogFunctionInvocationGlobals
     let uniquePluginId: number
 
@@ -41,7 +41,7 @@ describe('CdpLegacyEventsConsumer', () => {
         uniquePluginId = 50000 + Math.floor(Math.random() * 100000)
 
         // Create a plugin in the database with onEvent capability
-        const { rows: pluginRows } = await hub.db.postgres.query(
+        const { rows: pluginRows } = await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_plugin (id, organization_id, name, plugin_type, is_global, url, config_schema, from_json, from_web, created_at, updated_at, is_preinstalled, capabilities)
              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)
@@ -82,7 +82,7 @@ describe('CdpLegacyEventsConsumer', () => {
             updated_at: new Date().toISOString(),
         }
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             'INSERT INTO posthog_pluginconfig (id, team_id, plugin_id, enabled, "order", config, created_at, updated_at, deleted) VALUES ($1, $2, $3, true, $4, $5::jsonb, $6, $7, false)',
             [
@@ -101,7 +101,7 @@ describe('CdpLegacyEventsConsumer', () => {
         pluginConfig.plugin = plugin
 
         // Verify the plugin config was created with capability check
-        const { rows } = await hub.db.postgres.query(
+        const { rows } = await hub.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT
                 posthog_pluginconfig.id,
@@ -353,6 +353,16 @@ describe('CdpLegacyEventsConsumer', () => {
         it('should return empty array for teams with no configs', async () => {
             const hogFunctions = await consumer['pluginConfigsLoader'].get('99999')
             expect(hogFunctions).toEqual([])
+        })
+    })
+
+    describe('shutdown behavior', () => {
+        it('should flush app metrics when stopping', async () => {
+            const flushSpy = jest.spyOn(consumer['appMetrics'], 'flush')
+
+            await consumer.stop()
+
+            expect(flushSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

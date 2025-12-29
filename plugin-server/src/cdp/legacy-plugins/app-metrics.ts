@@ -1,13 +1,10 @@
 import { DateTime } from 'luxon'
-import { configure } from 'safe-stable-stringify'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { TeamId, TimestampFormat } from '../../types'
-import { cleanErrorStackTrace } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
-import { UUIDT, castTimestampOrNow } from '../../utils/utils'
+import { castTimestampOrNow } from '../../utils/utils'
 
 export interface AppMetricIdentifier {
     teamId: TeamId
@@ -67,15 +64,7 @@ export interface RawAppMetric {
     error_details?: string
 }
 
-const MAX_STRING_LENGTH = 1000
-
-const safeJSONStringify = configure({
-    deterministic: false,
-    maximumDepth: 4,
-    maximumBreadth: 40,
-})
-
-export class AppMetrics {
+export class LegacyPluginAppMetrics {
     kafkaProducer: KafkaProducerWrapper
     queuedData: Record<string, QueuedMetric>
 
@@ -140,16 +129,6 @@ export class AppMetrics {
         }
     }
 
-    async queueError(metric: AppMetric, errorWithContext: ErrorWithContext, timestamp?: number) {
-        await this.queueMetric(
-            {
-                ...metric,
-                ...this._metricErrorParameters(errorWithContext),
-            },
-            timestamp
-        )
-    }
-
     async flush(): Promise<void> {
         logger.debug('🚽', `Flushing app metrics`)
         const startTime = Date.now()
@@ -188,47 +167,7 @@ export class AppMetrics {
         logger.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 
-    _metricErrorParameters(errorWithContext: ErrorWithContext): Partial<AppMetric> {
-        try {
-            const { error, ...context } = errorWithContext
-
-            let serializedError: Record<string, string | undefined>
-            if (typeof error === 'string') {
-                serializedError = { name: error }
-            } else {
-                serializedError = {
-                    name: error.name,
-                    message: error.message,
-                    stack: cleanErrorStackTrace(error.stack),
-                }
-            }
-
-            return {
-                errorUuid: new UUIDT().toString(),
-                errorType: serializedError.name,
-                errorDetails: safeJSONStringify(
-                    {
-                        error: serializedError,
-                        ...context,
-                    },
-                    this._serializeJSONValue
-                ),
-            }
-        } catch (err) {
-            captureException(err)
-            logger.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
-            return {}
-        }
-    }
-
     _key(metric: AppMetric): string {
         return `${metric.teamId}.${metric.pluginConfigId}.${metric.category}.${metric.jobId}.${metric.errorUuid}`
-    }
-
-    _serializeJSONValue(key: string, value: any): string {
-        if (typeof value === 'string' && value.length > MAX_STRING_LENGTH) {
-            return value.slice(0, MAX_STRING_LENGTH)
-        }
-        return value
     }
 }

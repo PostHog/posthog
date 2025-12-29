@@ -28,8 +28,8 @@ describe('HogFlowManager', () => {
 
         const team = await getTeam(hub, 2)
 
-        teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId1 = await createTeam(hub.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.postgres, team!.organization_id)
 
         hogFlows = []
 
@@ -85,7 +85,7 @@ describe('HogFlowManager', () => {
             })
         ).toMatchSnapshot()
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogflow SET name='Test Hog Flow team 1 updated', updated_at = NOW() WHERE id = $1`,
             [hogFlows[0].id],
@@ -125,7 +125,7 @@ describe('HogFlowManager', () => {
             const originalResult = await manager.getHogFlowIdsForTeams([teamId1, teamId2])
             expect(originalResult[teamId1]).toHaveLength(2)
 
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_hogflow SET status='archived', updated_at = NOW() WHERE id = $1`,
                 [hogFlows[0].id],

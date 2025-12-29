@@ -72,7 +72,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
                 id: 'd77e792e-0f35-431b-a983-097534aa4767',
             })
-            await insertHogFunction(hub.db.postgres, teamId, geoIpFunction)
+            await insertHogFunction(hub.postgres, teamId, geoIpFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIpFunction.id])
 
@@ -156,7 +156,7 @@ describe('HogTransformer', () => {
                 `,
             })
             fn.bytecode = await compileHog(fn.hog)
-            await insertHogFunction(hub.db.postgres, teamId, fn)
+            await insertHogFunction(hub.postgres, teamId, fn)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
 
             const event: PluginEvent = createPluginEvent({}, teamId)
@@ -231,9 +231,9 @@ describe('HogTransformer', () => {
                 execution_order: 3,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, testTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, defaultTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, geoIpTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, testTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, defaultTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, geoIpTransformationFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 geoIpTransformationFunction.id,
@@ -331,8 +331,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, deletingTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, addingTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, deletingTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, addingTransformationFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 addingTransformationFunction.id,
@@ -420,8 +420,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, firstTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, secondTransformationFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 firstTransformationFunction.id,
@@ -526,9 +526,9 @@ describe('HogTransformer', () => {
                 execution_order: undefined,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, thirdTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, thirdTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, secondTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, firstTransformationFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 thirdTransformationFunction.id,
@@ -613,8 +613,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, successFunction)
-            await insertHogFunction(hub.db.postgres, teamId, failFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
+            await insertHogFunction(hub.postgres, teamId, failFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 successFunction.id,
@@ -696,7 +696,7 @@ describe('HogTransformer', () => {
                 ) as any,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, inputSetterFunction)
+            await insertHogFunction(hub.postgres, teamId, inputSetterFunction)
 
             const event = createPluginEvent(
                 {
@@ -762,7 +762,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [successFunction.id])
 
@@ -817,7 +817,7 @@ describe('HogTransformer', () => {
                 },
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent(
@@ -899,8 +899,8 @@ describe('HogTransformer', () => {
                 },
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, successFunction)
-            await insertHogFunction(hub.db.postgres, teamId, skippedFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
+            await insertHogFunction(hub.postgres, teamId, skippedFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 successFunction.id,
@@ -947,7 +947,7 @@ describe('HogTransformer', () => {
                 id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
+            await insertHogFunction(hub.postgres, teamId, filterOutPlugin)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [filterOutPlugin.id])
 
             executeSpy = jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
@@ -1019,8 +1019,8 @@ describe('HogTransformer', () => {
                 inputs_schema: propertyFilterPlugin.template.inputs_schema,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, geoIp)
-            await insertHogFunction(hub.db.postgres, teamId, filterPlugin)
+            await insertHogFunction(hub.postgres, teamId, geoIp)
+            await insertHogFunction(hub.postgres, teamId, filterPlugin)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIp.id, filterPlugin.id])
 
@@ -1124,7 +1124,7 @@ describe('HogTransformer', () => {
                 },
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'does-not-match-me' }, teamId)
@@ -1171,7 +1171,7 @@ describe('HogTransformer', () => {
                 },
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Test event that should match the filter
@@ -1223,7 +1223,7 @@ describe('HogTransformer', () => {
                 // No filters defined
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'any-event' }, teamId)
@@ -1292,8 +1292,8 @@ describe('HogTransformer', () => {
                 bytecode: await compileHog(workingTemplate.hog),
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, errorFunction)
-            await insertHogFunction(hub.db.postgres, teamId, workingFunction)
+            await insertHogFunction(hub.postgres, teamId, errorFunction)
+            await insertHogFunction(hub.postgres, teamId, workingFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 errorFunction.id,
@@ -1375,7 +1375,7 @@ describe('HogTransformer', () => {
                 },
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'does-not-match-any' }, teamId)
@@ -1425,7 +1425,7 @@ describe('HogTransformer', () => {
                 },
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'match-me-1' }, teamId)
@@ -1473,7 +1473,7 @@ describe('HogTransformer', () => {
                 id: '11111111-1111-4111-a111-111111111111',
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const observeResultsSpy = jest.spyOn(hogTransformer['hogWatcher'], 'observeResults')
@@ -1517,7 +1517,7 @@ describe('HogTransformer', () => {
                 id: hogFunctionId,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Add the state to the cache to prevent the error from being thrown
@@ -1633,7 +1633,7 @@ describe('HogTransformer', () => {
                 id: hogFunctionId,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Mock the cached state to indicate the function is disabled
@@ -1691,7 +1691,7 @@ describe('HogTransformer', () => {
                 id: hogFunctionId,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Mock the cached state to indicate the function is healthy
@@ -1750,7 +1750,7 @@ describe('HogTransformer', () => {
                 id: hogFunctionId,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Mock the cached state to indicate the function is disabled
@@ -1818,7 +1818,7 @@ describe('HogTransformer', () => {
                 id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)

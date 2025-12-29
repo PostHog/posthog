@@ -19,8 +19,8 @@ describe('PostgresPersonRepository', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        postgres = hub.db.postgres
+        await resetTestDatabase()
+        postgres = hub.postgres
         repository = new PostgresPersonRepository(postgres, {
             calculatePropertiesSize: 0,
             personPropertiesDbConstraintLimitBytes: 1024 * 1024, // 1MB for tests
@@ -48,7 +48,7 @@ describe('PostgresPersonRepository', () => {
         if (!result.success) {
             throw new Error('Failed to create person')
         }
-        await hub.db.kafkaProducer.queueMessages(result.messages)
+        await hub.kafkaProducer.queueMessages(result.messages)
         return result.person
     }
 
@@ -254,11 +254,11 @@ describe('PostgresPersonRepository', () => {
             expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
             expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
 
-            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, person)
             expect(distinctIds).toHaveLength(2)
             expect(distinctIds).toEqual(expect.arrayContaining(['distinct-1', 'distinct-2']))
 
-            const distinctIdRecords = await fetchDistinctIds(hub.db.postgres, person)
+            const distinctIdRecords = await fetchDistinctIds(hub.postgres, person)
             expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-1')?.version).toBe('0')
             expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe('1')
         })
@@ -374,10 +374,10 @@ describe('PostgresPersonRepository', () => {
             const person = result.person
             const kafkaMessages = result.messages
 
-            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+            await hub.kafkaProducer.queueMessages(kafkaMessages)
 
             // Delete distinct IDs first to avoid FK constraint violation
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
                 [person.id],
@@ -936,7 +936,7 @@ describe('PostgresPersonRepository', () => {
 
         it('should handle different team IDs correctly', async () => {
             const team1 = await getFirstTeam(hub)
-            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
+            const team2Id = await createTeam(hub.postgres, team1.organization_id)
             const distinctId = 'shared-distinct-id'
 
             // Insert for team 1
@@ -1123,7 +1123,7 @@ describe('PostgresPersonRepository', () => {
 
         it('should handle multiple teams in same batch', async () => {
             const team1 = await getFirstTeam(hub)
-            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
+            const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             const entries = [
                 { teamId: team1.id, distinctId: 'shared-distinct' },
@@ -1167,7 +1167,7 @@ describe('PostgresPersonRepository', () => {
 
         it('should handle different persons correctly', async () => {
             const team1 = await getFirstTeam(hub)
-            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
+            const team2Id = await createTeam(hub.postgres, team1.organization_id)
 
             // Create person in team 1
             const person1 = await createTestPerson(team1.id, 'shared-distinct', { name: 'Team 1 Person' })
@@ -1452,7 +1452,7 @@ describe('PostgresPersonRepository', () => {
         let targetPersonID: InternalPerson['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
                 [],
@@ -1496,7 +1496,7 @@ describe('PostgresPersonRepository', () => {
             }
             const targetPerson = result2.person
 
-            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
+            await hub.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
         })
@@ -1506,13 +1506,13 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('updates all valid keys when target person had no overrides', async () => {
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'aloha',
                 hash_key: 'override_value_for_aloha',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'beta-feature',
@@ -1541,19 +1541,19 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('updates all valid keys when conflicts with target person', async () => {
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'aloha',
                 hash_key: 'override_value_for_aloha',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'override_value_for_beta_feature',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: targetPersonID,
                 feature_flag_key: 'beta-feature',
@@ -1582,13 +1582,13 @@ describe('PostgresPersonRepository', () => {
         })
 
         it('updates nothing when target person overrides exist', async () => {
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: targetPersonID,
                 feature_flag_key: 'aloha',
                 hash_key: 'override_value_for_aloha',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: targetPersonID,
                 feature_flag_key: 'beta-feature',
@@ -2565,7 +2565,7 @@ describe('PostgresPersonRepository', () => {
 
 // Helper function from the original test file
 async function getFirstTeam(hub: Hub): Promise<Team> {
-    const teams = await hub.db.postgres.query(
+    const teams = await hub.postgres.query(
         PostgresUse.COMMON_WRITE,
         'SELECT * FROM posthog_team LIMIT 1',
         [],
@@ -2575,7 +2575,7 @@ async function getFirstTeam(hub: Hub): Promise<Team> {
 }
 
 async function fetchPersonByPersonId(hub: Hub, teamId: number, personId: string): Promise<any | undefined> {
-    const selectResult = await hub.db.postgres.query(
+    const selectResult = await hub.postgres.query(
         PostgresUse.PERSONS_WRITE,
         `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
         [teamId, personId],

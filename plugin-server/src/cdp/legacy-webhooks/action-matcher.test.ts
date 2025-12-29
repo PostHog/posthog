@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { commonUserId } from '../../../tests/helpers/plugins'
-import { insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
+import { commonUserId, insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
 import {
     Action,
     ActionStep,
@@ -46,9 +45,9 @@ describe('ActionMatcher', () => {
     let actionCounter: number
 
     beforeEach(async () => {
-        await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
+        await resetTestDatabase()
         hub = await createHub()
-        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
+        actionManager = new ActionManager(hub.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(actionManager)
         actionCounter = 0
@@ -91,7 +90,7 @@ describe('ActionMatcher', () => {
                   )
                 : null,
         }
-        await insertRow(hub.db.postgres, 'posthog_action', action)
+        await insertRow(hub.postgres, 'posthog_action', action)
         await actionManager.reloadAction(action.team_id, action.id)
 
         return {
