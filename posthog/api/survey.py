@@ -394,6 +394,32 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     if not parsed_url.netloc:
                         raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
 
+            # Validate validation rules for open text questions
+            validation_rules = raw_question.get("validation")
+            if validation_rules is not None:
+                if not isinstance(validation_rules, list):
+                    raise serializers.ValidationError("Question validation must be a list of validation rules")
+
+                valid_types = ["min_length", "max_length", "email"]
+                for rule in validation_rules:
+                    if not isinstance(rule, dict):
+                        raise serializers.ValidationError("Each validation rule must be an object")
+
+                    rule_type = rule.get("type")
+                    if rule_type not in valid_types:
+                        raise serializers.ValidationError(
+                            f"Validation rule type must be one of: {', '.join(valid_types)}"
+                        )
+
+                    # Validate value for length rules
+                    if rule_type in ["min_length", "max_length"]:
+                        rule_value = rule.get("value")
+                        if rule_value is not None:
+                            if not isinstance(rule_value, int) or rule_value < 0:
+                                raise serializers.ValidationError(
+                                    f"Validation rule value for {rule_type} must be a non-negative integer"
+                                )
+
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions

@@ -2737,6 +2737,113 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Question descriptionContentType must be one of ['text', 'html']"
 
+    def test_create_survey_with_valid_validation_rules(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with validation",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's your feedback?",
+                        "validation": [
+                            {"type": "min_length", "value": 5},
+                            {"type": "max_length", "value": 100},
+                        ],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["questions"][0]["validation"]) == 2
+        assert response_data["questions"][0]["validation"][0]["type"] == "min_length"
+        assert response_data["questions"][0]["validation"][0]["value"] == 5
+        assert response_data["questions"][0]["validation"][1]["type"] == "max_length"
+        assert response_data["questions"][0]["validation"][1]["value"] == 100
+
+    def test_validate_validation_rules_invalid_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with invalid validation",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's your name?",
+                        "validation": [{"type": "invalid_type"}],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Validation rule type must be one of" in response_data["detail"]
+
+    def test_validate_validation_rules_negative_value(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with negative validation value",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's your name?",
+                        "validation": [{"type": "min_length", "value": -5}],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "must be a non-negative integer" in response_data["detail"]
+
+    def test_validate_validation_rules_not_a_list(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with invalid validation",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's your name?",
+                        "validation": {"type": "email"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question validation must be a list of validation rules"
+
+    def test_validate_validation_rules_rule_not_object(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with invalid validation",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's your name?",
+                        "validation": ["email"],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Each validation rule must be an object"
+
     def test_create_survey_with_valid_thank_you_description_content_type(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

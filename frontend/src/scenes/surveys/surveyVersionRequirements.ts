@@ -1,6 +1,7 @@
 import { compareVersion } from 'lib/utils/semver'
 
 import {
+    BasicSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -247,6 +248,18 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) =>
             s.questions.some(
                 (q) => q.type === SurveyQuestionType.Rating && q.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
+            ),
+    },
+    {
+        feature: 'Response length validation',
+        sdkVersions: { 'posthog-js': 'X.X.X' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android'],
+        check: (s) =>
+            s.questions.some(
+                (q) =>
+                    q.type === SurveyQuestionType.Open &&
+                    (q as BasicSurveyQuestion).validation &&
+                    (q as BasicSurveyQuestion).validation!.length > 0
             ),
     },
 ]
