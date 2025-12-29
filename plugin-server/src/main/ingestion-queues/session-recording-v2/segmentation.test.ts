@@ -89,6 +89,19 @@ describe('segmentation', () => {
             // Should create one active segment with duration of 5000ms (from 1000 to 6000)
             expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(5000)
         })
+
+        it('should return an integer when timestamps are fractional', () => {
+            const segmentationEvents: SegmentationEvent[] = [
+                { timestamp: 1000.25, isActive: true },
+                { timestamp: 2000.75, isActive: true },
+                { timestamp: 3000.5, isActive: true },
+            ]
+
+            const result = activeMillisecondsFromSegmentationEvents(segmentationEvents)
+            // Result should be an integer, not 2000.25
+            expect(Number.isInteger(result)).toBe(true)
+            expect(result).toBe(2000)
+        })
     })
 
     describe('toSegmentationEvent', () => {

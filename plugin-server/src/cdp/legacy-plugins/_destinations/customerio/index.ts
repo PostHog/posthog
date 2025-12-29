@@ -1,5 +1,4 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
@@ -92,7 +91,7 @@ async function callCustomerIoApi(
 }
 
 export const setupPlugin = async (meta: CustomerIoMeta) => {
-    const { config, global, logger, storage } = meta
+    const { config, global, logger } = meta
 
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
@@ -108,16 +107,8 @@ export const setupPlugin = async (meta: CustomerIoMeta) => {
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
     global.identifyByEmail = config.identifyByEmail === 'Yes'
 
-    const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
-
-    if (credentialsVerifiedPreviously) {
-        logger.log('Customer.io credentials verified previously. Completing setupPlugin.')
-        return
-    }
-
     // See https://www.customer.io/docs/api/#operation/getCioAllowlist
     await callCustomerIoApi(meta, 'GET', 'api.customer.io', '/v1/api/info/ip_addresses', global.authorizationHeader)
-    await storage.set(global.authorizationHeader, true)
     logger.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 

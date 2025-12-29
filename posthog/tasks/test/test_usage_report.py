@@ -4185,13 +4185,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Verify the calls
         self.assertEqual(mock_execute_split_query.call_count, 2)
 
-        # First call (get_teams_with_billable_event_count_in_period) should use 3 splits
+        # First call (get_teams_with_billable_event_count_in_period) should use 12 splits
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 3)
+        self.assertEqual(first_call_kwargs["num_splits"], 12)
 
-        # Second call (get_all_event_metrics_in_period) should use 3 splits
+        # Second call (get_all_event_metrics_in_period) should use 12 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 3)
+        self.assertEqual(second_call_kwargs["num_splits"], 12)
 
     def test_ai_events_not_double_counted(self) -> None:
         """Test that AI events are excluded from billable event counts and counted separately."""

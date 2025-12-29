@@ -26,8 +26,8 @@ describe('processPersonsStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        const organizationId = await createOrganization(hub.db.postgres)
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        const organizationId = await createOrganization(hub.postgres)
+        teamId = await createTeam(hub.postgres, organizationId)
         team = (await getTeam(hub, teamId))!
         uuid = new UUIDT().toString()
 
@@ -54,10 +54,7 @@ describe('processPersonsStep()', () => {
 
     it('creates person', async () => {
         const processPerson = true
-        const personsStore = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(hub.db.postgres),
-            hub.kafkaProducer
-        )
+        const personsStore = new BatchWritingPersonsStore(new PostgresPersonRepository(hub.postgres), hub.kafkaProducer)
         const result = await processPersonsStep(
             hub.kafkaProducer,
             createDefaultSyncMergeMode(),
@@ -89,7 +86,7 @@ describe('processPersonsStep()', () => {
             await kafkaAck
 
             // Check PG state
-            const persons = await fetchPostgresPersons(hub.db, teamId)
+            const persons = await fetchPostgresPersons(hub.postgres, teamId)
             expect(persons).toEqual([resPerson])
         }
     })
@@ -107,10 +104,7 @@ describe('processPersonsStep()', () => {
 
         const processPerson = true
         const [normalizedEvent, normalizedTimestamp] = await normalizeEventStep(event, processPerson)
-        const personsStore = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(hub.db.postgres),
-            hub.kafkaProducer
-        )
+        const personsStore = new BatchWritingPersonsStore(new PostgresPersonRepository(hub.postgres), hub.kafkaProducer)
         const result = await processPersonsStep(
             hub.kafkaProducer,
             createDefaultSyncMergeMode(),
@@ -158,7 +152,7 @@ describe('processPersonsStep()', () => {
             await kafkaAck
 
             // Check PG state
-            const persons = await fetchPostgresPersons(hub.db, teamId)
+            const persons = await fetchPostgresPersons(hub.postgres, teamId)
             expect(persons).toEqual([resPerson])
         }
     })

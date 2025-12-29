@@ -1,7 +1,6 @@
-import { createRedisPool } from '~/utils/db/redis'
 import { TeamManager } from '~/utils/team-manager'
 
-import { PluginsServerConfig, RedisPool } from '../../types'
+import { RedisPool } from '../../types'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 
@@ -21,15 +20,12 @@ export interface QuotaLimitingResult {
 }
 
 export class QuotaLimiting {
-    private readonly redisPool: RedisPool
     private readonly limitedTokensLoader: LazyLoader<Record<string, number>>
 
     constructor(
-        config: PluginsServerConfig,
+        private readonly redisPool: RedisPool,
         private readonly teamManager: TeamManager
     ) {
-        this.redisPool = createRedisPool(config, 'posthog')
-
         this.limitedTokensLoader = new LazyLoader({
             name: 'quota_limited_tokens',
             loader: async (resources: string[]) => {

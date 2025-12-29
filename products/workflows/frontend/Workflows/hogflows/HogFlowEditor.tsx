@@ -33,10 +33,11 @@ function HogFlowEditorContent(): JSX.Element {
         setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
-        onDragStart,
+        showDropzones,
         onDragOver,
         onDrop,
         setReactFlowWrapper,
+        handlePaneClick,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -59,7 +60,7 @@ function HogFlowEditorContent(): JSX.Element {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodesDelete={onNodesDelete}
-                onDragStart={onDragStart}
+                onDragStart={showDropzones}
                 onDragOver={onDragOver}
                 onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
@@ -67,7 +68,7 @@ function HogFlowEditorContent(): JSX.Element {
                 edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
-                onPaneClick={() => setSelectedNodeId(null)}
+                onPaneClick={handlePaneClick}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
 

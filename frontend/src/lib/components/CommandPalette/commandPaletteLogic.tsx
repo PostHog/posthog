@@ -148,7 +148,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             userLogic,
             ['updateUser'],
             hedgehogBuddyLogic,
-            ['setHedgehogModeEnabled'],
+            ['toggleHedgehogMode'],
             commandBarLogic,
             ['setCommandBar'],
             sidePanelStateLogic,
@@ -872,7 +872,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     display: `${values.hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode`,
                     synonyms: ['buddy', 'toggle', 'max'],
                     executor: () => {
-                        actions.setHedgehogModeEnabled(!values.hedgehogModeEnabled)
+                        actions.toggleHedgehogMode()
                     },
                 },
             }

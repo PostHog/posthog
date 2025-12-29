@@ -127,7 +127,7 @@ export const activeMillisecondsFromSegmentationEvents = (segmentationEvents: Seg
 }
 
 const activeMillisecondsFromSegments = (segments: RecordingSegment[]): number => {
-    return segments.reduce((acc, segment) => {
+    const total = segments.reduce((acc, segment) => {
         if (segment.isActive) {
             // if the segment is active but has no duration we count it as 1ms
             // to distinguish it from segments with no activity at all
@@ -136,4 +136,6 @@ const activeMillisecondsFromSegments = (segments: RecordingSegment[]): number =>
 
         return acc
     }, 0)
+    // timestamps can be fractional, so we floor to ensure we return an integer
+    return Math.floor(total)
 }

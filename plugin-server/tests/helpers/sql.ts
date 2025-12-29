@@ -5,33 +5,19 @@ import {
     CookielessServerHashMode,
     Hub,
     InternalPerson,
-    Plugin,
-    PluginAttachmentDB,
-    PluginConfig,
     PluginsServerConfig,
     ProjectId,
-    PropertyOperator,
-    RawAction,
     RawOrganization,
     RawPerson,
     Team,
 } from '../../src/types'
-import { DB } from '../../src/utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
-import {
-    commonOrganizationId,
-    commonOrganizationMembershipId,
-    commonUserId,
-    commonUserUuid,
-    makePluginObjects,
-} from './plugins'
 
-export interface ExtraDatabaseRows {
-    plugins?: Omit<Plugin, 'id'>[]
-    pluginConfigs?: Omit<PluginConfig, 'id'>[]
-    pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
-}
+export const commonUserId = 1001
+export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
+export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
+export const commonUserUuid = '797757a4-baed-4fa8-b73b-2b6cf0300299'
 
 export const POSTGRES_DELETE_COMMON_TABLES_QUERY = `
 DO $$
@@ -43,9 +29,6 @@ BEGIN
     DELETE FROM posthog_featureflag CASCADE;
     DELETE FROM posthog_organizationmembership CASCADE;
     DELETE FROM posthog_project CASCADE;
-    DELETE FROM posthog_pluginsourcefile CASCADE;
-    DELETE FROM posthog_pluginconfig CASCADE;
-    DELETE FROM posthog_plugin CASCADE;
     DELETE FROM posthog_organization CASCADE;
     DELETE FROM posthog_action CASCADE;
     DELETE FROM posthog_user CASCADE;
@@ -61,9 +44,6 @@ BEGIN
             'posthog_featureflag',
             'posthog_organizationmembership',
             'posthog_project',
-            'posthog_pluginsourcefile',
-            'posthog_pluginconfig',
-            'posthog_plugin',
             'posthog_organization',
             'posthog_action',
             'posthog_user',
@@ -147,17 +127,12 @@ export async function clearDatabase(db: PostgresRouter) {
 
 // TODO: This shouldn't be called resetTestDatabase, as it actually adds data to the database
 // which can be misleading for people running tests
-export async function resetTestDatabase(
-    code?: string,
-    extraServerConfig: Partial<PluginsServerConfig> = {},
-    extraRows: ExtraDatabaseRows = {},
-    { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
-): Promise<void> {
+export async function resetTestDatabase(extraServerConfig: Partial<PluginsServerConfig> = {}): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
-    const db = new PostgresRouter(config)
+    const pg = new PostgresRouter(config)
 
     // Delete common tables using COMMON_WRITE
-    await db
+    await pg
         .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_COMMON_TABLES_QUERY, undefined, 'delete-common-tables')
         .catch((e) => {
             console.error('Error deleting common tables', e)
@@ -165,55 +140,16 @@ export async function resetTestDatabase(
         })
 
     // Delete persons tables using PERSONS_WRITE
-    await db
+    await pg
         .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSONS_TABLES_QUERY, undefined, 'delete-persons-tables')
         .catch((e) => {
             console.error('Error deleting persons tables', e)
             throw e
         })
 
-    const mocks = makePluginObjects(code)
-    const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
-    const teamIdToCreate = teamIds[0]
-    await createUserTeamAndOrganization(db, teamIdToCreate)
-    if (withExtendedTestData) {
-        await insertRow(db, 'posthog_action', {
-            id: teamIdToCreate + 67,
-            team_id: teamIdToCreate,
-            name: 'Test Action',
-            description: '',
-            created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
-            deleted: false,
-            post_to_slack: true,
-            slack_message_format: '',
-            is_calculating: false,
-            updated_at: new Date().toISOString(),
-            last_calculated_at: new Date().toISOString(),
-            steps_json: [
-                {
-                    tag_name: null,
-                    text: null,
-                    href: null,
-                    selector: null,
-                    url: null,
-                    url_matching: null,
-                    event: null,
-                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-                },
-            ],
-        } as RawAction)
-        for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
-            await insertRow(db, 'posthog_plugin', plugin)
-        }
-        for (const pluginConfig of mocks.pluginConfigRows.concat(extraRows.pluginConfigs ?? [])) {
-            await insertRow(db, 'posthog_pluginconfig', pluginConfig)
-        }
-        for (const pluginAttachment of mocks.pluginAttachmentRows.concat(extraRows.pluginAttachments ?? [])) {
-            await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
-        }
-    }
-    await db.end()
+    const teamIdToCreate = 2 // TODO: This might be wrong
+    await createUserTeamAndOrganization(pg, teamIdToCreate)
+    await pg.end()
 }
 
 // Helper function to determine which database a table belongs to
@@ -234,7 +170,7 @@ function getPostgresUseForTable(table: string): PostgresUse {
     return PostgresUse.COMMON_WRITE
 }
 
-export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(postgres: PostgresRouter, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -256,7 +192,7 @@ export async function insertRow(db: PostgresRouter, table: string, objectProvide
     try {
         const {
             rows: [rowSaved],
-        } = await db.query(
+        } = await postgres.query(
             postgresUse,
             `INSERT INTO ${table} (${keys})
              VALUES (${params})
@@ -265,54 +201,7 @@ export async function insertRow(db: PostgresRouter, table: string, objectProvide
             `insertRow-${table}`
         )
         const dependentQueries: Promise<void>[] = []
-        if (source__plugin_json) {
-            dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'plugin.json',
-                    source: source__plugin_json,
-                    plugin_id: rowSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            )
-        }
-        if (source__index_ts) {
-            dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'index.ts',
-                    source: source__index_ts,
-                    plugin_id: rowSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            )
-        }
-        if (source__frontend_tsx) {
-            dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'frontend.tsx',
-                    source: source__frontend_tsx,
-                    plugin_id: rowSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            )
-        }
-        if (source__site_ts) {
-            dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
-                    id: new UUIDT().toString(),
-                    filename: 'site.ts',
-                    source: source__site_ts,
-                    plugin_id: rowSaved.id,
-                    error: null,
-                    transpiled: null,
-                })
-            )
-        }
+
         await Promise.all(dependentQueries)
         return rowSaved
     } catch (error) {
@@ -439,33 +328,6 @@ export async function getTeam(hub: Hub, teamId: Team['id']): Promise<Team | null
 
 export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
-}
-
-export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'>) => {
-    return await insertRow(pg, 'posthog_plugin', {
-        ...plugin,
-        config_schema: {},
-        from_json: false,
-        from_web: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_preinstalled: false,
-        capabilities: {},
-    })
-}
-
-export const createPluginConfig = async (
-    pg: PostgresRouter,
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config'>
-) => {
-    return await insertRow(pg, 'posthog_pluginconfig', {
-        ...pluginConfig,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        enabled: true,
-        order: 0,
-        config: {},
-    })
 }
 
 export const createOrganization = async (pg: PostgresRouter) => {
@@ -628,11 +490,11 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
     return membership.id
 }
 
-export async function fetchPostgresPersons(db: DB, teamId: number) {
+export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
     const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
-    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
+    return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
-        // compatibility with `hub.db.fetchPersons`.
+        // compatibility with `hub.fetchPersons`.
         // TODO: remove unnecessary property translation operation.
         (rawPerson: RawPerson) =>
             ({
@@ -643,15 +505,15 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
     )
 }
 
-export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string): Promise<string[]> {
+export async function fetchPostgresDistinctIdsForPerson(postgres: PostgresRouter, personId: string): Promise<string[]> {
     const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
-    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
+    return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
         (row: { distinct_id: string }) => row.distinct_id
     )
 }
 
-export async function resetBehavioralCohortsDatabase(db: PostgresRouter): Promise<void> {
-    await db.query(
+export async function resetBehavioralCohortsDatabase(postgres: PostgresRouter): Promise<void> {
+    await postgres.query(
         PostgresUse.BEHAVIORAL_COHORTS_RW,
         'TRUNCATE TABLE cohort_membership',
         undefined,

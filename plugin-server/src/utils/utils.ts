@@ -1,19 +1,11 @@
-import { randomBytes } from 'crypto'
-import crypto from 'crypto'
+import crypto, { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import {
-    ClickHouseTimestamp,
-    ClickHouseTimestampSecondPrecision,
-    ISOTimestamp,
-    Plugin,
-    PluginConfigId,
-    TimestampFormat,
-} from '../types'
+import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, ISOTimestamp, TimestampFormat } from '../types'
 import { logger } from './logger'
 import { captureException } from './posthog'
 
@@ -413,21 +405,6 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
     }
 }
 
-export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
-    if (typeof plugin === 'number') {
-        return `plugin ID ${plugin} (unknown)`
-    }
-    const extras = []
-    if (teamId) {
-        extras.push(`team ID ${teamId}`)
-    }
-    extras.push(`organization ID ${plugin.organization_id}`)
-    if (plugin.is_global) {
-        extras.push('global')
-    }
-    return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
-}
-
 export function createPostgresPool(
     connectionString: string,
     poolSize: number,
@@ -451,28 +428,6 @@ export function createPostgresPool(
     pgPool.on('error', handleError)
 
     return pgPool
-}
-
-export function pluginConfigIdFromStack(
-    stack: string,
-    pluginConfigSecretLookup: Map<string, PluginConfigId>
-): PluginConfigId | void {
-    // This matches `pluginConfigIdentifier` from worker/vm/vm.ts
-    // For example: "at __asyncGuard__PluginConfig_39_3af03d... (vm.js:11..."
-    const regexp = /at __[a-zA-Z0-9]+__PluginConfig_([0-9]+)_([0-9a-f]+) \(vm\.js\:/
-    const [, id, hash] =
-        stack
-            .split('\n')
-            .map((l) => l.match(regexp))
-            .filter((a) => a)
-            .pop() || [] // using pop() to get the lowest matching stack entry, avoiding higher user-defined functions
-
-    if (id && hash) {
-        const secretId = pluginConfigSecretLookup.get(hash)
-        if (secretId === parseInt(id)) {
-            return secretId
-        }
-    }
 }
 
 export function groupBy<T extends Record<string, any>, K extends keyof T>(

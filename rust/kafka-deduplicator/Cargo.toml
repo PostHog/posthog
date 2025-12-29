@@ -36,6 +36,7 @@ rdkafka = { workspace = true }
 rocksdb = "0.24.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 sha2 = "0.10.9"
 strum = "0.27.0"

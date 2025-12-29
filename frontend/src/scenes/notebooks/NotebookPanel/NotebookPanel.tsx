@@ -3,6 +3,7 @@ import './NotebookPanel.scss'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconExpand45 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -51,6 +52,7 @@ export function NotebookPanel(): JSX.Element | null {
                         {contentWidthHasEffect && <NotebookExpandButton size="small" />}
                         <LemonButton
                             size="small"
+                            sideIcon={<IconExpand45 />}
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
                             targetBlank

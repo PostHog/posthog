@@ -5,10 +5,12 @@ Provides reusable verification logic for Celery tasks that verify cache consiste
 and automatically fix issues.
 """
 
-import os
+import gc
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+from django.conf import settings
 
 import structlog
 from prometheus_client import Counter
@@ -18,11 +20,10 @@ from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch
 
 logger = structlog.get_logger(__name__)
 
-# Default chunk size for batch processing, configurable via environment variable
-DEFAULT_VERIFICATION_CHUNK_SIZE = int(os.environ.get("HYPERCACHE_VERIFICATION_CHUNK_SIZE", "1000"))
-
 # Number of batches between progress logs (balance between log spam and visibility)
-PROGRESS_LOG_BATCH_INTERVAL = 10
+# With 250 teams/batch and ~238K teams, we have ~950 batches. Logging every 20
+# batches gives us ~48 progress logs total.
+PROGRESS_LOG_BATCH_INTERVAL = 20
 
 # Prometheus counter for tracking fixes during scheduled verification
 HYPERCACHE_VERIFY_FIX_COUNTER = Counter(
@@ -81,13 +82,19 @@ def verify_and_fix_all_teams(
             a dict with 'status' ("match", "miss", "mismatch") and 'issue' type
         cache_type: Name for metrics/logging (e.g., "team_metadata", "flags")
         chunk_size: Number of teams to process per batch. Defaults to
-            HYPERCACHE_VERIFICATION_CHUNK_SIZE env var or 1000.
+            settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE (the more conservative setting).
 
     Returns:
         VerificationResult with stats and list of fixed team IDs
     """
+    # Clear any accumulated garbage before starting to maximize available memory.
+    # Workers can accumulate memory from previous tasks, and starting clean
+    # gives us more headroom for this memory-intensive operation.
+    gc.collect()
+
     if chunk_size is None:
-        chunk_size = DEFAULT_VERIFICATION_CHUNK_SIZE
+        # Use the more conservative flags setting as default
+        chunk_size = settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE
 
     result = VerificationResult()
     last_id = 0
@@ -152,6 +159,12 @@ def verify_and_fix_all_teams(
             )
 
         last_id = teams[-1].id
+
+        # Explicitly release memory between batches to prevent accumulation.
+        # Python's GC doesn't aggressively return memory to the OS, so without this,
+        # memory can accumulate across batches and contribute to OOMs in workers
+        # with high baseline memory from other tasks.
+        gc.collect()
 
     return result
 
@@ -388,6 +401,7 @@ def _run_verification_for_cache(
     config: HyperCacheManagementConfig,
     verify_team_fn: Callable[[Team, dict | None, dict | None], dict],
     cache_type: str,
+    chunk_size: int,
 ) -> VerificationResult:
     """
     Run verification for a single cache type and log results.
@@ -396,17 +410,19 @@ def _run_verification_for_cache(
         config: HyperCache management configuration
         verify_team_fn: Function to verify a single team
         cache_type: Name for metrics/logging
+        chunk_size: Number of teams to process per batch
 
     Returns:
         VerificationResult with stats
     """
     start_time = time.time()
-    logger.info(f"Starting {cache_type} cache verification")
+    logger.info(f"Starting {cache_type} cache verification", chunk_size=chunk_size)
 
     result = verify_and_fix_all_teams(
         config=config,
         verify_team_fn=verify_team_fn,
         cache_type=cache_type,
+        chunk_size=chunk_size,
     )
 
     duration = time.time() - start_time

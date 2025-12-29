@@ -1,6 +1,7 @@
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from functools import cached_property
 from string import Formatter
 from typing import Any, Literal, Self
 
@@ -13,11 +14,15 @@ from pydantic import BaseModel
 from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +62,56 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     async def _arun_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        """
+        Declare what resource-level access this tool requires to be used.
+
+        Override this method to specify access requirements for your tool.
+        The check runs before `_arun_impl` is called.
+
+        Returns:
+            List of (resource, required_level) tuples.
+            Empty list means no access control check (default for backward compatibility).
+
+        Examples:
+            # Tool that creates feature flags
+            return [("feature_flag", "editor")]
+
+            # Tool that reads insights
+            return [("insight", "viewer")]
+
+            # Tool that needs multiple permissions
+            return [("dashboard", "editor"), ("insight", "viewer")]
+        """
+        return []
+
+    # -------------------------------------------------------------------------
+    # Access Control (Resource-level)
+    # -------------------------------------------------------------------------
+    # TODO: Implement object-level access check after retrieval in the ArtifactManager
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        """Access control instance for checking user permissions."""
+        return UserAccessControl(
+            user=self._user,
+            team=self._team,
+            organization_id=str(self._team.organization_id),
+        )
+
+    def _check_access_control(self) -> None:
+        """
+        Checks all resource-level access requirements declared in `get_required_resource_access()`.
+        Raises MaxToolAccessDeniedError if any check fails.
+        """
+        required_access = self.get_required_resource_access()
+        if not required_access:
+            return
+
+        for resource, required_level in required_access:
+            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
+                raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
     def __init__(
         self,
@@ -105,6 +160,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
+        self._check_access_control()
         try:
             return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
@@ -113,6 +169,8 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         """LangChain default runner."""
+        # using database_sync_to_async because UserAccessControl is fully sync
+        await database_sync_to_async(self._check_access_control)()
         try:
             return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:

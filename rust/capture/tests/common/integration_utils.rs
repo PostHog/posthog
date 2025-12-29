@@ -997,6 +997,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             None,       // ai_blob_storage
             Some(10),   // request_timeout_seconds
             None,       // body_chunk_read_timeout_ms
+            256,        // body_read_chunk_size_kb
         ),
         sink,
     )

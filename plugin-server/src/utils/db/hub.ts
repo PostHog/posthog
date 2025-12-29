@@ -1,41 +1,26 @@
-import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { hostname } from 'os'
 import { types as pgTypes } from 'pg'
-import { ConnectionOptions } from 'tls'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
-import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
-import { buildIntegerMatcher, defaultConfig } from '../../config/config'
-import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
+import { defaultConfig } from '../../config/config'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
-import { ActionManager } from '../../worker/ingestion/action-manager'
-import { ActionMatcher } from '../../worker/ingestion/action-matcher'
-import { AppMetrics } from '../../worker/ingestion/app-metrics'
+import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
-import { RustyHook } from '../../worker/rusty-hook'
-import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
-import { UUIDT } from '../utils'
-import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
-import { Celery } from './celery'
-import { DB } from './db'
 import { PostgresRouter } from './postgres'
-import { createRedisPool } from './redis'
+import { createRedisPoolFromConfig } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -63,24 +48,16 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
     return eventsToDropByToken
 }
 
-export async function createHub(
-    config: Partial<PluginsServerConfig> = {},
-    capabilities: PluginServerCapabilities | null = null
-): Promise<Hub> {
+export async function createHub(config: Partial<PluginsServerConfig> = {}): Promise<Hub> {
     logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
     }
-    if (capabilities === null) {
-        capabilities = getPluginServerCapabilities(serverConfig)
-    }
-    const instanceId = new UUIDT()
 
     logger.info('🤔', `Connecting to Kafka...`)
 
-    const kafka = createKafkaClient(serverConfig)
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
     logger.info('👍', `Kafka ready`)
 
@@ -88,30 +65,46 @@ export async function createHub(
     logger.info('👍', `Postgres Router ready`)
 
     logger.info('🤔', `Connecting to ingestion Redis...`)
-    const redisPool = createRedisPool(serverConfig, 'ingestion')
+    const redisPool = createRedisPoolFromConfig({
+        connection: serverConfig.INGESTION_REDIS_HOST
+            ? { url: serverConfig.INGESTION_REDIS_HOST, options: { port: serverConfig.INGESTION_REDIS_PORT } }
+            : serverConfig.POSTHOG_REDIS_HOST
+              ? {
+                    url: serverConfig.POSTHOG_REDIS_HOST,
+                    options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
+                }
+              : { url: serverConfig.REDIS_URL },
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
     logger.info('👍', `Ingestion Redis ready`)
 
     logger.info('🤔', `Connecting to cookieless Redis...`)
-    const cookielessRedisPool = createRedisPool(serverConfig, 'cookieless')
+    const cookielessRedisPool = createRedisPoolFromConfig({
+        connection: serverConfig.COOKIELESS_REDIS_HOST
+            ? { url: serverConfig.COOKIELESS_REDIS_HOST, options: { port: serverConfig.COOKIELESS_REDIS_PORT ?? 6379 } }
+            : { url: serverConfig.REDIS_URL },
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
     logger.info('👍', `Cookieless Redis ready`)
 
-    const db = new DB(
-        postgres,
-        redisPool,
-        cookielessRedisPool,
-        kafkaProducer,
-        serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
-        serverConfig.PERSON_INFO_CACHE_TTL
-    )
     const teamManager = new TeamManager(postgres)
-    const pluginsApiKeyManager = new PluginsApiKeyManager(db)
-    const rootAccessManager = new RootAccessManager(db)
-    const pubSub = new PubSub(serverConfig)
+    logger.info('🤔', `Connecting to PostHog Redis...`)
+    const posthogRedisPool = createRedisPoolFromConfig({
+        connection: serverConfig.POSTHOG_REDIS_HOST
+            ? {
+                  url: serverConfig.POSTHOG_REDIS_HOST,
+                  options: { port: serverConfig.POSTHOG_REDIS_PORT, password: serverConfig.POSTHOG_REDIS_PASSWORD },
+              }
+            : { url: serverConfig.REDIS_URL },
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
+    logger.info('👍', `PostHog Redis ready`)
+
+    const pubSub = new PubSub(redisPool)
     await pubSub.start()
-    const rustyHook = new RustyHook(serverConfig)
-    const actionManager = new ActionManager(postgres, pubSub)
-    const actionManagerCDP = new ActionManagerCDP(postgres)
-    const actionMatcher = new ActionMatcher(postgres, actionManager)
 
     const groupRepository = new PostgresGroupRepository(postgres)
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
@@ -127,48 +120,23 @@ export async function createHub(
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
-    const quotaLimiting = new QuotaLimiting(serverConfig, teamManager)
+    const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
     const internalCaptureService = new InternalCaptureService(serverConfig)
 
     const hub: Hub = {
         ...serverConfig,
-        instanceId,
-        capabilities,
-        db,
         postgres,
         redisPool,
+        posthogRedisPool,
         cookielessRedisPool,
-        kafka,
         kafkaProducer,
         groupTypeManager,
-
-        plugins: new Map(),
-        pluginConfigs: new Map(),
-        pluginConfigsPerTeam: new Map(),
-        pluginConfigSecrets: new Map(),
-        pluginConfigSecretLookup: new Map(),
-        pluginSchedule: null,
-
         teamManager,
-        pluginsApiKeyManager,
-        rootAccessManager,
-        rustyHook,
-        actionMatcher,
         groupRepository,
         clickhouseGroupRepository,
         personRepository,
-        actionManager,
-        actionManagerCDP,
         geoipService,
-        pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
-        eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
-        appMetrics: new AppMetrics(
-            kafkaProducer,
-            serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-            serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-        ),
         encryptedFields,
-        celery: new Celery(serverConfig),
         cookielessManager,
         pubSub,
         integrationManager,
@@ -181,13 +149,17 @@ export async function createHub(
 
 export const closeHub = async (hub: Hub): Promise<void> => {
     logger.info('💤', 'Closing hub...')
-    if (!isTestEnv()) {
-        await hub.appMetrics?.flush()
-    }
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
+    await Promise.allSettled([
+        hub.kafkaProducer.disconnect(),
+        hub.redisPool.drain(),
+        hub.posthogRedisPool.drain(),
+        hub.cookielessRedisPool.drain(),
+        hub.postgres?.end(),
+    ])
     await hub.redisPool.clear()
+    await hub.posthogRedisPool.clear()
     await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
@@ -199,61 +171,4 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         ;(hub as any).appMetrics = undefined
     }
     logger.info('💤', 'Hub closed!')
-}
-
-export function createKafkaClient({
-    KAFKA_HOSTS,
-    KAFKAJS_LOG_LEVEL,
-    KAFKA_SECURITY_PROTOCOL,
-    KAFKA_CLIENT_CERT_B64,
-    KAFKA_CLIENT_CERT_KEY_B64,
-    KAFKA_TRUSTED_CERT_B64,
-    KAFKA_SASL_MECHANISM,
-    KAFKA_SASL_USER,
-    KAFKA_SASL_PASSWORD,
-}: PluginsServerConfig) {
-    let kafkaSsl: ConnectionOptions | boolean | undefined
-    if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
-        // see rejectUnauthorized note below
-        // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-        kafkaSsl = {
-            cert: Buffer.from(KAFKA_CLIENT_CERT_B64, 'base64'),
-            key: Buffer.from(KAFKA_CLIENT_CERT_KEY_B64, 'base64'),
-            ca: Buffer.from(KAFKA_TRUSTED_CERT_B64, 'base64'),
-
-            /* Intentionally disabling hostname checking. The Kafka cluster runs in the cloud and Apache
-            Kafka on Heroku doesn't currently provide stable hostnames. We're pinned to a specific certificate
-            #for this connection even though the certificate doesn't include host information. We rely
-            on the ca trust_cert for this purpose. */
-            rejectUnauthorized: false,
-        }
-    } else if (
-        KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.Ssl ||
-        KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.SaslSsl
-    ) {
-        kafkaSsl = true
-    }
-
-    let kafkaSasl: SASLOptions | undefined
-    if (KAFKA_SASL_MECHANISM && KAFKA_SASL_USER && KAFKA_SASL_PASSWORD) {
-        kafkaSasl = {
-            mechanism: KAFKA_SASL_MECHANISM,
-            username: KAFKA_SASL_USER,
-            password: KAFKA_SASL_PASSWORD,
-        }
-    }
-
-    const kafka = new Kafka({
-        /* clientId does not need to be unique, and is used in Kafka logs and quota accounting.
-           os.hostname() returns the pod name in k8s and the container ID in compose stacks.
-           This allows us to quickly find what pod is consuming a given partition */
-        clientId: hostname(),
-        brokers: KAFKA_HOSTS.split(','),
-        logLevel: KAFKAJS_LOG_LEVEL_MAPPING[KAFKAJS_LOG_LEVEL],
-        ssl: kafkaSsl,
-        sasl: kafkaSasl,
-        connectionTimeout: 7000,
-        authenticationTimeout: 7000, // default: 1000
-    })
-    return kafka
 }

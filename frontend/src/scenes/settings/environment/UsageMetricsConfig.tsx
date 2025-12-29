@@ -16,11 +16,15 @@ import {
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import { UsageMetric, usageMetricsConfigLogic } from './usageMetricsConfigLogic'
@@ -47,6 +51,8 @@ function sanitizeFilters(filters?: FilterType): FilterType {
 function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
     const { removeUsageMetric } = useActions(usageMetricsConfigLogic)
+    const { reportUsageMetricDeleted, reportUsageMetricsUpdateButtonClicked, reportUsageMetricUpdated } =
+        useActions(eventUsageLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
         {
@@ -92,6 +98,7 @@ function UsageMetricsTable(): JSX.Element {
                                             children: 'Save',
                                             'data-attr': 'update-usage-metric',
                                             form: 'usageMetric',
+                                            onClick: () => reportUsageMetricUpdated(),
                                         },
                                         secondaryButton: {
                                             htmlType: 'button',
@@ -99,6 +106,7 @@ function UsageMetricsTable(): JSX.Element {
                                             'data-attr': 'cancel-update-usage-metric',
                                         },
                                     })
+                                    reportUsageMetricsUpdateButtonClicked()
                                 },
                             },
                             {
@@ -111,7 +119,10 @@ function UsageMetricsTable(): JSX.Element {
                                         primaryButton: {
                                             children: 'Delete',
                                             status: 'danger',
-                                            onClick: () => removeUsageMetric(metric.id),
+                                            onClick: () => {
+                                                removeUsageMetric(metric.id)
+                                                reportUsageMetricDeleted()
+                                            },
                                         },
                                         secondaryButton: {
                                             children: 'Cancel',
@@ -137,6 +148,8 @@ interface UsageMetricsFormProps {
 
 function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
     const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
+    const { reportUsageMetricCreated } = useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     if (metric) {
         setUsageMetricValues(metric)
@@ -261,6 +274,13 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
                                 data-attr="save-usage-metric"
                                 htmlType="submit"
                                 form="usageMetric"
+                                onClick={() => {
+                                    reportUsageMetricCreated()
+                                    addProductIntent({
+                                        product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                        intent_context: ProductIntentContext.CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED,
+                                    })
+                                }}
                             >
                                 Save
                             </LemonButton>
@@ -279,11 +299,17 @@ export function UsageMetricsConfig(): JSX.Element {
     const { isEditing } = useValues(usageMetricsConfigLogic)
     const { setIsEditing, resetUsageMetric } = useActions(usageMetricsConfigLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
+    const { reportUsageMetricsCreateButtonClicked, reportUsageMetricsSettingsViewed } = useActions(eventUsageLogic)
 
     const handleAddMetric = (): void => {
         resetUsageMetric()
         setIsEditing(true)
+        reportUsageMetricsCreateButtonClicked()
     }
+
+    useOnMountEffect(() => {
+        reportUsageMetricsSettingsViewed()
+    })
 
     return (
         <>

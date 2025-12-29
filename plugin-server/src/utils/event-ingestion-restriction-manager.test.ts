@@ -1,6 +1,7 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
+import { RedisPool } from '../types'
 import {
     EventIngestionRestrictionManager,
     REDIS_KEY_PREFIX,
@@ -8,21 +9,17 @@ import {
     Restriction,
 } from './event-ingestion-restriction-manager'
 
-jest.mock('./db/redis', () => {
+const createMockRedisPool = (): RedisPool => {
     const redisClient = {
         pipeline: jest.fn(),
         quit: jest.fn().mockResolvedValue(undefined),
     }
 
-    const redisPool = {
+    return {
         acquire: jest.fn().mockResolvedValue(redisClient),
         release: jest.fn().mockResolvedValue(undefined),
-    }
-
-    return {
-        createRedisPool: jest.fn().mockReturnValue(redisPool),
-    }
-})
+    } as unknown as RedisPool
+}
 
 type DynamicConfigInput = {
     dropTokens?: string[]
@@ -88,12 +85,12 @@ describe('EventIngestionRestrictionManager', () => {
             ]),
         }
 
-        const redisPool = require('./db/redis').createRedisPool()
+        const redisPool = createMockRedisPool()
         redisClient = await redisPool.acquire()
         redisClient.pipeline = jest.fn().mockReturnValue(pipelineMock)
 
         hub = {
-            redisPool: require('./db/redis').createRedisPool(),
+            redisPool: redisPool,
         }
 
         eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
@@ -204,7 +201,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('handles Redis pool acquisition errors gracefully', async () => {
-            require('./db/redis').createRedisPool().acquire.mockRejectedValueOnce(new Error('Pool error'))
+            hub.redisPool.acquire = jest.fn().mockRejectedValueOnce(new Error('Pool error'))
 
             await eventIngestionRestrictionManager.forceRefresh()
 

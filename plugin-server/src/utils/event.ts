@@ -1,32 +1,10 @@
-import { Message } from 'node-rdkafka'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-
-import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
-import {
-    ClickHouseEvent,
-    HookPayload,
-    PipelineEvent,
-    PostIngestionEvent,
-    RawClickHouseEvent,
-    RawKafkaEvent,
-} from '../types'
-import { chainToElements } from './db/elements-chain'
+import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
+import { chainToElements } from './elements-chain'
 import { parseJSON } from './json-parse'
-import {
-    clickHouseTimestampSecondPrecisionToISO,
-    clickHouseTimestampToDateTime,
-    clickHouseTimestampToISO,
-} from './utils'
-
-const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
-const KNOWN_SET_EVENTS = new Set([
-    '$feature_interaction',
-    '$feature_enrollment_update',
-    'survey dismissed',
-    'survey sent',
-])
+import { clickHouseTimestampToDateTime } from './utils'
 
 export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -40,28 +18,6 @@ export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPlu
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
         elements: event.elementsList ?? [],
-    }
-}
-
-export function convertToHookPayload(event: PostIngestionEvent): HookPayload['data'] {
-    // It is only at this point that we need the elements list for the full event
-    // NOTE: It is possible that nobody uses it in which case we could remove this for performance but
-    // currently we have no way of being sure so we keep it in
-    mutatePostIngestionEventWithElementsList(event)
-
-    return {
-        eventUuid: event.eventUuid,
-        event: event.event,
-        teamId: event.teamId,
-        distinctId: event.distinctId,
-        properties: event.properties,
-        timestamp: event.timestamp,
-        elementsList: event.elementsList,
-        person: {
-            uuid: event.person_id!,
-            properties: event.person_properties,
-            created_at: event.person_created_at,
-        },
     }
 }
 
@@ -97,41 +53,6 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         group4_created_at: rawEvent.group4_created_at
             ? clickHouseTimestampToDateTime(rawEvent.group4_created_at)
             : null,
-    }
-}
-export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
-    return {
-        uuid: event.eventUuid,
-        event: event.event!,
-        team_id: event.teamId,
-        distinct_id: event.distinctId,
-        properties: event.properties,
-        timestamp: new Date(event.timestamp),
-    }
-}
-
-// NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-// that we can keep to as a contract
-export function convertToPostIngestionEvent(event: RawKafkaEvent): PostIngestionEvent {
-    const properties = event.properties ? parseJSON(event.properties) : {}
-    if (event.elements_chain) {
-        properties['$elements_chain'] = event.elements_chain
-    }
-
-    return {
-        eventUuid: event.uuid,
-        event: event.event!,
-        teamId: event.team_id,
-        projectId: event.project_id,
-        distinctId: event.distinct_id,
-        properties,
-        timestamp: clickHouseTimestampToISO(event.timestamp),
-        elementsList: undefined,
-        person_id: event.person_id,
-        person_created_at: event.person_created_at
-            ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
-            : null,
-        person_properties: event.person_properties ? parseJSON(event.person_properties) : {},
     }
 }
 
@@ -243,30 +164,5 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
         event.properties = personInitialAndUTMProperties(event.properties!)
     }
 
-    return event
-}
-
-export function formPipelineEvent(message: Message): PipelineEvent {
-    // TODO: inefficient to do this twice?
-    const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
-    const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
-
-    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-    if (
-        combinedEvent.properties &&
-        !PERSON_EVENTS.has(combinedEvent.event) &&
-        !KNOWN_SET_EVENTS.has(combinedEvent.event) &&
-        ('$set' in combinedEvent.properties ||
-            '$set_once' in combinedEvent.properties ||
-            '$unset' in combinedEvent.properties)
-    ) {
-        setUsageInNonPersonEventsCounter.inc()
-    }
-
-    // Use sanitize-only normalization here. Full normalization (including
-    // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
-    const event: PipelineEvent = sanitizeEvent({
-        ...combinedEvent,
-    })
     return event
 }
