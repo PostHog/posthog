@@ -100,7 +100,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
+    const { activeTabId } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isAiUx = useFeatureFlag('AI_UX')
 
