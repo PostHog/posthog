@@ -420,6 +420,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                                     f"Validation rule value for {rule_type} must be a non-negative integer"
                                 )
 
+                # Cross-validate min_length <= max_length
+                min_rule = next((r for r in validation_rules if r.get("type") == "min_length"), None)
+                max_rule = next((r for r in validation_rules if r.get("type") == "max_length"), None)
+                if min_rule and max_rule:
+                    min_val = min_rule.get("value")
+                    max_val = max_rule.get("value")
+                    if min_val is not None and max_val is not None and min_val > max_val:
+                        raise serializers.ValidationError("Minimum length cannot be greater than maximum length")
+
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions

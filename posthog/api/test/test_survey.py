@@ -2844,6 +2844,29 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Each validation rule must be an object"
 
+    def test_validate_validation_rules_min_greater_than_max(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with invalid validation",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's your feedback?",
+                        "validation": [
+                            {"type": "min_length", "value": 100},
+                            {"type": "max_length", "value": 50},
+                        ],
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Minimum length cannot be greater than maximum length"
+
     def test_create_survey_with_valid_thank_you_description_content_type(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
