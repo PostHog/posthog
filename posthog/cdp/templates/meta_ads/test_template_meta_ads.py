@@ -94,3 +94,27 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
         # Verify arrays are properly parsed
         assert user_data["em"] == "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"
         assert user_data["external_id"] == ["user123", "crm456"]
+
+    def test_function_handles_arrays_with_leading_spaces(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        inputs = self._inputs(
+            userData={
+                "em": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
+                "external_id": '  ["user123", "crm456"]  ',  # Array with leading/trailing spaces
+            },
+            customData={
+                "currency": "USD",
+                "content_ids": ' ["product123", "product456"] ',  # Array with spaces
+                "contents": '  [{"id": "product123", "quantity": 2}]',  # Array with leading spaces
+            },
+        )
+        self.run_function(inputs)
+
+        call = self.get_mock_fetch_calls()[0]
+        user_data = call[1]["body"]["data"][0]["user_data"]
+        custom_data = call[1]["body"]["data"][0]["custom_data"]
+
+        # Verify arrays with spaces are properly parsed
+        assert user_data["external_id"] == ["user123", "crm456"]
+        assert custom_data["content_ids"] == ["product123", "product456"]
+        assert custom_data["contents"] == [{"id": "product123", "quantity": 2}]
