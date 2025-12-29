@@ -114,7 +114,7 @@ fn rocksdb_options() -> Options {
     opts.set_min_write_buffer_number_to_merge(1); // Merge 1 buffer before flush (faster)
 
     // SST file size should be proportional to write buffer for efficient compaction
-    opts.set_target_file_size_base(64 * 1024 * 1024); // 64MB SST files
+    opts.set_target_file_size_base(256 * 1024 * 1024); // 256MB SST files
 
     // L0 tuning to reduce write stalls:
     // - Higher trigger = batch more L0 files before compaction
@@ -327,6 +327,15 @@ impl RocksDbStore {
     pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
         self.db.delete_cf(&cf, key).context("Failed to delete key")
+    }
+
+    /// Trigger compaction for a column family within a key range.
+    /// This is non-blocking - compaction runs asynchronously in the background.
+    /// After delete_range, this helps RocksDB prioritize reclaiming space from tombstones.
+    pub fn compact_range(&self, cf_name: &str, start: Option<&[u8]>, end: Option<&[u8]>) {
+        if let Ok(cf) = self.get_cf_handle(cf_name) {
+            self.db.compact_range_cf(&cf, start, end);
+        }
     }
 
     pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {

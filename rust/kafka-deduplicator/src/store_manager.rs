@@ -433,23 +433,40 @@ impl StoreManager {
             }
         }
 
-        // Check if we're under capacity
-        if total_size <= self.store_config.max_capacity {
-            return Ok(0); // Under capacity, no cleanup needed
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        if total_size <= cleanup_threshold {
+            return Ok(0); // Under threshold, no cleanup needed
         }
 
+        // Determine capacity level for logging and cleanup aggressiveness
+        let capacity_ratio = total_size as f64 / self.store_config.max_capacity as f64;
+        let capacity_percent = (capacity_ratio * 100.0) as u32;
+
         info!(
-            "Global store size {} exceeds max capacity {}, triggering cleanup",
-            total_size, self.store_config.max_capacity
+            "Global store size {} ({}% of max capacity {}) exceeds cleanup threshold, triggering cleanup",
+            total_size, capacity_percent, self.store_config.max_capacity
         );
 
-        // We need to clean up - target 80% of max capacity
-        let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        // We need to clean up - target 70% of max capacity to create buffer
+        let target_size = (self.store_config.max_capacity as f64 * 0.7) as u64;
         let bytes_to_free = total_size.saturating_sub(target_size);
 
         // Calculate cleanup percentage based on how much we need to free
         // If we need to free 20% of total size, clean up 20% of time range from each store
-        let cleanup_percentage = (bytes_to_free as f64 / total_size as f64).min(0.3); // Cap at 30% max
+        let raw_cleanup_percentage = bytes_to_free as f64 / total_size as f64;
+
+        // When over 90% capacity, be more aggressive - no cap on cleanup percentage
+        // Otherwise cap at 30% to avoid removing too much data at once
+        let cleanup_percentage = if capacity_ratio > 0.9 {
+            info!(
+                "Critical capacity ({}%) - using aggressive cleanup without cap",
+                capacity_percent
+            );
+            raw_cleanup_percentage.min(0.5) // Still cap at 50% to avoid removing everything
+        } else {
+            raw_cleanup_percentage.min(0.3) // Normal cap at 30%
+        };
 
         info!(
             "Cleaning up {:.1}% of time range from each store (need to free {} bytes)",
@@ -504,6 +521,7 @@ impl StoreManager {
     }
 
     /// Check if cleanup is needed based on current global size
+    /// Cleanup triggers at 80% capacity to give background compaction time to reclaim space
     pub fn needs_cleanup(&self) -> bool {
         // Log folder sizes and assigned partitions
         self.log_folder_sizes_and_partitions();
@@ -526,11 +544,14 @@ impl StoreManager {
             }
         }
 
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+
         info!(
-            "Total size of all stores: {} bytes, max capacity: {} bytes",
-            total_size, self.store_config.max_capacity
+            "Total size of all stores: {} bytes, cleanup threshold: {} bytes, max capacity: {} bytes",
+            total_size, cleanup_threshold, self.store_config.max_capacity
         );
-        total_size > self.store_config.max_capacity
+        total_size > cleanup_threshold
     }
 
     /// Start a periodic cleanup task that runs in the background
