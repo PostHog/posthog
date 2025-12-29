@@ -129,3 +129,5 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
+    read_overflow_mode: Optional[str] = None
+    max_bytes_to_read: Optional[int] = None

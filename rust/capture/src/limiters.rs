@@ -14,6 +14,12 @@ use crate::{
     prometheus::{report_quota_limit_exceeded, CAPTURE_EVENTS_DROPPED_TOTAL},
 };
 
+#[derive(Clone, Copy)]
+pub struct EventInfo<'a> {
+    pub name: &'a str,
+    pub has_product_tour_id: bool,
+}
+
 //
 // Add a new predicate function for each new quota limiter you
 // add to the CaptureQuotaLimiter. Each should match events by name
@@ -22,21 +28,22 @@ use crate::{
 //
 
 // for QuotaResource::Exceptions
-pub fn is_exception_event(event_name: &str) -> bool {
-    event_name == "$exception"
+pub fn is_exception_event(info: EventInfo) -> bool {
+    info.name == "$exception"
 }
 
 // for QuotaResource::Surveys
-pub fn is_survey_event(event_name: &str) -> bool {
-    matches!(
-        event_name,
+pub fn is_survey_event(info: EventInfo) -> bool {
+    let is_survey = matches!(
+        info.name,
         "survey sent" | "survey shown" | "survey dismissed"
-    )
+    );
+    is_survey && !info.has_product_tour_id
 }
 
 // for QuotaResource::LLMEvents
-pub fn is_llm_event(event_name: &str) -> bool {
-    event_name.starts_with("$ai_")
+pub fn is_llm_event(info: EventInfo) -> bool {
+    info.name.starts_with("$ai_")
 }
 
 // TODO: define more limiter predicates here!
@@ -92,7 +99,7 @@ impl CaptureQuotaLimiter {
 
     pub fn add_scoped_limiter<F>(mut self, resource: QuotaResource, event_matcher: F) -> Self
     where
-        F: Fn(&str) -> bool + Send + Sync + Clone + 'static,
+        F: Fn(EventInfo) -> bool + Send + Sync + Clone + 'static,
     {
         let err_msg = format!("failed to create scoped limiter: {resource:?}");
         let limiter = ScopedLimiter::new(
@@ -127,17 +134,23 @@ impl CaptureQuotaLimiter {
             filtered_indices.push(i);
         }
 
-        // Build a lookup of index -> event name for the scoped limiters
+        // Build EventInfo for each event (includes name and property checks for quota limiting)
         // Done after moving events into indices_to_events so we can borrow from there
-        let event_names: Vec<&str> = (0..indices_to_events.len())
-            .map(|i| indices_to_events.get(&i).unwrap().event_name())
+        let event_infos: Vec<EventInfo> = (0..indices_to_events.len())
+            .map(|i| {
+                let event = indices_to_events.get(&i).unwrap();
+                EventInfo {
+                    name: event.event_name(),
+                    has_product_tour_id: event.has_property("$product_tour_id"),
+                }
+            })
             .collect();
 
         // for each scoped limiter, if the token is found in Redis,
         // only drop events matching the limiter's filter predicate
         for limiter in self.scoped_limiters.iter() {
             let (matched_indices, unmatched_indices) =
-                limiter.partition_event_indices(&event_names, &filtered_indices);
+                limiter.partition_event_indices(&event_infos, &filtered_indices);
 
             if limiter.is_limited(token).await {
                 // retain only events that this limiter doesn't drop
@@ -209,11 +222,11 @@ impl CaptureQuotaLimiter {
 #[async_trait::async_trait]
 trait ScopedLimiterTrait: Send + Sync {
     async fn is_limited(&self, token: &str) -> bool;
-    /// Partition indices into (matched, unmatched) based on event names.
-    /// `event_names` is a slice where index i corresponds to the event at index i.
+    /// Partition indices into (matched, unmatched) based on event info.
+    /// `event_infos` is a slice where index i corresponds to the event at index i.
     fn partition_event_indices(
         &self,
-        event_names: &[&str],
+        event_infos: &[EventInfo],
         indices: &[usize],
     ) -> (Vec<usize>, Vec<usize>);
     fn resource(&self) -> &QuotaResource;
@@ -223,14 +236,14 @@ trait ScopedLimiterTrait: Send + Sync {
 struct ScopedLimiter<F> {
     resource: QuotaResource,
     limiter: RedisLimiter,
-    // predicate supplied here should match event names TO BE DROPPED
+    // predicate supplied here should match events TO BE DROPPED
     // if the limit for this team/token has been exceeded
     event_matcher: F,
 }
 
 impl<F> ScopedLimiter<F>
 where
-    F: Fn(&str) -> bool + Send + Sync + Clone,
+    F: Fn(EventInfo) -> bool + Send + Sync + Clone,
 {
     fn new(resource: QuotaResource, limiter: RedisLimiter, event_matcher: F) -> Self {
         Self {
@@ -244,7 +257,7 @@ where
 #[async_trait::async_trait]
 impl<F> ScopedLimiterTrait for ScopedLimiter<F>
 where
-    F: Fn(&str) -> bool + Send + Sync + Clone,
+    F: Fn(EventInfo) -> bool + Send + Sync + Clone,
 {
     async fn is_limited(&self, token: &str) -> bool {
         self.limiter.is_limited(token).await
@@ -252,12 +265,12 @@ where
 
     fn partition_event_indices(
         &self,
-        event_names: &[&str],
+        event_infos: &[EventInfo],
         indices: &[usize],
     ) -> (Vec<usize>, Vec<usize>) {
         indices
             .iter()
-            .partition(|&i| (self.event_matcher)(event_names[*i]))
+            .partition(|&i| (self.event_matcher)(event_infos[*i]))
     }
 
     fn resource(&self) -> &QuotaResource {

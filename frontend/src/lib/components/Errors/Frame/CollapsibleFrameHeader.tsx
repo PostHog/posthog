@@ -15,7 +15,7 @@ import { cn } from 'lib/utils/css-classes'
 import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
-import { formatResolvedName } from '../utils'
+import { formatFunctionName } from '../utils'
 import { FrameDropDownMenu } from './FrameDropDownMenu'
 
 export function CollapsibleFrameHeader({
@@ -32,9 +32,10 @@ export function CollapsibleFrameHeader({
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
 
     const part = getFrameFingerprint(raw_id)
-    const resolvedName = formatResolvedName(frame)
+    const functionName = formatFunctionName(frame)
     const hasRecordContext = !!record && !!record.context
     const sourceRef = useRef<HTMLSpanElement>(null)
+    const functionRef = useRef<HTMLSpanElement>(null)
     const sourceContent = formatSourceLine(source, line, column)
 
     useEffect(() => {
@@ -46,27 +47,37 @@ export function CollapsibleFrameHeader({
         }
     }, [sourceRef, sourceContent])
 
+    useEffect(() => {
+        const el = functionRef.current
+        // If functionRef is scrollable scroll to the end and add scrollable attribute
+        if (el && el.scrollWidth > el.clientWidth) {
+            let delta = el.scrollWidth - el.clientWidth
+            el.scrollBy({ left: delta + 10 })
+            el.setAttribute('scrollable', 'true')
+        }
+    }, [functionRef, sourceContent])
+
     return (
         <div className={cn('flex w-full h-7')}>
             <CollapsiblePrimitiveTrigger asChild>
                 <ButtonPrimitive
                     className={cn(
-                        'collapsible-frame-header flex justify-start items-center rounded-none h-full disabled:opacity-60 grow max-w-[calc(100%-30px)] text-xs p-0',
+                        'collapsible-frame-header flex justify-start items-center rounded-none h-full disabled:opacity-60 grow max-w-[calc(100%-30px)] text-xs p-0 px-2',
                         {
                             'cursor-progress': recordLoading,
                         }
                     )}
                     disabled={!hasRecordContext && !recordLoading}
                 >
-                    {resolvedName && (
-                        <span className="font-medium frame-function ps-1" title={resolvedName}>
-                            {resolvedName}
+                    {functionName && (
+                        <span ref={functionRef} className="font-medium frame-function" title={functionName}>
+                            {functionName}
                         </span>
                     )}
                     <span ref={sourceRef} className="font-light frame-source px-1" title={sourceContent!}>
                         {sourceContent}
                     </span>
-                    <div className="gap-x-1 frame-icons pr-1">
+                    <div className="gap-x-1 frame-icons">
                         {part && <FingerprintRecordPartDisplay part={part} />}
                         {match([in_app, resolved, recordLoading, hasRecordContext])
                             .with([false, P.any, P.any, P.any], () => <VendorIcon />)

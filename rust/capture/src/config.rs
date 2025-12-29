@@ -116,6 +116,16 @@ pub struct Config {
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
 
+    // AI endpoint S3 blob storage configuration
+    pub ai_s3_bucket: Option<String>,
+    #[envconfig(default = "llma/")]
+    pub ai_s3_prefix: String,
+    pub ai_s3_endpoint: Option<String>,
+    #[envconfig(default = "us-east-1")]
+    pub ai_s3_region: String,
+    pub ai_s3_access_key_id: Option<String>,
+    pub ai_s3_secret_access_key: Option<String>,
+
     // if set in env, will configure a request timeout on the server's Axum router
     pub request_timeout_seconds: Option<u64>,
 
@@ -123,6 +133,17 @@ pub struct Config {
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
     pub http1_header_read_timeout_ms: Option<u64>,
+
+    // Body chunk read timeout in milliseconds. If a client stops sending data
+    // for this duration mid-upload, the request is aborted with 408 to avoid
+    // pointless gateway retries of stalled mobile requests that can't succeed.
+    // Set env var to enable; unset to disable (existing behavior).
+    pub body_chunk_read_timeout_ms: Option<u64>,
+
+    // Initial buffer size for body reads in KB. The buffer starts at this size
+    // (or the request limit, whichever is smaller) and grows as needed.
+    #[envconfig(default = "256")]
+    pub body_read_chunk_size_kb: usize,
 
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,

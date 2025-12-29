@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { ingestionLagGauge } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, RawKafkaEvent } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
@@ -34,6 +34,7 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
             ingestionLagGauge
                 .labels({ topic: inputMessage.topic, partition: String(inputMessage.partition), groupId })
                 .set(lag)
+            ingestionLagHistogram.labels({ groupId, partition: String(inputMessage.partition) }).observe(lag)
         }
 
         // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here

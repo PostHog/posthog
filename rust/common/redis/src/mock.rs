@@ -12,6 +12,7 @@ pub struct MockRedisClient {
     get_raw_bytes_ret: HashMap<String, Result<Vec<u8>, CustomRedisError>>,
     set_ret: HashMap<String, Result<(), CustomRedisError>>,
     set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
+    batch_incr_by_expire_nx_ret: Option<Result<(), CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
@@ -27,6 +28,7 @@ impl Default for MockRedisClient {
             get_raw_bytes_ret: HashMap::new(),
             set_ret: HashMap::new(),
             set_nx_ex_ret: HashMap::new(),
+            batch_incr_by_expire_nx_ret: None,
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
@@ -95,6 +97,11 @@ impl MockRedisClient {
 
     pub fn set_nx_ex_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
         self.set_nx_ex_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn batch_incr_by_expire_nx_ret(&mut self, ret: Result<(), CustomRedisError>) -> Self {
+        self.batch_incr_by_expire_nx_ret = Some(ret);
         self.clone()
     }
 }
@@ -299,6 +306,23 @@ impl Client for MockRedisClient {
             .get(&key)
             .cloned()
             .unwrap_or(Err(CustomRedisError::NotFound))
+    }
+
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "batch_incr_by_expire_nx".to_string(),
+            key: format!("items={};ttl={}", items.len(), ttl_seconds),
+            value: MockRedisValue::None,
+        });
+
+        match &self.batch_incr_by_expire_nx_ret {
+            Some(ret) => ret.clone(),
+            None => Ok(()),
+        }
     }
 
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {

@@ -8,6 +8,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.import_recording.activities import (
     build_import_context,
     cleanup_import_data,
+    import_event_clickhouse_rows,
     import_recording_data,
     import_replay_clickhouse_rows,
 )
@@ -46,7 +47,7 @@ class ImportRecordingWorkflow(PostHogWorkflow):
                     ),
                 )
             )
-            """import_tasks.create_task(
+            import_tasks.create_task(
                 workflow.execute_activity(
                     import_event_clickhouse_rows,
                     import_context,
@@ -57,7 +58,7 @@ class ImportRecordingWorkflow(PostHogWorkflow):
                         initial_interval=timedelta(minutes=1),
                     ),
                 )
-            )"""
+            )
             import_tasks.create_task(
                 workflow.execute_activity(
                     import_recording_data,

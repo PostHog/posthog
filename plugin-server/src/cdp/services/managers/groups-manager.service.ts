@@ -28,7 +28,7 @@ export class GroupsManagerService {
 
     constructor(private hub: Hub) {
         // There is only 5 per team so we can have a very high cache and a very long cooldown
-        this.groupTypesMappingCache = new LRUCache({ max: 1_000_000, ttl: GROUP_TYPES_CACHE_TTL_MS })
+        this.groupTypesMappingCache = new LRUCache({ max: 100_000, ttl: GROUP_TYPES_CACHE_TTL_MS })
     }
 
     private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {

@@ -6,22 +6,10 @@ import { TopicMessage } from '~/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
-import {
-    BasePerson,
-    ClickHousePerson,
-    InternalPerson,
-    PluginLogEntryType,
-    PluginLogLevel,
-    RawPerson,
-    TimestampFormat,
-} from '../../types'
+import { BasePerson, ClickHousePerson, InternalPerson, RawPerson, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
-import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
-import {
-    eventToPersonProperties,
-    initialCampaignParams,
-    initialEventToPersonProperties,
-} from '../../worker/ingestion/persons/person-property-utils'
+import { castTimestampOrNow } from '../../utils/utils'
+import { eventToPersonProperties } from '../../worker/ingestion/persons/person-property-utils'
 import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
@@ -65,85 +53,73 @@ export function timeoutGuard(
     }, timeout)
 }
 
+// Pre-computed mapping from property key to its $initial_ version
+// This avoids string manipulation in the hot path
+const INITIAL_KEY_MAP: Map<string, string> = new Map(
+    Array.from(eventToPersonProperties, (key) => [key, `$initial_${key.replace('$', '')}`])
+)
+
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
+    // Instead of iterating all properties (could be 50+), iterate the known set (16 keys)
+    // and check if each exists in properties - O(16) instead of O(n)
     let $set: Record<string, any> | undefined
     let $set_once: Record<string, any> | undefined
-    let hasPersonProps = false
 
-    for (const key in properties) {
-        if (eventToPersonProperties.has(key)) {
-            const value = properties[key]
+    for (const key of eventToPersonProperties) {
+        if (!(key in properties)) {
+            continue
+        }
 
-            if (!hasPersonProps) {
-                hasPersonProps = true
-                $set = properties.$set ? { ...properties.$set } : {}
-                $set_once = properties.$set_once ? { ...properties.$set_once } : {}
-            }
+        const value = properties[key]
 
-            if (!(key in $set!)) {
-                $set![key] = value
-            }
+        if ($set === undefined) {
+            // Handle malformed $set/$set_once (e.g. string instead of object)
+            const existingSet = properties.$set
+            const existingSetOnce = properties.$set_once
+            $set = typeof existingSet === 'object' && existingSet !== null ? existingSet : {}
+            $set_once = typeof existingSetOnce === 'object' && existingSetOnce !== null ? existingSetOnce : {}
+        }
 
-            const initialKey = `$initial_${key.replace('$', '')}`
-            if (!(initialKey in $set_once!)) {
-                $set_once![initialKey] = value
-            }
+        if (!(key in $set!)) {
+            $set![key] = value
+        }
+
+        // Use pre-computed initial key instead of string manipulation
+        const initialKey = INITIAL_KEY_MAP.get(key)!
+        if (!(initialKey in $set_once!)) {
+            $set_once![initialKey] = value
         }
     }
 
-    if (!hasPersonProps) {
+    // Fast path: no person properties found
+    if ($set === undefined) {
         return properties
     }
 
-    const result: Properties = { ...properties, $set, $set_once }
-
-    if (result.$os_name) {
-        // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
-        // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
-        result.$os ??= result.$os_name
-        result.$set.$os ??= result.$os_name
-        result.$set_once.$initial_os ??= result.$os_name
-        // Make sure $os_name is not used in $set/$set_once, as that hasn't been a thing before
-        delete result.$set.$os_name
-        delete result.$set_once.$initial_os_name
+    // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
+    // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
+    const osName = properties.$os_name
+    if (osName !== undefined) {
+        if (!('$os' in properties)) {
+            properties.$os = osName
+        }
+        if (!('$os' in $set)) {
+            $set.$os = osName
+        }
+        if (!('$initial_os' in $set_once!)) {
+            $set_once!.$initial_os = osName
+        }
+        // $os_name is normalized to $os, so remove it from person properties
+        delete $set.$os_name
+        delete $set_once!.$initial_os_name
     }
 
-    return result
-}
+    // Mutate in place instead of spreading entire properties object
+    properties.$set = $set
+    properties.$set_once = $set_once
 
-export function hasDifferenceWithProposedNewNormalisationMode(properties: Properties): boolean {
-    // this functions checks if there would be a difference in the properties if we strip the initial campaign params
-    // when any $set_once initial eventToPersonProperties are present. This will often return true for events from
-    // posthog-js, but it is unknown if this will be the case for other SDKs.
-    if (
-        !properties.$set_once ||
-        !Object.keys(properties.$set_once).some((key) => initialEventToPersonProperties.has(key))
-    ) {
-        return false
-    }
-
-    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
-        eventToPersonProperties.has(key)
-    )
-
-    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
-        `$initial_${key.replace('$', '')}`,
-        value,
-    ])
-
-    if (maybeSetOnce.length === 0) {
-        return false
-    }
-
-    const filteredMayBeSetOnce = maybeSetOnce.filter(([key]) => !initialCampaignParams.has(key))
-
-    const setOnce = new Map(Object.entries({ ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }))
-    const filteredSetOnce = new Map(
-        Object.entries({ ...Object.fromEntries(filteredMayBeSetOnce), ...(properties.$set_once || {}) })
-    )
-
-    return !areMapsEqual(setOnce, filteredSetOnce)
+    return properties
 }
 
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
@@ -168,21 +144,6 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
 // Very useful for debugging queries
 export function getFinalPostgresQuery(queryString: string, values: any[]): string {
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
-}
-
-export function shouldStoreLog(pluginLogLevel: PluginLogLevel, type: PluginLogEntryType): boolean {
-    switch (pluginLogLevel) {
-        case PluginLogLevel.Full:
-            return true
-        case PluginLogLevel.Log:
-            return type !== PluginLogEntryType.Debug
-        case PluginLogLevel.Info:
-            return type !== PluginLogEntryType.Log && type !== PluginLogEntryType.Debug
-        case PluginLogLevel.Warn:
-            return type === PluginLogEntryType.Warn || type === PluginLogEntryType.Error
-        case PluginLogLevel.Critical:
-            return type === PluginLogEntryType.Error
-    }
 }
 
 // keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string

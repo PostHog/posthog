@@ -8,6 +8,7 @@ import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { pluralize } from 'lib/utils'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -26,7 +27,7 @@ export function MoveToModal(): JSX.Element {
             title="Select a folder to move to"
             description={
                 <>
-                    You are moving {movingItems.length} item{movingItems.length === 1 ? '' : 's'} to{' '}
+                    You are moving {pluralize(movingItems.length, 'item')} to{' '}
                     <LemonSnack>{destinationFolder}</LemonSnack>
                 </>
             }

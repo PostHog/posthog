@@ -1,8 +1,5 @@
 import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
-import { CompressionCodecs, CompressionTypes } from 'kafkajs'
-import SnappyCodec from 'kafkajs-snappy'
-import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
@@ -27,12 +24,11 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
+import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
-import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
-import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
-import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { SessionRecordingIngester } from './session-recording/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -42,11 +38,6 @@ import { NodeInstrumentation } from './utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
-import { teardownPlugins } from './worker/plugins/teardown'
-import { initPlugins as _initPlugins } from './worker/tasks'
-
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
-CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
@@ -103,17 +94,7 @@ export class PluginServer {
         this.nodeInstrumentation.setupThreadPerformanceInterval()
 
         const capabilities = getPluginServerCapabilities(this.config)
-        const hub = (this.hub = await createHub(this.config, capabilities))
-
-        let _initPluginsPromise: Promise<void> | undefined
-
-        const initPlugins = (): Promise<void> => {
-            if (!_initPluginsPromise) {
-                _initPluginsPromise = _initPlugins(hub)
-            }
-
-            return _initPluginsPromise
-        }
+        const hub = (this.hub = await createHub(this.config))
 
         try {
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -153,10 +134,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.processAsyncWebhooksHandlers) {
-                serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
-            }
-
             if (capabilities.evaluationScheduler) {
                 serviceLoaders.push(() => startEvaluationScheduler(hub))
             }
@@ -167,7 +144,7 @@ export class PluginServer {
                     const postgres = actualHub.postgres
                     const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(actualHub, false, postgres, producer)
+                    const ingester = new SessionRecordingIngester(actualHub, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -179,7 +156,7 @@ export class PluginServer {
                     const postgres = actualHub.postgres
                     const producer = actualHub.kafkaProducer
 
-                    const ingester = new SessionRecordingIngesterV2(actualHub, true, postgres, producer)
+                    const ingester = new SessionRecordingIngester(actualHub, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -219,7 +196,6 @@ export class PluginServer {
 
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const consumer = new CdpLegacyEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
@@ -228,7 +204,6 @@ export class PluginServer {
 
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const api = new CdpApi(hub)
                     this.expressApp.use('/', api.router())
                     await api.start()
@@ -237,7 +212,6 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                await initPlugins()
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorker(hub)
                     await worker.start()
@@ -386,10 +360,6 @@ export class PluginServer {
         ])
 
         if (this.hub) {
-            logger.info('💤', ' Shutting down plugins...')
-            // Wait *up to* 5 seconds to shut down VMs.
-            await Promise.race([teardownPlugins(this.hub), delay(5000)])
-
             logger.info('💤', ' Shutting down kafka producer...')
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])

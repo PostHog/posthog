@@ -31,7 +31,10 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_source_value_expr,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
+)
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -1196,9 +1199,11 @@ class ExperimentQueryBuilder:
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({events_alias}.value), 0))")
+                    # Build the aggregation with params if it's a parametric function
+                    inner_value_expr = parse_expr(f"coalesce(toFloat({events_alias}.value), 0)")
+                    return build_aggregation_call(aggregation_function, inner_value_expr, params=params)
             return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
         else:
             return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")

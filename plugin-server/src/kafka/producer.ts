@@ -16,10 +16,7 @@ import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/err
 import { logger } from '../utils/logger'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
-// TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
- * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
- * increased performance.
  *
  * The big difference between this and the original is that we return a promise from
  * queueMessage, which will only resolve once we get an ack that the message has

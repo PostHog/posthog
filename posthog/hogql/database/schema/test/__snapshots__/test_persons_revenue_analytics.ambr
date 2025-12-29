@@ -1247,7 +1247,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                      tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1369,7 +1369,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -1469,7 +1469,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1583,7 +1583,7 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e SAMPLE 1
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1725,7 +1725,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1813,7 +1813,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 INNER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                           tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1906,7 +1906,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -1994,7 +1994,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 INNER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                           tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -2139,7 +2139,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT JOIN
                             (SELECT 99999 AS team_id,
                                     accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2205,7 +2205,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT JOIN
                                   (SELECT 99999 AS team_id,
                                           accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2276,7 +2276,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT JOIN
                             (SELECT 99999 AS team_id,
                                     accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2342,7 +2342,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT JOIN
                                   (SELECT 99999 AS team_id,
                                           accurateCastOrNull(revenue_analytics_revenue_item.customer_id, 'UUID') AS person_id,
@@ -2465,7 +2465,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2545,7 +2545,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2630,7 +2630,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2710,7 +2710,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2847,7 +2847,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2934,7 +2934,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3026,7 +3026,7 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e SAMPLE 1
+                          FROM events AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3113,7 +3113,7 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e SAMPLE 1
+                                FROM events AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id

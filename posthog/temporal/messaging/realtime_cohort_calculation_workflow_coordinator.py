@@ -39,6 +39,7 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
     team_id: Optional[int] = None  # Filter by team_id (optional)
+    cohort_id: Optional[int] = None  # Filter to a specific cohort_id (optional)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -47,6 +48,7 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
             "workflows_per_batch": self.workflows_per_batch,
             "batch_delay_minutes": self.batch_delay_minutes,
             "team_id": self.team_id,
+            "cohort_id": self.cohort_id,
         }
 
 
@@ -69,6 +71,8 @@ async def get_realtime_cohort_calculation_count_activity(
         queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
         if inputs.team_id is not None:
             queryset = queryset.filter(team_id=inputs.team_id)
+        if inputs.cohort_id is not None:
+            queryset = queryset.filter(id=inputs.cohort_id)
         return queryset.count()
 
     count = await get_cohort_count()
@@ -127,6 +131,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                         limit=limit,
                         offset=offset,
                         team_id=inputs.team_id,
+                        cohort_id=inputs.cohort_id,
                     ),
                     offset=offset,
                     limit=limit,

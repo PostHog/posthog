@@ -130,8 +130,11 @@ describe('IngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
+    const createIngestionConsumer = async (
+        hub: Hub,
+        overrides?: ConstructorParameters<typeof IngestionConsumer>[1]
+    ) => {
+        const ingester = new IngestionConsumer(hub, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -188,7 +191,7 @@ describe('IngestionConsumer', () => {
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
         jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
@@ -224,7 +227,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should process a cookieless event', async () => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Stateful, team.id],
@@ -236,7 +239,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should drop a cookieless event if the team has cookieless disabled', async () => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Disabled, team.id],
@@ -313,11 +316,14 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                // Create a new consumer that consumes from the overflow topic
+                const overflowIngester = await createIngestionConsumer(hub, {
+                    INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
+                })
+                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-                await ingester.handleKafkaBatch(overflowMessages)
+                await overflowIngester.handleKafkaBatch(overflowMessages)
 
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
@@ -325,6 +331,8 @@ describe('IngestionConsumer', () => {
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                 ).toHaveLength(1)
+
+                await overflowIngester.stop()
             })
 
             describe('force overflow', () => {
@@ -1368,39 +1376,5 @@ describe('IngestionConsumer', () => {
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
-    })
-
-    describe('testing topic', () => {
-        it('should emit to the testing topic', async () => {
-            hub.INGESTION_CONSUMER_TESTING_TOPIC = 'testing_topic'
-            ingester = await createIngestionConsumer(hub)
-
-            const messages = createKafkaMessages([createEvent()])
-            await ingester.handleKafkaBatch(messages)
-
-            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
-                [
-                  {
-                    "headers": {
-                      "distinct_id": "user-1",
-                      "event": "$pageview",
-                      "now": "2025-01-01T00:00:00.000Z",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
-                    "topic": "testing_topic",
-                    "value": {
-                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-                      "distinct_id": "user-1",
-                      "ip": "127.0.0.1",
-                      "now": "2025-01-01T00:00:00.000Z",
-                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-                      "uuid": "<REPLACED-UUID-0>",
-                    },
-                  },
-                ]
-            `)
-        })
     })
 })

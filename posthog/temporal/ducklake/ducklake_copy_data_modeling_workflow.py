@@ -3,8 +3,6 @@ import json
 import datetime as dt
 import dataclasses
 
-from django.conf import settings
-
 import duckdb
 import deltalake
 import posthoganalytics
@@ -13,12 +11,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.ducklake.common import (
-    attach_catalog,
-    configure_connection,
-    escape as ducklake_escape,
-    get_config,
-)
+from posthog.ducklake.common import attach_catalog, get_config
+from posthog.ducklake.storage import configure_connection, ensure_ducklake_bucket_exists, get_deltalake_storage_options
 from posthog.ducklake.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -34,10 +28,9 @@ from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_modeling_finished_metric,
     get_ducklake_copy_data_modeling_verification_metric,
 )
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
 DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX = "data_modeling"
@@ -177,9 +170,8 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn = duckdb.connect()
         alias = "ducklake"
         try:
-            _configure_s3_secrets(conn)
-            configure_connection(conn, config, install_extension=True)
-            _ensure_ducklake_bucket_exists(config)
+            configure_connection(conn)
+            ensure_ducklake_bucket_exists(config=config)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             qualified_schema = f"{alias}.{inputs.model.schema_name}"
@@ -218,8 +210,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:
-            _configure_s3_secrets(conn)
-            configure_connection(conn, config, install_extension=True)
+            configure_connection(conn)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
             ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
@@ -351,10 +342,11 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: DataModelingDuckLakeCopyInputs) -> None:
-        workflow.logger.info("Starting DuckLakeCopyDataModelingWorkflow", **inputs.properties_to_log)
+        logger = LOGGER.bind(**inputs.properties_to_log)
+        logger.info("Starting DuckLakeCopyDataModelingWorkflow")
 
         if not inputs.models:
-            workflow.logger.info("No models to copy - exiting early", **inputs.properties_to_log)
+            logger.info("No models to copy - exiting early")
             return
 
         should_copy = await workflow.execute_activity(
@@ -365,10 +357,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
         )
 
         if not should_copy:
-            workflow.logger.info(
-                "DuckLake copy workflow disabled by feature flag",
-                **inputs.properties_to_log,
-            )
+            logger.info("DuckLake copy workflow disabled by feature flag")
             return
 
         model_list: list[DuckLakeCopyModelMetadata] = await workflow.execute_activity(
@@ -379,7 +368,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
         )
 
         if not model_list:
-            workflow.logger.info("No DuckLake copy metadata resolved - nothing to do", **inputs.properties_to_log)
+            logger.info("No DuckLake copy metadata resolved - nothing to do")
             return
 
         try:
@@ -413,7 +402,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                 failed_checks = [result for result in verification_results if not result.passed]
                 if failed_checks:
                     failure_payload = [dataclasses.asdict(result) for result in failed_checks]
-                    workflow.logger.error(
+                    logger.error(
                         "DuckLake verification failed",
                         model_label=model.model_label,
                         failures=failure_payload,
@@ -427,111 +416,6 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
             raise
 
         get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
-
-
-def _get_source_credentials() -> tuple[str, str, str, str]:
-    """Get source bucket credentials (access_key, secret_key, region, endpoint)."""
-    return (
-        settings.AIRBYTE_BUCKET_KEY or "",
-        settings.AIRBYTE_BUCKET_SECRET or "",
-        getattr(settings, "AIRBYTE_BUCKET_REGION", "") or "",
-        getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or "",
-    )
-
-
-def _configure_s3_secrets(conn: duckdb.DuckDBPyConnection) -> None:
-    conn.execute("INSTALL httpfs")
-    conn.execute("LOAD httpfs")
-    conn.execute("INSTALL delta")
-    conn.execute("LOAD delta")
-
-    access_key, secret_key, region, endpoint = _get_source_credentials()
-
-    normalized_endpoint = ""
-    use_ssl = True
-    if endpoint:
-        normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
-
-    secret_parts = ["TYPE S3"]
-    if access_key:
-        secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
-    if secret_key:
-        secret_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
-    if region:
-        secret_parts.append(f"REGION '{ducklake_escape(region)}'")
-    if normalized_endpoint:
-        secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
-    secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
-    secret_parts.append("URL_STYLE 'path'")
-    secret_parts.append(f"SCOPE '{ducklake_escape(settings.BUCKET_URL)}'")
-    conn.execute(f"CREATE OR REPLACE SECRET ducklake_source ({', '.join(secret_parts)})")
-
-    # Destination bucket secret
-    config = get_config()
-    dest_bucket = f"s3://{config['DUCKLAKE_BUCKET']}/"
-    dest_region = config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
-    if settings.USE_LOCAL_SETUP:
-        # Local dev: DuckLake bucket credentials, scoped to destination bucket
-        dest_access_key = config.get("DUCKLAKE_S3_ACCESS_KEY", "")
-        dest_secret_key = config.get("DUCKLAKE_S3_SECRET_KEY", "")
-
-        dest_parts = ["TYPE S3"]
-        if dest_access_key:
-            dest_parts.append(f"KEY_ID '{ducklake_escape(dest_access_key)}'")
-        if dest_secret_key:
-            dest_parts.append(f"SECRET '{ducklake_escape(dest_secret_key)}'")
-        if dest_region:
-            dest_parts.append(f"REGION '{ducklake_escape(dest_region)}'")
-        if normalized_endpoint:
-            dest_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
-        dest_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
-        dest_parts.append("URL_STYLE 'path'")
-        dest_parts.append(f"SCOPE '{ducklake_escape(dest_bucket)}'")
-        conn.execute(f"CREATE OR REPLACE SECRET ducklake_dest ({', '.join(dest_parts)})")
-    else:
-        # Production: credential chain (IRSA), scoped to destination bucket
-        conn.execute(f"""
-            CREATE OR REPLACE SECRET ducklake_dest (
-                TYPE S3,
-                PROVIDER CREDENTIAL_CHAIN,
-                REGION '{ducklake_escape(dest_region)}',
-                SCOPE '{ducklake_escape(dest_bucket)}'
-            )
-        """)
-
-
-def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
-    """Normalize object storage endpoint URL.
-
-    Returns tuple of (endpoint, use_ssl).
-    """
-    value = endpoint.strip()
-    if not value:
-        return "", True
-
-    if "://" in value:
-        from urllib.parse import urlparse
-
-        parsed = urlparse(value)
-        normalized = parsed.netloc or parsed.path
-        use_ssl = parsed.scheme.lower() == "https"
-    else:
-        use_ssl = value.lower().startswith("https")
-        normalized = value.rstrip("/")
-
-    return normalized.rstrip("/") or "", use_ssl
-
-
-def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
-    if not settings.USE_LOCAL_SETUP:
-        return
-
-    ensure_bucket_exists(
-        f"s3://{config['DUCKLAKE_BUCKET'].rstrip('/')}",
-        config["DUCKLAKE_S3_ACCESS_KEY"],
-        config["DUCKLAKE_S3_SECRET_KEY"],
-        settings.OBJECT_STORAGE_ENDPOINT,
-    )
 
 
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
@@ -568,7 +452,7 @@ def _detect_partition_column_name(table_uri: str) -> str | None:
 
 
 def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
-    options = _get_delta_storage_options()
+    options = get_deltalake_storage_options()
     try:
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
     except Exception as exc:
@@ -583,26 +467,6 @@ def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
 
     partition_columns = getattr(metadata, "partition_columns", None) or []
     return [column for column in partition_columns if column]
-
-
-def _get_delta_storage_options() -> dict[str, str]:
-    access_key, secret_key, region, endpoint = _get_source_credentials()
-
-    options: dict[str, str] = {
-        "aws_access_key_id": access_key,
-        "aws_secret_access_key": secret_key,
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-    if region:
-        options["region_name"] = region
-        options["AWS_DEFAULT_REGION"] = region
-
-    if endpoint:
-        options["endpoint_url"] = endpoint
-        options["AWS_ALLOW_HTTP"] = "true"
-
-    return {key: value for key, value in options.items() if value}
 
 
 def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:

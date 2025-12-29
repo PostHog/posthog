@@ -16,9 +16,11 @@ use tokio::net::{TcpListener, TcpStream};
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
+use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
 use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
+use crate::s3_client::{S3Client, S3Config};
 
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
@@ -244,9 +246,9 @@ where
     // QuotaResource type and a predicate function that will match events to be limited
     let quota_limiter =
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
-            .add_scoped_limiter(QuotaResource::Exceptions, Box::new(is_exception_event))
-            .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event))
-            .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+            .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
+            .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
+            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
@@ -260,7 +262,7 @@ where
     // size crosses the kafka limit. In the Events mode, we can unpack the batch and send each
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
-    let event_max_bytes = match config.capture_mode {
+    let event_payload_max_bytes = match config.capture_mode {
         CaptureMode::Events => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
@@ -268,6 +270,58 @@ where
     let sink = create_sink(&config, redis_client.clone(), &liveness)
         .await
         .expect("failed to create sink");
+
+    // Create AI blob storage if S3 is configured
+    let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
+        if let Some(bucket) = &config.ai_s3_bucket {
+            let s3_config = S3Config {
+                bucket: bucket.clone(),
+                region: config.ai_s3_region.clone(),
+                endpoint: config.ai_s3_endpoint.clone(),
+                access_key_id: config.ai_s3_access_key_id.clone(),
+                secret_access_key: config.ai_s3_secret_access_key.clone(),
+            };
+            let s3_client = S3Client::new(s3_config).await;
+
+            // Register health check for AI blob storage
+            let health_handle = liveness
+                .register("ai_s3".to_string(), Duration::from_secs(60))
+                .await;
+
+            // Verify bucket exists on startup
+            if s3_client.check_health().await {
+                health_handle.report_healthy().await;
+                tracing::info!(bucket = bucket, "AI S3 bucket verified");
+            } else {
+                health_handle
+                    .report_status(ComponentStatus::Unhealthy)
+                    .await;
+                tracing::error!(bucket = bucket, "AI S3 bucket not accessible");
+            }
+
+            // Spawn background health check task
+            let s3_client_clone = s3_client.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    if s3_client_clone.check_health().await {
+                        health_handle.report_healthy().await;
+                    } else {
+                        health_handle
+                            .report_status(ComponentStatus::Unhealthy)
+                            .await;
+                    }
+                }
+            });
+
+            Some(Arc::new(AiBlobStorage::new(
+                s3_client,
+                config.ai_s3_prefix.clone(),
+            )))
+        } else {
+            None
+        };
 
     let app = router::router(
         crate::time::SystemTime {},
@@ -280,13 +334,16 @@ where
         config.capture_mode,
         config.otel_service_name.clone(), // this matches k8s role label in prod deploy envs
         config.concurrency_limit,
-        event_max_bytes,
+        event_payload_max_bytes,
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
+        ai_blob_storage,
         config.request_timeout_seconds,
+        config.body_chunk_read_timeout_ms,
+        config.body_read_chunk_size_kb,
     );
 
     info!("listening on {:?}", listener.local_addr().unwrap());

@@ -1888,9 +1888,12 @@ def surveys(request: Request):
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
             response = hypercache_response
 
+        except Team.DoesNotExist:
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            pass
         except Exception as e:
             capture_exception(e)
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="error").inc()
             pass  # For now fallback
 
     # If we didn't get a hypercache response or we are comparing then load the normal response to compare

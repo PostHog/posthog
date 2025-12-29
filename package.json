@@ -53,7 +53,6 @@
         "fuse.js": "^6.6.2",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2",
         "uuid": "^10.0.0"
     },
     "devDependencies": {
@@ -68,7 +67,8 @@
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
-        "syncpack": "^13.0.4"
+        "syncpack": "^13.0.4",
+        "turbo": "^2.4.2"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"

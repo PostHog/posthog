@@ -24,6 +24,12 @@ services:
                         path /s/*
                     }
 
+                    @capture-ai {
+                        path /i/v0/ai
+                        path /i/v0/ai/
+                        path /i/v0/ai/*
+                    }
+
                     @capture {
                         path /e
                         path /e/
@@ -51,6 +57,10 @@ services:
                         path /public/webhooks/*
                         path /public/m/
                         path /public/m/*
+                    }
+
+                    handle @capture-ai {
+                        reverse_proxy capture-ai:3000
                     }
 
                     handle @capture {
@@ -170,7 +180,7 @@ services:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password
         entrypoint: sh
-        command: -c 'mkdir -p /data/posthog /data/ducklake-dev && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' and 'ducklake-dev' buckets before starting the service
+        command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog', 'ducklake-dev', and 'ai-blobs' buckets before starting the service
 
     maildev:
         image: maildev/maildev:2.0.5
@@ -248,6 +258,28 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
+
+    capture-ai:
+        image: ghcr.io/posthog/posthog/capture:master
+        build:
+            context: rust/
+            args:
+                BIN: capture
+        restart: on-failure
+        environment:
+            ADDRESS: '0.0.0.0:3000'
+            KAFKA_TOPIC: 'events_plugin_ingestion'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+            CAPTURE_MODE: events
+            RUST_LOG: 'info,rdkafka=warn'
+            # AI endpoint S3 blob storage (MinIO)
+            AI_S3_BUCKET: ai-blobs
+            AI_S3_PREFIX: 'llma/'
+            AI_S3_ENDPOINT: 'http://objectstorage:19000'
+            AI_S3_REGION: us-east-1
+            AI_S3_ACCESS_KEY_ID: object_storage_root_user
+            AI_S3_SECRET_ACCESS_KEY: object_storage_root_password
 
     capture-logs:
         image: ghcr.io/posthog/posthog/capture-logs:master
@@ -446,6 +478,7 @@ services:
             - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
             # mount docker containers dir so we can ship the docker logs to local posthog
             - /var/lib/docker/containers:/var/lib/docker/containers:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
         ports:
             - '4317:4317' # OTLP gRPC receiver (mapped to host)
             - '4318:4318' # OTLP HTTP receiver (mapped to host)

@@ -1435,3 +1435,82 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert result is not None
         # Should detect severe mismatch (100/0 vs expected 50/50)
         self.assertLess(result.p_value, 0.001)
+
+    def test_srm_handles_zero_rollout_variant_with_observed_samples(self):
+        """
+        Test that SRM calculation handles the case where a 0% rollout variant
+        has observed samples in the data (edge case/data quality issue).
+
+        This reproduces the bug where scipy.chisquare() fails due to
+        sum(observed) ≠ sum(expected) tolerance error.
+        """
+        # Create feature flag with a disabled variant (0% rollout)
+        feature_flag = FeatureFlag.objects.create(
+            name="Test flag with disabled variant",
+            key="test-flag-with-disabled",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                        {"key": "disabled", "rollout_percentage": 0},  # 0% rollout
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        # THE BUG SCENARIO:
+        # Disabled variant has 0% rollout but somehow has observed samples
+        # This can happen due to:
+        # - Race conditions during feature flag updates
+        # - Data quality issues
+        # - Bucketing edge cases
+        total_exposures = {
+            "control": 50,
+            "test": 50,
+            "disabled": 1,  # 0% rollout variant with 1 sample!
+        }
+
+        # Without fix: This raises ValueError from scipy.chisquare
+        # With fix: Should handle gracefully by excluding disabled from total
+        result = runner._calculate_srm(total_exposures)
+
+        # Should successfully calculate SRM for control and test only
+        self.assertIsNotNone(result)
+        assert result is not None  # for mypy
+        self.assertIsNotNone(result.p_value)
+
+        # Expected counts should only include control and test
+        self.assertEqual(len(result.expected), 2)
+        self.assertIn("control", result.expected)
+        self.assertIn("test", result.expected)
+        self.assertNotIn("disabled", result.expected)
+
+        # Expected should be calculated from 100 total (excluding disabled)
+        # Not 101 total (including disabled)
+        self.assertAlmostEqual(result.expected["control"], 50.0, places=1)
+        self.assertAlmostEqual(result.expected["test"], 50.0, places=1)
+
+        # P-value should be 1.0 (perfect match after excluding disabled)
+        self.assertAlmostEqual(result.p_value, 1.0, places=2)

@@ -6,7 +6,6 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
@@ -28,68 +27,132 @@ export function SessionRecordingsPlaylist({
         autoPlay: props.autoPlay ?? true,
     }
 
-    const playlistRef = useRef<HTMLDivElement>(null)
     const { isCinemaMode } = useValues(playerSettingsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isVerticalLayout = isWindowLessThan('xl')
-
-    const logicKey = `playlist-resizer-${isVerticalLayout ? 'vertical' : 'horizontal'}`
-    const resizerLogicProps: ResizerLogicProps = {
-        logicKey,
-        containerRef: playlistRef,
-        persistent: true,
-        placement: isVerticalLayout ? 'top' : 'right',
-    }
-
-    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div
                 className={clsx('w-full h-full', {
-                    'flex flex-col gap-2 xl:flex-row': !isCinemaMode,
+                    'flex flex-col xl:flex-row xl:gap-2': !isCinemaMode,
                 })}
             >
-                <div
-                    ref={playlistRef}
-                    className={clsx('relative flex flex-col shrink-0', {
-                        'order-last xl:order-first': !isCinemaMode,
-                        'w-0': isCinemaMode,
-                    })}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={
-                        isCinemaMode
-                            ? {}
-                            : isVerticalLayout
-                              ? { height: desiredSize ?? undefined, minHeight: 200 }
-                              : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }
-                    }
-                >
-                    <Playlist {...props} />
-                    {!isCinemaMode && (
-                        <Resizer
-                            {...resizerLogicProps}
-                            visible={false}
-                            offset={-4} // push into the center of the gap
-                            handleClassName={cn('rounded', isVerticalLayout ? 'mx-1' : 'my-1')}
-                        />
-                    )}
-                </div>
-
-                <PlayerWrapper {...props} />
+                {isVerticalLayout ? (
+                    <VerticalLayout {...props} isCinemaMode={isCinemaMode} />
+                ) : (
+                    <HorizontalLayout {...props} isCinemaMode={isCinemaMode} />
+                )}
             </div>
         </BindLogic>
     )
 }
 
-function PlayerWrapper({
-    showContent = true,
+function HorizontalLayout({
+    isCinemaMode,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
+    isCinemaMode: boolean
+}): JSX.Element {
+    const playlistRef = useRef<HTMLDivElement>(null)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        logicKey: 'playlist-resizer-horizontal',
+        containerRef: playlistRef,
+        persistent: true,
+        persistPrefix: '2025-12-29',
+        placement: 'right',
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    return (
+        <>
+            <div
+                ref={playlistRef}
+                className={clsx('relative flex flex-col shrink-0', {
+                    'w-0': isCinemaMode,
+                })}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={isCinemaMode ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
+            >
+                <Playlist {...props} />
+                {!isCinemaMode && (
+                    <Resizer {...resizerLogicProps} visible={false} offset={-4} handleClassName="rounded my-1" />
+                )}
+            </div>
+            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
+        </>
+    )
+}
+
+function VerticalLayout({
+    isCinemaMode,
+    ...props
+}: SessionRecordingPlaylistLogicProps & {
+    showContent?: boolean
+    type?: 'filters' | 'collection'
+    isSynthetic?: boolean
+    description?: string
+    isCinemaMode: boolean
+}): JSX.Element {
+    const playerRef = useRef<HTMLDivElement>(null)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        logicKey: 'playlist-resizer-vertical',
+        containerRef: playerRef,
+        persistent: true,
+        persistPrefix: '2025-12-29',
+        placement: 'bottom',
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    return (
+        <>
+            <PlayerWrapper
+                {...props}
+                containerRef={playerRef}
+                style={isCinemaMode ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
+                className="pb-2 shrink-0"
+                resizer={
+                    !isCinemaMode ? (
+                        <Resizer
+                            {...resizerLogicProps}
+                            visible={false}
+                            offset="0.25rem"
+                            handleClassName="rounded mx-1"
+                        />
+                    ) : null
+                }
+            />
+            <div className={clsx('relative flex flex-col flex-1 min-h-0', { 'w-0': isCinemaMode })}>
+                <Playlist {...props} />
+            </div>
+        </>
+    )
+}
+
+function PlayerWrapper({
+    showContent = true,
+    containerRef,
+    style,
+    resizer,
+    className,
+    ...props
+}: SessionRecordingPlaylistLogicProps & {
+    showContent?: boolean
+    type?: 'filters' | 'collection'
+    isSynthetic?: boolean
+    description?: string
+    containerRef?: React.RefObject<HTMLDivElement>
+    style?: React.CSSProperties
+    resizer?: React.ReactNode
+    className?: string
 }): JSX.Element {
     const {
         filters,
@@ -113,19 +176,24 @@ function PlayerWrapper({
 
     return (
         <div
-            className={clsx('Playlist__main overflow-hidden shrink-0 xl:shrink h-full flex-1 rounded border', {
+            ref={containerRef}
+            className={clsx('Playlist__main relative overflow-hidden', className, {
                 'w-full': isCinemaMode,
                 'min-h-96': !isCinemaMode,
             })}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={style}
         >
             {isFiltersExpanded ? (
-                <RecordingsUniversalFiltersEmbed
-                    resetFilters={resetFilters}
-                    filters={filters}
-                    setFilters={setFilters}
-                    totalFiltersCount={totalFiltersCount}
-                    allowReplayHogQLFilters={allowHogQLFilters}
-                />
+                <div className="h-full rounded border">
+                    <RecordingsUniversalFiltersEmbed
+                        resetFilters={resetFilters}
+                        filters={filters}
+                        setFilters={setFilters}
+                        totalFiltersCount={totalFiltersCount}
+                        allowReplayHogQLFilters={allowHogQLFilters}
+                    />
+                </div>
             ) : showContent && activeSessionRecording ? (
                 <SessionRecordingPlayer
                     playerKey={props.logicKey ?? 'playlist'}
@@ -135,7 +203,6 @@ function PlayerWrapper({
                         sessionRecordingsPlaylistLogic.actions.loadAllRecordings()
                         sessionRecordingsPlaylistLogic.actions.setSelectedRecordingId(null)
                     }}
-                    noBorder
                     pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
                     setPinned={
                         props.onPinnedChange
@@ -159,6 +226,7 @@ function PlayerWrapper({
                     />
                 </div>
             )}
+            {resizer}
         </div>
     )
 }

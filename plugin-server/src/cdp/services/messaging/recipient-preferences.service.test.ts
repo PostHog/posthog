@@ -220,7 +220,7 @@ describe('RecipientPreferencesService', () => {
                 const invocation = createFunctionStepInvocation(action)
 
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    'No identifier found for message action email'
+                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
                 )
             })
 
@@ -372,7 +372,7 @@ describe('RecipientPreferencesService', () => {
                 const invocation = createFunctionStepInvocation(action)
 
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
-                    'No identifier found for message action sms'
+                    `No recipient identifier found for message action [Action:${action.id}]. Check that the message 'to' field is set correctly for this person.`
                 )
             })
 

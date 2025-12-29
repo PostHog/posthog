@@ -1,28 +1,25 @@
+import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
+import { RedisPool } from '../types'
 import {
     EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerHub,
     REDIS_KEY_PREFIX,
     RedisRestrictionType,
     Restriction,
 } from './event-ingestion-restriction-manager'
 
-jest.mock('./db/redis', () => {
+const createMockRedisPool = (): RedisPool => {
     const redisClient = {
         pipeline: jest.fn(),
         quit: jest.fn().mockResolvedValue(undefined),
     }
 
-    const redisPool = {
+    return {
         acquire: jest.fn().mockResolvedValue(redisClient),
         release: jest.fn().mockResolvedValue(undefined),
-    }
-
-    return {
-        createRedisPool: jest.fn().mockReturnValue(redisPool),
-    }
-})
+    } as unknown as RedisPool
+}
 
 type DynamicConfigInput = {
     dropTokens?: string[]
@@ -72,7 +69,7 @@ function setupDynamicConfig(
 }
 
 describe('EventIngestionRestrictionManager', () => {
-    let hub: EventIngestionRestrictionManagerHub
+    let hub: { redisPool: GenericPool<Redis> }
     let redisClient: Redis
     let pipelineMock: any
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -88,16 +85,15 @@ describe('EventIngestionRestrictionManager', () => {
             ]),
         }
 
-        const redisPool = require('./db/redis').createRedisPool()
+        const redisPool = createMockRedisPool()
         redisClient = await redisPool.acquire()
         redisClient.pipeline = jest.fn().mockReturnValue(pipelineMock)
 
         hub = {
-            USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: true,
-            redisPool: require('./db/redis').createRedisPool(),
+            redisPool: redisPool,
         }
 
-        eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
             staticDropEventTokens: [],
             staticSkipPersonTokens: [],
             staticForceOverflowTokens: [],
@@ -111,12 +107,12 @@ describe('EventIngestionRestrictionManager', () => {
 
     describe('constructor', () => {
         it('initializes with default values if no options provided', () => {
-            const manager = new EventIngestionRestrictionManager(hub)
+            const manager = new EventIngestionRestrictionManager(hub.redisPool)
             expect(manager).toBeDefined()
         })
 
         it('initializes with provided options', () => {
-            const manager = new EventIngestionRestrictionManager(hub, {
+            const manager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['token1'],
                 staticSkipPersonTokens: ['token2'],
                 staticForceOverflowTokens: ['token3'],
@@ -126,28 +122,6 @@ describe('EventIngestionRestrictionManager', () => {
     })
 
     describe('dynamic config loading from Redis', () => {
-        beforeEach(() => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = true
-        })
-
-        it('does not call Redis when dynamic config is disabled', async () => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            const manager = new EventIngestionRestrictionManager(hub)
-
-            await manager.forceRefresh()
-
-            expect(hub.redisPool.acquire).not.toHaveBeenCalled()
-        })
-
-        it('never calls Redis through dynamicConfigRefresher when USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG is false', () => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            const manager = new EventIngestionRestrictionManager(hub)
-
-            manager.getAppliedRestrictions('test-token')
-
-            expect(hub.redisPool.acquire).not.toHaveBeenCalled()
-        })
-
         it('fetches and parses Redis data correctly', async () => {
             pipelineMock.exec.mockResolvedValueOnce([
                 [
@@ -227,7 +201,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('handles Redis pool acquisition errors gracefully', async () => {
-            require('./db/redis').createRedisPool().acquire.mockRejectedValueOnce(new Error('Pool error'))
+            hub.redisPool.acquire = jest.fn().mockRejectedValueOnce(new Error('Pool error'))
 
             await eventIngestionRestrictionManager.forceRefresh()
 
@@ -320,7 +294,7 @@ describe('EventIngestionRestrictionManager', () => {
                 [null, null],
             ])
 
-            const manager = new EventIngestionRestrictionManager(hub, {
+            const manager = new EventIngestionRestrictionManager(hub.redisPool, {
                 pipeline: 'session_recordings',
             })
             await manager.forceRefresh()
@@ -336,27 +310,24 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes DROP_EVENT if token is in static drop list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes DROP_EVENT if token is in static drop list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['static-drop-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token')).toContain(
                 Restriction.DROP_EVENT
             )
         })
 
-        it('includes DROP_EVENT if token:distinctId is in static drop list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes DROP_EVENT if token:distinctId is in static drop list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['static-drop-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token', { distinct_id: '123' })
             ).toContain(Restriction.DROP_EVENT)
-        })
-
-        it('returns empty array if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
         it('returns empty array if dynamic set is not defined', async () => {
@@ -401,27 +372,24 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes SKIP_PERSON_PROCESSING if token is in static skip list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes SKIP_PERSON_PROCESSING if token is in static skip list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticSkipPersonTokens: ['static-skip-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token')).toContain(
                 Restriction.SKIP_PERSON_PROCESSING
             )
         })
 
-        it('includes SKIP_PERSON_PROCESSING if token:distinctId is in static skip list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes SKIP_PERSON_PROCESSING if token:distinctId is in static skip list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticSkipPersonTokens: ['static-skip-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token', { distinct_id: '123' })
             ).toContain(Restriction.SKIP_PERSON_PROCESSING)
-        })
-
-        it('returns empty array if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
         it('returns empty array if dynamic set is not defined', async () => {
@@ -468,27 +436,24 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes FORCE_OVERFLOW if token is in static overflow list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes FORCE_OVERFLOW if token is in static overflow list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticForceOverflowTokens: ['static-overflow-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token')).toContain(
                 Restriction.FORCE_OVERFLOW
             )
         })
 
-        it('includes FORCE_OVERFLOW if token:distinctId is in static overflow list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes FORCE_OVERFLOW if token:distinctId is in static overflow list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticForceOverflowTokens: ['static-overflow-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token', { distinct_id: '123' })
             ).toContain(Restriction.FORCE_OVERFLOW)
-        })
-
-        it('returns empty array if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
         it('returns empty array if dynamic set is not defined', async () => {
@@ -535,27 +500,24 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions()).toEqual(new Set())
         })
 
-        it('includes REDIRECT_TO_DLQ if token is in static DLQ list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes REDIRECT_TO_DLQ if token is in static DLQ list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticRedirectToDlqTokens: ['static-dlq-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token')).toContain(
                 Restriction.REDIRECT_TO_DLQ
             )
         })
 
-        it('includes REDIRECT_TO_DLQ if token:distinctId is in static DLQ list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('includes REDIRECT_TO_DLQ if token:distinctId is in static DLQ list', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticRedirectToDlqTokens: ['static-dlq-token:distinct_id:123'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             expect(
                 eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token', { distinct_id: '123' })
             ).toContain(Restriction.REDIRECT_TO_DLQ)
-        })
-
-        it('returns empty array if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token')).toEqual(new Set())
         })
 
         it('returns empty array if dynamic set is not defined', async () => {
@@ -1193,13 +1155,14 @@ describe('EventIngestionRestrictionManager', () => {
     })
 
     describe('multiple restrictions for same entity', () => {
-        it('returns multiple restrictions when token matches multiple static lists', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+        it('returns multiple restrictions when token matches multiple static lists', async () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['multi-token'],
                 staticSkipPersonTokens: ['multi-token'],
                 staticForceOverflowTokens: ['multi-token'],
                 staticRedirectToDlqTokens: ['multi-token'],
             })
+            await eventIngestionRestrictionManager.forceRefresh()
             const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('multi-token')
             expect(restrictions).toContain(Restriction.DROP_EVENT)
             expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
@@ -1254,7 +1217,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('combines static and dynamic restrictions', async () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub.redisPool, {
                 staticDropEventTokens: ['combo-token'],
                 staticSkipPersonTokens: [],
                 staticForceOverflowTokens: [],

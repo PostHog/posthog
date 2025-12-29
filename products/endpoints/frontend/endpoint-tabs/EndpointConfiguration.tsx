@@ -75,7 +75,10 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
     }
 
     return (
-        <SceneSection title="Configure this endpoint">
+        <SceneSection
+            title="Configure this endpoint"
+            description="If your use case does not require real-time data, consider materializing your endpoint resulting in faster response times, at the cost of slightly less fresh data."
+        >
             <div className="flex flex-col gap-4 max-w-2xl">
                 <LemonField.Pure
                     label="Cache age"

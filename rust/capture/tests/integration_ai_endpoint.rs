@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
+use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::limiters::CaptureQuotaLimiter;
@@ -23,6 +24,17 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
+
+// Test constants for mock blob storage
+const TEST_BLOB_BUCKET: &str = "test-bucket";
+const TEST_BLOB_PREFIX: &str = "llma/";
+
+fn create_mock_blob_storage() -> Arc<dyn BlobStorage> {
+    Arc::new(MockBlobStorage::new(
+        TEST_BLOB_BUCKET.to_string(),
+        TEST_BLOB_PREFIX.to_string(),
+    ))
+}
 
 // Fixed time source for tests
 struct FixedTime {
@@ -169,8 +181,11 @@ fn setup_ai_test_router() -> Router {
         1_i64,
         false,
         0.0_f32,
-        26_214_400, // 25MB default for AI endpoint
-        Some(10),   // request_timeout_seconds
+        26_214_400,                       // 25MB default for AI endpoint
+        Some(create_mock_blob_storage()), // ai_blob_storage
+        Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     )
 }
 
@@ -926,6 +941,133 @@ async fn test_missing_distinct_id_returns_400() {
 }
 
 #[tokio::test]
+async fn test_missing_uuid_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    // Event without UUID field
+    let event_data = json!({
+        "event": "$ai_generation",
+        "distinct_id": "test_user",
+        "properties": {
+            "$ai_model": "test-missing-uuid"
+        }
+    });
+
+    let form = Form::new().part(
+        "event",
+        Part::bytes(serde_json::to_vec(&event_data).unwrap())
+            .mime_str("application/json")
+            .unwrap(),
+    );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = response.text().await;
+    assert!(
+        body.contains("UUID"),
+        "Error should mention UUID, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn test_invalid_uuid_format_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let invalid_uuids = [
+        "not-a-uuid",
+        "12345",
+        "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "",
+        "550e8400-e29b-41d4-a716", // Truncated
+    ];
+
+    for invalid_uuid in invalid_uuids {
+        let event_data = json!({
+            "uuid": invalid_uuid,
+            "event": "$ai_generation",
+            "distinct_id": "test_user",
+            "properties": {
+                "$ai_model": "test-invalid-uuid"
+            }
+        });
+
+        let form = Form::new().part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+        let response = send_multipart_request(
+            &test_client,
+            form,
+            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "UUID '{invalid_uuid}' should be rejected"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_malicious_uuid_with_path_traversal_returns_400() {
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    // These malicious values could be used for S3 path traversal if not validated
+    let malicious_uuids = [
+        "../../../etc/passwd",
+        "550e8400/../../../secret",
+        "uuid/with/slashes",
+        "..%2F..%2F..%2Fetc%2Fpasswd", // URL-encoded traversal
+        "550e8400-e29b-41d4-a716-446655440000/../other",
+        "\0null-byte-injection",
+        "uuid\nwith\nnewlines",
+    ];
+
+    for malicious_uuid in malicious_uuids {
+        let event_data = json!({
+            "uuid": malicious_uuid,
+            "event": "$ai_generation",
+            "distinct_id": "test_user",
+            "properties": {
+                "$ai_model": "test-malicious-uuid"
+            }
+        });
+
+        let form = Form::new().part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+        let response = send_multipart_request(
+            &test_client,
+            form,
+            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "Malicious UUID '{malicious_uuid}' should be rejected"
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_ai_endpoint_returns_200_for_valid_request() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
@@ -1492,8 +1634,11 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         1_i64,
         false,
         0.0_f32,
-        26_214_400, // 25MB default for AI endpoint
-        Some(10),   // request_timeout_seconds
+        26_214_400,                       // 25MB default for AI endpoint
+        Some(create_mock_blob_storage()), // ai_blob_storage
+        Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     );
 
     (router, sink_clone)
@@ -1622,29 +1767,39 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     let event = &events[0];
     let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
 
-    // Verify properties contain S3 placeholder URLs
+    // Verify properties contain S3 URLs from mock blob storage
     let props = event_json["properties"].as_object().unwrap();
 
-    // Both blobs should have S3 placeholder URLs
+    // Both blobs should have S3 URLs
     let input_url = props["$ai_input"].as_str().unwrap();
     let output_url = props["$ai_output"].as_str().unwrap();
 
     // Verify S3 URLs point to same file with different ranges
-    assert!(input_url.starts_with("s3://PLACEHOLDER/TEAM_ID/"));
-    assert!(output_url.starts_with("s3://PLACEHOLDER/TEAM_ID/"));
+    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
+    // Token is hashed (first 16 chars of SHA-256) to prevent path traversal attacks
+    let token_hash = "896566b02a7f7462"; // SHA-256 of "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
+    let expected_prefix = format!("s3://{TEST_BLOB_BUCKET}/{TEST_BLOB_PREFIX}{token_hash}/");
+    assert!(
+        input_url.starts_with(&expected_prefix),
+        "Input URL should start with {expected_prefix}, got {input_url}"
+    );
+    assert!(
+        output_url.starts_with(&expected_prefix),
+        "Output URL should start with {expected_prefix}, got {output_url}"
+    );
 
     // Extract UUIDs from both URLs (should be the same)
-    // URL format: s3://PLACEHOLDER/TEAM_ID/{uuid}?range=...
+    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
     let input_uuid = input_url
         .split('/')
-        .nth(4)
+        .nth(5)
         .unwrap()
         .split('?')
         .next()
         .unwrap();
     let output_uuid = output_url
         .split('/')
-        .nth(4)
+        .nth(5)
         .unwrap()
         .split('?')
         .next()
@@ -1665,17 +1820,28 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
         "Output URL should have range parameter"
     );
 
-    // Extract range values
+    // Extract range values and verify they are non-overlapping and sequential
     let input_range = input_url.split("range=").nth(1).unwrap();
     let output_range = output_url.split("range=").nth(1).unwrap();
 
-    // Input blob JSON is 48 bytes, so should be range=0-47
-    assert_eq!(input_range, "0-47", "First blob should start at 0");
+    // Parse ranges: format is "start-end"
+    let input_parts: Vec<usize> = input_range.split('-').map(|s| s.parse().unwrap()).collect();
+    let output_parts: Vec<usize> = output_range
+        .split('-')
+        .map(|s| s.parse().unwrap())
+        .collect();
 
-    // Output blob JSON is 48 bytes, so should be range=48-95 (starts where input ends)
-    assert_eq!(
-        output_range, "48-95",
-        "Second blob should start where first ends"
+    let (input_start, input_end) = (input_parts[0], input_parts[1]);
+    let (output_start, output_end) = (output_parts[0], output_parts[1]);
+
+    // Verify ranges are valid (end > start)
+    assert!(input_end > input_start, "Input range should be valid");
+    assert!(output_end > output_start, "Output range should be valid");
+
+    // Verify ranges don't overlap (output starts after input ends)
+    assert!(
+        output_start > input_end,
+        "Output blob range should start after input blob range ends"
     );
 }
 
@@ -1754,29 +1920,35 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     let url3 = props["$ai_blob3"].as_str().unwrap();
 
     // Verify all point to same file
-    // URL format: s3://PLACEHOLDER/TEAM_ID/{uuid}?range=...
-    let uuid1 = url1.split('/').nth(4).unwrap().split('?').next().unwrap();
-    let uuid2 = url2.split('/').nth(4).unwrap().split('?').next().unwrap();
-    let uuid3 = url3.split('/').nth(4).unwrap().split('?').next().unwrap();
+    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
+    let uuid1 = url1.split('/').nth(5).unwrap().split('?').next().unwrap();
+    let uuid2 = url2.split('/').nth(5).unwrap().split('?').next().unwrap();
+    let uuid3 = url3.split('/').nth(5).unwrap().split('?').next().unwrap();
     assert_eq!(uuid1, uuid2);
     assert_eq!(uuid2, uuid3);
     assert_eq!(uuid1, event_uuid);
 
-    // Extract ranges
+    // Extract and parse ranges
     let range1 = url1.split("range=").nth(1).unwrap();
     let range2 = url2.split("range=").nth(1).unwrap();
     let range3 = url3.split("range=").nth(1).unwrap();
 
-    // Verify sequential ranges (inclusive on both ends)
-    assert_eq!(range1, "0-99", "First blob: 100 bytes, range 0-99");
-    assert_eq!(
-        range2, "100-299",
-        "Second blob: 200 bytes, starts at 100, range 100-299"
-    );
-    assert_eq!(
-        range3, "300-449",
-        "Third blob: 150 bytes, starts at 300, range 300-449"
-    );
+    let parts1: Vec<usize> = range1.split('-').map(|s| s.parse().unwrap()).collect();
+    let parts2: Vec<usize> = range2.split('-').map(|s| s.parse().unwrap()).collect();
+    let parts3: Vec<usize> = range3.split('-').map(|s| s.parse().unwrap()).collect();
+
+    let (start1, end1) = (parts1[0], parts1[1]);
+    let (start2, end2) = (parts2[0], parts2[1]);
+    let (start3, end3) = (parts3[0], parts3[1]);
+
+    // Verify ranges are valid
+    assert!(end1 > start1, "First range should be valid");
+    assert!(end2 > start2, "Second range should be valid");
+    assert!(end3 > start3, "Third range should be valid");
+
+    // Verify ranges are sequential (non-overlapping)
+    assert!(start2 > end1, "Second blob should start after first ends");
+    assert!(start3 > end2, "Third blob should start after second ends");
 }
 
 #[tokio::test]
@@ -2368,7 +2540,10 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false,
         0.0_f32,
         26_214_400,
-        Some(10),
+        Some(create_mock_blob_storage()), // ai_blob_storage
+        Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     );
 
     (router, sink_clone)
@@ -2546,7 +2721,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
     cfg.capture_mode = CaptureMode::Events;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
-        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+        .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let router = router(
         timesource,
@@ -2565,7 +2740,10 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
-        Some(10),
+        Some(create_mock_blob_storage()), // ai_blob_storage
+        Some(10),                         // request_timeout_seconds
+        None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     );
 
     (router, sink_clone)

@@ -2200,3 +2200,94 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)  # 2 unique groups exposed to control
         self.assertEqual(test_variant.sum, 3)  # 3 unique groups with purchase events
         self.assertEqual(test_variant.number_of_samples, 3)  # 3 unique groups exposed to test
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_mean_metric_with_parametric_aggregation(self):
+        """Test that parametric aggregations like quantile work in mean metrics.
+
+        This test demonstrates the bug where quantile(0.90)(properties.margin) fails
+        because the query builder loses the 0.90 parameter when reconstructing the SQL.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1),
+            end_date=datetime(2020, 1, 10),
+        )
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create a metric using parametric aggregation (quantile)
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="checkout-conversion",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="quantile(0.90)(properties.margin)",
+            )
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data for both variants with varying margin values
+        for variant, user_count in [("control", 5), ("test", 5)]:
+            for i in range(user_count):
+                distinct_id = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+
+                # Create conversion event with margin property
+                # Vary the margin: values from 10 to 90 (step of 20)
+                margin_value = 10 + (i * 20)
+                _create_event(
+                    team=self.team,
+                    event="checkout-conversion",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-03T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "margin": margin_value,  # Margins: 10, 30, 50, 70, 90
+                    },
+                )
+
+        flush_persons_and_events()
+
+        # This should not raise an error
+        # Without the fix, this will fail with "Function 'quantile' requires at least 1 parameter"
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        # Verify the query was executed successfully
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        # Verify the query was executed successfully and produced results
+        # If the query didn't preserve the parameter, it would have failed in ClickHouse
+        # The fact that we got results proves the parametric aggregation worked
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Both variants should have computed values (proves quantile worked)
+        assert control_variant is not None
+        assert test_variant is not None

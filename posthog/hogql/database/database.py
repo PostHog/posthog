@@ -55,7 +55,11 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
+from posthog.hogql.database.schema.document_embeddings import (
+    HOGQL_MODEL_TABLES,
+    DocumentEmbeddingsTable,
+    RawDocumentEmbeddingsTable,
+)
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
@@ -194,6 +198,8 @@ class Database(BaseModel):
             "heatmaps": TableNode(name="heatmaps", table=HeatmapsTable()),
             "exchange_rate": TableNode(name="exchange_rate", table=ExchangeRateTable()),
             "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
+            # Register model-specific embedding tables
+            **{name: TableNode(name=name, table=table) for name, table in HOGQL_MODEL_TABLES.items()},
             "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
             "logs": TableNode(name="logs", table=LogsTable()),
             "log_attributes": TableNode(name="log_attributes", table=LogAttributesTable()),
