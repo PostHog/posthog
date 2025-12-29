@@ -3,7 +3,6 @@ set -eE
 
 MIGRATION_TYPE="$1"
 
-# JSON logging helper function
 log_json() {
     local level="$1"
     local message="$2"
@@ -24,14 +23,13 @@ log_json() {
     echo "$json"
 }
 
-# Error handler to log failures as JSON
 handle_error() {
     local exit_code=$?
-    local failed_command="${BASH_COMMAND}"
-    log_json "error" "Migration failed" "failed" "$MIGRATION_TYPE" "\"error\":\"Command failed: $failed_command\",\"exit_code\":$exit_code"
+    log_json "error" "Migration failed" "failed" "$MIGRATION_TYPE" "\"exit_code\":$exit_code"
     exit $exit_code
 }
 
+# Trap errors and use the error handler to log the error as JSON
 trap handle_error ERR
 
 if [ -z "$MIGRATION_TYPE" ]; then
