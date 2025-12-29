@@ -324,7 +324,7 @@ where
     // For slow operations like I/O, draining queues, etc.
     // ============================================
 
-    async fn cleanup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
+    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()> {
         let partition_infos: Vec<Partition> = partitions
             .elements()
             .into_iter()

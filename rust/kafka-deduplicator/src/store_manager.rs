@@ -150,7 +150,7 @@ impl StoreManager {
 
     /// Get or create a deduplication store during rebalancing (pre-creation)
     ///
-    /// This should be called during `cleanup_assigned_partitions` to pre-create stores
+    /// This should be called during `async_setup_assigned_partitions` to pre-create stores
     /// before messages start flowing. Unlike `get_or_create`, this won't emit a warning
     /// when creating a new store.
     pub async fn get_or_create_for_rebalance(
@@ -1172,7 +1172,7 @@ mod tests {
 
         let manager = StoreManager::new(config);
 
-        // Step 1: Pre-create during rebalance (cleanup_assigned_partitions)
+        // Step 1: Pre-create during rebalance (async_setup_assigned_partitions)
         let _store = manager
             .get_or_create_for_rebalance("test-topic", 0)
             .await
