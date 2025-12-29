@@ -274,7 +274,7 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
             raise ValueError("Database name is required in connection string")
 
         db = client[connection_params["database"]]
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
 
         # Get collection names
         collection_names = db.list_collection_names(authorizedCollections=True)
