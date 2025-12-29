@@ -114,9 +114,7 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
-            mock_parsed = MagicMock()
-            mock_parsed.verdict = True
-            mock_parsed.reasoning = "The answer is correct"
+            mock_parsed = BooleanEvalResult(verdict=True, reasoning="The answer is correct")
 
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
@@ -199,10 +197,7 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
-            mock_parsed = MagicMock()
-            mock_parsed.verdict = True
-            mock_parsed.applicable = True
-            mock_parsed.reasoning = "The answer is correct"
+            mock_parsed = BooleanWithNAEvalResult(verdict=True, applicable=True, reasoning="The answer is correct")
 
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
@@ -245,10 +240,9 @@ class TestRunEvaluationWorkflow:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
 
-            mock_parsed = MagicMock()
-            mock_parsed.verdict = None
-            mock_parsed.applicable = False
-            mock_parsed.reasoning = "This is a greeting, not a math problem"
+            mock_parsed = BooleanWithNAEvalResult(
+                verdict=None, applicable=False, reasoning="This is a greeting, not a math problem"
+            )
 
             mock_response = MagicMock()
             mock_response.choices = [MagicMock()]
