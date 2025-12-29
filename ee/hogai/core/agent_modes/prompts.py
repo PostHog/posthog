@@ -19,3 +19,9 @@ ROOT_CONVERSATION_SUMMARY_PROMPT = """
 This session continues from a prior conversation that exceeded the context window. A summary of that conversation is provided below:
 {summary}
 """.strip()
+
+ROOT_TODO_REMINDER_PROMPT = """
+{{{todo_content}}}
+
+<system_reminder>The above is your latest generated todo list. Use it to continue your work.</system_reminder>
+""".strip()
