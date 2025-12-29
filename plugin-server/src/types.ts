@@ -181,7 +181,6 @@ export type CdpConfig = {
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
-    CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
 
     CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: string
     CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: string
@@ -499,8 +498,6 @@ export interface Hub extends PluginsServerConfig {
     celery: Celery
     // geoip database, setup in workers
     geoipService: GeoIPService
-    // ValueMatchers used for various opt-in/out features
-    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
     encryptedFields: EncryptedFields

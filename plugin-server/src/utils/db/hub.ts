@@ -7,7 +7,7 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
-import { buildIntegerMatcher, defaultConfig } from '../../config/config'
+import { defaultConfig } from '../../config/config'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../../types'
@@ -145,7 +145,6 @@ export async function createHub(
         personRepository,
         actionManagerCDP,
         geoipService,
-        pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         appMetrics: new AppMetrics(
             kafkaProducer,

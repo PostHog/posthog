@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 
@@ -17,8 +17,7 @@ import {
     LegacyTransformationPluginMeta,
 } from '../legacy-plugins/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, destinationE2eLagMsSummary, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { cdpTrackedFetch } from './hog-executor.service'
 
@@ -27,6 +26,12 @@ const pluginExecutionDuration = new Histogram({
     help: 'Processing time and success status of plugins',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const setupPromiseCacheCounter = new Counter({
+    name: 'cdp_plugin_setup_promise_cache_total',
+    help: 'The number of times we have cached a setup promise',
+    labelNames: ['result'],
 })
 
 export type PluginState = {
@@ -108,7 +113,8 @@ export class LegacyPluginExecutorService {
     }
 
     public async execute(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        shouldMockFetch = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
@@ -157,6 +163,8 @@ export class LegacyPluginExecutorService {
 
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
+
+            setupPromiseCacheCounter.labels({ result: state ? 'hit' : 'miss' }).inc()
 
             if (!state) {
                 if (!this.cachedGeoIp) {
@@ -216,7 +224,7 @@ export class LegacyPluginExecutorService {
                 // Additionally we don't do real fetches for test functions
                 const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
 
-                if (isTestFunction && method.toUpperCase() !== 'GET') {
+                if ((shouldMockFetch || isTestFunction) && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests
                     addLog('info', 'Fetch called but mocked due to test function', {
                         url: args[0],

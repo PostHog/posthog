@@ -1,17 +1,50 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 
-import { parseKafkaHeaders } from '../../kafka/consumer'
 import { Hub, ISOTimestamp, PostIngestionEvent, ProjectId, RawClickHouseEvent } from '../../types'
+import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
+import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { runOnEvent } from '../../worker/plugins/run'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
+import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+} from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { createInvocation } from '../utils/invocation-utils'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
+
+type LightweightPluginConfig = {
+    id: number
+    team_id: number
+    plugin_id: number
+    enabled: boolean
+    config: Record<string, unknown>
+    created_at: string
+    updated_at?: string
+    plugin?: {
+        id: number
+        url: string
+    }
+}
+
+type PluginConfigHogFunction = {
+    pluginConfigId: number
+    hogFunction: HogFunctionType
+}
+
+const legacyPluginExecutionResultCounter = new Counter({
+    name: 'cdp_legacy_event_consumer_execution_result_total',
+    help: 'The number of times we have executed a legacy plugin',
+    labelNames: ['result', 'template_id'],
+})
 
 /**
  * This is a temporary consumer that hooks into the existing onevent consumer group
@@ -22,12 +55,134 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
 
+    private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
+    private legacyPluginExecutor: LegacyPluginExecutorService
+
     constructor(hub: Hub) {
         super(hub, hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC, hub.CDP_LEGACY_EVENT_CONSUMER_GROUP_ID)
 
-        logger.info('🔁', `CdpLegacyEventsConsumer setup`, {
-            pluginConfigs: Array.from(this.hub.pluginConfigsPerTeam.keys()),
+        this.legacyPluginExecutor = new LegacyPluginExecutorService(hub)
+
+        this.pluginConfigsLoader = new LazyLoader({
+            name: 'plugin_config_hog_functions',
+            loader: async (teamIds: string[]) => this.loadAndBuildHogFunctions(teamIds),
+            refreshAgeMs: 600000, // 10 minutes
+            refreshBackgroundAgeMs: 300000, // 5 minutes
+            bufferMs: 10, // 10ms buffer for batching
         })
+    }
+
+    private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
+        const { rows } = await this.hub.db.postgres.query(
+            PostgresUse.COMMON_READ,
+            `SELECT
+                posthog_pluginconfig.id,
+                posthog_pluginconfig.team_id,
+                posthog_pluginconfig.plugin_id,
+                posthog_pluginconfig.enabled,
+                posthog_pluginconfig.config,
+                posthog_pluginconfig.created_at,
+                posthog_pluginconfig.updated_at,
+                posthog_plugin.id as plugin__id,
+                posthog_plugin.url as plugin__url
+            FROM posthog_pluginconfig
+            LEFT JOIN posthog_plugin ON posthog_plugin.id = posthog_pluginconfig.plugin_id
+            WHERE posthog_pluginconfig.team_id = ANY($1)
+                AND posthog_pluginconfig.enabled = 't'
+                AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')
+                AND posthog_plugin.capabilities->'methods' @> '["onEvent"]'::jsonb`,
+            [teamIds.map((id) => parseInt(id))],
+            'loadPluginConfigHogFunctions'
+        )
+
+        // Group by team_id and build hog functions directly
+        const results: Record<string, PluginConfigHogFunction[]> = {}
+
+        for (const row of rows) {
+            const teamId = row.team_id.toString()
+            if (!results[teamId]) {
+                results[teamId] = []
+            }
+
+            try {
+                const hogFunction = this.convertPluginConfigToHogFunction({
+                    id: row.id,
+                    team_id: row.team_id,
+                    plugin_id: row.plugin_id,
+                    enabled: row.enabled === 't',
+                    config: row.config,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                    plugin: row.plugin__url
+                        ? {
+                              id: row.plugin__id,
+                              url: row.plugin__url,
+                          }
+                        : undefined,
+                })
+
+                if (hogFunction) {
+                    results[teamId].push({
+                        pluginConfigId: row.id,
+                        hogFunction,
+                    })
+                }
+            } catch (error: any) {
+                logger.warn('Failed to convert plugin config to hog function', {
+                    pluginConfigId: row.id,
+                    error: error?.message,
+                })
+            }
+        }
+
+        // Ensure all requested team IDs are in the results
+        for (const teamId of teamIds) {
+            if (!results[teamId]) {
+                results[teamId] = []
+            }
+        }
+
+        return results
+    }
+
+    private convertPluginConfigToHogFunction(pluginConfig: LightweightPluginConfig): HogFunctionType | null {
+        if (!pluginConfig.plugin?.url) {
+            return null
+        }
+
+        // Extract plugin ID from URL (following the migration.py pattern)
+        const pluginId = pluginConfig.plugin.url.replace('inline://', '').replace('https://github.com/PostHog/', '')
+
+        const templateId = `plugin-${pluginId}`
+
+        // Build inputs from plugin config
+        const inputs: HogFunctionType['inputs'] = {}
+
+        for (const [key, value] of Object.entries(pluginConfig.config)) {
+            inputs[key] = { value: value?.toString() ?? '' }
+        }
+
+        // Add legacy_plugin_config_id for plugins that use legacy storage
+        if (pluginId === 'customerio-plugin') {
+            inputs.legacy_plugin_config_id = { value: pluginConfig.id }
+        }
+
+        // Create a HogFunctionType
+        return {
+            id: `legacy-${pluginConfig.id}`,
+            type: 'destination' as const,
+            team_id: pluginConfig.team_id,
+            name: `Legacy Plugin ${pluginConfig.id}`,
+            enabled: pluginConfig.enabled,
+            deleted: false,
+            hog: '',
+            bytecode: [],
+            template_id: templateId,
+            inputs,
+            filters: null,
+            created_at: pluginConfig.created_at,
+            updated_at: pluginConfig.updated_at ?? pluginConfig.created_at,
+        }
     }
 
     @instrumented('cdpLegacyEventsConsumer.processEvent')
@@ -46,7 +201,44 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
             person_id: undefined,
         }
 
-        return await runOnEvent(this.hub, event)
+        const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
+
+        const results = await Promise.all(
+            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation))
+        )
+
+        for (const result of results) {
+            const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
+            const error = result.error
+            legacyPluginExecutionResultCounter
+                .labels({
+                    result: error ? 'error' : 'success',
+                    template_id: result.invocation.hogFunction.template_id,
+                })
+                .inc()
+            if (result.error) {
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId,
+                            category: 'onEvent',
+                            failures: 1,
+                        },
+                        { error, event }
+                    )
+                )
+            } else {
+                void this.promiseScheduler.schedule(
+                    this.hub.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId,
+                        category: 'onEvent',
+                        successes: 1,
+                    })
+                )
+            }
+        }
     }
 
     @instrumented('cdpLegacyEventsConsumer.processBatch')
@@ -54,14 +246,7 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (invocationGlobals.length) {
-            const results = await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
-
-            // Schedule the background work
-            for (const subtasks of results) {
-                for (const { backgroundTask } of subtasks) {
-                    void this.promiseScheduler.schedule(backgroundTask)
-                }
-            }
+            await Promise.all(invocationGlobals.map((x) => this.processEvent(x)))
         }
 
         return {
@@ -88,14 +273,9 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
                             return
                         }
 
-                        const pluginConfigs = this.hub.pluginConfigsPerTeam.get(team.id) || []
-                        if (pluginConfigs.length === 0) {
-                            return
-                        }
+                        const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
 
-                        if (this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC) {
-                            void this.promiseScheduler.schedule(this.emitToReplicaTopic([message]))
-
+                        if (!pluginConfigHogFunctions?.length) {
                             return
                         }
 
@@ -111,21 +291,32 @@ export class CdpLegacyEventsConsumer extends CdpEventsConsumer {
         })
     }
 
-    private async emitToReplicaTopic(kafkaMessages: Message[]) {
-        const redirectTopic = this.hub.CDP_LEGACY_EVENT_REDIRECT_TOPIC
-        if (!redirectTopic) {
-            throw new Error('No redirect topic configured')
+    private async getLegacyPluginHogFunctionInvocations(
+        invocation: HogFunctionInvocationGlobals
+    ): Promise<CyclotronJobInvocationHogFunction[]> {
+        const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(invocation.project.id.toString())
+
+        if (!pluginConfigHogFunctions) {
+            return []
         }
 
-        await Promise.all(
-            kafkaMessages.map((message) => {
-                return this.kafkaProducer!.produce({
-                    topic: redirectTopic,
-                    value: message.value,
-                    key: message.key ?? null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            })
-        )
+        return pluginConfigHogFunctions.map(({ hogFunction }) => {
+            // Plugin configs are always static { value: any } so we can just convert to a record of strings
+            const inputs = Object.entries(hogFunction.inputs || {}).reduce(
+                (acc, [key, value]) => {
+                    acc[key] = value?.value?.toString() ?? ''
+                    return acc
+                },
+                {} as Record<string, string>
+            )
+
+            return createInvocation(
+                {
+                    ...invocation,
+                    inputs,
+                },
+                hogFunction
+            )
+        })
     }
 }
