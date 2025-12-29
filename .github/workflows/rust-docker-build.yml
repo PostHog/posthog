@@ -18,18 +18,6 @@ jobs:
                     - image: capture
                       dockerfile: ./rust/Dockerfile
                       project: kshskj225r
-                    - image: hook-api
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: hook-janitor
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: hook-worker
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
-                    - image: hook-migrator
-                      dockerfile: ./rust/Dockerfile.migrate-hooks
-                      project: c1bwj4j4qg
                     - image: sqlx-migrate
                       dockerfile: ./rust/Dockerfile.sqlx-migrate
                       project: jmsz6gms8g
@@ -68,10 +56,6 @@ jobs:
             cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
             property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
             batch-import-worker_digest: ${{ steps.digest.outputs.batch-import-worker_digest }}
-            hook-api_digest: ${{ steps.digest.outputs.hook-api_digest }}
-            hook-janitor_digest: ${{ steps.digest.outputs.hook-janitor_digest }}
-            hook-worker_digest: ${{ steps.digest.outputs.hook-worker_digest }}
-            hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
             sqlx-migrate_digest: ${{ steps.digest.outputs.sqlx-migrate_digest }}
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             embedding-worker_digest: ${{ steps.digest.outputs.embedding-worker_digest }}
@@ -198,16 +182,6 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.embedding-worker_digest }}'
-                    - release: hoghooks
-                      values:
-                          api_image:
-                              sha: '${{ needs.build.outputs.hook-api_digest }}'
-                          janitor_image:
-                              sha: '${{ needs.build.outputs.hook-janitor_digest }}'
-                          worker_image:
-                              sha: '${{ needs.build.outputs.hook-worker_digest }}'
-                          migrator_image:
-                              sha: '${{ needs.build.outputs.hook-migrator_digest }}'
                     - release: capture-logs
                       values:
                           image:
