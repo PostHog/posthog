@@ -10,7 +10,7 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -126,6 +126,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             timezone: string
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
+        handlePaneClick: true,
     }),
     reducers(() => ({
         mode: [
@@ -664,6 +665,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // Clear moving node ID
             actions.stopCopyingNode()
         },
+        handlePaneClick: () => {
+            actions.setSelectedNodeId(null)
+            if (values.isCopyingNode) {
+                actions.stopCopyingNode()
+            }
+        },
     })),
 
     subscriptions(({ actions }) => ({
@@ -709,4 +716,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             [urls.workflow(':id', ':tab')]: reactToTabChange,
         }
     }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const handleKeyDown = (e: KeyboardEvent): void => {
+                if (e.key === 'Escape' && values.isCopyingNode) {
+                    actions.stopCopyingNode()
+                }
+            }
+
+            document.addEventListener('keydown', handleKeyDown)
+
+            // Store the handler so we can clean it up
+            ;(actions as any)._keydownHandler = handleKeyDown
+        },
+        beforeUnmount: () => {
+            const handler = (actions as any)._keydownHandler
+            if (handler) {
+                document.removeEventListener('keydown', handler)
+            }
+        },
+    })),
 ])

@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlus, IconShortcut } from '@posthog/icons'
+import { IconCopy, IconPlus } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
@@ -45,10 +45,8 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
         >
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
                 {isCopyingNode ? (
-                    // Show a shortcut icon when a node is being moved
-                    <IconShortcut className="text-sm text-primary" />
+                    <IconCopy className="text-sm text-primary" />
                 ) : (
-                    // Show a plus icon when adding a node
                     <IconPlus className="text-sm text-primary" />
                 )}
             </div>

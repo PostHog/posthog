@@ -37,6 +37,7 @@ function HogFlowEditorContent(): JSX.Element {
         onDragOver,
         onDrop,
         setReactFlowWrapper,
+        handlePaneClick,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -67,7 +68,7 @@ function HogFlowEditorContent(): JSX.Element {
                 edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
-                onPaneClick={() => setSelectedNodeId(null)}
+                onPaneClick={handlePaneClick}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
 
