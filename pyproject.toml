@@ -275,7 +275,7 @@ profile = "black"
 line-length = 120
 exclude = [
     ".git",
-    "./plugin-server/node_modules/",
+    "./nodejs/node_modules/",
     "./plugins/node_modules/",
     "./env",
     "./posthog/hogql/grammar",

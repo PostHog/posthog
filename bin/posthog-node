@@ -4,7 +4,7 @@ while test $# -gt 0; do
   case "$1" in
   -h | --help)
     echo "USAGE:"
-    echo "    bin/plugin-server [FLAGS]"
+    echo "    bin/posthog-node [FLAGS]"
     echo " "
     echo "FLAGS:"
     echo "    -h, --help           Print this help information."
@@ -39,11 +39,11 @@ fi
 
 ./bin/migrate-check
 
-cd plugin-server
+cd nodejs
 
 if [[ -n $DEBUG ]]; then
   echo "🧐 Verifying installed packages..."
-  pnpm --filter=@posthog/plugin-server install
+  pnpm --filter=@posthog/nodejs install
 fi
 
 if [ $? -ne 0 ]; then
@@ -62,7 +62,7 @@ else
 fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
-  echo "▶️ Starting plugin server..."
+  echo "▶️ Starting nodejs..."
   trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' EXIT
   $cmd &
   child=$!

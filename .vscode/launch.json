@@ -146,7 +146,7 @@
         },
         {
             "name": "Plugin Server",
-            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/nodejs start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",

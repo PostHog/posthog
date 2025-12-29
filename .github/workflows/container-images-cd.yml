@@ -125,7 +125,7 @@ jobs:
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^plugin-server/' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^nodejs/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed == 'true'

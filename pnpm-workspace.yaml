@@ -7,7 +7,7 @@ packages:
     - common/tailwind
     - frontend
     - playwright
-    - plugin-server
+    - nodejs
     - products/*
     - docs/onboarding
     - services/mcp/typescript

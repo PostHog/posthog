@@ -12,7 +12,7 @@ on:
         paths-ignore:
             - 'rust/**'
             - 'livestream/**'
-            - 'plugin-server/**'
+            - 'nodejs/**'
     pull_request:
     workflow_dispatch:
 

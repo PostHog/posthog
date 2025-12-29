@@ -1161,7 +1161,7 @@ importers:
         specifier: workspace:*
         version: link:../frontend
 
-  plugin-server:
+  nodejs:
     dependencies:
       '@amplitude/ua-parser-js':
         specifier: ^0.7.33

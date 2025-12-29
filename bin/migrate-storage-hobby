@@ -53,7 +53,7 @@ run_service() {
     docker-compose run --rm --no-deps \
         "${ENV_ARGS[@]}" \
         plugins \
-        node plugin-server/bin/migrate-minio-to-seaweedfs.js --service "$service" --mode "$MODE" "${EXTRA_ARGS[@]}"
+        node nodejs/bin/migrate-minio-to-seaweedfs.js --service "$service" --mode "$MODE" "${EXTRA_ARGS[@]}"
     echo ""
 }
 

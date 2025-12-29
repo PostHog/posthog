@@ -14,7 +14,7 @@ Python-based acceptance tests for the LLM Analytics capture pipeline, testing ag
 
 ### GitHub Actions
 
-- Triggered on PRs affecting rust/capture/ or plugin-server/
+- Triggered on PRs affecting rust/capture/ or nodejs/
 - Sets up PostHog stack in CI
 - Runs acceptance tests against the stack
 - Collects logs on failure

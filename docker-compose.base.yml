@@ -346,7 +346,7 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     plugins:
-        command: ./bin/plugin-server --no-restart-loop
+        command: ./bin/posthog-node --no-restart-loop
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

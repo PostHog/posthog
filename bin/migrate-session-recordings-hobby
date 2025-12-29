@@ -36,7 +36,7 @@ docker-compose run --rm --no-deps \
     -e SESSION_RECORDING_V2_S3_ACCESS_KEY_ID=any \
     -e SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY=any \
     plugins \
-    node plugin-server/bin/migrate-minio-to-seaweedfs.js "$@"
+    node nodejs/bin/migrate-minio-to-seaweedfs.js "$@"
 
 if [ $? -eq 0 ]; then
     echo ""

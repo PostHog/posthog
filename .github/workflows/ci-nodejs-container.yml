@@ -31,7 +31,7 @@ jobs:
               with:
                   filters: |
                       node_files:
-                        - 'plugin-server/**'
+                        - 'nodejs/**'
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
