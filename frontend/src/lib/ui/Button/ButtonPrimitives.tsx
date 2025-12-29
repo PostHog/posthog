@@ -126,6 +126,7 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 
 export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
     'data-attr'?: string
+    forceVariant?: boolean
 }
 
 export const buttonPrimitiveVariants = cva({
@@ -275,12 +276,13 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltipInteractive,
         autoHeight,
         inert,
+        forceVariant = false,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
     const context = useButtonGroupContext()
     const effectiveSize = context?.sizeContext || size
-    const effectiveVariant = context?.variantContext || variant
+    const effectiveVariant = forceVariant ? variant : context?.variantContext || variant
     let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
 
     let buttonComponent: JSX.Element = React.createElement(

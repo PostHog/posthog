@@ -36,6 +36,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
         setMainContentRect: (rect: DOMRect) => ({ rect }),
+        setSidePanelWidth: (width: number) => ({ width }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -138,6 +139,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             null as DOMRect | null,
             {
                 setMainContentRect: (_, { rect }) => rect,
+            },
+        ],
+        sidePanelWidth: [
+            0,
+            {
+                setSidePanelWidth: (_, { width }) => width,
             },
         ],
     }),

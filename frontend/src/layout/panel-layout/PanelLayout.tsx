@@ -107,7 +107,7 @@ const panelLayoutStyles = cva({
     ],
 })
 
-export function PanelLayout(): JSX.Element {
+export function PanelLayout({ className }: { className?: string }): JSX.Element {
     const {
         isLayoutPanelPinned,
         isLayoutPanelVisible,
@@ -136,7 +136,8 @@ export function PanelLayout(): JSX.Element {
                         isMobileLayout,
                         isLayoutNavCollapsed,
                         projectTreeMode: projectTreeMode,
-                    })
+                    }),
+                    className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--project-panel-width': `${panelWidth}px` } as React.CSSProperties}

@@ -47,13 +47,13 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
     let unpinnedColumns = ''
     if (unpinnedCount === 1) {
-        unpinnedColumns = '250px'
+        unpinnedColumns = '100%'
     } else if (unpinnedCount === 2) {
-        unpinnedColumns = 'repeat(2, 250px)'
+        unpinnedColumns = 'repeat(2, 100%)'
     } else if (unpinnedCount > 2) {
-        unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
+        unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 100%))`
     }
-    const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+    const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '100%'
 
     const showRoundedCorner = (!isLayoutPanelVisible || !isLayoutPanelPinned) && !firstTabIsActive
 
@@ -100,34 +100,15 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 </ButtonPrimitive>
             )}
 
-            {/* Line between tabs and main content */}
-            <div
-                className={cn(
-                    'border-b border-primary h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
-                    !showRoundedCorner && 'left-0 lg:left-0'
-                )}
-            />
-
-            {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
-            {showRoundedCorner && (
-                <>
-                    {/* TRICKY: Clip path is to hide the rest of the div below the corner */}
-                    {/* background to match the navbar  */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)] [clip-path:polygon(0%_0%,_100%_0%,_0%_100%,_0%_0%)]" />
-                    {/* corner to match the main */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary [clip-path:polygon(0%_0%,_100%_0%,_0%_100%,_0%_0%)]" />
-                </>
-            )}
-
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
+                    <div className={cn('flex flex-row gap-1 items-center w-full', className)}>
                         <div
-                            className={cn('scene-tab-row grid min-w-0 gap-1 items-center')}
-                            style={{ gridTemplateColumns }}
+                            className={cn('scene-tab-row min-w-0 gap-1 items-center flex justify-items-stretch w-full')}
+                            // style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {
                                 const sortableId = getSortableId(tab, index)
@@ -156,7 +137,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 buttonProps={{
                                     size: 'sm',
                                     className:
-                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
+                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded border-b z-20 ml-px',
                                     iconOnly: true,
                                 }}
                             >
@@ -202,7 +183,7 @@ function SortableSceneTab({
     }
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="w-full">
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
                 <SceneTabComponent
                     tab={tab}
@@ -248,18 +229,11 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
     }, [isEditing])
 
     return (
-        <div className={cn('relative', containerClassName)}>
-            <div
-                className={cn({
-                    'scene-tab-active-indicator': tab.active,
-                    'scene-tab-active-indicator--first': index === 0,
-                })}
-            />
-
+        <div className={cn('relative w-full', containerClassName)}>
             <ButtonGroupPrimitive
-                groupVariant="default"
                 fullWidth
-                className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
+                size="sm"
+                className="group border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
                     <AppShortcut
@@ -280,7 +254,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             isSideActionRight
                             iconOnly
                             size="xs"
-                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                            className="group-hover:opacity-100 opacity-0 order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
                         >
                             <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
@@ -310,13 +284,15 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             setEditValue(tab.customTitle || tab.title)
                         }
                     }}
+                    forceVariant={true}
+                    variant={tab.active ? "panel" : "default"}
                     hasSideActionRight
                     className={cn(
                         'w-full order-first',
-                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
+                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 border border-transparent text-tertiary',
                         tab.active
-                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
-                            : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
+                            ? 'tab-active cursor-default text-primary hover:bg-[var(--color-bg-fill-button-panel)]'
+                            : 'cursor-pointer hover:text-primary z-20',
                         'focus:outline-none',
                         isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className
