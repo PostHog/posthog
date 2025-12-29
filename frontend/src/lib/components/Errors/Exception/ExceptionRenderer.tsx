@@ -41,23 +41,25 @@ export function ExceptionRenderer({
 }: ExceptionRendererProps): JSX.Element {
     const knownException = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
 
-    const hasProperStackTrace = (
-        stackTrace: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace | undefined
-    ): boolean => {
-        if (stackTrace === null || stackTrace === undefined) {
-            return false
-        }
+    const hasProperStackTrace = useMemo(
+        () =>
+            (stackTrace: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace | undefined): boolean => {
+                if (stackTrace === null || stackTrace === undefined) {
+                    return false
+                }
 
-        if (!stackTrace.frames || stackTrace.frames.length === 0) {
-            return false
-        }
+                if (!stackTrace.frames || stackTrace.frames.length === 0) {
+                    return false
+                }
 
-        if (stackTrace.frames.some((frame) => typeof frame !== 'object')) {
-            return false
-        }
+                if (stackTrace.frames.some((frame) => typeof frame !== 'object')) {
+                    return false
+                }
 
-        return true
-    }
+                return true
+            },
+        [exception]
+    )
 
     return (
         <div className={className}>
