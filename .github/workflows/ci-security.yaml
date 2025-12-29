@@ -119,7 +119,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    frontend/ plugin-server/
+                    frontend/ nodejs/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
@@ -150,7 +150,7 @@ jobs:
                     --exclude ./ee/ \
                     --exclude ./frontend/ \
                     --exclude ./livestream/ \
-                    --exclude ./plugin-server/ \
+                    --exclude ./nodejs/ \
                     --exclude ./posthog/ \
                     --exclude ./products/ \
                     --exclude ./rust/ \
