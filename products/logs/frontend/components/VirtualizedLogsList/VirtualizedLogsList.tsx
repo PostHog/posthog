@@ -9,7 +9,8 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
-import { LogRow, LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
 import {
     LOG_ROW_HEADER_HEIGHT,
     RESIZER_HANDLE_WIDTH,
@@ -61,6 +62,7 @@ export function VirtualizedLogsList({
         userSetCursorIndex,
         removeAttributeColumn,
         setAttributeColumnWidth,
+        moveAttributeColumn,
         toggleSelectLog,
         selectAll,
         clearSelection,
@@ -253,6 +255,7 @@ export function VirtualizedLogsList({
                                     attributeColumnWidths={attributeColumnWidths}
                                     onRemoveAttributeColumn={removeAttributeColumn}
                                     onResizeAttributeColumn={setAttributeColumnWidth}
+                                    onMoveAttributeColumn={moveAttributeColumn}
                                     selectedCount={selectedCount}
                                     totalCount={dataSource.length}
                                     onSelectAll={() => selectAll(dataSource)}
@@ -296,6 +299,7 @@ export function VirtualizedLogsList({
                                 attributeColumnWidths={attributeColumnWidths}
                                 onRemoveAttributeColumn={removeAttributeColumn}
                                 onResizeAttributeColumn={setAttributeColumnWidth}
+                                onMoveAttributeColumn={moveAttributeColumn}
                                 selectedCount={selectedCount}
                                 totalCount={dataSource.length}
                                 onSelectAll={() => selectAll(dataSource)}
