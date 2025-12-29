@@ -19,16 +19,6 @@ import { maxLogic, mergeConversationHistory } from './maxLogic'
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
     {
-        identifier: 'create_insight' as const,
-        name: TOOL_DEFINITIONS['create_insight'].name,
-        description: TOOL_DEFINITIONS['create_insight'].description,
-    },
-    {
-        identifier: 'execute_sql' as const,
-        name: TOOL_DEFINITIONS['execute_sql'].name,
-        description: TOOL_DEFINITIONS['execute_sql'].description,
-    },
-    {
         identifier: 'filter_session_recordings' as const,
         name: TOOL_DEFINITIONS['filter_session_recordings'].name,
         description: TOOL_DEFINITIONS['filter_session_recordings'].description,
@@ -37,11 +27,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'web_search',
         name: TOOL_DEFINITIONS['web_search'].name,
         description: TOOL_DEFINITIONS['web_search'].description,
-    },
-    {
-        identifier: 'create_dashboard' as const,
-        name: TOOL_DEFINITIONS['create_dashboard'].name,
-        description: TOOL_DEFINITIONS['create_dashboard'].description,
     },
     {
         identifier: 'search' as const,

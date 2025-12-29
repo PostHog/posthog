@@ -393,6 +393,14 @@ impl Client for ReadWriteClient {
             .await
     }
 
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.batch_incr_by_expire(items, ttl_seconds).await
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         self.writer.del(k).await
     }
@@ -404,6 +412,21 @@ impl Client for ReadWriteClient {
         count: Option<i32>,
     ) -> Result<(), CustomRedisError> {
         self.writer.hincrby(k, v, count).await
+    }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<i64>>, CustomRedisError> {
+        match self.reader.mget(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica mget failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.mget(keys).await
+            }
+            Err(err) => Err(err),
+        }
     }
 }
 
