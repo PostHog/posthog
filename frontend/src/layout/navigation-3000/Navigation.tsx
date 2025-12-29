@@ -79,7 +79,8 @@ export function Navigation({
                     !simplerAppLayout && 'Navigation3000',
                     !simplerAppLayout && mobileLayout && 'Navigation3000--mobile',
                     !simplerAppLayout && 'Navigation3000--minimal-scene-layout',
-                    simplerAppLayout && 'app-layout bg-surface-tertiary'
+                    simplerAppLayout && 'app-layout bg-surface-tertiary',
+                    simplerAppLayout && mobileLayout && 'app-layout--mobile'
                 )}
                 style={
                     {
@@ -103,7 +104,7 @@ export function Navigation({
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className={simplerAppLayout ? 'left-nav' : ''} />
+                    <PanelLayout className={simplerAppLayout ? 'left-nav' : ''} isSimplerAppLayout={simplerAppLayout} />
 
                     {simplerAppLayout && (
                         <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start">
@@ -111,14 +112,14 @@ export function Navigation({
                         </div>
                     )}
 
-                    <div className="main-content-container overflow-hidden rounded-lg border border-primary mb-2">
+                    <div className="main-content-container overflow-hidden lg:rounded-lg border-t lg:border border-primary lg:mb-2">
                         <main
                             ref={mainRef}
                             role="main"
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden rounded-lg show-scrollbar-on-hover p-4 h-full',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden lg:rounded-lg show-scrollbar-on-hover p-4 h-full',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||

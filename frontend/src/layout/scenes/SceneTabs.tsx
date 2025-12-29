@@ -11,6 +11,7 @@ import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -28,11 +29,7 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
-export interface SceneTabsProps {
-    className?: string
-}
-
-export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
+export function SceneTabs(): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
@@ -68,18 +65,13 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
 
     return (
-        <div
-            className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
-                className
-            )}
-        >
+        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-primary lg:bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative">
             {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
-                    className="ml-1 z-20 rounded-lg"
+                    className="ml-1 z-20 rounded-lg mr-1"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
@@ -90,15 +82,24 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className={cn('flex flex-row gap-1 items-center w-full', className)}>
-                        <div
-                            className={cn('scene-tab-row min-w-0 gap-1 items-center flex justify-items-stretch w-full')}
-                            // style={{ gridTemplateColumns }}
-                        >
-                            {tabs.map((tab, index) => {
-                                const sortableId = getSortableId(tab, index)
+                    <ScrollableShadows
+                        direction="horizontal"
+                        className="w-full min-w-0"
+                        innerClassName={cn(
+                            'scene-tab-row min-w-0 gap-1 items-center flex w-full overflow-x-auto show-scrollbar-on-hover h-[var(--scene-layout-header-height)] lg:h-auto'
+                        )}
+                        style={{ WebkitOverflowScrolling: 'touch' }}
+                        styledScrollbars
+                    >
+                        {tabs.map((tab, index) => {
+                            const sortableId = getSortableId(tab, index)
+                            const isLastPinned =
+                                tab.pinned &&
+                                // last tab OR next tab is not pinned
+                                (index === tabs.length - 1 || !tabs[index + 1]?.pinned)
 
-                                return (
+                            return (
+                                <>
                                     <SortableSceneTab
                                         key={sortableId}
                                         tab={tab}
@@ -106,30 +107,36 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                         sortableId={sortableId}
                                         onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
                                     />
-                                )
-                            })}
-                        </div>
-                        <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
-                            <Link
-                                to={urls.newTab()}
-                                data-attr="scene-tab-new-button"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    newTab()
-                                }}
-                                tooltip="New tab"
-                                tooltipCloseDelayMs={0}
-                                buttonProps={{
-                                    size: 'sm',
-                                    className:
-                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded border-b z-20 ml-px',
-                                    iconOnly: true,
-                                }}
-                            >
-                                <IconPlus className="!ml-0" fontSize={14} />
-                            </Link>
-                        </AppShortcut>
-                    </div>
+                                    {isLastPinned && (
+                                        <div
+                                            className="h-4 w-px bg-border-secondary shrink-0 rounded opacity-50"
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                </>
+                            )
+                        })}
+                    </ScrollableShadows>
+                    <AppShortcut name="NewTab" keybind={[keyBinds.newTab]} intent="New tab" interaction="click">
+                        <Link
+                            to={urls.newTab()}
+                            data-attr="scene-tab-new-button"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                newTab()
+                            }}
+                            tooltip="New tab"
+                            tooltipCloseDelayMs={0}
+                            buttonProps={{
+                                size: 'sm',
+                                className:
+                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded border-b z-20 ml-1',
+                                iconOnly: true,
+                            }}
+                        >
+                            <IconPlus className="!ml-0" fontSize={14} />
+                        </Link>
+                    </AppShortcut>
                 </SortableContext>
             </DndContext>
             <ConfigurePinnedTabsModal
@@ -175,7 +182,7 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'w-full min-w-0')}
+            className={cn(isPinned ? 'w-[var(--button-height-sm)] shrink-0' : 'flex-1 min-w-[100px]')}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
                 <SceneTabComponent

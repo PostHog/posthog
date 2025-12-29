@@ -1869,6 +1869,22 @@
         animation: fade-in 0.4s ease-out forwards;
     }
 
+    /* Overlay fade in/out transitions */
+    .overlay-fade {
+        opacity: 1;
+        transition: opacity 0.2s ease-out;
+
+        /* Exit animation - opacity controlled by utility class */
+        &.opacity-0 {
+            opacity: 0;
+        }
+
+        /* Entry animation - fade in from 0 */
+        @starting-style {
+            opacity: 0;
+        }
+    }
+
     /* stylelint-disable-next-line keyframes-name-pattern */
     @keyframes shimmer {
         0% {
