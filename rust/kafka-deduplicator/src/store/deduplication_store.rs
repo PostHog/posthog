@@ -455,39 +455,50 @@ impl DeduplicationStore {
             index_end.as_ref(),
         )?;
 
-        // Trigger async compaction to help RocksDB reclaim space from tombstones.
-        // delete_range creates tombstones but doesn't immediately free disk space.
-        // Compaction runs in the background and merges/removes tombstoned data.
-        // We trigger it for all column families that were modified.
-        info!(
-            "Store {}:{} - Triggering async compaction after cleanup",
-            self.topic, self.partition
-        );
-        self.store.compact_range(
-            Self::TIMESTAMP_CF,
-            Some(first_key_bytes.as_ref()),
-            Some(last_key_bytes.as_ref()),
-        );
-        self.store.compact_range(
-            Self::UUID_TIMESTAMP_INDEX_CF,
-            Some(index_start.as_ref()),
-            Some(index_end.as_ref()),
-        );
-        // UUID_CF doesn't have range-based keys, so compact the full range
-        self.store
-            .compact_range(Self::UUID_CF, None::<&[u8]>, None::<&[u8]>);
+        // Spawn compaction on a background thread to avoid blocking cleanup.
+        // RocksDB's compact_range is synchronous and can block for extended periods.
+        // delete_range creates tombstones but doesn't immediately free disk space -
+        // compaction merges/removes tombstoned data to reclaim space.
+        let store = self.store.clone();
+        let topic = self.topic.clone();
+        let partition = self.partition;
+        std::thread::spawn(move || {
+            info!(
+                "Store {}:{} - Starting background compaction after cleanup",
+                topic, partition
+            );
+            let compaction_start = Instant::now();
 
-        // Calculate bytes freed (note: this may show 0 since compaction is async,
-        // but the space will be reclaimed in the background)
+            store.compact_range(
+                Self::TIMESTAMP_CF,
+                Some(first_key_bytes.as_ref()),
+                Some(last_key_bytes.as_ref()),
+            );
+            store.compact_range(
+                Self::UUID_TIMESTAMP_INDEX_CF,
+                Some(index_start.as_ref()),
+                Some(index_end.as_ref()),
+            );
+            // UUID_CF doesn't have range-based keys, so compact the full range
+            store.compact_range(Self::UUID_CF, None::<&[u8]>, None::<&[u8]>);
+
+            info!(
+                "Store {}:{} - Background compaction completed in {:?}",
+                topic,
+                partition,
+                compaction_start.elapsed()
+            );
+        });
+
+        // Calculate bytes freed (will likely be 0 since compaction is now async)
         let final_size = self.get_total_size()?;
         let bytes_freed = initial_size.saturating_sub(final_size);
 
         info!(
-            "Store {}:{} cleanup completed in {:?} (immediate bytes freed: {}, compaction running in background)",
+            "Store {}:{} cleanup completed in {:?} (compaction spawned in background)",
             self.topic,
             self.partition,
-            start_time.elapsed(),
-            bytes_freed
+            start_time.elapsed()
         );
 
         Ok(bytes_freed)
