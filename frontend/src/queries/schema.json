@@ -26516,6 +26516,12 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
                 },
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
+                },
                 "meanRetentionCalculation": {
                     "enum": ["simple", "weighted", "none"],
                     "type": "string"
