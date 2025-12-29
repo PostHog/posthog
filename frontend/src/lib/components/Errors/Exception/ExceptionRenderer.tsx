@@ -1,7 +1,12 @@
 import { useMemo } from 'react'
 import { match } from 'ts-pattern'
 
-import { ErrorTrackingException, ErrorTrackingStackFrame } from '../types'
+import {
+    ErrorTrackingException,
+    ErrorTrackingRawStackTrace,
+    ErrorTrackingResolvedStackTrace,
+    ErrorTrackingStackFrame,
+} from '../types'
 import { KnownException, KnownExceptionRegistry } from './known-exceptions'
 
 type StackTraceRenderer = (
@@ -35,13 +40,32 @@ export function ExceptionRenderer({
     renderFilteredTrace,
 }: ExceptionRendererProps): JSX.Element {
     const knownException = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
+
+    const hasProperStackTrace = (
+        stackTrace: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace | undefined
+    ): boolean => {
+        if (stackTrace === null || stackTrace === undefined) {
+            return false
+        }
+
+        if (!stackTrace.frames || stackTrace.frames.length === 0) {
+            return false
+        }
+
+        if (stackTrace.frames.some((frame) => typeof frame !== 'object')) {
+            return false
+        }
+
+        return true
+    }
+
     return (
         <div className={className}>
             <div>{renderExceptionHeader(exception)}</div>
             <div>
                 {match(exception.stacktrace)
                     .when(
-                        (stack) => stack === null || stack === undefined || !stack.frames || stack.frames.length === 0,
+                        (stack) => !hasProperStackTrace(stack),
                         () => renderUndefinedTrace(exception, knownException)
                     )
                     .when(
