@@ -270,8 +270,8 @@ class FunnelBase(ABC):
             name = step.event
             action_id = step.event
         elif isinstance(step, DataWarehouseNode):
-            name = ""
-            action_id = ""
+            name = f"{step.table_name}.{step.distinct_id_field}"
+            action_id = None
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
