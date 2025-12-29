@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from ee.hogai.tools.todo_write import TodoItem, TodoWriteTool
@@ -11,7 +13,7 @@ class TestTodoWriteTool(BaseTest):
 
     def test_format_todo_list_empty_args(self):
         """Test formatting an empty todo list from args dict"""
-        args = {"todos": []}
+        args: dict[str, Any] = {"todos": []}
         result = TodoWriteTool.format_todo_list(args)
         self.assertEqual(result, "Your todo list is empty.")
 
@@ -19,7 +21,7 @@ class TestTodoWriteTool(BaseTest):
         """Test formatting from args with missing todos key raises validation error"""
         from pydantic import ValidationError
 
-        args = {}
+        args: dict[str, Any] = {}
         with self.assertRaises(ValidationError):
             TodoWriteTool.format_todo_list(args)
 
