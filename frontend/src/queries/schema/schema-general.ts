@@ -3042,7 +3042,7 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 
 export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
