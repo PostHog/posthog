@@ -420,8 +420,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, firstTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, secondTransformationFunction)
 
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
                 firstTransformationFunction.id,
