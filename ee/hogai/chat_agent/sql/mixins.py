@@ -1,5 +1,5 @@
 import asyncio
-from typing import cast
+from typing import Any, cast
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -102,9 +102,21 @@ class HogQLGeneratorMixin(AssistantContextMixin, HogQLDatabaseMixin):
             # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
             if finder.placeholder_fields or finder.has_filters:
-                dummy_placeholders: dict[str, ast.Expr] = {
-                    str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
-                }
+                dummy_placeholders: dict[str, Any] = {}
+                for field in finder.placeholder_fields:
+                    # Build nested dict structure for multi-part field chains
+                    # e.g., ["properties", "$app_version"] -> {"properties": {"$app_version": 1}}
+                    current: dict = dummy_placeholders
+                    for i, part in enumerate(field):
+                        key = str(part)
+                        if i == len(field) - 1:
+                            # Last element - set the dummy value
+                            current[key] = ast.Constant(value=1)
+                        else:
+                            # Intermediate element - create nested dict (if needed)
+                            if key not in current or not isinstance(current[key], dict):
+                                current[key] = {}
+                            current = current[key]
                 if finder.has_filters:
                     dummy_placeholders["filters"] = ast.Constant(value=1)
                 parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))

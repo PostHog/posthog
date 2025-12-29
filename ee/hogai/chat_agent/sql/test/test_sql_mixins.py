@@ -196,3 +196,58 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid complex SQL
         await mixin._quality_check_output(complex_output)
+
+    async def test_quality_check_output_with_nested_property_placeholder(self):
+        """Handles nested property placeholders correctly.
+
+        Regression test for: AttributeError: 'Constant' object has no attribute 'get'
+        This error occurred when placeholders like {properties.$app_version} were used,
+        because the dummy placeholder dict only had {"properties": Constant(1)} instead
+        of {"properties": {"$app_version": Constant(1)}}.
+        """
+        mixin = self._node
+
+        # Query with a nested property placeholder
+        nested_placeholder_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(
+                query="SELECT {properties.$app_version} as app_version, count() FROM events GROUP BY app_version"
+            ),
+            name="",
+            description="",
+        )
+
+        # Should not raise AttributeError: 'Constant' object has no attribute 'get'
+        await mixin._quality_check_output(nested_placeholder_output)
+
+    async def test_quality_check_output_with_deeply_nested_placeholder(self):
+        """Handles deeply nested placeholders correctly."""
+        mixin = self._node
+
+        # Query with a deeply nested placeholder
+        nested_placeholder_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(
+                query="SELECT {properties.$set.$geoip_city_name} as city, count() FROM events GROUP BY city"
+            ),
+            name="",
+            description="",
+        )
+
+        # Should handle deeply nested placeholder paths
+        await mixin._quality_check_output(nested_placeholder_output)
+
+    async def test_quality_check_output_with_multiple_placeholders_varying_depth(self):
+        """Handles multiple placeholders with different nesting depths."""
+        mixin = self._node
+
+        # Query with both simple and nested placeholders - use filters which is special-cased
+        # and nested property placeholders
+        mixed_placeholder_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(
+                query="SELECT {properties.$browser} as browser, {properties.$os} as os, count() FROM events WHERE {filters} GROUP BY browser, os"
+            ),
+            name="",
+            description="",
+        )
+
+        # Should handle mix of filter placeholder and nested property placeholders
+        await mixin._quality_check_output(mixed_placeholder_output)
