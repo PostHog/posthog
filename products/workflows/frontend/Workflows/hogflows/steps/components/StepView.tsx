@@ -177,7 +177,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
                         <LemonMenu
                             items={[
-                                // Moving a node is the same as deleting it and re-adding it
+                                // Copying a node allows re-adding it elsewhere in the workflow
                                 selectedNodeCanBeDeleted
                                     ? {
                                           label: 'Copy',
