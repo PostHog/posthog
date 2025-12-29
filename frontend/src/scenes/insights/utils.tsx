@@ -413,13 +413,14 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const INSIGHT_TYPE_URLS = {
-    TRENDS: urls.insightNew({ type: InsightType.TRENDS }),
-    STICKINESS: urls.insightNew({ type: InsightType.STICKINESS }),
-    LIFECYCLE: urls.insightNew({ type: InsightType.LIFECYCLE }),
-    FUNNELS: urls.insightNew({ type: InsightType.FUNNELS }),
-    RETENTION: urls.insightNew({ type: InsightType.RETENTION }),
-    PATHS: urls.insightNew({ type: InsightType.PATHS }),
+export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
+    [InsightType.TRENDS]: urls.insightNew({ type: InsightType.TRENDS }),
+    [InsightType.STICKINESS]: urls.insightNew({ type: InsightType.STICKINESS }),
+    [InsightType.LIFECYCLE]: urls.insightNew({ type: InsightType.LIFECYCLE }),
+    [InsightType.FUNNELS]: urls.insightNew({ type: InsightType.FUNNELS }),
+    [InsightType.RETENTION]: urls.insightNew({ type: InsightType.RETENTION }),
+    [InsightType.PATHS]: urls.insightNew({ type: InsightType.PATHS }),
+    [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),

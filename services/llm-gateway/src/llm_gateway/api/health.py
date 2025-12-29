@@ -2,6 +2,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from llm_gateway.db.postgres import acquire_connection
+
 logger = logging.getLogger(__name__)
 
 health_router = APIRouter()
@@ -15,7 +17,7 @@ async def root() -> dict[str, str]:
 @health_router.get("/_readiness")
 async def readiness(request: Request) -> dict[str, str]:
     try:
-        async with request.app.state.db_pool.acquire() as conn:
+        async with acquire_connection(request.app.state.db_pool) as conn:
             await conn.fetchval("SELECT 1")
         return {"status": "ready"}
     except Exception:

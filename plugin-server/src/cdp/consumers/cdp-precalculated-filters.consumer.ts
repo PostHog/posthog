@@ -282,6 +282,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                                     key: clickHouseEvent.distinct_id,
                                     payload: {
                                         distinct_id: clickHouseEvent.distinct_id,
+                                        person_id: clickHouseEvent.person_id!,
                                         team_id: clickHouseEvent.team_id,
                                         condition: filter.conditionHash,
                                         matches: matches,

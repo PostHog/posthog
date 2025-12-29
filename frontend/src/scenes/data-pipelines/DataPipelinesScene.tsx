@@ -5,6 +5,8 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -170,39 +172,86 @@ export function DataPipelinesScene(): JSX.Element {
         }
         if (currentTab === 'sources') {
             return (
-                <LemonButton to={urls.dataPipelinesNew('source')} type="primary" icon={<IconPlusSmall />} size="small">
-                    New source
-                </LemonButton>
+                <AppShortcut
+                    name="NewPipelineSource"
+                    keybind={[keyBinds.new]}
+                    intent="New source"
+                    interaction="click"
+                    scope={Scene.DataPipelines}
+                >
+                    <LemonButton
+                        to={urls.dataPipelinesNew('source')}
+                        type="primary"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        tooltip="New source"
+                    >
+                        New source
+                    </LemonButton>
+                </AppShortcut>
             )
         }
         if (currentTab === 'transformations') {
             return (
-                <LemonButton
-                    to={urls.dataPipelinesNew('transformation')}
-                    type="primary"
-                    icon={<IconPlusSmall />}
-                    size="small"
+                <AppShortcut
+                    name="NewPipelineTransformation"
+                    keybind={[keyBinds.new]}
+                    intent="New transformation"
+                    interaction="click"
+                    scope={Scene.DataPipelines}
                 >
-                    New transformation
-                </LemonButton>
+                    <LemonButton
+                        to={urls.dataPipelinesNew('transformation')}
+                        type="primary"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        tooltip="New transformation"
+                    >
+                        New transformation
+                    </LemonButton>
+                </AppShortcut>
             )
         }
         if (currentTab === 'destinations') {
             return (
+                <AppShortcut
+                    name="NewPipelineDestination"
+                    keybind={[keyBinds.new]}
+                    intent="New destination"
+                    interaction="click"
+                    scope={Scene.DataPipelines}
+                >
+                    <LemonButton
+                        to={urls.dataPipelinesNew('destination')}
+                        type="primary"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        tooltip="New destination"
+                    >
+                        New destination
+                    </LemonButton>
+                </AppShortcut>
+            )
+        }
+
+        return (
+            <AppShortcut
+                name="NewPipelineApp"
+                keybind={[keyBinds.new]}
+                intent="New app"
+                interaction="click"
+                scope={Scene.DataPipelines}
+            >
                 <LemonButton
-                    to={urls.dataPipelinesNew('destination')}
+                    to={urls.dataPipelinesNew('site_app')}
                     type="primary"
                     icon={<IconPlusSmall />}
                     size="small"
+                    tooltip="New app"
                 >
-                    New destination
+                    New app
                 </LemonButton>
-            )
-        }
-        return (
-            <LemonButton to={urls.dataPipelinesNew('site_app')} type="primary" icon={<IconPlusSmall />} size="small">
-                New app
-            </LemonButton>
+            </AppShortcut>
         )
     }
 

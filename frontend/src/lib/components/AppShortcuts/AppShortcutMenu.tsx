@@ -1,27 +1,41 @@
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import { IconAction } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
 import { AppShortcutType, appShortcutLogic } from './appShortcutLogic'
 
+function titleForKey(key: string): string {
+    switch (key) {
+        case 'global':
+            return 'App'
+        case Scene.SavedInsights:
+            return 'Product Analytics'
+        default:
+            // Split capitalized case (e.g. ProductAnalytics -> Product Analytics)
+            return key.replace(/([A-Z])/g, ' $1').replace(/^ /, '')
+    }
+}
+
 function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
     switch (shortcut.interaction) {
         case 'focus':
             return (
                 <div className="flex items-center gap-1 size-4">
-                    <IconArrowRight className="w-4 h-4 text-muted" />
+                    <IconAction className="w-4 h-4 text-muted" />
                 </div>
             )
         case 'click':
@@ -42,7 +56,7 @@ export function AppShortcutMenu(): JSX.Element | null {
     const comboboxRef = useRef<ListBoxHandle>(null)
 
     // Group shortcuts by scope, with scene-specific first and global last
-    const groupedShortcuts = React.useMemo(() => {
+    const groupedShortcuts = useMemo(() => {
         const groups: Record<string, AppShortcutType[]> = {}
         const currentScene = activeTab?.sceneId
 
@@ -66,13 +80,26 @@ export function AppShortcutMenu(): JSX.Element | null {
             if (b === 'global') {
                 return -1
             }
+
             return a.localeCompare(b)
         })
 
+        // Inside each group: priority first, then alphabetically
+        for (const key of sortedGroupKeys) {
+            groups[key].sort((a, b) => {
+                const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0)
+                if (priorityDiff !== 0) {
+                    return priorityDiff
+                }
+
+                return a.intent.localeCompare(b.intent)
+            })
+        }
+
         return sortedGroupKeys.map((key) => ({
             key,
+            title: titleForKey(key),
             shortcuts: groups[key],
-            title: key === 'global' ? 'App' : key.charAt(0).toUpperCase() + key.slice(1),
         }))
     }, [registeredAppShortcuts, activeTab])
 
@@ -86,6 +113,8 @@ export function AppShortcutMenu(): JSX.Element | null {
                 shortcut.ref.current?.click()
             } else if (shortcut.interaction === 'focus') {
                 shortcut.ref.current?.focus()
+            } else if (shortcut.interaction === 'function') {
+                shortcut.callback()
             }
 
             // Always close the menu after executing a shortcut
@@ -196,11 +225,10 @@ export function AppShortcutMenu(): JSX.Element | null {
             >
                 <Combobox ref={comboboxRef}>
                     <Combobox.Content>
-                        {groupedShortcuts.length === 0 ? (
-                            <Combobox.Empty>No actions available</Combobox.Empty>
-                        ) : (
-                            groupedShortcuts.map((group, groupIndex) => (
-                                <React.Fragment key={group.key}>
+                        <Combobox.Empty>No matching actions</Combobox.Empty>
+                        {groupedShortcuts.map((group, groupIndex) => (
+                            <React.Fragment key={group.key}>
+                                <Combobox.Group value={group.shortcuts.map((s) => s.intent)}>
                                     <Label
                                         intent="menu"
                                         className={cn('px-1', {
@@ -210,55 +238,53 @@ export function AppShortcutMenu(): JSX.Element | null {
                                         {group.title}
                                     </Label>
                                     <DropdownMenuSeparator />
-                                    {group.shortcuts.map((shortcut, index) => {
-                                        const isFirstItem = groupIndex === 0 && index === 0
-                                        return (
-                                            <Combobox.Group key={shortcut.name} value={[shortcut.intent]}>
-                                                <Combobox.Item focusFirst={isFirstItem} asChild>
-                                                    <ButtonPrimitive
-                                                        menuItem
-                                                        data-shortcut-name={shortcut.name}
-                                                        onClick={(e) => {
-                                                            e.preventDefault()
-                                                            e.stopPropagation()
-                                                            handleItemClick(shortcut)
-                                                        }}
-                                                        truncate
-                                                    >
-                                                        <span className="flex items-center gap-2 truncate max-w-full">
-                                                            {getShortcutIcon(shortcut)}
-                                                            {shortcut.intent}
-                                                        </span>
-                                                        <span className="ml-auto flex items-center gap-1">
-                                                            {(shortcut.keybind as string[][]).map(
-                                                                (keybindOption, index) => (
-                                                                    <React.Fragment key={index}>
-                                                                        {index > 0 && (
-                                                                            <span className="text-xs opacity-75">
-                                                                                or
-                                                                            </span>
+                                </Combobox.Group>
+                                {group.shortcuts.map((shortcut, index) => {
+                                    const isFirstItem = groupIndex === 0 && index === 0
+                                    return (
+                                        <Combobox.Group key={shortcut.name} value={[shortcut.intent]}>
+                                            <Combobox.Item focusFirst={isFirstItem} asChild>
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    data-shortcut-name={shortcut.name}
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        e.stopPropagation()
+                                                        handleItemClick(shortcut)
+                                                    }}
+                                                    truncate
+                                                >
+                                                    <span className="flex items-center gap-2 truncate max-w-full">
+                                                        {getShortcutIcon(shortcut)}
+                                                        {shortcut.intent}
+                                                    </span>
+                                                    <span className="ml-auto flex items-center gap-1">
+                                                        {(shortcut.keybind as string[][]).map(
+                                                            (keybindOption, index) => (
+                                                                <React.Fragment key={index}>
+                                                                    {index > 0 && (
+                                                                        <span className="text-xs opacity-75">or</span>
+                                                                    )}
+                                                                    <KeyboardShortcut
+                                                                        {...Object.fromEntries(
+                                                                            keybindOption.map((key: string) => [
+                                                                                key,
+                                                                                true,
+                                                                            ])
                                                                         )}
-                                                                        <KeyboardShortcut
-                                                                            {...Object.fromEntries(
-                                                                                keybindOption.map((key: string) => [
-                                                                                    key,
-                                                                                    true,
-                                                                                ])
-                                                                            )}
-                                                                            className="text-xs"
-                                                                        />
-                                                                    </React.Fragment>
-                                                                )
-                                                            )}
-                                                        </span>
-                                                    </ButtonPrimitive>
-                                                </Combobox.Item>
-                                            </Combobox.Group>
-                                        )
-                                    })}
-                                </React.Fragment>
-                            ))
-                        )}
+                                                                        className="text-xs"
+                                                                    />
+                                                                </React.Fragment>
+                                                            )
+                                                        )}
+                                                    </span>
+                                                </ButtonPrimitive>
+                                            </Combobox.Item>
+                                        </Combobox.Group>
+                                    )
+                                })}
+                            </React.Fragment>
+                        ))}
                     </Combobox.Content>
                     <Combobox.Search
                         placeholder="Search actions... escape to close"

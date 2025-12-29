@@ -81,6 +81,9 @@ class UpsertDashboardTool(MaxTool):
 
     args_schema: type[BaseModel] = UpsertDashboardToolArgs
 
+    def get_required_resource_access(self):
+        return [("dashboard", "editor")]
+
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, ToolMessagesArtifact | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)

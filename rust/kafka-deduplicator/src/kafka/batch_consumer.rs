@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,6 +7,7 @@ use crate::kafka::metrics_consts::{
     BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS, BATCH_CONSUMER_BATCH_FILL_RATIO,
     BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
 };
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
@@ -45,6 +45,9 @@ pub struct BatchConsumer<T> {
     // where we send batches after consuming them
     processor: Arc<dyn BatchConsumerProcessor<T>>,
 
+    // tracks processed offsets per partition for safe commits
+    offset_tracker: Arc<OffsetTracker>,
+
     // shutdown signal from parent process which
     // we assume will be wrapping start_consumption
     // in a spawned thread
@@ -60,6 +63,7 @@ where
         config: &ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
         processor: Arc<dyn BatchConsumerProcessor<T>>,
+        offset_tracker: Arc<OffsetTracker>,
         shutdown_rx: Receiver<()>,
         topic: &str,
         batch_size: usize,
@@ -86,6 +90,7 @@ where
             batch_size,
             batch_timeout,
             processor,
+            offset_tracker,
             shutdown_rx,
         })
     }
@@ -113,9 +118,6 @@ where
                 batch_result = Self::consume_batch(&mut stream, batch_size, batch_timeout) => {
                     match batch_result {
                         Ok((batch, collection_duration)) => {
-                            // track latest offsets with rdkafka consumer
-                            Self::store_offsets(&consumer, &batch);
-
                             // Record batch collection duration
                             metrics::histogram!(BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS)
                                 .record(collection_duration.as_millis() as f64);
@@ -151,15 +153,11 @@ where
                     }
                 }
 
-                // Commit offsets periodically that we store after each batch
-                // NOTE: this replicates stateful consumer direct commit handling
-                // since I assume we will initially share a ClientConfig used by
-                // stateful now when we transition. However, we can configure
-                // rdkafka internal client to *autocommit but manually store* offsets
-                // and keep the store-after-batch-created logic, and remove this manual
-                // commit operation entirely once we transition to batch consumer
+                // Commit offsets periodically from the offset tracker
+                // The offset tracker contains offsets that have been successfully processed
+                // by partition workers, ensuring we only commit what's been processed
                 _ = commit_interval.tick() => {
-                    let _ = Self::commit_offsets(&consumer);
+                    Self::commit_tracked_offsets(&consumer, &self.offset_tracker);
                 }
             }
         }
@@ -300,46 +298,57 @@ where
         &self.consumer
     }
 
-    /// best-effort attempt to store latest offsets seen in the supplied Batch.
-    /// TODO: move calls to this method downstream so processors can trigger this.
-    fn store_offsets(consumer: &StreamConsumer<BatchConsumerContext>, batch: &Batch<T>) {
-        let mut offsets = HashMap::<Partition, i64>::new();
-        for kmsg in batch.get_messages() {
-            let partition = kmsg.get_topic_partition();
-
-            if let Some(current) = offsets.get(&partition) {
-                if kmsg.get_offset() + 1 > *current {
-                    offsets.insert(partition, kmsg.get_offset() + 1);
-                }
-            } else {
-                offsets.insert(partition, kmsg.get_offset() + 1);
+    /// Commit offsets from the offset tracker to Kafka
+    ///
+    /// This commits only offsets that have been successfully processed by partition
+    /// workers, ensuring we never commit offsets for messages that haven't been processed.
+    ///
+    /// Commits are skipped during rebalancing to avoid committing offsets for partitions
+    /// that may have been revoked.
+    ///
+    /// After a successful commit, updates the offset tracker's committed offsets which
+    /// are used for checkpointing to track the true recovery point.
+    fn commit_tracked_offsets(
+        consumer: &StreamConsumer<BatchConsumerContext>,
+        offset_tracker: &OffsetTracker,
+    ) {
+        let offsets = match offset_tracker.get_committable_offsets() {
+            Ok(offsets) => offsets,
+            Err(crate::kafka::offset_tracker::OffsetTrackerError::RebalanceInProgress) => {
+                info!("Skipping offset commit during rebalancing");
+                metrics::counter!(
+                    crate::kafka::metrics_consts::OFFSET_TRACKER_COMMITS_SKIPPED_REBALANCING
+                )
+                .increment(1);
+                return;
             }
+        };
+
+        if offsets.is_empty() {
+            return;
         }
 
         let mut list = TopicPartitionList::new();
-        for (partition, max_offset) in offsets {
+        for (partition, next_offset) in &offsets {
             let _ = list.add_partition_offset(
                 partition.topic(),
                 partition.partition_number(),
-                rdkafka::Offset::Offset(max_offset),
+                rdkafka::Offset::Offset(*next_offset),
             );
         }
 
-        let _ = consumer.store_offsets(&list);
-    }
-
-    fn commit_offsets(consumer: &StreamConsumer<BatchConsumerContext>) -> Result<()> {
-        info!("Committing offsets...");
-
-        // Commit only the safe offsets
-        match consumer.commit_consumer_state(CommitMode::Async) {
+        // Use synchronous commit so we know exactly when offsets are committed.
+        // This is important for checkpointing - we need to track the committed
+        // offset (not just processed) for disaster recovery.
+        match consumer.commit(&list, CommitMode::Sync) {
             Ok(_) => {
-                info!("Successfully committed offsets");
-                Ok(())
+                info!("Committed offsets for {} partitions", offsets.len());
+                // Update the offset tracker with the committed offsets
+                // These are used for checkpointing to track the true recovery point
+                offset_tracker.mark_committed(&offsets);
             }
             Err(e) => {
-                warn!("Failed to commit safe offsets: {e}");
-                Err(e.into())
+                warn!("Failed to commit tracked offsets: {e}");
             }
         }
     }
