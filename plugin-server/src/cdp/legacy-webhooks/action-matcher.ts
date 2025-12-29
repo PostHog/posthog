@@ -18,7 +18,6 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { PostgresRouter } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { captureException } from '../../utils/posthog'
@@ -133,10 +132,7 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    constructor(
-        private postgres: PostgresRouter,
-        private actionManager: ActionManager
-    ) {}
+    constructor(private actionManager: ActionManager) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0

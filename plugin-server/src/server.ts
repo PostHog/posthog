@@ -1,8 +1,5 @@
 import * as Pyroscope from '@pyroscope/nodejs'
 import { Server } from 'http'
-import { CompressionCodecs, CompressionTypes } from 'kafkajs'
-import SnappyCodec from 'kafkajs-snappy'
-import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
@@ -31,7 +28,6 @@ import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
-import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
@@ -44,9 +40,6 @@ import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
-
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
-CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
@@ -151,10 +144,6 @@ export class PluginServer {
                     await consumer.start()
                     return consumer.service
                 })
-            }
-
-            if (capabilities.processAsyncWebhooksHandlers) {
-                serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
             }
 
             if (capabilities.evaluationScheduler) {

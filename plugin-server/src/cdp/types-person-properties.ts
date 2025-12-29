@@ -2,6 +2,7 @@
 
 export type PreCalculatedPersonProperties = {
     distinct_id: string
+    person_id: string
     team_id: number
     condition: string // 16-char conditionHash
     matches: boolean // true = matches, false = doesn't match
