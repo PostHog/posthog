@@ -15,6 +15,7 @@ const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
 
 // NOTE: These are controlled via the api so are more of a sanity fallback
 const MASKER_MAX_TTL = 60 * 60 * 24
+const MASKER_MAX_TTL_FLOW = 60 * 60 * 24 * 365 * 3 // 3 years
 const MASKER_MIN_TTL = 1
 
 type MaskContext = {
@@ -77,6 +78,11 @@ function getEntityId(invocation: CyclotronJobInvocation): string {
     return invocation.functionId
 }
 
+function getTtl(invocation: CyclotronJobInvocation, maskingConfig: HogFunctionMasking): number {
+    const maxTtl = isHogFlowInvocation(invocation) ? MASKER_MAX_TTL_FLOW : MASKER_MAX_TTL
+    return Math.max(MASKER_MIN_TTL, Math.min(maxTtl, maskingConfig.ttl ?? maxTtl))
+}
+
 /**
  * HogMaskerService
  *
@@ -123,7 +129,7 @@ export class HogMaskerService {
                     hash,
                     hogFunctionId: entityId,
                     increment: 0,
-                    ttl: Math.max(MASKER_MIN_TTL, Math.min(MASKER_MAX_TTL, maskingConfig.ttl ?? MASKER_MAX_TTL)),
+                    ttl: getTtl(item, maskingConfig),
                     threshold: maskingConfig.threshold,
                     allowedExecutions: 0,
                 }
