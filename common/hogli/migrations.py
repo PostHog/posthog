@@ -704,7 +704,17 @@ def _handle_duplicate_error(result: MigrationResult, pending: list[MigrationInfo
         if _fake_migration(app, name):
             click.secho(f"  ✓ Faked {app}.{name}", fg="green")
 
-            # Remove this migration from pending list so we don't try to cache it
+            # Cache the migration file before removing from pending list.
+            # This ensures we can roll it back later if we switch to a branch
+            # that doesn't have this migration file.
+            all_apps = get_managed_app_paths(REPO_ROOT)
+            migrations_dir = all_apps.get(app)
+            if migrations_dir:
+                source_path = migrations_dir / f"{name}.py"
+                if source_path.exists():
+                    _cache_migration(app, name, source_path)
+
+            # Remove from pending so _apply_migrations doesn't try to cache it again
             for m in pending[:]:
                 if m.app == app and m.name == name:
                     pending.remove(m)
