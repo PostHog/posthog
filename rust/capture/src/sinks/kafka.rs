@@ -332,15 +332,26 @@ impl KafkaSink {
                     let session_id = session_id
                         .as_deref()
                         .ok_or(CaptureError::MissingSessionId)?;
-                    let is_overflowing = match &self.replay_overflow_limiter {
-                        None => false,
-                        Some(limiter) => limiter.is_limited(session_id).await,
-                    };
 
-                    if is_overflowing {
+                    // Check for force_overflow from event restrictions first
+                    if force_overflow {
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "event_restriction")]
+                        )
+                        .increment(1);
                         (&self.replay_overflow_topic, Some(session_id))
                     } else {
-                        (&self.main_topic, Some(session_id))
+                        let is_overflowing = match &self.replay_overflow_limiter {
+                            None => false,
+                            Some(limiter) => limiter.is_limited(session_id).await,
+                        };
+
+                        if is_overflowing {
+                            (&self.replay_overflow_topic, Some(session_id))
+                        } else {
+                            (&self.main_topic, Some(session_id))
+                        }
                     }
                 }
             }
