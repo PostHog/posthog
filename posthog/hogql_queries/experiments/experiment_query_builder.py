@@ -401,7 +401,7 @@ class ExperimentQueryBuilder:
         Builds the metric_events CTE for funnel queries.
 
         Returns:
-            Tuple of (query, has_dw_steps) where query is either:
+            query where query is either:
             - A simple SelectQuery for events-only funnels
             - A SelectSetQuery (UNION ALL) combining events and DW sources
 
