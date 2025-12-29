@@ -23,9 +23,6 @@
 
 <!-- For features only -->
 
-- [ ] 🚀 Yes, publish to #changelog
-- [ ] ❌ No, it's not changelog worthy
-
 <!-- If publishing, your PR must include a 1-3 sentence description of the feature plus a screenshot or screen recording if applicable. 🙏 -->
 
 <!-- Check #changelog in Slack for more details. -->
