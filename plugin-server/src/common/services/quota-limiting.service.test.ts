@@ -25,8 +25,8 @@ describe('QuotaLimiting', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        service = new QuotaLimiting(hub, hub.teamManager)
-        redisPool = service['redisPool']
+        redisPool = hub.redisPool
+        service = new QuotaLimiting(redisPool, hub.teamManager)
         team = await getFirstTeam(hub)
 
         const otherTeamId = await createTeam(hub.db.postgres, team!.organization_id)

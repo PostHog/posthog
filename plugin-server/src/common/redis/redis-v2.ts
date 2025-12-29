@@ -1,8 +1,7 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import { PluginsServerConfig } from '../../types'
-import { REDIS_SERVER_KIND, createRedis } from '../../utils/db/redis'
+import { RedisPoolConfig, createRedisFromConfig } from '../../utils/db/redis'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -34,12 +33,11 @@ export type RedisV2 = {
     ) => Promise<Array<[Error | null, any]> | null>
 }
 
-// NOTE: This is intended to replace the general redis client with a nicer wrapper for using the client safely with the acquire locking
-export const createRedisV2Pool = (config: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisV2 => {
+export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const pool = createPool<RedisClient>(
         {
             create: async () => {
-                const client = await createRedis(config, kind)
+                const client = await createRedisFromConfig(config.connection)
 
                 defineLuaTokenBucket(client)
 
@@ -50,8 +48,8 @@ export const createRedisV2Pool = (config: PluginsServerConfig, kind: REDIS_SERVE
             },
         },
         {
-            min: config.REDIS_POOL_MIN_SIZE,
-            max: config.REDIS_POOL_MAX_SIZE,
+            min: config.poolMinSize,
+            max: config.poolMaxSize,
             autostart: true,
         }
     )

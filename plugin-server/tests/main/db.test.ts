@@ -64,6 +64,19 @@ describe('DB', () => {
     describe('redis', () => {
         describe('instrumentRedisQuery', () => {
             const otherErrorType = new Error('other error type')
+            let originalAcquire: typeof hub.redisPool.acquire
+            let originalRelease: typeof hub.redisPool.release
+
+            beforeEach(() => {
+                originalAcquire = hub.redisPool.acquire.bind(hub.redisPool)
+                originalRelease = hub.redisPool.release.bind(hub.redisPool)
+            })
+
+            afterEach(() => {
+                // Restore original methods so closeHub can properly clean up
+                hub.redisPool.acquire = originalAcquire
+                hub.redisPool.release = originalRelease
+            })
 
             it('should only throw Redis errors for operations', async () => {
                 hub.redisPool.acquire = jest.fn().mockImplementation(() => ({

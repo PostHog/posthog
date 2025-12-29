@@ -4,7 +4,7 @@ import express from 'ultimate-express'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
-import { createRedisV2Pool } from '~/common/redis/redis-v2'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -73,7 +73,20 @@ export class CdpApi {
         )
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
-        this.hogWatcher = new HogWatcherService(hub, createRedisV2Pool(hub, 'cdp'))
+        // CDP uses its own Redis instance with fallback to default
+        this.hogWatcher = new HogWatcherService(
+            hub,
+            createRedisV2PoolFromConfig({
+                connection: hub.CDP_REDIS_HOST
+                    ? {
+                          url: hub.CDP_REDIS_HOST,
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: hub.REDIS_URL },
+                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            })
+        )
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)

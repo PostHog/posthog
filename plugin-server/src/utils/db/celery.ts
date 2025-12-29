@@ -2,9 +2,8 @@ import { CacheOptions } from '@posthog/plugin-scaffold'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
-import { PluginsServerConfig, RedisPool } from '../../types'
+import { RedisPool } from '../../types'
 import { UUIDT } from '../utils'
-import { createRedisPool } from './redis'
 import { timeoutGuard } from './utils'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
@@ -15,11 +14,7 @@ const CELERY_DEFAULT_QUEUE = 'celery'
  * such as a shared message bus or an internal HTTP API.
  */
 export class Celery {
-    private redisPool: RedisPool
-
-    constructor(config: PluginsServerConfig) {
-        this.redisPool = createRedisPool(config, 'posthog')
-    }
+    constructor(private redisPool: RedisPool) {}
 
     private redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
         const { jsonSerialize = true } = options
