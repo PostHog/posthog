@@ -56,7 +56,7 @@ SUPPORTED_PUB_KEY_ALGS = [
 ]
 
 
-def user_id_to_handle(user_id: int) -> bytes:
+def user_id_to_handle(user_id: Any) -> bytes:
     """Convert a user ID to bytes for use as a WebAuthn user handle."""
     return str(user_id).encode("utf-8")
 
@@ -344,7 +344,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         """
         from django.contrib.auth import authenticate
 
-        challenge_b64 = request.session.get(WEBAUTHN_LOGIN_CHALLENGE_KEY)
+        challenge_b64 = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
 
         if not challenge_b64:
             return Response(
@@ -400,9 +400,6 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                     {"error": "Authentication failed. Please check your passkey and try again."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-
-            # Clean up session
-            del request.session[WEBAUTHN_LOGIN_CHALLENGE_KEY]
 
             # Check SSO enforcement
             sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
@@ -582,7 +579,6 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Verify the credential ID matches (convert pk to int for comparison)
         try:
             pk_str = str(pk)
         except (ValueError, TypeError):

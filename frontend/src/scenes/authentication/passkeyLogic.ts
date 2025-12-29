@@ -1,5 +1,4 @@
-import { startAuthentication } from '@simplewebauthn/browser'
-import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/types'
+import { type PublicKeyCredentialDescriptorJSON, startAuthentication } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'

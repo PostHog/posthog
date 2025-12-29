@@ -623,9 +623,10 @@ class WebauthnBackend(BaseBackend):
             return None
 
         # Get challenge from session
-        challenge_b64 = request.session.get(WEBAUTHN_LOGIN_CHALLENGE_KEY)
+        challenge_b64 = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
+
         if not challenge_b64:
-            structlog_logger.warning("invalid base64 when parsing webauthn challenge")
+            structlog_logger.warning("webuathn login missing challenge")
             return None
 
         # Extract userHandle from response

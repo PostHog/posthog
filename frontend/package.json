@@ -109,7 +109,6 @@
         "@radix-ui/react-toggle-group": "^1.1.10",
         "@react-hook/size": "^2.1.2",
         "@simplewebauthn/browser": "^13.2.2",
-        "@simplewebauthn/types": "^12.0.0",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
         "@tailwindcss/cli": "4.0.11",

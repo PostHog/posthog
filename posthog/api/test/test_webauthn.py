@@ -287,7 +287,7 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(pk=self.credential.pk).exists())
 
     def test_delete_nonexistent_credential(self):
-        response = self.client.delete(f"/api/webauthn/credentials/{uuid.uuid4()}")
+        response = self.client.delete(f"/api/webauthn/credentials/{uuid.uuid4()}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_delete_other_users_credential_fails(self):

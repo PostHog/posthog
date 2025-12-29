@@ -1,4 +1,4 @@
-import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/types'
+import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
