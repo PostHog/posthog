@@ -25,6 +25,10 @@ from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
+# HTTP send timeout for ClickHouse client during cohort calculation to prevent connection timeouts
+# on long-running queries that stream results
+CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS = 300
+
 
 def get_cohort_calculation_success_metric():
     """Counter for successful cohort calculations."""
@@ -176,7 +180,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         query_type="realtime_cohort_calculation",
                     ):
                         status_counts = {"entered": 0, "left": 0}
-                        async with get_client(team_id=cohort.team_id, http_send_timeout=300) as client:
+                        async with get_client(
+                            team_id=cohort.team_id, http_send_timeout=CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS
+                        ) as client:
                             async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
                                 status = row["status"]
                                 status_counts[status] += 1
@@ -184,6 +190,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     "team_id": cohort.team_id,
                                     "cohort_id": cohort.id,
                                     "person_id": str(row["person_id"]),
+                                    # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
                                     "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
                                     "status": status,
                                 }
