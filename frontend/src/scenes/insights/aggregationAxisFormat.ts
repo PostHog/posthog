@@ -47,10 +47,10 @@ export const formatAggregationAxisValue = (
                 formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
                 break
             case 'percentage':
-                formattedValue = percentage(value / 100)
+                formattedValue = percentage(value / 100, maxDecimalPlaces)
                 break
             case 'percentage_scaled':
-                formattedValue = percentage(value)
+                formattedValue = percentage(value, maxDecimalPlaces)
                 break
             case 'currency':
                 formattedValue = humanFriendlyCurrency(value)
