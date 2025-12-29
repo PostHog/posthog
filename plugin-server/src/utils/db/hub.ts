@@ -128,6 +128,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         postgres,
         redisPool,
         posthogRedisPool,
+        cookielessRedisPool,
         kafkaProducer,
         groupTypeManager,
         teamManager,
@@ -154,10 +155,12 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         hub.kafkaProducer.disconnect(),
         hub.redisPool.drain(),
         hub.posthogRedisPool.drain(),
+        hub.cookielessRedisPool.drain(),
         hub.postgres?.end(),
     ])
     await hub.redisPool.clear()
     await hub.posthogRedisPool.clear()
+    await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()
 
