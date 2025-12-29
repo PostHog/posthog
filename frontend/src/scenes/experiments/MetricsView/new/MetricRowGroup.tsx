@@ -561,7 +561,7 @@ export function MetricRowGroup({
             {/* Breakdown Results */}
             {result.breakdown_results?.map((breakdownResult) => {
                 const baselineResult = breakdownResult.baseline
-                const variantResults = breakdownResult.variants
+                const variantResults = breakdownResult.variants || []
 
                 if (variantResults.length === 0) {
                     return (

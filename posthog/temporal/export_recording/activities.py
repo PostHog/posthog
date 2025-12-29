@@ -138,7 +138,7 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
     recording_blocks = await database_sync_to_async(list_blocks)(recording)
 
     if not recording_blocks:
-        logger.warning("No recording blocks found, skipping prefix export")
+        logger.warning("No recording blocks found, skipping prefix export...")
         return
 
     first_block = recording_blocks[0]
@@ -273,7 +273,7 @@ async def store_export_data(input: ExportContext) -> None:
 
     logger.info(f"Created zip archive at {zip_path}")
 
-    s3_key = f"session_recording_export/{input.team_id}/{input.session_id}/{input.export_id}.zip"
+    s3_key = f"session_recording_exports/{input.team_id}/{input.session_id}/{input.export_id}.zip"
 
     async with session_recording_v2_object_storage.async_client() as storage:
         await storage.upload_file(s3_key, str(zip_path))

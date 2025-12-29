@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import Papa from 'papaparse'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,9 +8,15 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
-
+import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
+import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
+
+// Helper to get next order value for a new column
+const getNextOrder = (config: Record<string, AttributeColumnConfig>): number => {
+    const orders = Object.values(config).map((c) => c.order)
+    return orders.length > 0 ? Math.max(...orders) + 1 : 0
+}
 
 export interface VisibleLogsTimeRange {
     date_from: string
@@ -30,18 +36,15 @@ export interface LogsViewerLogicProps {
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
+    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
     props({} as LogsViewerLogicProps),
     key((props) => props.tabId),
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+    connect(() => ({
+        values: [logsViewerSettingsLogic, ['timezone', 'wrapBody', 'prettifyJson']],
+        actions: [logsViewerSettingsLogic, ['setTimezone', 'setWrapBody', 'setPrettifyJson']],
+    })),
 
     actions({
-        // Timezone (IANA string, e.g. "UTC", "America/New_York")
-        setTimezone: (timezone: string) => ({ timezone }),
-
-        // Display options
-        setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
-
         // Pinning
         togglePinLog: (log: ParsedLogMessage) => ({ log }),
 
@@ -85,6 +88,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         toggleAttributeColumn: (attributeKey: string) => ({ attributeKey }),
         removeAttributeColumn: (attributeKey: string) => ({ attributeKey }),
         setAttributeColumnWidth: (attributeKey: string, width: number) => ({ attributeKey, width }),
+        moveAttributeColumn: (attributeKey: string, direction: 'left' | 'right') => ({ attributeKey, direction }),
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
@@ -98,36 +102,14 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         copySelectedLogs: true,
         exportSelectedAsJson: true,
         exportSelectedAsCsv: true,
+
+        // Per-row prettify
+        togglePrettifyLog: (logId: string) => ({ logId }),
     }),
 
     reducers(({ props }) => ({
         // Synced from props via propsChanged
         logs: [props.logs, { setLogs: (_, { logs }) => logs }],
-
-        // Timezone selection (IANA string, persisted)
-        timezone: [
-            'UTC',
-            { persist: true },
-            {
-                setTimezone: (_, { timezone }) => timezone,
-            },
-        ],
-
-        wrapBody: [
-            true,
-            { persist: true },
-            {
-                setWrapBody: (_, { wrapBody }) => wrapBody,
-            },
-        ],
-
-        prettifyJson: [
-            true,
-            { persist: true },
-            {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
-            },
-        ],
 
         pinnedLogs: [
             {} as Record<string, ParsedLogMessage>,
@@ -206,30 +188,46 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             },
         ],
 
-        // Attribute columns shown in log list
-        attributeColumns: [
-            [] as string[],
+        // Attribute columns config (order, width, etc.)
+        attributeColumnsConfig: [
+            {} as Record<string, AttributeColumnConfig>,
             { persist: true },
             {
                 toggleAttributeColumn: (state, { attributeKey }) => {
-                    if (state.includes(attributeKey)) {
-                        return state.filter((k: string) => k !== attributeKey)
+                    if (attributeKey in state) {
+                        const { [attributeKey]: _, ...rest } = state
+                        return rest
                     }
-                    return [...state, attributeKey]
+                    return { ...state, [attributeKey]: { order: getNextOrder(state) } }
                 },
-                removeAttributeColumn: (state, { attributeKey }) => state.filter((k: string) => k !== attributeKey),
-            },
-        ],
-
-        // Attribute column widths (user-resizable)
-        attributeColumnWidths: [
-            {} as Record<string, number>,
-            { persist: true },
-            {
-                setAttributeColumnWidth: (state, { attributeKey, width }) => ({ ...state, [attributeKey]: width }),
                 removeAttributeColumn: (state, { attributeKey }) => {
                     const { [attributeKey]: _, ...rest } = state
                     return rest
+                },
+                setAttributeColumnWidth: (state, { attributeKey, width }) => {
+                    if (!(attributeKey in state)) {
+                        return state
+                    }
+                    return { ...state, [attributeKey]: { ...state[attributeKey], width } }
+                },
+                moveAttributeColumn: (state, { attributeKey, direction }) => {
+                    if (!(attributeKey in state)) {
+                        return state
+                    }
+                    const entries = Object.entries(state) as [string, AttributeColumnConfig][]
+                    const sorted = entries.sort(([, a], [, b]) => a.order - b.order)
+                    const index = sorted.findIndex(([key]) => key === attributeKey)
+                    const targetIndex = direction === 'left' ? index - 1 : index + 1
+                    if (targetIndex < 0 || targetIndex >= sorted.length) {
+                        return state
+                    }
+                    // Swap orders
+                    const [targetKey] = sorted[targetIndex]
+                    return {
+                        ...state,
+                        [attributeKey]: { ...state[attributeKey], order: state[targetKey].order },
+                        [targetKey]: { ...state[targetKey], order: state[attributeKey].order },
+                    }
                 },
             },
         ],
@@ -256,6 +254,22 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setSelectedLogIds: (_, { selectedLogIds }) => selectedLogIds,
                 clearSelection: () => ({}),
                 setLogs: () => ({}), // Clear selection when logs change
+            },
+        ],
+
+        prettifiedLogIds: [
+            new Set<string>(),
+            {
+                togglePrettifyLog: (state, { logId }) => {
+                    const next = new Set(state)
+                    if (next.has(logId)) {
+                        next.delete(logId)
+                    } else {
+                        next.add(logId)
+                    }
+                    return next
+                },
+                setLogs: () => new Set<string>(),
             },
         ],
     })),
@@ -295,23 +309,43 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 if (orderBy === 'latest') {
                     return {
                         date_from: dayjs(lastTimestamp).toISOString(),
-                        date_to: dayjs(firstTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).add(1, 'millisecond').toISOString(),
                     }
                 }
                 return {
                     date_from: dayjs(firstTimestamp).toISOString(),
-                    date_to: dayjs(lastTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).add(1, 'millisecond').toISOString(),
                 }
             },
         ],
 
         logsCount: [(s) => [s.logs], (logs: ParsedLogMessage[]): number => logs.length],
 
+        // Derived: ordered array of attribute column keys
+        attributeColumns: [
+            (s) => [s.attributeColumnsConfig],
+            (config: Record<string, AttributeColumnConfig>): string[] =>
+                Object.entries(config)
+                    .sort(([, a], [, b]) => a.order - b.order)
+                    .map(([key]) => key),
+        ],
+
+        // Derived: width lookup for attribute columns
+        attributeColumnWidths: [
+            (s) => [s.attributeColumnsConfig],
+            (config: Record<string, AttributeColumnConfig>): Record<string, number> =>
+                Object.fromEntries(
+                    Object.entries(config)
+                        .filter(([, c]) => c.width !== undefined)
+                        .map(([key, c]) => [key, c.width as number])
+                ),
+        ],
+
         isAttributeColumn: [
-            (s) => [s.attributeColumns],
-            (attributeColumns: string[]) =>
+            (s) => [s.attributeColumnsConfig],
+            (config: Record<string, AttributeColumnConfig>) =>
                 (attributeKey: string): boolean =>
-                    attributeColumns.includes(attributeKey),
+                    attributeKey in config,
         ],
 
         // Selection selectors
@@ -347,6 +381,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 }
             }
 
+            actions.recomputeRowHeights([logId])
+        },
+        togglePrettifyLog: ({ logId }) => {
             actions.recomputeRowHeights([logId])
         },
         moveCursorDown: ({ shiftSelect }) => {

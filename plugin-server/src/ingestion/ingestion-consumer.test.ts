@@ -206,7 +206,7 @@ describe.each([
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
         jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
@@ -242,7 +242,7 @@ describe.each([
         })
 
         it('should process a cookieless event', async () => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Stateful, team.id],
@@ -254,7 +254,7 @@ describe.each([
         })
 
         it('should drop a cookieless event if the team has cookieless disabled', async () => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Disabled, team.id],

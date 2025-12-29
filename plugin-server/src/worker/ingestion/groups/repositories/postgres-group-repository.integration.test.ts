@@ -22,13 +22,13 @@ describe('PostgresGroupRepository Integration', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        postgres = hub.db.postgres
+        await resetTestDatabase(undefined)
+        postgres = hub.postgres
         repository = new PostgresGroupRepository(postgres)
 
         const redis = await hub.redisPool.acquire()
         await redis.flushdb()
-        await hub.db.redisPool.release(redis)
+        await hub.redisPool.release(redis)
     })
 
     afterEach(async () => {

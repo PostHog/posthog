@@ -119,6 +119,15 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: { 'posthog-js': '1.300.0' },
         check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
     },
+    {
+        feature: 'Custom text colors',
+        sdkVersions: { 'posthog-js': '1.310.1', 'posthog-react-native': '4.17.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android'],
+        check: (s) =>
+            s.appearance?.textColor !== undefined ||
+            s.appearance?.inputTextColor !== undefined ||
+            s.appearance?.submitButtonTextColor !== undefined,
+    },
 ]
 
 export function meetsVersionRequirement(version: string | null | undefined, minVersion: string): boolean {

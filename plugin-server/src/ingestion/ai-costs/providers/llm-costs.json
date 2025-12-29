@@ -3804,12 +3804,12 @@
         "model": "nousresearch/deephermes-3-mistral-24b-preview",
         "cost": {
             "default": {
-                "prompt_token": 5e-8,
-                "completion_token": 2e-7
+                "prompt_token": 2e-8,
+                "completion_token": 1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 5e-8,
-                "completion_token": 2e-7
+                "prompt_token": 2e-8,
+                "completion_token": 1e-7
             }
         }
     },
@@ -3943,6 +3943,19 @@
             "deepinfra-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 4e-7
+            }
+        }
+    },
+    {
+        "model": "nvidia/nemotron-3-nano-30b-a3b",
+        "cost": {
+            "default": {
+                "prompt_token": 6e-8,
+                "completion_token": 2.4e-7
+            },
+            "deepinfra-bf16": {
+                "prompt_token": 6e-8,
+                "completion_token": 2.4e-7
             }
         }
     },
@@ -6841,7 +6854,7 @@
                 "completion_token": 0.0000016
             },
             "mancer-fp8": {
-                "prompt_token": 4e-7,
+                "prompt_token": 4.25e-7,
                 "completion_token": 0.000002
             },
             "nebius-fp8": {
