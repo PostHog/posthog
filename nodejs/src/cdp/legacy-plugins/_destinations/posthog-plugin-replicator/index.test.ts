@@ -73,12 +73,6 @@ describe('Replicator: onEvent', () => {
         })
 
         it('should reuse the values for timestamp, event, uuid', async () => {
-            // This is important to ensure that we end up sending the correct
-            // values for the properties that we dedup.
-            // NOTE: we should be reasonably confident that these are the
-            // values we'd receive as per the functional test here:
-            // https://github.com/PostHog/posthog/blob/771691e8bdd6bf4465887b88d0a6019c9b4b91d6/plugin-server/functional_tests/exports-v2.test.ts#L151
-
             await onEvent(
                 { distinct_id: '1234', event: 'my-event', uuid: 'asdf-zxcv' } as any,
                 { config, logger, fetch: fetchMock } as any

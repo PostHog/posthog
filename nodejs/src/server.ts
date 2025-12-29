@@ -387,14 +387,14 @@ export class PluginServer {
 
             Pyroscope.init({
                 serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
-                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'nodejs',
                 tags,
             })
 
             Pyroscope.start()
             logger.info('Continuous profiling started', {
                 serverAddress: this.config.PYROSCOPE_SERVER_ADDRESS,
-                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'plugin-server',
+                appName: this.config.PYROSCOPE_APPLICATION_NAME || 'nodejs',
                 tags,
             })
         } catch (error) {

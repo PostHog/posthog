@@ -33,7 +33,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
 
     const kafkaConfig = {
-        'client.id': 'plugin-server-test',
+        'client.id': 'nodejs-test',
         'metadata.broker.list': (config.KAFKA_HOSTS || '').split(',').join(','),
     }
 

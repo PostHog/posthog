@@ -15,8 +15,6 @@ export interface ReplicatorMetaInput {
 type StrippedEvent = Omit<ProcessedPluginEvent, 'team_id' | 'ip' | 'person'>
 
 const reverseAutocaptureEvent = (autocaptureEvent: StrippedEvent) => {
-    // TRICKY: This code basically reverses what the plugin server does
-    // Adapted from https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/elements-chain.ts#L105
     const { elements, properties, ...event } = autocaptureEvent
 
     const $elements = elements?.map((el) => {
