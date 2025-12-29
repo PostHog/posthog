@@ -11,9 +11,9 @@ import {
     groupEventsByTeam,
 } from './evaluation-scheduler'
 
-jest.mock('../../llm-analytics/services/temporal.service')
-jest.mock('../../llm-analytics/services/evaluation-manager.service')
-jest.mock('../../cdp/utils/hog-exec')
+jest.mock('~/llm-analytics/services/temporal.service')
+jest.mock('~/llm-analytics/services/evaluation-manager.service')
+jest.mock('~/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
     let hub: Hub
@@ -144,7 +144,7 @@ describe('Evaluation Scheduler', () => {
 
         beforeEach(() => {
             matcher = new EvaluationMatcher()
-            mockExecHog = require('../../cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
         })
 
         it('returns disabled when evaluation is not enabled', async () => {
