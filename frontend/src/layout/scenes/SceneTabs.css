@@ -73,3 +73,22 @@
 .scene-tab--pinned .scene-tab-title {
     display: none;
 }
+
+/* Tab add animation */
+@keyframes FadeIn__NewSceneTab {
+    from {
+        flex: 0;
+        min-width: 0;
+        opacity: 0;
+    }
+
+    to {
+        flex: 1;
+        min-width: 100px;
+        opacity: 1;
+    }
+}
+
+.scene-tab-adding {
+    animation: FadeIn__NewSceneTab 300ms ease-out forwards;
+}
