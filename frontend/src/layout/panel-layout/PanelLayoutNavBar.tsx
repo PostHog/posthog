@@ -329,7 +329,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement: 'bottom',
                                     tooltip: 'Switch organization',
                                 }}
-                                iconOnly={isLayoutNavCollapsed}
                             />
                             <ProjectMenu
                                 buttonProps={{
@@ -340,7 +339,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     tooltipPlacement: 'bottom',
                                     tooltip: 'Switch project',
                                 }}
-                                iconOnly={isLayoutNavCollapsed}
                             />
                         </div>
                     </div>

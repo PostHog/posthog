@@ -1,3 +1,6 @@
+/**
+ * @deprecated Use ProjectMenu instead
+ */
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
@@ -40,12 +43,11 @@ const EMOJI_INITIAL_REGEX =
 export function EnvironmentSwitcherOverlay({
     buttonProps = { className: 'font-semibold' },
     onClickInside,
-    iconOnly = false,
 }: {
     buttonProps?: ButtonPrimitiveProps
     onClickInside?: () => void
-    iconOnly?: boolean
 }): JSX.Element {
+    const iconOnly = buttonProps?.iconOnly ?? false
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam, currentProject } = useValues(teamLogic)
