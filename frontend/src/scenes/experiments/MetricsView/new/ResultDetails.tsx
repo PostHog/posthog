@@ -68,10 +68,12 @@ function convertExperimentResultToFunnelSteps(
                 stepName = 'Experiment exposure'
             } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
                 const series = metric.series[stepIndex - 1]
-                if (series.kind === NodeKind.EventsNode) {
-                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
-                } else {
+                if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+                    stepName = series.custom_name || series.name || series.table_name
+                } else if (series.kind === NodeKind.ActionsNode) {
                     stepName = series.custom_name || series.name || `Action ${series.id}`
+                } else {
+                    stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`
