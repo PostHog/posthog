@@ -6,7 +6,7 @@ import { sanitizeForUTF8 } from '~/utils/strings'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
-import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpDataWarehouseEvent, CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
@@ -87,6 +87,47 @@ export function convertToHogFunctionInvocationGlobals(
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+        },
+        person,
+    }
+
+    return context
+}
+
+export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
+    team,
+    personId,
+    distinctId,
+    siteUrl,
+}: {
+    team: Team
+    personId: string
+    distinctId: string
+    siteUrl: string
+}): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const person: HogFunctionInvocationGlobals['person'] = {
+        id: personId,
+        properties: {},
+        name: '',
+        url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+    }
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            event: '$incoming_webhook',
+            properties: {},
+            uuid: new UUIDT().toString(),
+            distinct_id: distinctId,
+            elements_chain: '',
+            timestamp: DateTime.now().toISO(),
+            url: '',
         },
         person,
     }

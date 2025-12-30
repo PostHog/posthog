@@ -9,6 +9,7 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
+import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-cyclotron-producer-batch.producer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -262,6 +263,14 @@ export class PluginServer {
                     const consumer = new LogsIngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.cdpBatchHogFlow) {
+                serviceLoaders.push(async () => {
+                    const producer = new CdpBatchHogFlowRequestsConsumer(hub)
+                    await producer.start()
+                    return producer.service
                 })
             }
 

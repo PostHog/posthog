@@ -7,6 +7,11 @@ export type PersonGetArgs = {
     distinctId: string
 }
 
+export type BatchPersonGetArgs = {
+    teamId: number
+    properties: Record<string, any>[]
+}
+
 const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
 
 const fromKey = (key: string): PersonGetArgs => {
@@ -43,6 +48,42 @@ export class PersonsManagerService {
     public async getMany(args: PersonGetArgs[]): Promise<Record<string, PersonManagerPerson | null>> {
         const keys = args.map(toKey)
         return await this.lazyLoader.getMany(keys)
+    }
+
+    public async countMany(filters: BatchPersonGetArgs): Promise<number> {
+        return await this.personRepository.countPersonsByProperties(filters)
+    }
+
+    public async streamMany({
+        filters,
+        options,
+        onPerson,
+    }: {
+        filters: BatchPersonGetArgs
+        options?: { limit?: number }
+        onPerson?: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
+    }): Promise<void> {
+        const opt = {
+            limit: options?.limit || 500,
+            offset: 0,
+        }
+        let personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, options: opt })
+        while (personBatch.length > 0) {
+            for (const personRow of personBatch) {
+                onPerson?.({
+                    personId: personRow.uuid,
+                    distinctId: personRow.distinct_id,
+                })
+            }
+
+            // Skip another query if our page wasn't full
+            if (personBatch.length < opt.limit) {
+                break
+            }
+
+            opt.offset += opt.limit
+            personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, options: opt })
+        }
     }
 
     // NOTE: Currently this essentially loads the "latest" template each time. We may need to swap this to using a specific version

@@ -59,6 +59,7 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
+    cdp_cyclotron_producer_batch = 'cdp-cyclotron-producer-batch',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -184,6 +185,10 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
+
+    // Batch hogflow configuration
+    HOGFLOW_BATCH_MAX_MESSAGES: number
+    HOGFLOW_BATCH_CONSUMER_RATE_LIMIT: number
 }
 
 export type IngestionConsumerConfig = {
@@ -428,6 +433,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PROPERTY_DEFS_WRITE_DISABLED: boolean
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+    CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
+
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
 
@@ -480,6 +487,7 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
+    cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean

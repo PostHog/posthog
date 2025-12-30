@@ -8,9 +8,11 @@ import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
+    PersonPropertyFilter,
     PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
+    PropertyOperator,
     RawPerson,
     Team,
     TeamId,
@@ -311,6 +313,201 @@ export class PostgresPersonRepository
             queryString,
             [teamIds, distinctIds],
             'fetchPersonsByDistinctIds'
+        )
+
+        return rows.map((row) => ({
+            ...this.toPerson(row),
+            distinct_id: row.distinct_id,
+        }))
+    }
+
+    private buildPropertyFilterCondition(
+        filter: PersonPropertyFilter,
+        paramIndex: number
+    ): { condition: string; values: any[] } {
+        const { key, value, operator = PropertyOperator.Exact } = filter
+        const values: any[] = []
+
+        switch (operator) {
+            case PropertyOperator.Exact:
+                // For exact match, use JSONB contains operator
+                values.push(JSON.stringify({ [key]: value }))
+                return { condition: `posthog_person.properties @> $${paramIndex}::jsonb`, values }
+
+            case PropertyOperator.IsNot:
+                // For is_not, check that the property either doesn't exist or has a different value
+                values.push(JSON.stringify({ [key]: value }))
+                return {
+                    condition: `NOT (posthog_person.properties @> $${paramIndex}::jsonb)`,
+                    values,
+                }
+
+            case PropertyOperator.IContains:
+                values.push(`%${value}%`)
+                return {
+                    condition: `posthog_person.properties->>'${key}' ILIKE $${paramIndex}`,
+                    values,
+                }
+
+            case PropertyOperator.NotIContains:
+                values.push(`%${value}%`)
+                return {
+                    condition: `NOT (posthog_person.properties->>'${key}' ILIKE $${paramIndex})`,
+                    values,
+                }
+
+            case PropertyOperator.Regex:
+                values.push(value)
+                return {
+                    condition: `posthog_person.properties->>'${key}' ~ $${paramIndex}`,
+                    values,
+                }
+
+            case PropertyOperator.NotRegex:
+                values.push(value)
+                return {
+                    condition: `NOT (posthog_person.properties->>'${key}' ~ $${paramIndex})`,
+                    values,
+                }
+
+            case PropertyOperator.GreaterThan:
+                values.push(value)
+                return {
+                    condition: `(posthog_person.properties->>'${key}')::numeric > $${paramIndex}::numeric`,
+                    values,
+                }
+
+            case PropertyOperator.LessThan:
+                values.push(value)
+                return {
+                    condition: `(posthog_person.properties->>'${key}')::numeric < $${paramIndex}::numeric`,
+                    values,
+                }
+
+            case PropertyOperator.IsSet:
+                return {
+                    condition: `posthog_person.properties ? '${key}'`,
+                    values: [],
+                }
+
+            case PropertyOperator.IsNotSet:
+                return {
+                    condition: `NOT (posthog_person.properties ? '${key}')`,
+                    values: [],
+                }
+
+            case PropertyOperator.IsDateAfter:
+            case PropertyOperator.IsDateBefore: {
+                const op = operator === PropertyOperator.IsDateAfter ? '>' : '<'
+                values.push(value)
+                return {
+                    condition: `(posthog_person.properties->>'${key}')::timestamp ${op} $${paramIndex}::timestamp`,
+                    values,
+                }
+            }
+
+            default:
+                // Fallback to exact match for unknown operators
+                values.push(JSON.stringify({ [key]: value }))
+                return { condition: `posthog_person.properties @> $${paramIndex}::jsonb`, values }
+        }
+    }
+
+    async countPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: PersonPropertyFilter[]
+    }): Promise<number> {
+        if (teamPersons.properties.length === 0) {
+            return 0
+        }
+
+        const teamId = teamPersons.teamId
+        const propertiesConditions = teamPersons.properties
+
+        // Build WHERE conditions for each properties filter
+        const whereConditions: string[] = []
+        const values: any[] = [teamId]
+
+        propertiesConditions.forEach((filter) => {
+            const { condition, values: filterValues } = this.buildPropertyFilterCondition(filter, values.length + 1)
+            whereConditions.push(condition)
+            values.push(...filterValues)
+        })
+
+        const queryString = `
+            SELECT COUNT(*) as count
+            FROM posthog_person
+            WHERE posthog_person.team_id = $1
+              AND (${whereConditions.join(' OR ')})
+        `
+
+        const { rows } = await this.postgres.query<{ count: string }>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            values,
+            'countPersonsByProperties'
+        )
+
+        return parseInt(rows[0]?.count || '0', 10)
+    }
+
+    async fetchPersonsByProperties(teamPersons: {
+        teamId: TeamId
+        properties: PersonPropertyFilter[]
+        options?: { limit?: number; offset?: number }
+    }): Promise<InternalPersonWithDistinctId[]> {
+        if (teamPersons.properties.length === 0) {
+            return []
+        }
+
+        const teamId = teamPersons.teamId
+        const propertiesConditions = teamPersons.properties
+        const { limit = 1000, offset = 0 } = teamPersons.options || {}
+
+        // Build WHERE conditions for each properties filter
+        const whereConditions: string[] = []
+        const values: any[] = [teamId]
+
+        propertiesConditions.forEach((filter) => {
+            const { condition, values: filterValues } = this.buildPropertyFilterCondition(filter, values.length + 1)
+            whereConditions.push(condition)
+            values.push(...filterValues)
+        })
+
+        // Add limit and offset at the end
+        const limitParamIndex = values.length + 1
+        const offsetParamIndex = values.length + 2
+        values.push(limit, offset)
+
+        const queryString = `
+            SELECT DISTINCT ON (posthog_person.id)
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.is_identified,
+                posthog_persondistinctid.distinct_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
+            WHERE posthog_person.team_id = $1
+              AND (${whereConditions.join(' OR ')})
+            ORDER BY posthog_person.id, posthog_persondistinctid.distinct_id
+            LIMIT $${limitParamIndex}
+            OFFSET $${offsetParamIndex}
+        `
+
+        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            values,
+            'fetchPersonsByProperties'
         )
 
         return rows.map((row) => ({
