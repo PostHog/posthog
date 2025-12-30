@@ -5,6 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -507,18 +508,22 @@ export class CdpApi {
                 return res.status(500).json({ error: 'Kafka producer not available' })
             }
 
+            if (hogFlow.trigger.type !== 'batch') {
+                return res.status(400).json({ error: 'Only batch hog flows are supported for batch jobs' })
+            }
+
             const batchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
                 filters: {
-                    properties: hogFlow.trigger.config.filters || [],
+                    properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,
                 },
             }
 
             await kafkaProducer.produce({
-                topic: 'cdp_batch_hogflow_requests',
-                value: JSON.stringify(batchHogFlowRequest),
+                topic: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
+                value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
                 key: `${team.id}_${hogFlow.id}`,
             })
 
