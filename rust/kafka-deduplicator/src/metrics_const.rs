@@ -90,12 +90,6 @@ pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 /// Counter for checkpoint worker status
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
-/// Counter for the number of checkpoint directories found
-pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
-
-/// Counter for the number of checkpoint directories deleted
-pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_attempts";
-
 /// Counts number of times a StoreManager lookup by partition
 /// finds no associated DeduplicationStore, meaning ownership
 /// has changed across a rebalance or other event asynchronously
