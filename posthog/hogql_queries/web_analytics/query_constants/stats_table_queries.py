@@ -203,7 +203,7 @@ LEFT JOIN (
     FROM (
         SELECT
             {time_on_page_breakdown_value} AS breakdown_value,
-            avg(toFloat(events.properties.`$prev_pageview_duration`)) AS avg_time,
+            avg(least(toFloat(events.properties.`$prev_pageview_duration`), 1800)) AS avg_time,
             session.session_id AS session_id,
             min(session.$start_timestamp) AS start_timestamp
         FROM events

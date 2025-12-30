@@ -2208,6 +2208,39 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             results,
         )
 
+    def test_avg_time_on_page_caps_at_30_minutes(self):
+        page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=36000),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+
+        self._create_pageviews("p1", page_views)
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        expected_avg = (60 + 1800 + 120) / 3
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (1, 0),
+                    (3, 0),
+                    (expected_avg, 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
     def test_calculate_pageview_statsistics_averages_per_person(self):
         p1_page_views = [
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
