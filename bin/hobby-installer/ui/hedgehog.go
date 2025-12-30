@@ -9,14 +9,14 @@ import (
 )
 
 var hedgehogMoods = []string{
-	"  /)_/)  \n ( o.o ) \n  > ^ <  ",
-	"  /)_/)  \n ( ^.^ ) \n  > ^ <  ",
-	"  /)_/)  \n ( >.< ) \n  > ^ <  ",
-	"  /)_/)  \n ( o.O ) \n  > ^ <  ",
-	"  /)_/)  \n ( -.- ) \n  > ^ <  ",
+	"  \\-|-/\n / o.o \\\n \\  w  /\n  '---'",
+	"  \\-|-/\n / ^.^ \\\n \\  w  /\n  '---'",
+	"  \\-|-/\n / >.< \\\n \\  w  /\n  '---'",
+	"  \\-|-/\n / o.O \\\n \\  o  /\n  '---'",
+	"  \\-|-/\n / -.- \\\n \\  z  /\n  '---'",
 }
 
-var hedgehogParty = "  /)_/)  \n ( ★.★ ) \n  > ^ <  ✨"
+var hedgehogParty = "  \\-★-/\n / ★.★ \\\n \\  w  /\n  '---' ✨"
 
 var hedgehogMessages = []string{
 	"Press space to pet the hedgehog",
