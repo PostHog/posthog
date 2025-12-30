@@ -400,7 +400,6 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             if (props.editTemplateId) {
                 actions.resetWorkflow(originalWorkflow)
-                lemonToast.success('Template updated')
                 return
             }
 
