@@ -18,6 +18,7 @@ pub struct MockRedisClient {
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
+    mget_error: Option<CustomRedisError>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -36,6 +37,7 @@ impl Default for MockRedisClient {
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
             mget_ret: HashMap::new(),
+            mget_error: None,
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -116,6 +118,11 @@ impl MockRedisClient {
 
     pub fn mget_ret(&mut self, key: &str, ret: Option<Vec<u8>>) -> Self {
         self.mget_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn mget_error(&mut self, err: CustomRedisError) -> Self {
+        self.mget_error = Some(err);
         self.clone()
     }
 }
@@ -404,6 +411,10 @@ impl Client for MockRedisClient {
             key: format!("keys={}", keys.len()),
             value: MockRedisValue::VecString(keys.clone()),
         });
+
+        if let Some(err) = &self.mget_error {
+            return Err(err.clone());
+        }
 
         let results: Vec<Option<Vec<u8>>> = keys
             .iter()
