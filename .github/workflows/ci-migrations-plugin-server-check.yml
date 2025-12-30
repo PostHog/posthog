@@ -1,4 +1,4 @@
-name: Migration & Plugin Server Separation Check
+name: Migration & Nodejs Services Separation Check
 
 on:
     pull_request:

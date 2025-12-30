@@ -56,7 +56,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
-# Build the plugin server
+# Build the nodejs services
 COPY ./nodejs/src/ ./nodejs/src/
 COPY ./nodejs/tests/ ./nodejs/tests/
 COPY ./nodejs/assets/ ./nodejs/assets/
@@ -65,7 +65,7 @@ COPY ./nodejs/bin/ ./nodejs/bin/
 # Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server
+# Then build the nodejs services
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
 
@@ -133,5 +133,5 @@ ENV NODE_ENV=production \
 # Expose the port from which we serve OpenMetrics data
 EXPOSE 8001
 
-# Default command: run the plugin server
+# Default command: run the nodejs services
 CMD ["node", "nodejs/dist/index.js"]

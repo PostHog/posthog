@@ -21,7 +21,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-    # Job to decide if we should run plugin server ci
+    # Job to decide if we should run nodejs services ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
         runs-on: ubuntu-latest

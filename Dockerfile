@@ -129,7 +129,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
-# Build the plugin server.
+# Build the nodejs services.
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
@@ -141,7 +141,7 @@ COPY ./nodejs/bin/ ./nodejs/bin/
 # Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server
+# Then build the nodejs services
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
 #

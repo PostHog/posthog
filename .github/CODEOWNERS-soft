@@ -97,7 +97,7 @@ posthog/templates/product_tour.py @PostHog/team-surveys
 posthog/tests/test_product_tour.py @PostHog/team-surveys
 posthog/tests/test_product_tour.py @PostHog/team-surveys
 
-# Plugin Server - ownership is split between ingestion and workflows teams
+# Nodejs Services - ownership is split between ingestion and workflows teams
 nodejs/src/ @PostHog/team-ingestion @PostHog/team-workflows
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion

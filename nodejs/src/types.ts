@@ -321,7 +321,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
+    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the service can go without ingesting events before the healthcheck fails
     SITE_URL: string
     TEMPORAL_HOST: string
     TEMPORAL_PORT: string | undefined

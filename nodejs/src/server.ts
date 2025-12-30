@@ -40,7 +40,7 @@ import { delay } from './utils/utils'
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
-    help: 'Time taken to start the plugin server, in milliseconds',
+    help: 'Time taken to start the nodejs service, in milliseconds',
 })
 
 export class PluginServer {

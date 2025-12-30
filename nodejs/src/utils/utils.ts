@@ -15,12 +15,12 @@ const GRACEFUL_EXIT_PERIOD_SECONDS = 5
 export class NoRowsUpdatedError extends Error {}
 
 export function killGracefully(): void {
-    logger.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
+    logger.error('⏲', 'Shutting nodejs services down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')
     setTimeout(() => {
         logger.error(
             '⏲',
-            `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`
+            `Nodejs services still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`
         )
         process.exit(1)
     }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)

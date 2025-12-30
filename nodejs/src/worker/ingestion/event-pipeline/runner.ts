@@ -14,8 +14,7 @@ import { captureException } from '../../../utils/posthog'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../group-type-manager'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
-import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
-import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
+import { MergeMode, PersonMergeLimitExceededError, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
 import { dropOldEventsStep } from './dropOldEventsStep'
@@ -101,7 +100,7 @@ export class EventPipelineRunner {
     }
 
     /**
-     * Heatmap ingestion will eventually be its own plugin server deployment
+     * Heatmap ingestion will eventually be its own nodejs service deployment
      * in the meantime we run this set of steps instead of wrapping each step in a conditional
      * in the main pipeline steps runner
      * or having a conditional inside each step

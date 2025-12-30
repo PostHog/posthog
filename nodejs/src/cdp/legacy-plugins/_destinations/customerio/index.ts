@@ -114,7 +114,7 @@ export const setupPlugin = async (meta: CustomerIoMeta) => {
 
 export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta) => {
     const { global, config, logger } = meta
-    // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the plugin server level
+    // KLUDGE: This shouldn't even run if setupPlugin failed. Needs to be fixed at the nodejs service level
     if (!global.eventNames) {
         throw new RetryError('Cannot run exportEvents because setupPlugin failed!')
     }
