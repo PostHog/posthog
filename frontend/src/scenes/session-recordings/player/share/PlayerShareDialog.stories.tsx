@@ -1,5 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useEffect } from 'react'
 
 import { PlayerShareRecording } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlayerShareLogicProps } from 'scenes/session-recordings/player/share/playerShareLogic'
@@ -58,31 +57,10 @@ LinearLink.args = {
     shareType: 'linear',
 }
 
-export const LinearLinkWithMoreOptionsExpanded: StoryFn<typeof PlayerShareRecording> = (
-    props: PlayerShareLogicProps
-) => {
-    useEffect(() => {
-        // Automatically open "More options" after render to protect against regressions
-        const timer = setTimeout(() => {
-            const buttons = Array.from(document.querySelectorAll('button'))
-            const moreOptionsButton = buttons.find((btn) => btn.textContent?.includes('More options'))
-            if (moreOptionsButton) {
-                moreOptionsButton.click()
-            }
-        }, 100)
-        return () => clearTimeout(timer)
-    }, [])
-
-    return (
-        <div>
-            <div className="border p-4">
-                <PlayerShareRecording {...props} />
-            </div>
-        </div>
-    )
-}
+export const LinearLinkWithMoreOptionsExpanded: Story = Template.bind({})
 LinearLinkWithMoreOptionsExpanded.args = {
     seconds: 120,
     id: '1',
     shareType: 'linear',
+    expandMoreOptions: true,
 }

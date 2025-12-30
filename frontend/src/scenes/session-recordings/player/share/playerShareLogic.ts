@@ -29,6 +29,7 @@ export type PlayerShareLogicProps = {
     seconds: number | null
     id: string
     shareType?: 'private' | 'public' | 'linear'
+    expandMoreOptions?: boolean
 }
 
 export const playerShareLogic = kea<playerShareLogicType>([

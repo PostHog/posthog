@@ -164,6 +164,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                             ),
                         },
                     ]}
+                    defaultActiveKey={props.expandMoreOptions ? 'more-options' : undefined}
                 />
                 <div className="flex justify-end">
                     <LemonButton
