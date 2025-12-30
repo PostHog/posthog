@@ -1246,6 +1246,7 @@ class TestManagementCommands(BaseTest):
 
     # Comprehensive tests for verify_flags_cache
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_miss_detection_and_fix(self):
         """Test that cache misses are detected and can be fixed."""
         from io import StringIO
@@ -1275,6 +1276,7 @@ class TestManagementCommands(BaseTest):
         self.assertIn("FIXED", output)
         self.assertIn("Cache fixes applied:  1", output)
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_mismatch_detection_and_fix(self):
         """Test that cache mismatches are detected and fixed."""
         from io import StringIO
@@ -1339,6 +1341,7 @@ class TestManagementCommands(BaseTest):
         self.assertEqual(eval_tag_diff["cached_value"], ["original-tag-name"])
         self.assertEqual(eval_tag_diff["db_value"], ["renamed-tag-name"])
 
+    @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""
         from io import StringIO
@@ -1909,3 +1912,41 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
         # Query both teams - should only return team 1
         result = _get_team_ids_with_recently_updated_flags([self.team.id, team2.id])
         assert result == {self.team.id}
+
+    def test_ignores_recently_deleted_flags(self):
+        """Test returns empty set for team with recently deleted flag.
+
+        When a flag is deleted, the cache update removes it. We shouldn't skip
+        verification just because a deleted flag was recently updated.
+        """
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="deleted-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            deleted=True,  # Flag is deleted
+        )
+        # Ensure updated_at is recent (within grace period)
+        assert flag.updated_at is not None
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()
+
+    def test_ignores_recently_deactivated_flags(self):
+        """Test returns empty set for team with recently deactivated flag.
+
+        When a flag is deactivated, the cache update removes it. We shouldn't skip
+        verification just because an inactive flag was recently updated.
+        """
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            active=False,  # Flag is inactive
+        )
+        # Ensure updated_at is recent (within grace period)
+        assert flag.updated_at is not None
+
+        result = _get_team_ids_with_recently_updated_flags([self.team.id])
+        assert result == set()

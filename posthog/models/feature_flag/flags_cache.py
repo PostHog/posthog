@@ -380,18 +380,22 @@ def _get_team_ids_with_flags() -> set[int]:
 
 def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
     """
-    Batch check which teams have flags updated within the grace period.
+    Batch check which teams have active flags updated within the grace period.
 
     When a flag is updated, an async task updates the cache. If verification
     runs before the async task completes, it sees a stale cache and tries to
     "fix" it, causing unnecessary work. This grace period lets recent async
     updates complete before treating cache misses as genuine errors.
 
+    Only considers active, non-deleted flags. When a flag is deleted or
+    deactivated, the cache update removes it, so we shouldn't skip verification
+    just because a deleted/inactive flag was recently updated.
+
     Args:
         team_ids: List of team IDs to check
 
     Returns:
-        Set of team IDs that have recently updated flags (should skip fix)
+        Set of team IDs that have recently updated active flags (should skip fix)
     """
     grace_period_minutes = settings.FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
     if grace_period_minutes <= 0 or not team_ids:
@@ -399,7 +403,7 @@ def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
 
     cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
     return set(
-        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff)
+        FeatureFlag.objects.filter(team_id__in=team_ids, updated_at__gte=cutoff, active=True, deleted=False)
         .values_list("team_id", flat=True)
         .distinct()
     )
