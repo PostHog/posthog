@@ -75,13 +75,7 @@ export function Navigation({
                 Skip to content
             </a>
             <div
-                className={cn(
-                    !simplerAppLayout && 'Navigation3000',
-                    !simplerAppLayout && mobileLayout && 'Navigation3000--mobile',
-                    !simplerAppLayout && 'Navigation3000--minimal-scene-layout',
-                    simplerAppLayout && 'app-layout bg-surface-tertiary',
-                    simplerAppLayout && mobileLayout && 'app-layout--mobile'
-                )}
+                className={cn('app-layout bg-surface-tertiary', mobileLayout && 'app-layout--mobile')}
                 style={
                     {
                         ...theme?.mainStyle,
@@ -95,22 +89,18 @@ export function Navigation({
                             ? 'var(--color-bg-surface-primary)'
                             : 'var(--color-bg-primary)',
                         '--side-panel-width': sidePanelWidth + 'px',
-                        ...(simplerAppLayout && {
-                            '--left-nav-width': isLayoutNavCollapsed
-                                ? 'var(--project-navbar-width-collapsed)'
-                                : 'var(--project-navbar-width)',
-                        }),
+                        '--left-nav-width': isLayoutNavCollapsed
+                            ? 'var(--project-navbar-width-collapsed)'
+                            : 'var(--project-navbar-width)',
                     } as React.CSSProperties
                 }
             >
                 <ProjectDragAndDropProvider>
-                    <PanelLayout className={simplerAppLayout ? 'left-nav' : ''} isSimplerAppLayout={simplerAppLayout} />
+                    <PanelLayout className="left-nav" isSimplerAppLayout={simplerAppLayout} />
 
-                    {simplerAppLayout && (
-                        <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start">
-                            <SceneTabs />
-                        </div>
-                    )}
+                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start">
+                        <SceneTabs />
+                    </div>
 
                     <div className="main-content-container overflow-hidden lg:rounded-lg border-t lg:border border-primary lg:mb-2">
                         <main

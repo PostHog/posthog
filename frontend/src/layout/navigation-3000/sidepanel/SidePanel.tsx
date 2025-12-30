@@ -211,7 +211,7 @@ export function SidePanel({
     return (
         <div
             className={clsx(
-                'SidePanel3000',
+                'SidePanel3000 h-screen',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
                 className
