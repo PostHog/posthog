@@ -13,11 +13,11 @@ import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogMessage, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import {
     JsonType,
@@ -33,7 +33,11 @@ import type { logsLogicType } from './logsLogicType'
 import { LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
+const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
+
+const isValidSeverityLevel = (level: string): level is LogSeverityLevel =>
+    VALID_SEVERITY_LEVELS.includes(level as LogSeverityLevel)
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
@@ -80,27 +84,18 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setSearchTerm(params.searchTerm)
             }
             if (params.severityLevels) {
-                try {
-                    const levels =
-                        typeof params.severityLevels === 'string'
-                            ? JSON.parse(params.severityLevels)
-                            : params.severityLevels
-                    if (Array.isArray(levels) && !equal(levels, values.severityLevels)) {
+                const parsed = parseTagsFilter(params.severityLevels)
+                if (parsed) {
+                    const levels = parsed.filter(isValidSeverityLevel)
+                    if (levels.length > 0 && !equal(levels, values.severityLevels)) {
                         actions.setSeverityLevels(levels)
                     }
-                } catch {
-                    // Ignore malformed severityLevels JSON in URL
                 }
             }
             if (params.serviceNames) {
-                try {
-                    const names =
-                        typeof params.serviceNames === 'string' ? JSON.parse(params.serviceNames) : params.serviceNames
-                    if (Array.isArray(names) && !equal(names, values.serviceNames)) {
-                        actions.setServiceNames(names)
-                    }
-                } catch {
-                    // Ignore malformed serviceNames JSON in URL
+                const names = parseTagsFilter(params.serviceNames)
+                if (names && !equal(names, values.serviceNames)) {
+                    actions.setServiceNames(names)
                 }
             }
             if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
