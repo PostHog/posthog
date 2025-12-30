@@ -333,11 +333,8 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         tmp_import_dir.path()
     );
 
-    // Verify store directory structure: <store_base>/<topic>/<partition>/
-    let expected_store_path = tmp_import_dir
-        .path()
-        .join(test_topic)
-        .join(test_partition.to_string());
+    // Verify store directory structure: <store_base>/<topic>_<partition>/<timestamp_millis>
+    let expected_store_path = downloaded_metadata.get_store_path(tmp_import_dir.path());
     assert!(
         expected_store_path.exists(),
         "Store directory structure should exist: {expected_store_path:?}"

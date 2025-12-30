@@ -456,10 +456,9 @@ mod tests {
         let base_path = Path::new("/data/stores");
         let store_path = metadata.get_store_path(base_path);
 
-        // Store path should be <base>/<topic>/<partition>/<timestamp_millis>
+        // Store path should be <base>/<topic>_<partition>/<timestamp_millis>
         let expected = base_path
-            .join(topic)
-            .join(partition.to_string())
+            .join(format!("{topic}_{partition}"))
             .join(timestamp_millis.to_string());
         assert_eq!(store_path, expected);
 
@@ -467,8 +466,7 @@ mod tests {
         let tmp_base = Path::new("/tmp/deduplication-store");
         let tmp_store_path = metadata.get_store_path(tmp_base);
         let tmp_expected = tmp_base
-            .join(topic)
-            .join(partition.to_string())
+            .join(format!("{topic}_{partition}"))
             .join(timestamp_millis.to_string());
         assert_eq!(tmp_store_path, tmp_expected);
     }
