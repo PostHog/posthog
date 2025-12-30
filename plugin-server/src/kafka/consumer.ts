@@ -726,7 +726,12 @@ export class KafkaConsumer {
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
                     const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-                    const backgroundTaskStart = performance.now()
+                    const stopBackgroundTaskTimer = result?.backgroundTask
+                        ? consumedBatchBackgroundDuration.startTimer({
+                              topic: this.config.topic,
+                              groupId: this.config.groupId,
+                          })
+                        : undefined
                     const taskCreatedAt = Date.now()
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
@@ -734,6 +739,8 @@ export class KafkaConsumer {
                     void backgroundTask.finally(async () => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
+
+                        stopBackgroundTaskTimer?.()
 
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
@@ -754,16 +761,6 @@ export class KafkaConsumer {
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
-                        }
-
-                        if (result?.backgroundTask) {
-                            // We only want to count the time spent in the background work if it was real
-                            consumedBatchBackgroundDuration
-                                .labels({
-                                    topic: this.config.topic,
-                                    groupId: this.config.groupId,
-                                })
-                                .observe(performance.now() - backgroundTaskStart)
                         }
                     })
 

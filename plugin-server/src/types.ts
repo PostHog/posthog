@@ -57,7 +57,6 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
-    cdp_legacy_webhooks = 'cdp-legacy-webhooks',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
 }
@@ -162,9 +161,7 @@ export type CdpConfig = {
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
-
-    CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID: string
-    CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC: string
+    CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
@@ -196,6 +193,8 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
+    INGESTION_JOINED_PIPELINE: boolean
 }
 
 export type LogsIngestionConsumerConfig = {
@@ -481,7 +480,6 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
-    cdpLegacyWebhooks?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean

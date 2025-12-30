@@ -1,12 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaConsumer } from '~/kafka/consumer'
+import { mutatePostIngestionEventWithElementsList } from '~/utils/event'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/utils/utils'
 
 import {
     Action,
-    HealthCheckResult,
     Hook,
     HookPayload,
     Hub,
@@ -16,42 +14,23 @@ import {
     Team,
 } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
-import { CdpConsumerBase } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
 
-/**
- * This consumer processes webhook events from the legacy webhooks system - this is the "hooks" table that used to be filled via Zapier.
- * Now the only path for creation is via a hog function but this just exists for now to keep non-migrated webhooks working.
- */
-
-export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
-    protected name = 'CdpLegacyWebhookConsumer'
-    protected kafkaConsumer: KafkaConsumer
+export class LegacyWebhookService {
     protected actionManager: ActionManager
     protected actionMatcher: ActionMatcher
 
-    constructor(hub: Hub) {
-        super(hub)
-
-        this.kafkaConsumer = new KafkaConsumer({
-            groupId: hub.CDP_LEGACY_WEBHOOK_CONSUMER_GROUP_ID,
-            topic: hub.CDP_LEGACY_WEBHOOK_CONSUMER_TOPIC,
-        })
-
+    constructor(private hub: Hub) {
         this.actionManager = new ActionManager(hub.postgres, hub.pubSub)
         this.actionMatcher = new ActionMatcher(this.actionManager)
-
-        logger.info('🔁', `CdpLegacyWebhookConsumer setup`)
     }
 
-    @instrumented('cdpLegacyWebhookConsumer.processEvent')
     public async processEvent(event: PostIngestionEvent) {
         const actionMatches = this.actionMatcher.match(event)
         if (!actionMatches.length) {
@@ -118,80 +97,52 @@ export class CdpLegacyWebhookConsumer extends CdpConsumerBase {
         )
     }
 
-    @instrumented('cdpLegacyWebhookConsumer.processBatch')
-    public async processBatch(events: PostIngestionEvent[]): Promise<{ backgroundTask: Promise<any> }> {
-        await Promise.resolve()
+    public async processBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
+        const events: PostIngestionEvent[] = []
+
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+
+                    if (
+                        !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
+                        !(await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
+                    ) {
+                        // exit early if no webhooks nor resthooks
+                        return
+                    }
+
+                    const eventWithoutGroups = convertToPostIngestionEvent(clickHouseEvent)
+                    // This is very inefficient, we always pull group properties for all groups (up to 5) for this event
+                    // from PG if a webhook is defined for this team.
+                    // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer
+                    // that will be deprecated in the near future by CDP/Hog
+                    const event = await addGroupPropertiesToPostIngestionEvent(
+                        eventWithoutGroups,
+                        this.hub.groupTypeManager,
+                        this.hub.teamManager,
+                        this.hub.groupRepository
+                    )
+
+                    events.push(event)
+                } catch (e) {
+                    logger.error('Error parsing message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
         return { backgroundTask: Promise.all(events.map((event) => this.processEvent(event))) }
     }
 
-    @instrumented('cdpLegacyWebhookConsumer.parseKafkaMessages')
-    public async _parseKafkaBatch(messages: Message[]): Promise<PostIngestionEvent[]> {
-        return await this.runWithHeartbeat(async () => {
-            const events: PostIngestionEvent[] = []
-
-            await Promise.all(
-                messages.map(async (message) => {
-                    try {
-                        const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-
-                        if (
-                            !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
-                            !(await this.hub.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
-                        ) {
-                            // exit early if no webhooks nor resthooks
-                            return
-                        }
-
-                        const eventWithoutGroups = convertToPostIngestionEvent(clickHouseEvent)
-                        // This is very inefficient, we always pull group properties for all groups (up to 5) for this event
-                        // from PG if a webhook is defined for this team.
-                        // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer
-                        // that will be deprecated in the near future by CDP/Hog
-                        const event = await addGroupPropertiesToPostIngestionEvent(
-                            eventWithoutGroups,
-                            this.hub.groupTypeManager,
-                            this.hub.teamManager,
-                            this.hub.groupRepository
-                        )
-
-                        events.push(event)
-                    } catch (e) {
-                        logger.error('Error parsing message', e)
-                        counterParseError.labels({ error: e.message }).inc()
-                    }
-                })
-            )
-
-            return events
-        })
-    }
-
     public async start(): Promise<void> {
-        await super.start()
         await this.actionManager.start()
-        // Start consuming messages
-        await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
-            return await instrumentFn('cdpLegacyWebhookConsumer.handleEachBatch', async () => {
-                const events = await this._parseKafkaBatch(messages)
-                return await this.processBatch(events)
-            })
-        })
     }
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
-        await this.kafkaConsumer.disconnect()
         await this.actionManager.stop()
-        await super.stop()
-        logger.info('💤', 'Consumer stopped!')
-    }
-
-    public isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
     }
 }
 

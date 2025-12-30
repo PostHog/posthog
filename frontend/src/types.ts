@@ -42,6 +42,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
+    CoreEvent,
     CurrencyCode,
     CustomerAnalyticsConfig,
     DashboardFilter,
@@ -660,6 +661,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
+    core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null

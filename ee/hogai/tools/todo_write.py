@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
@@ -225,6 +225,42 @@ class TodoWriteTool(MaxTool):
             "The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
             None,
         )
+
+    @staticmethod
+    def format_todo_list(todos: list[TodoItem] | dict[str, Any]) -> str:
+        """
+        Format a todo list into human-readable content.
+
+        Args:
+            todos: Either a list of TodoItem objects or a dict with 'todos' key (tool call args)
+
+        Returns:
+            Formatted string representation of the todo list
+        """
+        # Parse args dict if needed
+        if isinstance(todos, dict):
+            parsed_args = TodoWriteToolArgs(**todos)
+            todos = parsed_args.todos
+
+        if not todos:
+            return "Your todo list is empty."
+
+        lines = ["Your current todo list:"]
+        for todo in todos:
+            status = todo.status
+            content = todo.content
+
+            # Use status emoji/indicator
+            if status == "completed":
+                indicator = "✓"
+            elif status == "in_progress":
+                indicator = "→"
+            else:  # pending
+                indicator = "○"
+
+            lines.append(f"{indicator} [{status}] {content}")
+
+        return "\n".join(lines)
 
     @classmethod
     async def create_tool_class(

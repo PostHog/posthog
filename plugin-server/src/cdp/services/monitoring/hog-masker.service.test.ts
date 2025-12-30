@@ -253,6 +253,88 @@ describe('HogMasker', () => {
                 ).toHaveLength(1)
             })
 
+            describe('ttl constraints', () => {
+                const getRedisKeyTtl = async (): Promise<number> => {
+                    const keys = await redis.useClient({ name: 'test-keys' }, async (client) => {
+                        return await client.keys(`${BASE_REDIS_KEY}/mask/*`)
+                    })
+                    expect(keys?.length).toBe(1)
+                    const ttl = await redis.useClient({ name: 'test-ttl' }, async (client) => {
+                        return await client.ttl(keys![0])
+                    })
+                    return ttl!
+                }
+
+                const expectTtlNear = (ttl: number, expected: number) => {
+                    expect(ttl).toBeLessThanOrEqual(expected)
+                    expect(ttl).toBeGreaterThan(expected - 10)
+                }
+
+                const oneDaySeconds = 60 * 60 * 24
+                const threeYearsSeconds = 60 * 60 * 24 * 365 * 3
+
+                describe('hog functions', () => {
+                    it('should default to 1 day when ttl is null', async () => {
+                        const hogFunction = createHogFunction({
+                            masking: {
+                                ...HOG_MASK_EXAMPLES.all.masking!,
+                                ttl: null,
+                            },
+                        })
+
+                        await masker.filterByMasking([createExampleInvocation(hogFunction)])
+                        expectTtlNear(await getRedisKeyTtl(), oneDaySeconds)
+                    })
+
+                    it('should cap at 1 day max', async () => {
+                        const hogFunction = createHogFunction({
+                            masking: {
+                                ...HOG_MASK_EXAMPLES.all.masking!,
+                                ttl: 60 * 60 * 24 * 365, // 1 year
+                            },
+                        })
+
+                        await masker.filterByMasking([createExampleInvocation(hogFunction)])
+                        expectTtlNear(await getRedisKeyTtl(), oneDaySeconds)
+                    })
+                })
+
+                describe('hog flows', () => {
+                    const createFlowWithTtl = (ttl: number | null): HogFlow => ({
+                        id: `flow_${ttl}`,
+                        team_id: 1,
+                        name: 'Test Flow',
+                        version: 1,
+                        actions: [],
+                        status: 'active',
+                        trigger: {
+                            type: 'event',
+                            filters: {
+                                events: [],
+                            },
+                        },
+                        trigger_masking: {
+                            ...HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking!,
+                            ttl,
+                        },
+                        exit_condition: 'exit_only_at_end',
+                        edges: [],
+                    })
+
+                    it('should default to 3 years when ttl is null', async () => {
+                        const hogFlow = createFlowWithTtl(null)
+                        await masker.filterByMasking([createExampleHogFlowInvocation(hogFlow)])
+                        expectTtlNear(await getRedisKeyTtl(), threeYearsSeconds)
+                    })
+
+                    it('should cap at 3 years when set to a higher value', async () => {
+                        const hogFlow = createFlowWithTtl(60 * 60 * 24 * 365 * 10) // 10 years
+                        await masker.filterByMasking([createExampleHogFlowInvocation(hogFlow)])
+                        expectTtlNear(await getRedisKeyTtl(), threeYearsSeconds)
+                    })
+                })
+            })
+
             describe('hog flow trigger masking', () => {
                 let hogFlowEvery: HogFlow
                 let hogFlowOncePer: HogFlow

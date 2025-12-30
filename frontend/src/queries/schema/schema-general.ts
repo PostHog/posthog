@@ -1478,6 +1478,7 @@ export type RetentionFilter = {
     showTrendLines?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
+    goalLines?: GoalLine[]
 }
 
 export interface RetentionValue {
@@ -4536,6 +4537,32 @@ export enum MarketingAnalyticsBaseColumns {
 export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
+}
+
+/** Category for core events (lifecycle stages) */
+export enum CoreEventCategory {
+    Acquisition = 'acquisition',
+    Activation = 'activation',
+    Monetization = 'monetization',
+    Expansion = 'expansion',
+    Referral = 'referral',
+    Retention = 'retention',
+    Churn = 'churn',
+    Reactivation = 'reactivation',
+}
+
+/** Unified core event stored in Team settings */
+export interface CoreEvent {
+    /** Unique identifier */
+    id: string
+    /** Display name */
+    name: string
+    /** Optional description */
+    description?: string
+    /** Category (acquisition, activation, retention, referral, revenue) */
+    category: CoreEventCategory
+    /** Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.) */
+    filter: EventsNode | ActionsNode | DataWarehouseNode
 }
 
 export interface SourceFieldSSHTunnelConfig {
