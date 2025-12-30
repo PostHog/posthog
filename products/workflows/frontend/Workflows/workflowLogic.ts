@@ -23,10 +23,12 @@ import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogf
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
+import { workflowTemplateLogic } from './workflowTemplateLogic'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
+    editTemplateId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -144,6 +146,14 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
+                        if (props.editTemplateId) {
+                            // Editing a template - load it and add a temporary status field for the editor
+                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
+                            return {
+                                ...templateWorkflow,
+                                status: 'draft' as const, // Temporary status for editor compatibility, won't be saved
+                            } as HogFlow
+                        }
                         if (props.templateId) {
                             const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
 
@@ -168,6 +178,22 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
                 saveWorkflow: async (updates: HogFlow) => {
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
+
+                    // If we're in template edit mode, update the template instead
+                    if (props.editTemplateId) {
+                        const templateLogic = workflowTemplateLogic.findMounted({
+                            id: props.id || 'new',
+                            editTemplateId: props.editTemplateId,
+                        })
+                        if (templateLogic) {
+                            await templateLogic.actions.updateTemplateFromWorkflow(props.editTemplateId, updates)
+                        }
+
+                        return {
+                            ...updates,
+                            status: 'draft' as const,
+                        } as HogFlow
+                    }
 
                     if (!props.id || props.id === 'new') {
                         return api.hogFlows.createHogFlow(updates)
@@ -223,7 +249,11 @@ export const workflowLogic = kea<workflowLogicType>([
         },
     })),
     selectors({
-        logicProps: [() => [(_, props) => props], (props): WorkflowLogicProps => props],
+        logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        isTemplateEditMode: [
+            () => [(_, props: WorkflowLogicProps) => props],
+            (props: WorkflowLogicProps): boolean => !!props.editTemplateId,
+        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
@@ -365,6 +395,12 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.resetWorkflow(originalWorkflow)
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            if (props.editTemplateId) {
+                actions.resetWorkflow(originalWorkflow)
+                lemonToast.success('Template updated')
+                return
+            }
+
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(

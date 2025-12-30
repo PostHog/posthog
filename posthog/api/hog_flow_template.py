@@ -197,6 +197,9 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         data.pop("team_id", None)
         data.pop("created_at", None)
         data.pop("updated_at", None)
+        data.pop("created_by", None)
+        data.pop("status", None)
+        data.pop("version", None)
 
         return data
 
