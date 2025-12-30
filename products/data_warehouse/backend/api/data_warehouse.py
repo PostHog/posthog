@@ -656,7 +656,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                             }
                         )
                 except Exception as e:
-                    logger.warning(f"Error processing destination {destination.id}", exc_info=e)
+                    logger.warning("Error processing destination", destination_id=destination.id, exc_info=e)
 
             # Sort by failed_at descending with None values last
             results.sort(key=lambda x: (x["failed_at"] is None, x["failed_at"] or ""), reverse=True)
