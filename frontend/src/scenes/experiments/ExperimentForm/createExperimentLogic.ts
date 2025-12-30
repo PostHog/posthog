@@ -425,7 +425,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     const filteredPayload = {
                         ...filterExperimentForUpdate(experimentPayload),
                         // Ensure these are always included for update
-                        stats_config: statsConfig,
+                        scheduling_config: schedulingConfig,
                         saved_metrics_ids: savedMetrics,
                     }
                     response = (await api.update(
