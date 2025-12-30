@@ -154,7 +154,7 @@ mod tests {
 
     use crate::{
         flags::{
-            flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
+            flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup, HypercacheFlagsWrapper},
             test_helpers::{hypercache_test_key, update_flags_in_hypercache},
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
@@ -421,6 +421,121 @@ mod tests {
                 .key,
             "is_premium"
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_flags_from_hypercache_compressed_payload() {
+        use common_compression::compress_zstd;
+
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None).await;
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("Failed to insert team in Redis");
+
+        // Create a large payload with multiple flags (>512 bytes triggers compression in Django)
+        let large_flags = FeatureFlagList {
+            flags: (0..10)
+                .map(|i| FeatureFlag {
+                    id: i,
+                    team_id: team.id,
+                    name: Some(format!("Test Flag {} with a longer name for size", i)),
+                    key: format!("test_flag_{}_with_extra_chars_for_larger_payload", i),
+                    deleted: false,
+                    active: i % 2 == 0,
+                    filters: FlagFilters {
+                        groups: vec![FlagPropertyGroup {
+                            properties: Some(vec![PropertyFilter {
+                                key: format!("property_key_{}", i),
+                                value: Some(serde_json::json!(format!("value_{}", i))),
+                                operator: Some(OperatorType::Exact),
+                                prop_type: PropertyType::Person,
+                                group_type_index: None,
+                                negation: None,
+                            }]),
+                            rollout_percentage: Some(50.0 + i as f64),
+                            variant: None,
+                        }],
+                        multivariate: None,
+                        aggregation_group_type_index: None,
+                        payloads: None,
+                        super_groups: None,
+                        holdout_groups: None,
+                    },
+                    ensure_experience_continuity: Some(false),
+                    version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
+                    bucketing_identifier: None,
+                })
+                .collect(),
+        };
+
+        // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd
+        let wrapper = HypercacheFlagsWrapper {
+            flags: large_flags.flags.clone(),
+        };
+        let json_string = serde_json::to_string(&wrapper).expect("Failed to serialize to JSON");
+
+        // Verify payload is large enough to trigger compression
+        assert!(
+            json_string.len() > 512,
+            "Payload should be >512 bytes to simulate compressed data, was {} bytes",
+            json_string.len()
+        );
+
+        let pickled_bytes =
+            serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle");
+        let compressed_bytes = compress_zstd(&pickled_bytes).expect("Failed to compress with zstd");
+
+        // Write compressed data directly to Redis (simulating Django's HyperCache)
+        let cache_key = hypercache_test_key(team.id);
+        redis_client
+            .set_bytes(cache_key, compressed_bytes, None)
+            .await
+            .expect("Failed to write compressed data to Redis");
+
+        // Create FlagService and verify it can read the compressed data
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            hypercache_reader,
+        );
+
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
+        assert!(
+            result.is_ok(),
+            "Failed to read compressed flags: {:?}",
+            result.err()
+        );
+
+        let flag_result = result.unwrap();
+        assert!(
+            flag_result.was_cache_hit,
+            "Expected cache hit for compressed data"
+        );
+        assert_eq!(
+            flag_result.flag_list.flags.len(),
+            10,
+            "Expected 10 flags from compressed payload"
+        );
+
+        // Verify flag contents were correctly decompressed and parsed
+        let first_flag = &flag_result.flag_list.flags[0];
+        assert_eq!(
+            first_flag.key,
+            "test_flag_0_with_extra_chars_for_larger_payload"
+        );
+        assert!(first_flag.active);
+
+        let last_flag = &flag_result.flag_list.flags[9];
+        assert_eq!(
+            last_flag.key,
+            "test_flag_9_with_extra_chars_for_larger_payload"
+        );
+        assert!(!last_flag.active); // 9 % 2 != 0
     }
 
     #[tokio::test]
