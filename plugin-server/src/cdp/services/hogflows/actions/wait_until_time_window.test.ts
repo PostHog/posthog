@@ -3,8 +3,9 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlowAction } from '~/schema/hogflow'
 
+import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { findActionByType } from '../hogflow-utils'
-import { getWaitUntilTime } from './wait_until_time_window'
+import { WaitUntilTimeWindowHandler, getWaitUntilTime } from './wait_until_time_window'
 
 describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
     let action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
@@ -156,6 +157,142 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 `"2025-01-01T21:00:00.000+09:00"`
             )
             expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-02T14:00:00.000+09:00"`)
+        })
+    })
+
+    describe('isResumingFromWaitUntilTimeWindow', () => {
+        let handler: WaitUntilTimeWindowHandler
+
+        beforeEach(() => {
+            handler = new WaitUntilTimeWindowHandler()
+        })
+
+        it('should resume when time window has passed based on startedAtTimestamp, even if queueScheduledAt is set', () => {
+            const actionStartedAt = DateTime.utc().set({ hour: 12, minute: 0 })
+            const now = DateTime.utc().set({ hour: 15, minute: 30 })
+            jest.setSystemTime(now.toJSDate())
+
+            const invocation = {
+                state: {
+                    currentAction: {
+                        id: 'wait_until_time_window',
+                        startedAtTimestamp: actionStartedAt.toMillis(),
+                    },
+                },
+                queueScheduledAt: now.plus({ days: 1 }), // Stale future time
+            } as CyclotronJobInvocationHogFlow
+
+            // Time window is 14:00-16:00, action started at 12:00, now is 15:30
+            // Should resume because we're past the scheduled time (14:00) based on when action started
+            const result = handler['isResumingFromWaitUntilTimeWindow'](invocation, action)
+            expect(result).toBe(true)
+        })
+
+        it('should not resume when time window has not yet arrived based on startedAtTimestamp', () => {
+            const actionStartedAt = DateTime.utc().set({ hour: 13, minute: 30 })
+            const now = DateTime.utc().set({ hour: 13, minute: 45 })
+            jest.setSystemTime(now.toJSDate())
+
+            const invocation = {
+                state: {
+                    currentAction: {
+                        id: 'wait_until_time_window',
+                        startedAtTimestamp: actionStartedAt.toMillis(),
+                    },
+                },
+                queueScheduledAt: now.plus({ hours: 1 }), // Future time
+            } as CyclotronJobInvocationHogFlow
+
+            // Time window is 14:00-16:00, action started at 13:30, now is 13:45
+            // Should not resume because we're before the scheduled time (14:00)
+            const result = handler['isResumingFromWaitUntilTimeWindow'](invocation, action)
+            expect(result).toBe(false)
+        })
+
+        it('should resume when exactly at the window start time based on startedAtTimestamp', () => {
+            const actionStartedAt = DateTime.utc().set({ hour: 12, minute: 0 })
+            const now = DateTime.utc().set({ hour: 14, minute: 0 })
+            jest.setSystemTime(now.toJSDate())
+
+            const invocation = {
+                state: {
+                    currentAction: {
+                        id: 'wait_until_time_window',
+                        startedAtTimestamp: actionStartedAt.toMillis(),
+                    },
+                },
+                queueScheduledAt: now.plus({ days: 1 }),
+            } as CyclotronJobInvocationHogFlow
+
+            // Time window is 14:00-16:00, action started at 12:00, now is exactly 14:00
+            // Should resume because we're at or past the scheduled time
+            const result = handler['isResumingFromWaitUntilTimeWindow'](invocation, action)
+            expect(result).toBe(true)
+        })
+
+        it('should return false when startedAtTimestamp is missing', () => {
+            const invocation = {
+                state: {
+                    currentAction: {
+                        id: 'wait_until_time_window',
+                        // No startedAtTimestamp
+                    },
+                },
+            } as CyclotronJobInvocationHogFlow
+
+            const result = handler['isResumingFromWaitUntilTimeWindow'](invocation, action)
+            expect(result).toBe(false)
+        })
+    })
+
+    describe('getWaitUntilTimeForAction', () => {
+        it('should calculate wait time based on specific start time, not current time', () => {
+            const handler = new WaitUntilTimeWindowHandler()
+            const startTime = DateTime.utc().set({ hour: 10, minute: 0 })
+            const now = DateTime.utc().set({ hour: 12, minute: 0 })
+            jest.setSystemTime(now.toJSDate())
+
+            const invocation = {
+                state: {
+                    currentAction: {
+                        id: 'wait_until_time_window',
+                        startedAtTimestamp: startTime.toMillis(),
+                    },
+                },
+            } as CyclotronJobInvocationHogFlow
+
+            // Should calculate based on 10:00 start time, not current time (12:00)
+            // Time window is 14:00-16:00, so wait until 14:00
+            const result = handler['isResumingFromWaitUntilTimeWindow'](invocation, action)
+            expect(result).toBe(false)
+
+            // Move time forward to 14:30
+            jest.setSystemTime(DateTime.utc().set({ hour: 14, minute: 30 }).toJSDate())
+            const result2 = handler['isResumingFromWaitUntilTimeWindow'](invocation, action)
+            expect(result2).toBe(true)
+        })
+
+        it('should handle time window spanning midnight based on start time', () => {
+            const handler = new WaitUntilTimeWindowHandler()
+            action.config.time = ['23:00', '01:00']
+
+            const startTime = DateTime.utc().set({ hour: 22, minute: 0 }) // 22:00
+            const invocation = {
+                state: {
+                    currentAction: {
+                        id: 'wait_until_time_window',
+                        startedAtTimestamp: startTime.toMillis(),
+                    },
+                },
+            } as CyclotronJobInvocationHogFlow
+
+            // Before window (23:00)
+            jest.setSystemTime(DateTime.utc().set({ hour: 22, minute: 30 }).toJSDate())
+            expect(handler['isResumingFromWaitUntilTimeWindow'](invocation, action)).toBe(false)
+
+            // In window (23:30)
+            jest.setSystemTime(DateTime.utc().set({ hour: 23, minute: 30 }).toJSDate())
+            expect(handler['isResumingFromWaitUntilTimeWindow'](invocation, action)).toBe(true)
         })
     })
 })

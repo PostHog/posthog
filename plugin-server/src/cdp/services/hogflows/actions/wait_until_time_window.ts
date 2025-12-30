@@ -16,10 +16,9 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
         action,
         result,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
-        // Check if we're resuming from a wait_until_time_window (queueScheduledAt was cleared when queue consumed the job)
-        const isResuming = !invocation.queueScheduledAt && this.isResumingFromWaitUntilTimeWindow(invocation, action)
+        const isResumingFromWait = this.isResumingFromWaitUntilTimeWindow(invocation, action)
 
-        if (isResuming) {
+        if (isResumingFromWait) {
             const nextAction = findContinueAction(invocation)
             result.logs.push({
                 level: 'info',
@@ -47,9 +46,11 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
             return false
         }
 
-        // Recalculate when the wait until time should be
-        const waitUntilTime = getWaitUntilTime(action)
-        // If getWaitUntilTime returns null, it means we're within the time window and should execute immediately
+        const actionStartedAt = DateTime.fromMillis(startedAtTimestamp).toUTC()
+        const waitUntilTime = getWaitUntilTimeForAction(action, actionStartedAt)
+
+        // If waitUntilTime is null, it means we were already in the window when the action started,
+        // so we should have executed immediately. Otherwise, check if we're past the scheduled time.
         return waitUntilTime === null || DateTime.utc() >= waitUntilTime
     }
 }
@@ -88,28 +89,39 @@ export const getWaitUntilTime = (
     action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 ): DateTime | null => {
     const now = DateTime.utc().setZone(action.config.timezone || 'UTC')
+    return getWaitUntilTimeForAction(action, now)
+}
+
+function getWaitUntilTimeForAction(
+    action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>,
+    startTime: DateTime
+): DateTime | null {
+    const startTimeInZone = startTime.setZone(action.config.timezone || 'UTC')
     const config = action.config
 
     if (config.time === 'any') {
-        return getNextValidDay(now, config.day)
+        return getNextValidDay(startTimeInZone, config.day)
     }
 
-    const [startTime, endTime] = config.time
-    const [startHours, startMinutes] = startTime.split(':').map(Number)
-    const [endHours, endMinutes] = endTime.split(':').map(Number)
+    const [startHours, startMinutes] = config.time[0].split(':').map(Number)
+    const [endHours, endMinutes] = config.time[1].split(':').map(Number)
 
-    // Try today first
-    let nextTime = now.set({ hour: startHours, minute: startMinutes, second: 0, millisecond: 0 })
-    const endTimeToday = now.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
+    // Try the time window on the start day
+    let nextTime = startTimeInZone.set({ hour: startHours, minute: startMinutes, second: 0, millisecond: 0 })
+    const endTimeOnStartDay = startTimeInZone.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
 
-    // If we're within the time window today, execute immediately
-    if (now >= nextTime && now <= endTimeToday && isValidDay(now, config.day)) {
+    // If we were within the time window when the action started, execute immediately
+    if (
+        startTimeInZone >= nextTime &&
+        startTimeInZone <= endTimeOnStartDay &&
+        isValidDay(startTimeInZone, config.day)
+    ) {
         return null
     }
 
     // If time has passed or day doesn't match, find next valid day
-    if (nextTime <= now || !isValidDay(nextTime, config.day)) {
-        nextTime = getNextValidDay(now, config.day).set({
+    if (nextTime <= startTimeInZone || !isValidDay(nextTime, config.day)) {
+        nextTime = getNextValidDay(startTimeInZone, config.day).set({
             hour: startHours,
             minute: startMinutes,
             second: 0,
