@@ -482,7 +482,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             })
         },
-        triggerManualWorkflow: async ({ variables, scheduledAt }) => {
+        triggerManualWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
@@ -490,7 +490,8 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            lemonToast.info(scheduledAt ? 'Scheduling workflow...' : 'Triggering workflow...')
+            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
+            lemonToast.info(isScheduleTrigger ? 'Scheduling workflow...' : 'Triggering workflow...')
 
             try {
                 await fetch(webhookUrl, {
@@ -501,12 +502,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     body: JSON.stringify({
                         user_id: values.user?.email,
                         $variables: variables,
-                        $scheduled_at: scheduledAt,
                     }),
                     credentials: 'omit',
                 })
 
-                lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                lemonToast.success(`Workflow ${isScheduleTrigger ? 'scheduled' : 'triggered'}`, {
                     button: {
                         label: 'View logs',
                         action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
@@ -517,16 +517,18 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({ variables, scheduledAt }) => {
+        triggerBatchWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
             }
 
+            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
+            lemonToast.info(isScheduleTrigger ? 'Scheduling batch workflow...' : 'Triggering batch workflow...')
+
             try {
                 await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
                     variables,
-                    scheduledAt,
                 })
                 lemonToast.success('Batch workflow job created')
                 router.actions.push(urls.workflow(values.workflow.id!, 'logs'))

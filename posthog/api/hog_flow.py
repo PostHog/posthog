@@ -435,7 +435,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             raise exceptions.NotFound(f"HogFlow {kwargs.get('pk')} not found")
 
         serializer = HogFlowBatchJobSerializer(
-            data=request.data, context={**self.get_serializer_context(), "hog_flow": hog_flow}
+            data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)

@@ -23,13 +23,14 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "hogflow",
+                    "hog_flow",
                     models.ForeignKey(to="posthog.hogflow", on_delete=django.db.models.deletion.CASCADE),
                 ),
                 (
                     "variables",
                     models.JSONField(default=dict),
-                )(
+                ),
+                (
                     "status",
                     models.CharField(
                         choices=[

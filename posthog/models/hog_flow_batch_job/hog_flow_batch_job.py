@@ -5,7 +5,7 @@ from django.dispatch import receiver
 import structlog
 
 from posthog.models.utils import UUIDTModel
-from posthog.plugins.plugin_server_api import create_batch_hogflow_job
+from posthog.plugins.plugin_server_api import create_batch_hogflow_job_invocation
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +44,6 @@ class HogFlowBatchJob(UUIDTModel):
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
-        create_batch_hogflow_job(
-            team_id=instance.team.id, hog_flow_id=instance.hog_flow.id, payload={"batch_job_id": str(instance.id)}
+        create_batch_hogflow_job_invocation(
+            team_id=instance.team.id, hog_flow_id=instance.hog_flow.id, batch_job_id=instance.id
         )
