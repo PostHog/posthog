@@ -10,18 +10,23 @@ import { WorkflowTemplateLogicProps, workflowTemplateLogic } from './workflowTem
 
 export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX.Element {
     const { user } = useValues(userLogic)
-    const logic = workflowTemplateLogic(props)
-    const { saveAsTemplateModalVisible, isTemplateFormSubmitting, templateForm } = useValues(logic)
-    const { hideSaveAsTemplateModal, submitTemplateForm } = useActions(logic)
+    const isEditingTemplate = !!props.templateId
+    
+    const logic = workflowTemplateLogic({ ...props, id: props.id || 'new' })
+    const { saveAsTemplateModalVisible, updateTemplateModalVisible, isTemplateFormSubmitting, templateForm } = useValues(logic)
+    const { hideSaveAsTemplateModal, hideUpdateTemplateModal, submitTemplateForm } = useActions(logic)
+    
+    const isOpen = isEditingTemplate ? updateTemplateModalVisible : saveAsTemplateModalVisible
+    const onClose = isEditingTemplate ? hideUpdateTemplateModal : hideSaveAsTemplateModal
 
     return (
         <LemonModal
-            onClose={hideSaveAsTemplateModal}
-            isOpen={saveAsTemplateModalVisible}
-            title="Save as template"
+            onClose={onClose}
+            isOpen={isOpen}
+            title={isEditingTemplate ? "Update template" : "Save as template"}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={hideSaveAsTemplateModal}>
+                    <LemonButton type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -30,7 +35,7 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                         loading={isTemplateFormSubmitting}
                         disabledReason={!templateForm.name ? 'Name is required' : undefined}
                     >
-                        Save template
+                        {isEditingTemplate ? 'Update template' : 'Save template'}
                     </LemonButton>
                 </>
             }

@@ -1,8 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { workflowLogic } from './workflowLogic'
@@ -23,6 +25,9 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
     actions({
         showSaveAsTemplateModal: true,
         hideSaveAsTemplateModal: true,
+        showUpdateTemplateModal: true,
+        hideUpdateTemplateModal: true,
+        setEditingTemplateId: (templateId: string | null) => ({ templateId }),
     }),
     forms(({ actions, values }) => ({
         templateForm: {
@@ -52,17 +57,32 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
 
                 try {
-                    await api.hogFlowTemplates.createHogFlowTemplate({
-                        ...workflow,
-                        name: formValues.name || workflow.name || '',
-                        description: formValues.description || workflow.description || '',
-                        image_url: formValues.image_url || undefined,
-                        scope,
-                    })
-                    lemonToast.success('Workflow template created')
-                    actions.hideSaveAsTemplateModal()
+                    const templateId = values.editingTemplateId
+                    
+                    if (templateId) {
+                        await api.hogFlowTemplates.updateHogFlowTemplate(templateId, {
+                            ...workflow,
+                            name: formValues.name || workflow.name || '',
+                            description: formValues.description || workflow.description || '',
+                            image_url: formValues.image_url || undefined,
+                            scope,
+                        })
+                        lemonToast.success('Template updated successfully')
+                        actions.hideUpdateTemplateModal()
+                        router.actions.push(urls.workflows())
+                    } else {
+                        await api.hogFlowTemplates.createHogFlowTemplate({
+                            ...workflow,
+                            name: formValues.name || workflow.name || '',
+                            description: formValues.description || workflow.description || '',
+                            image_url: formValues.image_url || undefined,
+                            scope,
+                        })
+                        lemonToast.success('Workflow template created')
+                        actions.hideSaveAsTemplateModal()
+                    }
                 } catch (e: any) {
-                    const errorMessage = e?.detail || e?.message || 'Failed to create workflow template'
+                    const errorMessage = e?.detail || e?.message || 'Failed to save workflow template'
                     lemonToast.error(errorMessage)
                     throw e
                 }
@@ -78,6 +98,22 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 submitTemplateFormSuccess: () => false,
             },
         ],
+        updateTemplateModalVisible: [
+            false,
+            {
+                showUpdateTemplateModal: () => true,
+                hideUpdateTemplateModal: () => false,
+                submitTemplateFormSuccess: () => false,
+            },
+        ],
+        editingTemplateId: [
+            null as string | null,
+            {
+                setEditingTemplateId: (_, { templateId }) => templateId,
+                hideUpdateTemplateModal: () => null,
+                hideSaveAsTemplateModal: () => null,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         showSaveAsTemplateModal: async () => {
@@ -90,6 +126,9 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     scope: 'team',
                 })
             }
+        },
+        showUpdateTemplateModal: () => {
+            // Form values are set in WorkflowTemplateScene
         },
     })),
 ])

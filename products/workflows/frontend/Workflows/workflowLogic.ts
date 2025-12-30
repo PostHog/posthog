@@ -27,6 +27,7 @@ import { workflowSceneLogic } from './workflowSceneLogic'
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
+    isEditingTemplate?: boolean
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -149,7 +150,8 @@ export const workflowLogic = kea<workflowLogicType>([
 
                             const newWorkflow = {
                                 ...templateWorkflow,
-                                name: `${templateWorkflow.name} (copy)`,
+                                // Don't add "(copy)" if we're editing the template
+                                name: props.isEditingTemplate ? templateWorkflow.name : `${templateWorkflow.name} (copy)`,
                                 status: 'draft' as const,
                                 version: 1,
                             }

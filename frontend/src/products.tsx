@@ -91,6 +91,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
+    WorkflowTemplate: () => import('../../products/workflows/frontend/Workflows/WorkflowTemplateScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
 }
 
@@ -150,6 +151,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
+    '/workflow_templates/:templateId': ['WorkflowTemplate', 'workflowTemplate'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new?messageId=:messageId': [
@@ -410,6 +412,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Create and manage your workflows',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    WorkflowTemplate: { name: 'Workflow Template', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -653,6 +656,7 @@ export const productUrls = {
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
+    workflowTemplate: (templateId: string): string => `/workflow_templates/${templateId}`,
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -1265,7 +1269,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowTemplate', 'WorkflowsLibraryTemplate'],
     },
 ]
 

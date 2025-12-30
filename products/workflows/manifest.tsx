@@ -22,6 +22,12 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             projectBased: true,
         },
+        WorkflowTemplate: {
+            import: () => import('./frontend/Workflows/WorkflowTemplateScene'),
+            name: 'Workflow Template',
+            iconType: 'workflows',
+            projectBased: true,
+        },
         WorkflowsLibraryTemplate: {
             import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
             name: 'Workflows',
@@ -34,6 +40,7 @@ export const manifest: ProductManifest = {
         '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
+        '/workflow_templates/:templateId': ['WorkflowTemplate', 'workflowTemplate'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new?messageId=:messageId': [
@@ -45,6 +52,7 @@ export const manifest: ProductManifest = {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
         workflowNew: (): string => '/workflows/new/workflow',
+        workflowTemplate: (templateId: string): string => `/workflow_templates/${templateId}`,
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
         workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',

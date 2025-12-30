@@ -2,9 +2,10 @@ import './WorkflowTemplateChooser.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
@@ -13,9 +14,11 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
 
 import BlankWorkflowHog from 'public/blank-dashboard-hog.png'
 
+import api from 'lib/api'
 import type { HogFlowTemplate } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
@@ -23,10 +26,33 @@ import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 // Adapted from DashboardTemplateChooser.tsx; try to keep parity for a consistent user experience
 export function WorkflowTemplateChooser(): JSX.Element {
     const { filteredTemplates, workflowTemplatesLoading } = useValues(workflowTemplatesLogic)
-    const { deleteHogflowTemplate } = useActions(workflowTemplatesLogic)
+    const { deleteHogflowTemplate, loadWorkflowTemplates } = useActions(workflowTemplatesLogic)
     const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
+
+    const handleDuplicate = async (template: HogFlowTemplate, e: React.MouseEvent): Promise<void> => {
+        e.stopPropagation()
+        try {
+            const newTemplate = await api.hogFlowTemplates.createHogFlowTemplate({
+                ...template,
+                name: `${template.name} (copy)`,
+                description: template.description || '',
+                image_url: template.image_url || undefined,
+            })
+            
+            if (newTemplate?.id) {
+                lemonToast.success('Template duplicated successfully')
+                loadWorkflowTemplates()
+            } else {
+                throw new Error('Template created but no ID returned')
+            }
+        } catch (error: any) {
+            lemonToast.error(
+                `Failed to duplicate template: ${error.detail || error.message || 'Unknown error'}`
+            )
+        }
+    }
 
     return (
         <div>
@@ -50,6 +76,11 @@ export function WorkflowTemplateChooser(): JSX.Element {
                             key={template.id}
                             template={template}
                             onClick={() => createWorkflowFromTemplate(template)}
+                            onDuplicate={
+                                template.scope === 'global' && !canCreateTemplates
+                                    ? undefined
+                                    : (e) => handleDuplicate(template, e)
+                            }
                             onDelete={
                                 template.scope === 'global' && !canCreateTemplates
                                     ? undefined
@@ -85,6 +116,14 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                           })
                                       }
                             }
+                            onEdit={
+                                template.scope === 'global' && !canCreateTemplates
+                                    ? undefined
+                                    : (e) => {
+                                          e.stopPropagation()
+                                          router.actions.push(urls.workflowTemplate(template.id))
+                                      }
+                            }
                             index={index + 1}
                             data-attr="create-workflow-from-template"
                         />
@@ -98,13 +137,17 @@ export function WorkflowTemplateChooser(): JSX.Element {
 function TemplateItem({
     template,
     onClick,
+    onDuplicate,
     onDelete,
+    onEdit,
     index,
     'data-attr': dataAttr,
 }: {
     template: Pick<HogFlowTemplate, 'name' | 'description' | 'image_url' | 'scope'>
     onClick: () => void
+    onDuplicate?: (e: React.MouseEvent) => void
     onDelete?: (e: React.MouseEvent) => void
+    onEdit?: (e: React.MouseEvent) => void
     index: number
     'data-attr': string
 }): JSX.Element {
@@ -121,7 +164,7 @@ function TemplateItem({
             onMouseLeave={() => setIsHovering(false)}
             data-attr={dataAttr}
         >
-            {onDelete && (
+            {(onDuplicate || onDelete || onEdit) && (
                 <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
                     <More
                         size="small"
@@ -134,15 +177,43 @@ function TemplateItem({
                         overlay={
                             <LemonMenuOverlay
                                 items={[
-                                    {
-                                        label: 'Delete',
-                                        status: 'danger' as const,
-                                        icon: <IconTrash />,
-                                        onClick: (e) => {
-                                            setIsMenuOpen(false)
-                                            onDelete(e)
-                                        },
-                                    },
+                                    ...(onEdit
+                                        ? [
+                                              {
+                                                  label: 'Edit',
+                                                  icon: <IconPencil />,
+                                                  onClick: (e: React.MouseEvent) => {
+                                                      setIsMenuOpen(false)
+                                                      onEdit(e)
+                                                  },
+                                              },
+                                          ]
+                                        : []),
+                                    ...(onDuplicate
+                                        ? [
+                                              {
+                                                  label: 'Duplicate',
+                                                  icon: <IconCopy />,
+                                                  onClick: (e: React.MouseEvent) => {
+                                                      setIsMenuOpen(false)
+                                                      onDuplicate(e)
+                                                  },
+                                              },
+                                          ]
+                                        : []),
+                                    ...(onDelete
+                                        ? [
+                                              {
+                                                  label: 'Delete',
+                                                  status: 'danger' as const,
+                                                  icon: <IconTrash />,
+                                                  onClick: (e: React.MouseEvent) => {
+                                                      setIsMenuOpen(false)
+                                                      onDelete(e)
+                                                  },
+                                              },
+                                          ]
+                                        : []),
                                 ]}
                             />
                         }
