@@ -180,7 +180,9 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         }
 
         const invocationsToBeQueued = [
-            ...(await Promise.all(batchHogFlowRequests.map(this.createHogFlowInvocations))).flat(),
+            ...(
+                await Promise.all(batchHogFlowRequests.map((request) => this.createHogFlowInvocations(request)))
+            ).flat(),
         ]
 
         return {
