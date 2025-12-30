@@ -16008,7 +16008,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {

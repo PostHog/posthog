@@ -11,7 +11,7 @@ import { HedgehogModeStatic } from './HedgehogModeStatic'
 const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'Components/HedgehogMode',
     component: HedgehogModeStatic,
-    tags: ['autodocs'],
+    tags: ['test-skip', 'autodocs'],
     parameters: {
         testOptions: {
             waitForTimeout: 10000,

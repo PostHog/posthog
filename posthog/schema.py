@@ -1798,6 +1798,7 @@ class HedgehogActorSkinOption(StrEnum):
     DEFAULT = "default"
     SPIDERHOG = "spiderhog"
     ROBOHOG = "robohog"
+    HOGZILLA = "hogzilla"
     GHOST = "ghost"
 
 
