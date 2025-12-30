@@ -377,7 +377,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             // Plugin configs are always static { value: any } so we can just convert to a record of strings
             const inputs = Object.entries(hogFunction.inputs || {}).reduce(
                 (acc, [key, value]) => {
-                    acc[key] = value?.value?.toString() ?? ''
+                    acc[key] = value?.value ?? ''
                     return acc
                 },
                 {} as Record<string, string>
