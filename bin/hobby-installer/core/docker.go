@@ -19,6 +19,26 @@ func IsDockerRunning() bool {
 	return cmd.Run() == nil
 }
 
+func StartDockerDaemon() error {
+	GetLogger().WriteString("Starting Docker daemon...\n")
+	cmd := exec.Command("sudo", "systemctl", "start", "docker")
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start docker daemon: %w", err)
+	}
+
+	// Wait a moment for daemon to be ready
+	for i := 0; i < 20; i++ {
+		if IsDockerRunning() {
+			GetLogger().WriteString("Docker daemon started\n")
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	return fmt.Errorf("docker daemon started but not responding")
+}
+
 func InstallDocker() error {
 	GetLogger().WriteString("Installing Docker...\n")
 

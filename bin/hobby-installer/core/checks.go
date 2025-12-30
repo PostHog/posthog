@@ -46,15 +46,15 @@ func checkDocker() CheckResult {
 
 	_, err := exec.LookPath("docker")
 	if err != nil {
-		logger.WriteString("✗ Docker not found in PATH\n")
-		return CheckResult{Passed: false, Err: fmt.Errorf("docker not found in PATH")}
+		logger.WriteString("⚠ Docker not found, will be installed\n")
+		return CheckResult{Passed: true, Warning: true, Detail: "not installed, will install"}
 	}
 
 	logger.WriteString("$ docker info\n")
 	cmd := exec.Command("docker", "info")
 	if err := cmd.Run(); err != nil {
-		logger.WriteString("✗ Docker daemon not running\n")
-		return CheckResult{Passed: false, Err: fmt.Errorf("docker daemon not running")}
+		logger.WriteString("⚠ Docker daemon not running\n")
+		return CheckResult{Passed: true, Warning: true, Detail: "daemon not running"}
 	}
 
 	logger.WriteString("✓ Docker is running\n")
@@ -78,8 +78,8 @@ func checkDockerCompose() CheckResult {
 		return CheckResult{Passed: true, Detail: "docker compose available"}
 	}
 
-	logger.WriteString("✗ Docker Compose not found\n")
-	return CheckResult{Passed: false, Err: fmt.Errorf("docker Compose not found")}
+	logger.WriteString("⚠ Docker Compose not found, will be installed\n")
+	return CheckResult{Passed: true, Warning: true, Detail: "not installed, will install"}
 }
 
 func checkMemory() CheckResult {

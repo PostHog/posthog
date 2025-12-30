@@ -134,6 +134,7 @@ func GetInstallSteps() []InstallStep {
 				if IsDockerInstalled() && IsDockerRunning() {
 					return InstallResult{Detail: "Docker ready"}
 				}
+
 				if !IsDockerInstalled() {
 					if err := InstallDocker(); err != nil {
 						return InstallResult{Err: err}
@@ -143,7 +144,17 @@ func GetInstallSteps() []InstallStep {
 					}
 					return InstallResult{Detail: "installed"}
 				}
-				return InstallResult{Err: fmt.Errorf("docker installed but not running")}
+
+				if !IsDockerRunning() {
+					// Docker installed but not running - try to start it
+					if err := StartDockerDaemon(); err != nil {
+						return InstallResult{Err: err}
+					}
+
+					return InstallResult{Detail: "daemon started"}
+				}
+
+				return InstallResult{Detail: "Docker ready"}
 			},
 		},
 		{
