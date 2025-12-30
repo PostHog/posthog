@@ -579,4 +579,329 @@ describe('CDP API', () => {
             })
         })
     })
+
+    describe('batch hogflow invocations', () => {
+        let hogFlow: HogFunctionType
+
+        beforeEach(async () => {
+            hogFlow = await insertHogFunction({
+                name: 'test hog flow',
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        })
+
+        it('errors if missing hog flow', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/missing/batch_invocations`)
+                .send({ batch_events: [globals] })
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Hog flow not found')
+        })
+
+        it('errors if batch_events is missing', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing or empty batch_events array')
+        })
+
+        it('errors if batch_events is empty array', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({ batch_events: [] })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing or empty batch_events array')
+        })
+
+        it('errors if batch_events is not an array', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({ batch_events: 'not-an-array' })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing or empty batch_events array')
+        })
+
+        it('can invoke multiple events with mocked async functions', async () => {
+            const event1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const event2 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user2',
+                timestamp: '2021-09-28T14:05:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [event1, event2],
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.total).toEqual(2)
+            expect(res.body.successful).toEqual(2)
+            expect(res.body.failed).toEqual(0)
+            expect(res.body.results).toHaveLength(2)
+
+            expect(res.body.results[0]).toMatchObject({
+                event_id: event1.uuid,
+                status: 'success',
+                errors: [],
+            })
+
+            expect(res.body.results[1]).toMatchObject({
+                event_id: event2.uuid,
+                status: 'success',
+                errors: [],
+            })
+        })
+
+        it('can invoke multiple events with real fetch', async () => {
+            mockFetch.mockImplementation(() =>
+                Promise.resolve({
+                    status: 201,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({ real: true }),
+                    text: () => Promise.resolve(JSON.stringify({ real: true })),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const event1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const event2 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user2',
+                timestamp: '2021-09-28T14:05:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [event1, event2],
+                    mock_async_functions: false,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.total).toEqual(2)
+            expect(res.body.successful).toEqual(2)
+            expect(res.body.failed).toEqual(0)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('handles partial failures correctly', async () => {
+            const validEvent = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const invalidEvent = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [validEvent, invalidEvent],
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('partial')
+            expect(res.body.total).toEqual(2)
+            expect(res.body.successful).toEqual(1)
+            expect(res.body.failed).toEqual(1)
+
+            expect(res.body.results[0].status).toEqual('success')
+            expect(res.body.results[1].status).toEqual('error')
+            expect(res.body.results[1].errors).toEqual(['Missing event data'])
+        })
+
+        it('handles complete failure when all events fail', async () => {
+            const invalidEvent1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+            }
+
+            const invalidEvent2 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [invalidEvent1, invalidEvent2],
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('error')
+            expect(res.body.total).toEqual(2)
+            expect(res.body.successful).toEqual(0)
+            expect(res.body.failed).toEqual(2)
+        })
+
+        it('can invoke a new hog flow with batch events', async () => {
+            const event1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/new/batch_invocations`)
+                .send({
+                    batch_events: [event1],
+                    configuration: {
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    },
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.total).toEqual(1)
+            expect(res.body.successful).toEqual(1)
+        })
+
+        it('supports current_action_id parameter', async () => {
+            const event1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [event1],
+                    current_action_id: 'action-123',
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.results[0]).toMatchObject({
+                event_id: event1.uuid,
+                status: 'success',
+            })
+        })
+
+        it('processes events with different properties correctly', async () => {
+            const event1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                    url: 'https://example.com/page1',
+                },
+            }
+
+            const event2 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d2',
+                event: '$autocapture',
+                elements_chain: 'button',
+                distinct_id: 'user2',
+                timestamp: '2021-09-28T14:05:00Z',
+                properties: {
+                    $lib_version: '2.0.0',
+                    url: 'https://example.com/page2',
+                },
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [event1, event2],
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.total).toEqual(2)
+            expect(res.body.successful).toEqual(2)
+        })
+
+        it('includes logs from each invocation in results', async () => {
+            const event1 = {
+                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d1',
+                event: '$pageview',
+                elements_chain: '',
+                distinct_id: 'user1',
+                timestamp: '2021-09-28T14:00:00Z',
+                properties: {
+                    $lib_version: '1.0.0',
+                },
+            }
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/batch_invocations`)
+                .send({
+                    batch_events: [event1],
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results[0]).toHaveProperty('logs')
+            expect(Array.isArray(res.body.results[0].logs)).toBe(true)
+            expect(res.body.results[0].logs.length).toBeGreaterThan(0)
+        })
+    })
 })
