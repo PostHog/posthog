@@ -49,8 +49,23 @@ FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000,
 # Reduced from 1000 to 250 to prevent OOM. Decrease further if OOMs persist.
 FLAGS_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env("FLAGS_CACHE_VERIFICATION_CHUNK_SIZE", 250, type_cast=int)
 
+# Grace period in minutes for skipping cache fixes during verification.
+# If a flag was updated within this window, the verification task will skip
+# "fixing" it to avoid race conditions with async cache update tasks.
+# The next verification run will fix it if the cache is still stale.
+FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
+    "FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
+)
+
 # Batch size for team metadata cache verification. Team metadata is much smaller
 # than flags data, so we can use larger batches without OOM risk.
 TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE", 1000, type_cast=int
+)
+
+# Grace period in minutes for skipping team metadata cache fixes during verification.
+# If a team was updated within this window, the verification task will skip
+# "fixing" it to avoid race conditions with async cache update tasks.
+TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
+    "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
