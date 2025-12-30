@@ -164,7 +164,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
-        temporalio.workflow.logger.info("Starting DAGOrchestratorWorkflow", **inputs.properties_to_log)
+        temporalio.workflow.logger.info("Starting DAGOrchestratorWorkflow", extra=inputs.properties_to_log)
         start_time = temporalio.workflow.now()
 
         # fetch DAG structure
@@ -183,7 +183,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             executable_nodes = [node_id for node_id in dag_structure.executable_nodes if node_id in requested_node_set]
 
         if not executable_nodes:
-            temporalio.workflow.logger.info("No executable nodes found", **inputs.properties_to_log)
+            temporalio.workflow.logger.info("No executable nodes found", extra=inputs.properties_to_log)
             end_time = temporalio.workflow.now()
             return ExecuteDAGResult(
                 dag_id=inputs.dag_id,
@@ -200,10 +200,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
         temporalio.workflow.logger.info(
             "DAG execution levels",
-            levels=levels,
-            num_levels=len(levels),
-            nodes_per_level=[len(level) for level in levels],
-            **inputs.properties_to_log,
+            extra={
+                "levels": levels,
+                "num_levels": len(levels),
+                "nodes_per_level": [len(level) for level in levels],
+                **inputs.properties_to_log,
+            },
         )
 
         node_results: list[NodeResult] = []
@@ -212,8 +214,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
                 f"Executing level {i + 1}/{len(levels)}",
-                nodes=level,
-                **inputs.properties_to_log,
+                extra={"nodes": level, **inputs.properties_to_log},
             )
             execute_nodes = []
             skip_nodes = []
@@ -274,8 +275,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     )
                     temporalio.workflow.logger.info(
                         f"Node {node_id} materialized successfully",
-                        rows=result.rows_materialized,
-                        **inputs.properties_to_log,
+                        extra={"rows_materialized": result.rows_materialized, **inputs.properties_to_log},
                     )
                 except temporalio.exceptions.ChildWorkflowError as e:
                     failed_node_set.add(node_id)
@@ -289,7 +289,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     )
                     temporalio.workflow.logger.error(
                         f"Node {node_id} failed to materialize: {error_message}",
-                        **inputs.properties_to_log,
+                        extra=inputs.properties_to_log,
                     )
                 except Exception as e:
                     capture_exception(e)
@@ -303,7 +303,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     )
                     temporalio.workflow.logger.error(
                         f"Node {node_id} failed with unexpected error: {str(e)}",
-                        **inputs.properties_to_log,
+                        extra=inputs.properties_to_log,
                     )
 
         # compute summary
@@ -316,12 +316,14 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
         temporalio.workflow.logger.info(
             "DAGOrchestratorWorkflow completed",
-            total_nodes=len(node_results),
-            successful_nodes=successful_nodes,
-            failed_nodes=failed_nodes,
-            skipped_nodes=skipped_nodes,
-            duration_seconds=duration_seconds,
-            **inputs.properties_to_log,
+            extra={
+                "total_nodes": len(node_results),
+                "successful_nodes": successful_nodes,
+                "failed_nodes": failed_nodes,
+                "skipped_nodes": skipped_nodes,
+                "duration_seconds": duration_seconds,
+                **inputs.properties_to_log,
+            },
         )
 
         return ExecuteDAGResult(

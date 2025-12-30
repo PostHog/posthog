@@ -43,10 +43,11 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
         .filter(team_id=team_id, dag_id=dag_id)
         .exclude(source__type=NodeType.TABLE)
     )
+    # ids are uuid objects by default. primitives are probably better
     return DAG(
-        nodes=[n.id for n in nodes],
-        executable_nodes=[n.id for n in executable_nodes],
-        edges=[(e.source.id, e.target.id) for e in edges],
+        nodes=[str(n.id) for n in nodes],
+        executable_nodes=[str(n.id) for n in executable_nodes],
+        edges=[(str(e.source.id), str(e.target.id)) for e in edges],
     )
 
 
