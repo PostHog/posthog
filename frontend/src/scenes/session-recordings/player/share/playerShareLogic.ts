@@ -29,6 +29,7 @@ export type PlayerShareLogicProps = {
     seconds: number | null
     id: string
     shareType?: 'private' | 'public' | 'linear'
+    expandMoreOptions?: boolean
 }
 
 export const playerShareLogic = kea<playerShareLogicType>([
@@ -59,9 +60,13 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 time: colonDelimitedDuration(props.seconds, null),
                 issueTitle: '',
                 issueDescription: '',
+                assignee: '',
+                labels: '',
             } as FormWithTime & {
                 issueTitle: string
                 issueDescription: string
+                assignee: string
+                labels: string
             },
             errors: ({ time, includeTime }) => ({
                 time:
@@ -100,6 +105,8 @@ export const playerShareLogic = kea<playerShareLogicType>([
                     description:
                         linearLinkForm.issueDescription +
                         `\n\nPostHog recording: ${makePrivateLink(props.id, linearLinkForm)}`,
+                    assignee: linearLinkForm.assignee,
+                    labels: linearLinkForm.labels,
                 }
             },
         ],
