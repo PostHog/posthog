@@ -13,7 +13,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { login2FALogic } from './login2FALogic'
 
 export function Login2FA(): JSX.Element {
-    const { isTwofactortokenSubmitting, generalError, isPasskey2FALoading, passkeysAvailable, totpAvailable } =
+    const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
         useValues(login2FALogic)
     const { beginPasskey2FA } = useActions(login2FALogic)
     const { preflight } = useValues(preflightLogic)
@@ -39,7 +39,7 @@ export function Login2FA(): JSX.Element {
                             type="primary"
                             htmlType="button"
                             onClick={() => beginPasskey2FA()}
-                            loading={isPasskey2FALoading}
+                            loading={passkey2FALoading}
                             fullWidth
                             center
                             size="large"
