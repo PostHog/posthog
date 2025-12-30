@@ -419,13 +419,16 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         Raises:
             ValidationError: If passkey verification fails
         """
-        challenge_b64 = request.session.get(WEBAUTHN_2FA_CHALLENGE_KEY)
+        challenge_b64 = request.session.pop(WEBAUTHN_2FA_CHALLENGE_KEY, None)
         if not challenge_b64:
             raise serializers.ValidationError(
                 detail="No 2FA challenge found. Please start 2FA again.", code="2fa_no_challenge"
             )
 
         try:
+            # save the session with the challenge removed
+            request.session.save()
+
             credential_id_bytes = base64url_to_bytes(credential_id)
             credential = WebauthnCredential.objects.filter(
                 user=user, credential_id=credential_id_bytes, verified=True
@@ -457,10 +460,6 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             # Update sign count
             credential.counter = verification.new_sign_count
             credential.save()
-
-            # Clear challenge from session
-            del request.session[WEBAUTHN_2FA_CHALLENGE_KEY]
-            request.session.save()
 
             # Complete 2FA verification
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -633,12 +632,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
         mfa_logger.info("webauthn_2fa_begin", user_id=user.pk)
 
-        # Also return whether user has TOTP device (for UI to show/hide TOTP form)
-        totp_device = default_device(user)
-        response_data = json.loads(options_to_json(options))
-        response_data["has_totp"] = totp_device is not None
-
-        return Response(response_data)
+        return Response(json.loads(options_to_json(options)))
 
 
 class EmailMFASerializer(serializers.Serializer):

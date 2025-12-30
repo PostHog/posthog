@@ -107,13 +107,18 @@ export function TwoFactorSettings(): JSX.Element {
                     </div>
                 </>
             ) : (
-                <div>
+                <div className="space-y-3">
                     <div className="mb-4 flex items-center deprecated-space-x-2">
                         <IconWarning color="orange" className="text-xl" />
-                        <span className="font-medium">2FA is not enabled</span>
+                        <span className="font-medium">TOTP-based 2FA is not enabled</span>
                     </div>
+                    {status?.has_passkeys && status?.method === 'passkey' && (
+                        <p className="text-muted">
+                            You have passkeys set up. Passkeys can be used for both login and 2FA authentication.
+                        </p>
+                    )}
                     <LemonButton type="primary" onClick={() => openTwoFactorSetupModal()}>
-                        Set up 2FA
+                        Set up TOTP 2FA
                     </LemonButton>
                 </div>
             )}

@@ -15,6 +15,12 @@ export function PasskeySettings(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <div>
+                <p className="text-muted mb-4">
+                    Passkeys provide a secure way to sign in and can be used for both login and two-factor
+                    authentication (2FA). Add a passkey to enable passwordless authentication.
+                </p>
+            </div>
             <PasskeyAddForm />
             <PasskeyList />
             <PasskeyModals />

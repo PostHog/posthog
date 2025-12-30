@@ -25,9 +25,7 @@ export enum LoginStep {
     TWO_FACTOR = 'two_factor',
 }
 
-export interface Passkey2FABeginResponse extends PublicKeyCredentialRequestOptionsJSON {
-    has_totp?: boolean
-}
+export interface Passkey2FABeginResponse extends PublicKeyCredentialRequestOptionsJSON {}
 
 export interface TwoFAMethodsResponse {
     has_totp: boolean

@@ -29,7 +29,6 @@ export interface Passkey2FABeginResponse {
     rpId: string
     allowCredentials: PublicKeyCredentialDescriptorJSON[]
     userVerification: string
-    has_totp?: boolean
 }
 
 export interface TwoFAMethodsResponse {
