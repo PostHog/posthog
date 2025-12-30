@@ -2678,6 +2678,7 @@ class ProductIntentContext(StrEnum):
     CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = "customer_analytics_usage_metric_created"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
+    WORKFLOW_CREATED = "workflow_created"
     VERCEL_INTEGRATION = "vercel_integration"
 
 
