@@ -7,15 +7,26 @@ import structlog
 import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
-from urllib3.exceptions import ProtocolError
+from urllib3.exceptions import MaxRetryError, ProtocolError
 
 from posthog.hogql.errors import (
     QueryError,
     SyntaxError as HogQLSyntaxError,
 )
 
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import (
+    CHQueryErrorIllegalAggregation,
+    CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorNoCommonType,
+    CHQueryErrorNotAnAggregate,
+    CHQueryErrorS3Error,
+    CHQueryErrorTooManySimultaneousQueries,
+    CHQueryErrorTypeMismatch,
+    CHQueryErrorUnknownFunction,
+)
 from posthog.event_usage import groups
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
@@ -54,11 +65,22 @@ EXCEPTIONS_TO_RETRY = (
     CHQueryErrorTooManySimultaneousQueries,
     OperationalError,
     ProtocolError,
+    ConcurrencyLimitExceeded,
+    MaxRetryError,  # This is from urllib, e.g. HTTP retries instead of "job retries"
+    ClickHouseAtCapacity,
 )
 
 USER_QUERY_ERRORS = (
     QueryError,
     HogQLSyntaxError,
+    ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
+    ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
+    CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorNoCommonType,
+    CHQueryErrorNotAnAggregate,
+    CHQueryErrorUnknownFunction,
+    CHQueryErrorTypeMismatch,
+    CHQueryErrorIllegalAggregation,
 )
 
 # User query error class names for checking exception_type field

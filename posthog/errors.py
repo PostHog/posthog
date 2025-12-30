@@ -111,12 +111,49 @@ class CHQueryErrorS3Error(InternalCHQueryError):
     pass
 
 
-CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
+# User query errors - these are errors caused by user input/queries
+class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNoCommonType(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNotAnAggregate(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownFunction(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorTypeMismatch(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
+    pass
+
+
+CLICKHOUSE_SPECIFIC_ERROR_LOOKUP: dict[str, InternalCHQueryError] = {
     "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
         "Too many simultaneous queries. Try again later.", code=202
     ),
     "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=439),
     "S3_ERROR": CHQueryErrorS3Error("S3 error occurred. Try again later.", code=499),
+    "ILLEGAL_TYPE_OF_ARGUMENT": CHQueryErrorIllegalTypeOfArgument(
+        "Illegal type of argument.", code=43, code_name="illegal_type_of_argument"
+    ),
+    "NO_COMMON_TYPE": CHQueryErrorNoCommonType("No common type.", code=386, code_name="no_common_type"),
+    "NOT_AN_AGGREGATE": CHQueryErrorNotAnAggregate(
+        "Not an aggregate function.", code=215, code_name="not_an_aggregate"
+    ),
+    "UNKNOWN_FUNCTION": CHQueryErrorUnknownFunction("Unknown function.", code=46, code_name="unknown_function"),
+    "TYPE_MISMATCH": CHQueryErrorTypeMismatch("Type mismatch.", code=53, code_name="type_mismatch"),
+    "ILLEGAL_AGGREGATION": CHQueryErrorIllegalAggregation(
+        "Illegal aggregation.", code=184, code_name="illegal_aggregation"
+    ),
 }
 
 #
