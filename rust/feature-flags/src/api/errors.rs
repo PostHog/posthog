@@ -112,89 +112,78 @@ pub enum FlagError {
 }
 
 impl FlagError {
+    /// Returns (error_code, status_code) for this error.
+    ///
+    /// This consolidates error classification in one place to ensure consistency
+    /// between error codes and HTTP status codes, and makes adding new error
+    /// variants easier (only one match statement to update).
+    fn error_metadata(&self) -> (&'static str, u16) {
+        match self {
+            // Client-facing errors
+            FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => ("bad_request", 400),
+            FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => ("unauthorized", 401),
+            FlagError::ClientFacing(ClientFacingError::RateLimited) => ("rate_limited", 429),
+            FlagError::ClientFacing(ClientFacingError::IpRateLimited) => ("ip_rate_limited", 429),
+            FlagError::ClientFacing(ClientFacingError::TokenRateLimited) => {
+                ("token_rate_limited", 429)
+            }
+            FlagError::ClientFacing(ClientFacingError::BillingLimit) => ("billing_limit", 402),
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
+                ("service_unavailable", 503)
+            }
+
+            // Request parsing errors (400)
+            FlagError::RequestDecodingError(_) => ("request_decoding_error", 400),
+            FlagError::RequestParsingError(_) => ("request_parsing_error", 400),
+            FlagError::MissingDistinctId => ("missing_distinct_id", 400),
+            FlagError::PersonNotFound => ("person_not_found", 400),
+            FlagError::PropertiesNotInCache => ("properties_not_in_cache", 400),
+            FlagError::StaticCohortMatchesNotCached => ("static_cohort_not_cached", 400),
+
+            // Authentication errors (401)
+            FlagError::NoTokenError => ("missing_token", 401),
+            FlagError::TokenValidationError => ("invalid_token", 401),
+            FlagError::PersonalApiKeyInvalid(_) => ("personal_api_key_invalid", 401),
+            FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
+            FlagError::NoAuthenticationProvided => ("no_authentication", 401),
+
+            // Internal server errors (500)
+            FlagError::Internal(_) => ("internal_error", 500),
+            FlagError::CacheUpdateError => ("cache_update_error", 500),
+            FlagError::DeserializeFiltersError => ("deserialize_filters_error", 500),
+            FlagError::DatabaseError(_, _) => ("database_error", 500),
+            FlagError::NoGroupTypeMappings => ("no_group_type_mappings", 500),
+            FlagError::RowNotFound => ("row_not_found", 500),
+            FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
+            FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
+            FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
+            FlagError::DataParsingError => ("data_parsing_error", 500),
+
+            // Service unavailable errors (503)
+            FlagError::RedisDataParsingError => ("redis_parsing_error", 503),
+            FlagError::RedisUnavailable => ("redis_unavailable", 503),
+            FlagError::DatabaseUnavailable => ("database_unavailable", 503),
+            FlagError::TimeoutError(_) => ("timeout", 503),
+            FlagError::CacheMiss => ("cache_miss", 503),
+
+            // Cookieless errors (mixed)
+            FlagError::CookielessError(err) => match err {
+                CookielessManagerError::MissingProperty(_)
+                | CookielessManagerError::UrlParseError(_)
+                | CookielessManagerError::InvalidTimestamp(_) => ("cookieless_error", 400),
+                _ => ("cookieless_error", 500),
+            },
+        }
+    }
+
     /// Returns a short error code for canonical logging.
     pub fn error_code(&self) -> &'static str {
-        match self {
-            FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => "bad_request",
-            FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => "unauthorized",
-            FlagError::ClientFacing(ClientFacingError::RateLimited) => "rate_limited",
-            FlagError::ClientFacing(ClientFacingError::IpRateLimited) => "ip_rate_limited",
-            FlagError::ClientFacing(ClientFacingError::TokenRateLimited) => "token_rate_limited",
-            FlagError::ClientFacing(ClientFacingError::BillingLimit) => "billing_limit",
-            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => "service_unavailable",
-            FlagError::Internal(_) => "internal_error",
-            FlagError::RequestDecodingError(_) => "request_decoding_error",
-            FlagError::RequestParsingError(_) => "request_parsing_error",
-            FlagError::MissingDistinctId => "missing_distinct_id",
-            FlagError::NoTokenError => "missing_token",
-            FlagError::TokenValidationError => "invalid_token",
-            FlagError::PersonalApiKeyInvalid(_) => "personal_api_key_invalid",
-            FlagError::SecretApiTokenInvalid => "secret_api_token_invalid",
-            FlagError::NoAuthenticationProvided => "no_authentication",
-            FlagError::RowNotFound => "row_not_found",
-            FlagError::RedisDataParsingError => "redis_parsing_error",
-            FlagError::DeserializeFiltersError => "deserialize_filters_error",
-            FlagError::CacheUpdateError => "cache_update_error",
-            FlagError::RedisUnavailable => "redis_unavailable",
-            FlagError::DatabaseUnavailable => "database_unavailable",
-            FlagError::DatabaseError(_, _) => "database_error",
-            FlagError::TimeoutError(_) => "timeout",
-            FlagError::NoGroupTypeMappings => "no_group_type_mappings",
-            FlagError::DependencyNotFound(_, _) => "dependency_not_found",
-            FlagError::CohortFiltersParsingError => "cohort_filters_parsing_error",
-            FlagError::DependencyCycle(_, _) => "dependency_cycle",
-            FlagError::PersonNotFound => "person_not_found",
-            FlagError::PropertiesNotInCache => "properties_not_in_cache",
-            FlagError::StaticCohortMatchesNotCached => "static_cohort_not_cached",
-            FlagError::CacheMiss => "cache_miss",
-            FlagError::DataParsingError => "data_parsing_error",
-            FlagError::CookielessError(_) => "cookieless_error",
-        }
+        self.error_metadata().0
     }
 
     /// Returns the HTTP status code for this error.
     pub fn status_code(&self) -> u16 {
-        match self {
-            FlagError::ClientFacing(ClientFacingError::BadRequest(_)) => 400,
-            FlagError::ClientFacing(ClientFacingError::Unauthorized(_)) => 401,
-            FlagError::ClientFacing(ClientFacingError::RateLimited)
-            | FlagError::ClientFacing(ClientFacingError::IpRateLimited)
-            | FlagError::ClientFacing(ClientFacingError::TokenRateLimited) => 429,
-            FlagError::ClientFacing(ClientFacingError::BillingLimit) => 402,
-            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => 503,
-            FlagError::RequestDecodingError(_)
-            | FlagError::RequestParsingError(_)
-            | FlagError::MissingDistinctId
-            | FlagError::PersonNotFound
-            | FlagError::PropertiesNotInCache
-            | FlagError::StaticCohortMatchesNotCached => 400,
-            FlagError::NoTokenError
-            | FlagError::TokenValidationError
-            | FlagError::PersonalApiKeyInvalid(_)
-            | FlagError::SecretApiTokenInvalid
-            | FlagError::NoAuthenticationProvided => 401,
-            FlagError::RedisDataParsingError
-            | FlagError::RedisUnavailable
-            | FlagError::DatabaseUnavailable
-            | FlagError::TimeoutError(_)
-            | FlagError::CacheMiss => 503,
-            FlagError::Internal(_)
-            | FlagError::CacheUpdateError
-            | FlagError::DeserializeFiltersError
-            | FlagError::DatabaseError(_, _)
-            | FlagError::NoGroupTypeMappings
-            | FlagError::RowNotFound
-            | FlagError::DependencyNotFound(_, _)
-            | FlagError::CohortFiltersParsingError
-            | FlagError::DependencyCycle(_, _)
-            | FlagError::DataParsingError => 500,
-            FlagError::CookielessError(err) => match err {
-                CookielessManagerError::MissingProperty(_)
-                | CookielessManagerError::UrlParseError(_)
-                | CookielessManagerError::InvalidTimestamp(_) => 400,
-                _ => 500,
-            },
-        }
+        self.error_metadata().1
     }
 
     pub fn is_5xx(&self) -> bool {
@@ -778,5 +767,59 @@ mod tests {
             FlagError::RedisUnavailable.error_code(),
             "redis_unavailable"
         );
+    }
+
+    #[test]
+    fn test_error_codes_are_unique() {
+        use std::collections::HashSet;
+
+        // All error variants that should have unique error codes
+        let errors: Vec<FlagError> = vec![
+            FlagError::ClientFacing(ClientFacingError::BadRequest("test".to_string())),
+            FlagError::ClientFacing(ClientFacingError::Unauthorized("test".to_string())),
+            FlagError::ClientFacing(ClientFacingError::RateLimited),
+            FlagError::ClientFacing(ClientFacingError::IpRateLimited),
+            FlagError::ClientFacing(ClientFacingError::TokenRateLimited),
+            FlagError::ClientFacing(ClientFacingError::BillingLimit),
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
+            FlagError::Internal("test".to_string()),
+            FlagError::RequestDecodingError("test".to_string()),
+            serde_json::from_str::<String>("invalid json")
+                .unwrap_err()
+                .into(), // RequestParsingError
+            FlagError::MissingDistinctId,
+            FlagError::NoTokenError,
+            FlagError::TokenValidationError,
+            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::SecretApiTokenInvalid,
+            FlagError::NoAuthenticationProvided,
+            FlagError::RowNotFound,
+            FlagError::RedisDataParsingError,
+            FlagError::DeserializeFiltersError,
+            FlagError::CacheUpdateError,
+            FlagError::RedisUnavailable,
+            FlagError::DatabaseUnavailable,
+            FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
+            FlagError::TimeoutError(None),
+            FlagError::NoGroupTypeMappings,
+            FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            FlagError::DependencyCycle(DependencyType::Cohort, 2),
+            FlagError::CohortFiltersParsingError,
+            FlagError::PersonNotFound,
+            FlagError::PropertiesNotInCache,
+            FlagError::StaticCohortMatchesNotCached,
+            FlagError::CacheMiss,
+            FlagError::DataParsingError,
+            CookielessManagerError::MissingProperty("test".to_string()).into(),
+        ];
+
+        let mut seen_codes: HashSet<&'static str> = HashSet::new();
+        for error in &errors {
+            let code = error.error_code();
+            assert!(
+                seen_codes.insert(code),
+                "Duplicate error code '{code}' found for {error:?}"
+            );
+        }
     }
 }

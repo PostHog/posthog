@@ -161,6 +161,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .map(|p| (Some(p.id), Some(p.properties)))
         .unwrap_or((None, None));
     person_query_timer.fin();
+    with_canonical_log(|log| log.person_queries += 1);
 
     let person_query_duration = person_query_start.elapsed();
 
@@ -208,6 +209,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
+            with_canonical_log(|log| log.static_cohort_queries += 1);
 
             let cohort_query_duration = cohort_query_start.elapsed();
 
@@ -298,6 +300,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
+        with_canonical_log(|log| log.group_queries += 1);
 
         let group_query_duration = group_query_start.elapsed();
 

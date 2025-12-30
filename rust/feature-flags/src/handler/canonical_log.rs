@@ -96,7 +96,14 @@ pub struct FlagsCanonicalLogLine {
     pub quota_limited: bool,
 
     // Deep evaluation metrics (populated via task_local from flag_matching.rs)
+    /// Total number of database property fetch operations (aggregate counter).
     pub db_property_fetches: usize,
+    /// Number of person property queries made to the database.
+    pub person_queries: usize,
+    /// Number of group property queries made to the database.
+    pub group_queries: usize,
+    /// Number of static cohort membership queries made to the database.
+    pub static_cohort_queries: usize,
     pub property_cache_hits: usize,
     pub property_cache_misses: usize,
     pub cohorts_evaluated: usize,
@@ -130,6 +137,9 @@ impl Default for FlagsCanonicalLogLine {
             flags_disabled: false,
             quota_limited: false,
             db_property_fetches: 0,
+            person_queries: 0,
+            group_queries: 0,
+            static_cohort_queries: 0,
             property_cache_hits: 0,
             property_cache_misses: 0,
             cohorts_evaluated: 0,
@@ -176,6 +186,9 @@ impl FlagsCanonicalLogLine {
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
             db_property_fetches = self.db_property_fetches,
+            person_queries = self.person_queries,
+            group_queries = self.group_queries,
+            static_cohort_queries = self.static_cohort_queries,
             property_cache_hits = self.property_cache_hits,
             property_cache_misses = self.property_cache_misses,
             cohorts_evaluated = self.cohorts_evaluated,
@@ -204,6 +217,8 @@ impl FlagsCanonicalLogLine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::errors::{ClientFacingError, FlagError};
+    use crate::utils::graph_utils::DependencyType;
 
     #[test]
     fn test_new_creates_with_defaults() {
@@ -223,6 +238,9 @@ mod tests {
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
         assert_eq!(log.db_property_fetches, 0);
+        assert_eq!(log.person_queries, 0);
+        assert_eq!(log.group_queries, 0);
+        assert_eq!(log.static_cohort_queries, 0);
         assert_eq!(log.property_cache_hits, 0);
         assert_eq!(log.property_cache_misses, 0);
         assert_eq!(log.cohorts_evaluated, 0);
@@ -332,6 +350,223 @@ mod tests {
         // Ensure original is unmodified
         assert_eq!(log.team_id, Some(123));
         assert_eq!(cloned.team_id, Some(456));
+    }
+
+    mod task_local_isolation_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_concurrent_requests_are_isolated() {
+            // Spawn multiple concurrent tasks that each modify their own canonical log.
+            // Verify that modifications in one task don't affect other tasks.
+            let handles: Vec<_> = (0..10)
+                .map(|i| {
+                    tokio::spawn(async move {
+                        let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), format!("10.0.0.{i}"));
+
+                        let (_, final_log) = run_with_canonical_log(log, async {
+                            // Each task sets its own unique team_id
+                            with_canonical_log(|l| l.team_id = Some(i as i32));
+                            with_canonical_log(|l| l.flags_evaluated = i);
+
+                            // Small delay to allow interleaving
+                            tokio::task::yield_now().await;
+
+                            // Update more fields after yield
+                            with_canonical_log(|l| l.property_cache_hits = i * 2);
+                        })
+                        .await;
+
+                        // Return the final values for verification
+                        (
+                            i,
+                            final_log.team_id,
+                            final_log.flags_evaluated,
+                            final_log.property_cache_hits,
+                        )
+                    })
+                })
+                .collect();
+
+            // Verify each task got its own isolated log
+            for handle in handles {
+                let (i, team_id, flags_evaluated, cache_hits) = handle.await.unwrap();
+                assert_eq!(team_id, Some(i as i32), "team_id should match task index");
+                assert_eq!(
+                    flags_evaluated, i,
+                    "flags_evaluated should match task index"
+                );
+                assert_eq!(
+                    cache_hits,
+                    i * 2,
+                    "property_cache_hits should match task index * 2"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn test_nested_scopes_are_independent() {
+            // Test that we can't accidentally nest canonical log scopes
+            // (each run_with_canonical_log creates a new scope)
+            let outer_log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "outer".to_string());
+
+            let (_, outer_final) = run_with_canonical_log(outer_log, async {
+                with_canonical_log(|l| l.team_id = Some(1));
+
+                // Start a nested scope with different values
+                let inner_log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "inner".to_string());
+                let (_, inner_final) = run_with_canonical_log(inner_log, async {
+                    with_canonical_log(|l| l.team_id = Some(2));
+                })
+                .await;
+
+                // Inner scope should have its own values
+                assert_eq!(inner_final.team_id, Some(2));
+                assert_eq!(inner_final.ip, "inner");
+
+                // After inner scope ends, we should still be in outer scope
+                with_canonical_log(|l| l.flags_evaluated = 100);
+            })
+            .await;
+
+            // Outer scope should have its own values, unaffected by inner scope
+            assert_eq!(outer_final.team_id, Some(1));
+            assert_eq!(outer_final.flags_evaluated, 100);
+            assert_eq!(outer_final.ip, "outer");
+        }
+
+        #[tokio::test]
+        async fn test_with_canonical_log_outside_scope_is_safe() {
+            // Call with_canonical_log outside any scope - should no-op without panic
+            with_canonical_log(|l| l.team_id = Some(999));
+
+            // Now run a proper scope and verify the outside call had no effect
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "test".to_string());
+            let (_, final_log) = run_with_canonical_log(log, async {
+                // Don't modify team_id
+            })
+            .await;
+
+            assert!(final_log.team_id.is_none());
+        }
+    }
+
+    mod set_error_tests {
+        use super::*;
+        use common_cookieless::CookielessManagerError;
+        use rstest::rstest;
+
+        #[rstest]
+        #[case(FlagError::ClientFacing(ClientFacingError::BadRequest("test".into())), 400, "bad_request")]
+        #[case(FlagError::ClientFacing(ClientFacingError::Unauthorized("test".into())), 401, "unauthorized")]
+        #[case(
+            FlagError::ClientFacing(ClientFacingError::RateLimited),
+            429,
+            "rate_limited"
+        )]
+        #[case(
+            FlagError::ClientFacing(ClientFacingError::IpRateLimited),
+            429,
+            "ip_rate_limited"
+        )]
+        #[case(
+            FlagError::ClientFacing(ClientFacingError::TokenRateLimited),
+            429,
+            "token_rate_limited"
+        )]
+        #[case(
+            FlagError::ClientFacing(ClientFacingError::BillingLimit),
+            402,
+            "billing_limit"
+        )]
+        #[case(
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
+            503,
+            "service_unavailable"
+        )]
+        #[case(FlagError::Internal("test".into()), 500, "internal_error")]
+        #[case(FlagError::RequestDecodingError("test".into()), 400, "request_decoding_error")]
+        #[case(FlagError::MissingDistinctId, 400, "missing_distinct_id")]
+        #[case(FlagError::NoTokenError, 401, "missing_token")]
+        #[case(FlagError::TokenValidationError, 401, "invalid_token")]
+        #[case(FlagError::PersonalApiKeyInvalid("test".into()), 401, "personal_api_key_invalid")]
+        #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
+        #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
+        #[case(FlagError::RowNotFound, 500, "row_not_found")]
+        #[case(FlagError::RedisDataParsingError, 503, "redis_parsing_error")]
+        #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
+        #[case(FlagError::CacheUpdateError, 500, "cache_update_error")]
+        #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
+        #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
+        #[case(FlagError::TimeoutError(None), 503, "timeout")]
+        #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
+        #[case(FlagError::NoGroupTypeMappings, 500, "no_group_type_mappings")]
+        #[case(
+            FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            500,
+            "dependency_not_found"
+        )]
+        #[case(
+            FlagError::DependencyCycle(DependencyType::Cohort, 2),
+            500,
+            "dependency_cycle"
+        )]
+        #[case(
+            FlagError::CohortFiltersParsingError,
+            500,
+            "cohort_filters_parsing_error"
+        )]
+        #[case(FlagError::PersonNotFound, 400, "person_not_found")]
+        #[case(FlagError::PropertiesNotInCache, 400, "properties_not_in_cache")]
+        #[case(
+            FlagError::StaticCohortMatchesNotCached,
+            400,
+            "static_cohort_not_cached"
+        )]
+        #[case(FlagError::CacheMiss, 503, "cache_miss")]
+        #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        fn test_set_error_populates_fields(
+            #[case] error: FlagError,
+            #[case] expected_status: u16,
+            #[case] expected_code: &'static str,
+        ) {
+            let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            log.set_error(&error);
+
+            assert_eq!(
+                log.http_status, expected_status,
+                "http_status mismatch for {error:?}"
+            );
+            assert_eq!(
+                log.error_code,
+                Some(expected_code),
+                "error_code mismatch for {error:?}"
+            );
+        }
+
+        #[test]
+        fn test_set_error_cookieless_bad_request() {
+            let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+            let error: FlagError = CookielessManagerError::MissingProperty("test".into()).into();
+
+            log.set_error(&error);
+
+            assert_eq!(log.http_status, 400);
+            assert_eq!(log.error_code, Some("cookieless_error"));
+        }
+
+        #[test]
+        fn test_emit_for_error_sets_error_and_emits() {
+            let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+            let error = FlagError::NoTokenError;
+
+            log.emit_for_error(&error);
+
+            // Verify error fields were set (emit_for_error calls set_error internally)
+            assert_eq!(log.http_status, 401);
+            assert_eq!(log.error_code, Some("missing_token"));
+        }
     }
 
     mod truncate_chars_tests {
