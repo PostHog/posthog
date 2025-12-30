@@ -181,18 +181,21 @@ export const workflowLogic = kea<workflowLogicType>([
 
                     // If we're in template edit mode, update the template instead
                     if (props.editTemplateId) {
+                        const updated = {
+                            ...updates,
+                            status: 'draft' as const,
+                        } as HogFlow
                         const templateLogic = workflowTemplateLogic.findMounted({
                             id: props.id || 'new',
                             editTemplateId: props.editTemplateId,
                         })
-                        if (templateLogic) {
-                            await templateLogic.actions.updateTemplateFromWorkflow(props.editTemplateId, updates)
+                        if (!templateLogic) {
+                            lemonToast.error('Template logic not mounted')
+                            return updated
                         }
+                        await templateLogic.actions.updateTemplateFromWorkflow(props.editTemplateId, updates)
 
-                        return {
-                            ...updates,
-                            status: 'draft' as const,
-                        } as HogFlow
+                        return updated
                     }
 
                     if (!props.id || props.id === 'new') {
