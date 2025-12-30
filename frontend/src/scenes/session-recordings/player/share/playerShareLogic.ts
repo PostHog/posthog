@@ -163,29 +163,17 @@ export const playerShareLogic = kea<playerShareLogicType>([
         ],
         githubUrl: [
             (s) => [s.githubQueryParams, s.githubLinkForm],
-            (
-                githubQueryParams: { username: string; repoName: string; title: string; description: string },
-                githubLinkForm: FormWithTime & {
-                    githubIssueTitle: string
-                    githubIssueDescription: string
-                    githubUsername: string
-                    githubRepoName: string
-                    githubAssignees: string
-                    githubLabels: string
-                }
-            ) => {
+            (githubQueryParams, githubLinkForm) => {
                 const { username, repoName, title, description } = githubQueryParams
                 if (!username || !repoName) {
                     return ''
                 }
-                const params: Record<string, string> = Object.fromEntries(
-                    Object.entries({
-                        title,
-                        body: description,
-                        assignees: githubLinkForm.githubAssignees,
-                        labels: githubLinkForm.githubLabels,
-                    }).filter(([_, value]) => value)
-                )
+                const params = {
+                    title,
+                    body: description,
+                    assignees: githubLinkForm.githubAssignees,
+                    labels: githubLinkForm.githubLabels,
+                }
                 return combineUrl(`https://github.com/${username}/${repoName}/issues/new`, params).url
             },
         ],

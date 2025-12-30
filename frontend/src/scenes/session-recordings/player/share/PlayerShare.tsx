@@ -193,13 +193,13 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
 
             <Form logic={playerShareLogic} props={props} formKey="githubLinkForm" className="flex flex-col gap-2">
                 <LemonField className="gap-1" name="githubUsername" label="Username or Organization Name">
-                    <LemonInput fullWidth />
+                    <LemonInput fullWidth data-attr="github-share-username" />
                 </LemonField>
                 <LemonField className="gap-1" name="githubRepoName" label="Repository Name">
-                    <LemonInput fullWidth />
+                    <LemonInput fullWidth data-attr="github-share-repo-name" />
                 </LemonField>
                 <LemonField className="gap-1" name="githubIssueTitle" label="Issue Title">
-                    <LemonInput fullWidth />
+                    <LemonInput fullWidth data-attr="github-share-issue-title" />
                 </LemonField>
                 <LemonField
                     className="gap-1"
@@ -236,7 +236,11 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                                         label="Assignees"
                                         help={<span>Comma-separated GitHub usernames to assign</span>}
                                     >
-                                        <LemonInput fullWidth placeholder="user1, user2" />
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="user1, user2"
+                                            data-attr="github-share-assignees"
+                                        />
                                     </LemonField>
                                     <LemonField
                                         className="gap-1"
@@ -244,7 +248,11 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                                         label="Labels"
                                         help={<span>Comma-separated labels to add to the issue</span>}
                                     >
-                                        <LemonInput fullWidth placeholder="bug, enhancement" />
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="bug, enhancement"
+                                            data-attr="github-share-labels"
+                                        />
                                     </LemonField>
                                 </div>
                             ),
