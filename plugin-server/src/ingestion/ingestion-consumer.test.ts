@@ -46,6 +46,17 @@ jest.mock('./event-processing/event-pipeline-runner-v1-step', () => ({
     createEventPipelineRunnerV1Step: jest.fn(),
 }))
 
+// Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
+jest.mock('../utils/token-bucket', () => {
+    const mockConsume = jest.fn().mockReturnValue(true)
+    return {
+        ...jest.requireActual('../utils/token-bucket'),
+        IngestionWarningLimiter: {
+            consume: mockConsume,
+        },
+    }
+})
+
 let offsetIncrementer = 0
 
 const createKafkaMessage = (event: PipelineEvent): Message => {
@@ -123,7 +134,10 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Prep
     })
 }
 
-describe('IngestionConsumer', () => {
+describe.each([
+    ['legacy pipeline', false],
+    ['joined pipeline', true],
+] as const)('IngestionConsumer (%s)', (_name, useJoinedPipeline) => {
     let ingester: IngestionConsumer
     let hub: Hub
     let team: Team
@@ -188,10 +202,11 @@ describe('IngestionConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
+        hub.INGESTION_JOINED_PIPELINE = useJoinedPipeline
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
 
         jest.mocked(createEventPipelineRunnerV1Step).mockImplementation((...args) => {
@@ -227,7 +242,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should process a cookieless event', async () => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Stateful, team.id],
@@ -239,7 +254,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should drop a cookieless event if the team has cookieless disabled', async () => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [CookielessServerHashMode.Disabled, team.id],
@@ -528,7 +543,8 @@ describe('IngestionConsumer', () => {
                 }),
             ])
 
-            await ingester.handleKafkaBatch(messages)
+            const { backgroundTask } = await ingester.handleKafkaBatch(messages)
+            await backgroundTask
 
             // Event should be dropped
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)

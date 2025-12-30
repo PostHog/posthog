@@ -5,9 +5,9 @@ import { DateTime } from 'luxon'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
-import { Hub, PluginConfig, Team } from '../../types'
+import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
@@ -35,7 +35,8 @@ describe('LegacyPluginExecutorService', () => {
     let team: Team
     let globals: HogFunctionInvocationGlobalsWithInputs
     let fn: HogFunctionType
-    let pluginConfig: PluginConfig
+    let pluginConfigId: number
+    let uniquePluginId: number
 
     const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
 
@@ -54,23 +55,49 @@ describe('LegacyPluginExecutorService', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        const plugin = await createPlugin(hub.postgres, {
-            organization_id: team.organization_id,
-            name: 'first-time-event-tracker',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-            export async function processEvent(event) {
-                return event
-            }
-        `,
-        })
-        pluginConfig = await createPluginConfig(hub.postgres, {
-            id: 10001,
-            name: 'first-time-event-tracker',
-            team_id: team.id,
-            plugin_id: plugin.id,
-        } as any)
+        // Generate a unique plugin ID to avoid conflicts
+        uniquePluginId = 50000 + Math.floor(Math.random() * 100000)
+
+        // Create a plugin in the database
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_plugin (id, organization_id, name, plugin_type, is_global, url, config_schema, from_json, from_web, created_at, updated_at, is_preinstalled, capabilities)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb)
+             RETURNING *`,
+            [
+                uniquePluginId,
+                team.organization_id,
+                'first-time-event-tracker',
+                'source',
+                false,
+                null,
+                JSON.stringify({}),
+                false,
+                false,
+                new Date().toISOString(),
+                new Date().toISOString(),
+                false,
+                JSON.stringify({ methods: ['processEvent'] }),
+            ],
+            'insertPlugin'
+        )
+
+        pluginConfigId = 10001
+
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'INSERT INTO posthog_pluginconfig (id, team_id, plugin_id, enabled, "order", config, created_at, updated_at, deleted) VALUES ($1, $2, $3, true, $4, $5::jsonb, $6, $7, false)',
+            [
+                pluginConfigId,
+                team.id,
+                uniquePluginId,
+                0,
+                JSON.stringify({}),
+                new Date().toISOString(),
+                new Date().toISOString(),
+            ],
+            'insertPluginConfig'
+        )
 
         mockFetch.mockImplementation((_url, _options) =>
             Promise.resolve({
@@ -112,7 +139,7 @@ describe('LegacyPluginExecutorService', () => {
                 customerioSiteId: '1234567890',
                 customerioToken: 'cio-token',
                 email: 'test@posthog.com',
-                legacy_plugin_config_id: pluginConfig.id,
+                legacy_plugin_config_id: pluginConfigId,
             },
         }
     })
@@ -501,7 +528,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.state.globals.event.event = '$identify' // Many plugins filter for this
 
             if (plugin.template.id === 'plugin-customerio-plugin') {
-                invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+                invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfigId
             }
             const res = await service.execute(invocation)
             expect(getLogMessages(res.logs)).toMatchSnapshot()
@@ -547,7 +574,7 @@ describe('LegacyPluginExecutorService', () => {
         })
 
         it('should succeed if legacy plugin config id is provided', async () => {
-            invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+            invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfigId
 
             const res = await service.execute(invocation)
 

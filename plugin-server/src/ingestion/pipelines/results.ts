@@ -47,7 +47,7 @@ export function ok<T>(
     value: T,
     sideEffects: Promise<unknown>[] = [],
     warnings: PipelineWarning[] = []
-): PipelineResult<T> {
+): PipelineResultOk<T> {
     return { type: PipelineResultType.OK, value, sideEffects, warnings }
 }
 

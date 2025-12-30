@@ -146,13 +146,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     if key != holdout_key:
                         rollout_percentages[key] = rollout_percentages[key] * (remaining / 100)
 
-        # Exclude MULTIPLE_VARIANT_KEY and variants with 0% rollout
-        # Filter out 0% rollout variants before calculating total to ensure
-        # sum(observed) == sum(expected) for scipy.chisquare()
+        # Get all variant keys with non-zero rollout percentage
+        # We must iterate over these (not total_exposures) to ensure sum(observed) == sum(expected)
+        variants_with_rollout = {key for key, pct in rollout_percentages.items() if pct > 0}
+
+        # Calculate total observed for variants with non-zero rollout
+        # Use .get(key, 0) to handle variants that may be missing from total_exposures
         total_observed = sum(
-            count
-            for key, count in total_exposures.items()
-            if key != MULTIPLE_VARIANT_KEY and rollout_percentages.get(key, 0) > 0
+            total_exposures.get(key, 0) for key in variants_with_rollout if key != MULTIPLE_VARIANT_KEY
         )
         if total_observed < SRM_MINIMUM_SAMPLE_SIZE:
             return None
@@ -161,17 +162,19 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         expected: list[float] = []
         expected_counts: dict[str, float] = {}
 
-        for variant_key, obs_count in total_exposures.items():
+        # Iterate over all variants with non-zero rollout (not just those in total_exposures)
+        # This ensures variants with 0 exposures are still included in the chi-square calculation
+        for variant_key in variants_with_rollout:
             if variant_key == MULTIPLE_VARIANT_KEY:
                 continue
 
-            rollout_pct = rollout_percentages.get(variant_key, 0)
+            obs_count = total_exposures.get(variant_key, 0)
+            rollout_pct = rollout_percentages[variant_key]
             exp_count = (rollout_pct / 100) * total_observed
 
-            if exp_count > 0:
-                observed.append(float(obs_count))
-                expected.append(exp_count)
-                expected_counts[variant_key] = exp_count
+            observed.append(float(obs_count))
+            expected.append(exp_count)
+            expected_counts[variant_key] = exp_count
 
         if len(observed) < 2:
             return None

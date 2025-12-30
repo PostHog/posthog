@@ -17,11 +17,11 @@ describe('IntegrationManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new IntegrationManagerService(hub.pubSub, hub.db.postgres, hub.encryptedFields)
+        manager = new IntegrationManagerService(hub.pubSub, hub.postgres, hub.encryptedFields)
 
         const team = await getTeam(hub, 2)
 
-        teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId1 = await createTeam(hub.postgres, team!.organization_id)
 
         integrations = []
 
@@ -68,7 +68,7 @@ describe('IntegrationManager', () => {
         expect(item?.sensitive_config).toEqual({ access_token: 'token', not_encrypted: 'not-encrypted' })
 
         // Update the integration in the database
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_integration
                  SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
@@ -81,7 +81,7 @@ describe('IntegrationManager', () => {
         manager['onIntegrationsReloaded']([integrations[0].id])
 
         // Verify the database update worked
-        const updatedIntegration = await hub.db.postgres.query(
+        const updatedIntegration = await hub.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT config, sensitive_config FROM posthog_integration WHERE id = $1`,
             [integrations[0].id],

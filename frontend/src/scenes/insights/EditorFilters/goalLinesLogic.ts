@@ -3,8 +3,14 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { FunnelsQuery, GoalLine, HogQLQueryModifiers, TrendsQuery } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
+import {
+    FunnelsQuery,
+    GoalLine,
+    HogQLQueryModifiers,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -73,6 +79,13 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
                         goalLines: values.goalLines,
                     },
                 } as Partial<FunnelsQuery>)
+            } else if (isRetentionQuery(querySource)) {
+                actions.updateQuerySource({
+                    retentionFilter: {
+                        ...querySource?.retentionFilter,
+                        goalLines: values.goalLines,
+                    },
+                } as Partial<RetentionQuery>)
             }
         }
 
@@ -85,7 +98,10 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
     }),
     subscriptions(({ values, actions }) => ({
         querySource: (querySource) => {
-            const goalLines = querySource?.trendsFilter?.goalLines
+            const goalLines =
+                querySource?.trendsFilter?.goalLines ??
+                querySource?.funnelsFilter?.goalLines ??
+                querySource?.retentionFilter?.goalLines
             if (values.goalLines.length === 0 && goalLines && goalLines.length > 0) {
                 actions.setGoalLines(goalLines)
             }
