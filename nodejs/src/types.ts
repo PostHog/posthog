@@ -185,10 +185,6 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
-
-    // Batch hogflow configuration
-    HOGFLOW_BATCH_MAX_MESSAGES: number
-    HOGFLOW_BATCH_CONSUMER_RATE_LIMIT: number
 }
 
 export type IngestionConsumerConfig = {

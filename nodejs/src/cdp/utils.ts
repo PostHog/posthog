@@ -121,7 +121,7 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             url: projectUrl,
         },
         event: {
-            event: '$incoming_webhook',
+            event: '$batch_hog_flow_invocation',
             properties: {},
             uuid: new UUIDT().toString(),
             distinct_id: distinctId,

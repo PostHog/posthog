@@ -345,54 +345,54 @@ export class PostgresPersonRepository
             case PropertyOperator.IContains:
                 values.push(`%${value}%`)
                 return {
-                    condition: `posthog_person.properties->>'${key}' ILIKE $${paramIndex}`,
+                    condition: `posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ILIKE $${paramIndex}`,
                     values,
                 }
 
             case PropertyOperator.NotIContains:
                 values.push(`%${value}%`)
                 return {
-                    condition: `NOT (posthog_person.properties->>'${key}' ILIKE $${paramIndex})`,
+                    condition: `NOT (posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ILIKE $${paramIndex})`,
                     values,
                 }
 
             case PropertyOperator.Regex:
                 values.push(value)
                 return {
-                    condition: `posthog_person.properties->>'${key}' ~ $${paramIndex}`,
+                    condition: `posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ~ $${paramIndex}`,
                     values,
                 }
 
             case PropertyOperator.NotRegex:
                 values.push(value)
                 return {
-                    condition: `NOT (posthog_person.properties->>'${key}' ~ $${paramIndex})`,
+                    condition: `NOT (posthog_person.properties->>'${sanitizeSqlIdentifier(key)}' ~ $${paramIndex})`,
                     values,
                 }
 
             case PropertyOperator.GreaterThan:
                 values.push(value)
                 return {
-                    condition: `(posthog_person.properties->>'${key}')::numeric > $${paramIndex}::numeric`,
+                    condition: `(posthog_person.properties->>'${sanitizeSqlIdentifier(key)}')::numeric > $${paramIndex}::numeric`,
                     values,
                 }
 
             case PropertyOperator.LessThan:
                 values.push(value)
                 return {
-                    condition: `(posthog_person.properties->>'${key}')::numeric < $${paramIndex}::numeric`,
+                    condition: `(posthog_person.properties->>'${sanitizeSqlIdentifier(key)}')::numeric < $${paramIndex}::numeric`,
                     values,
                 }
 
             case PropertyOperator.IsSet:
                 return {
-                    condition: `posthog_person.properties ? '${key}'`,
+                    condition: `posthog_person.properties ? '${sanitizeSqlIdentifier(key)}'`,
                     values: [],
                 }
 
             case PropertyOperator.IsNotSet:
                 return {
-                    condition: `NOT (posthog_person.properties ? '${key}')`,
+                    condition: `NOT (posthog_person.properties ? '${sanitizeSqlIdentifier(key)}')`,
                     values: [],
                 }
 
@@ -401,7 +401,7 @@ export class PostgresPersonRepository
                 const op = operator === PropertyOperator.IsDateAfter ? '>' : '<'
                 values.push(value)
                 return {
-                    condition: `(posthog_person.properties->>'${key}')::timestamp ${op} $${paramIndex}::timestamp`,
+                    condition: `(posthog_person.properties->>'${sanitizeSqlIdentifier(key)}')::timestamp ${op} $${paramIndex}::timestamp`,
                     values,
                 }
             }
@@ -424,7 +424,6 @@ export class PostgresPersonRepository
         const teamId = teamPersons.teamId
         const propertiesConditions = teamPersons.properties
 
-        // Build WHERE conditions for each properties filter
         const whereConditions: string[] = []
         const values: any[] = [teamId]
 
@@ -438,7 +437,7 @@ export class PostgresPersonRepository
             SELECT COUNT(*) as count
             FROM posthog_person
             WHERE posthog_person.team_id = $1
-              AND (${whereConditions.join(' OR ')})
+              AND (${whereConditions.join(' AND ')})
         `
 
         const { rows } = await this.postgres.query<{ count: string }>(
@@ -464,7 +463,6 @@ export class PostgresPersonRepository
         const propertiesConditions = teamPersons.properties
         const { limit = 1000, offset = 0 } = teamPersons.options || {}
 
-        // Build WHERE conditions for each properties filter
         const whereConditions: string[] = []
         const values: any[] = [teamId]
 
@@ -497,7 +495,7 @@ export class PostgresPersonRepository
                 AND posthog_persondistinctid.team_id = posthog_person.team_id
             )
             WHERE posthog_person.team_id = $1
-              AND (${whereConditions.join(' OR ')})
+              AND (${whereConditions.join(' AND ')})
             ORDER BY posthog_person.id, posthog_persondistinctid.distinct_id
             LIMIT $${limitParamIndex}
             OFFSET $${offsetParamIndex}

@@ -61,13 +61,15 @@ export class PersonsManagerService {
     }: {
         filters: BatchPersonGetArgs
         options?: { limit?: number }
-        onPerson?: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
+        onPerson: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
     }): Promise<void> {
-        const opt = {
-            limit: options?.limit || 500,
-            offset: 0,
-        }
-        let personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, options: opt })
+        const limit = options?.limit || 500
+        let offset = 0
+
+        let personBatch = await this.personRepository.fetchPersonsByProperties({
+            ...filters,
+            options: { limit, offset },
+        })
         while (personBatch.length > 0) {
             for (const personRow of personBatch) {
                 onPerson?.({
@@ -77,12 +79,15 @@ export class PersonsManagerService {
             }
 
             // Skip another query if our page wasn't full
-            if (personBatch.length < opt.limit) {
+            if (personBatch.length < limit) {
                 break
             }
 
-            opt.offset += opt.limit
-            personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, options: opt })
+            offset += limit
+            personBatch = await this.personRepository.fetchPersonsByProperties({
+                ...filters,
+                options: { limit, offset },
+            })
         }
     }
 

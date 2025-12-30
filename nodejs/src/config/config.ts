@@ -206,11 +206,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
-        CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
-
-        // Batch hogflow configuration
-        HOGFLOW_BATCH_MAX_MESSAGES: 1500,
-        HOGFLOW_BATCH_CONSUMER_RATE_LIMIT: 10, // messages per second
+        CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1, // set to 1 intentionally, batch requests fanout into many workflow invocations
 
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,

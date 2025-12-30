@@ -8,7 +8,7 @@ import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { BatchHogFlowRequest, CdpBatchHogFlowRequestsConsumer } from './cdp-cyclotron-producer-batch.producer'
+import { BatchHogFlowRequest, CdpBatchHogFlowRequestsConsumer } from './cdp-batch-hogflow.consumer'
 
 jest.setTimeout(1000)
 
