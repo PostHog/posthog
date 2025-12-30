@@ -1661,6 +1661,7 @@
                 "webAnalytics",
                 "webAnalyticsWebVitals",
                 "webAnalyticsHealth",
+                "webAnalyticsLive",
                 "persons"
             ],
             "type": "string"
