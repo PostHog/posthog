@@ -12,6 +12,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSwitchGroupConfig
+
 from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -25,6 +27,7 @@ from posthog.models.activity_logging.external_data_utils import (
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.config import Config
 
 from products.data_warehouse.backend.api.external_data_schema import (
@@ -49,6 +52,17 @@ from products.data_warehouse.backend.models.util import validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+
+def get_password_field_names(fields: list[FieldType]) -> set[str]:
+    """Extract field names that have PASSWORD type from a source config's fields."""
+    password_fields: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+            password_fields.add(field.name)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            password_fields.update(get_password_field_names(field.fields))
+    return password_fields
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -212,9 +226,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                     "auth": {
                         "selection": existing_auth.get("type", None),
                         "username": existing_auth.get("username", None),
-                        "password": None,
-                        "passphrase": None,
-                        "private_key": None,
+                        # Note: password, passphrase, private_key intentionally omitted
+                        # to prevent them being sent back as null and overwriting stored values
                     },
                 }
                 job_inputs["ssh_tunnel"] = ssh_tunnel
@@ -271,16 +284,32 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
-        """Update source ensuring we merge with existing job inputs to allow partial updates."""
-        existing_job_inputs = instance.job_inputs
+        existing_job_inputs = instance.job_inputs or {}
+        incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
+        password_fields = get_password_field_names(source.get_source_config.fields)
 
-        if existing_job_inputs:
-            new_job_inputs = {**existing_job_inputs, **validated_data.get("job_inputs", {})}
-        else:
-            new_job_inputs = validated_data.get("job_inputs", {})
+        new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+
+        # Preserve sensitive credentials not explicitly provided (API response omits them for security)
+        for key in password_fields:
+            if existing_job_inputs.get(key) and (key not in incoming_job_inputs or incoming_job_inputs[key] is None):
+                new_job_inputs[key] = existing_job_inputs[key]
+
+        # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
+        if "ssh_tunnel" in existing_job_inputs and "ssh_tunnel" in incoming_job_inputs:
+            existing_auth = (existing_job_inputs.get("ssh_tunnel") or {}).get("auth") or {}
+            incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel") or {}
+            incoming_auth = incoming_ssh_tunnel.get("auth") or incoming_ssh_tunnel.get("auth_type") or {}
+
+            new_ssh_tunnel = new_job_inputs.setdefault("ssh_tunnel", {})
+            new_auth = new_ssh_tunnel.setdefault("auth", {})
+
+            for key in ("password", "passphrase", "private_key"):
+                if existing_auth.get(key) and (key not in incoming_auth or incoming_auth[key] is None):
+                    new_auth[key] = existing_auth[key]
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:

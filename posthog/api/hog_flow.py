@@ -150,7 +150,7 @@ class HogFlowVariableSerializer(serializers.ListSerializer):
 
 
 class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
+    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365 * 3, allow_null=True)
     threshold = serializers.IntegerField(required=False, allow_null=True)
     hash = serializers.CharField(required=True)
     bytecode = serializers.JSONField(required=False, allow_null=True)

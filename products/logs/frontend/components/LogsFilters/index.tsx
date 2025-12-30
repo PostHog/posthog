@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { Scene } from 'scenes/sceneTypes'
 
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 import { DateRangeFilter } from 'products/logs/frontend/filters/DateRangeFilter'
@@ -36,6 +39,7 @@ export const LogsFilters = (): JSX.Element => {
                         onClick={() => zoomDateRange(0.5)}
                     />
                     <DateRangeFilter />
+
                     <LemonButton
                         size="small"
                         icon={<IconRefresh />}
@@ -46,15 +50,23 @@ export const LogsFilters = (): JSX.Element => {
                     >
                         {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
                     </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type={liveTailRunning ? 'primary' : 'secondary'}
-                        icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
-                        onClick={() => setLiveTailRunning(!liveTailRunning)}
-                        disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                    <AppShortcut
+                        name="LogsLiveTail"
+                        keybind={[keyBinds.edit]}
+                        intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
+                        interaction="click"
+                        scope={Scene.Logs}
                     >
-                        Live tail
-                    </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type={liveTailRunning ? 'primary' : 'secondary'}
+                            icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                            onClick={() => setLiveTailRunning(!liveTailRunning)}
+                            disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                        >
+                            Live tail
+                        </LemonButton>
+                    </AppShortcut>
                 </div>
             </div>
             <LogsFilterGroup />

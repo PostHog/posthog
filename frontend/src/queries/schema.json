@@ -1661,6 +1661,7 @@
                 "webAnalytics",
                 "webAnalyticsWebVitals",
                 "webAnalyticsHealth",
+                "webAnalyticsLive",
                 "persons"
             ],
             "type": "string"
@@ -1886,7 +1887,6 @@
         "AssistantTool": {
             "enum": [
                 "search_session_recordings",
-                "generate_hogql_query",
                 "fix_hogql_query",
                 "analyze_user_interviews",
                 "create_and_query_insight",
@@ -1900,7 +1900,6 @@
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
-                "session_summarization",
                 "create_dashboard",
                 "edit_current_dashboard",
                 "read_taxonomy",
@@ -2516,6 +2515,9 @@
                     "$ref": "#/definitions/integer"
                 },
                 "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_path_cleaning": {
                     "type": "boolean"
                 },
                 "breakdown_type": {
@@ -7795,7 +7797,7 @@
         },
         "CohortPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "cohort_name": {
                     "type": "string"
@@ -8164,6 +8166,58 @@
                     "type": "object"
                 }
             ]
+        },
+        "CoreEvent": {
+            "additionalProperties": false,
+            "description": "Unified core event stored in Team settings",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/CoreEventCategory",
+                    "description": "Category (acquisition, activation, retention, referral, revenue)"
+                },
+                "description": {
+                    "description": "Optional description",
+                    "type": "string"
+                },
+                "filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/DataWarehouseNode"
+                        }
+                    ],
+                    "description": "Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.)"
+                },
+                "id": {
+                    "description": "Unique identifier",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "category", "filter"],
+            "type": "object"
+        },
+        "CoreEventCategory": {
+            "description": "Category for core events (lifecycle stages)",
+            "enum": [
+                "acquisition",
+                "activation",
+                "monetization",
+                "expansion",
+                "referral",
+                "retention",
+                "churn",
+                "reactivation"
+            ],
+            "type": "string"
         },
         "CountPerActorMathType": {
             "enum": [
@@ -11199,7 +11253,7 @@
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "enum": ["tag_name", "text", "href", "selector"],
@@ -12431,7 +12485,7 @@
         },
         "EventPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -21019,7 +21073,7 @@
         },
         "PersonPropertyFilter": {
             "additionalProperties": false,
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "properties": {
                 "key": {
                     "type": "string"
@@ -21255,6 +21309,7 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "logs_docs_viewed",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -21291,8 +21346,15 @@
                 "marketing_analytics_settings_updated",
                 "marketing_analytics_dashboard_interaction",
                 "marketing_analytics_ads_integration_visited",
+                "customer_analytics_dashboard_business_mode_changed",
+                "customer_analytics_dashboard_configuration_button_clicked",
+                "customer_analytics_dashboard_filters_changed",
+                "customer_analytics_dashboard_events_saved",
+                "customer_analytics_viewed",
+                "customer_analytics_usage_metric_created",
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
+                "workflow_created",
                 "vercel_integration"
             ],
             "type": "string"
@@ -21483,7 +21545,7 @@
             "type": "string"
         },
         "PropertyOperator": {
-            "description": "Sync with plugin-server/src/types.ts",
+            "description": "Sync with nodejs/src/types.ts",
             "enum": [
                 "exact",
                 "is_not",
@@ -26505,6 +26567,12 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
+                },
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
                 },
                 "meanRetentionCalculation": {
                     "enum": ["simple", "weighted", "none"],

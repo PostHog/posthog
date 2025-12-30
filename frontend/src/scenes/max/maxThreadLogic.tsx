@@ -1026,8 +1026,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneId: (sceneId: Scene | null) => {
-            // Only auto-set mode when the agent modes feature is enabled and no conversation is active
-            if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
+            // Only auto-set mode when no conversation is active
+            if (!values.conversation) {
                 const suggestedMode = getAgentModeForScene(sceneId)
                 if (suggestedMode !== values.agentMode) {
                     // Use sync action to not lock - allows conversation to still update mode if agent changes it

@@ -231,6 +231,7 @@ async fn test_unavailable_uploader() {
         partition.clone(),
         attempt_timestamp,
         exporter.clone(),
+        None,
     );
 
     // The wrapper thread closure that is spawned to run this in
@@ -288,6 +289,7 @@ async fn test_unpopulated_exporter() {
         partition.clone(),
         attempt_timestamp,
         None,
+        None,
     );
 
     // Checkpoint should still succeed even if uploader is unavailable
@@ -339,6 +341,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
         partition.clone(),
         attempt_timestamp,
         exporter.clone(),
+        None,
     );
 
     // Perform checkpoint without previous metadata
@@ -424,6 +427,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         partition.clone(),
         attempt_timestamp,
         exporter.clone(),
+        None,
     );
 
     // Perform checkpoint without previous metadata
@@ -493,6 +497,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         partition.clone(),
         next_attempt_timestamp,
         exporter.clone(),
+        None,
     );
     let result = worker_next
         .checkpoint_partition(&store, Some(&orig_info.metadata))

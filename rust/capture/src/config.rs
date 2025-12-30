@@ -48,6 +48,22 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
+    #[envconfig(default = "false")]
+    pub global_rate_limit_enabled: bool,
+
+    /// Rate limiting keys associated with this or more events
+    /// per window interval will be rate limited
+    #[envconfig(default = "1000000")]
+    pub global_rate_limit_threshold: u64,
+
+    /// Sliding window interval to apply global rate limiting threshold to
+    #[envconfig(default = "60")]
+    pub global_rate_limit_window_interval_secs: u64,
+
+    /// CSV list of key=value pairs assigning custom global rate limit thresholds
+    /// for particular keys.
+    pub global_rate_limit_overrides_csv: Option<String>,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]
@@ -135,9 +151,15 @@ pub struct Config {
     pub http1_header_read_timeout_ms: Option<u64>,
 
     // Body chunk read timeout in milliseconds. If a client stops sending data
-    // for this duration mid-upload, the request is aborted with 504.
+    // for this duration mid-upload, the request is aborted with 408 to avoid
+    // pointless gateway retries of stalled mobile requests that can't succeed.
     // Set env var to enable; unset to disable (existing behavior).
     pub body_chunk_read_timeout_ms: Option<u64>,
+
+    // Initial buffer size for body reads in KB. The buffer starts at this size
+    // (or the request limit, whichever is smaller) and grows as needed.
+    #[envconfig(default = "256")]
+    pub body_read_chunk_size_kb: usize,
 
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,

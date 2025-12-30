@@ -25,6 +25,10 @@ from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
 
+# HTTP send timeout for ClickHouse client during cohort calculation to prevent connection timeouts
+# on long-running queries that stream results
+CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS = 300
+
 
 def get_cohort_calculation_success_metric():
     """Counter for successful cohort calculations."""
@@ -144,10 +148,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                     final_query = f"""
                         SELECT
-                            %(team_id)s as team_id,
-                            %(cohort_id)s as cohort_id,
                             COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                            now64() as last_updated,
                             CASE
                                 WHEN previous_members.person_id IS NULL THEN 'entered'
                                 WHEN current_matches.id IS NULL THEN 'left'
@@ -178,14 +179,19 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         product=Product.MESSAGING,
                         query_type="realtime_cohort_calculation",
                     ):
-                        async with get_client(team_id=cohort.team_id) as client:
+                        status_counts = {"entered": 0, "left": 0}
+                        async with get_client(
+                            team_id=cohort.team_id, http_send_timeout=CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS
+                        ) as client:
                             async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
                                 status = row["status"]
+                                status_counts[status] += 1
                                 payload = {
-                                    "team_id": row["team_id"],
-                                    "cohort_id": row["cohort_id"],
+                                    "team_id": cohort.team_id,
+                                    "cohort_id": cohort.id,
                                     "person_id": str(row["person_id"]),
-                                    "last_updated": str(row["last_updated"]),
+                                    # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                                    "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
                                     "status": status,
                                 }
                                 await asyncio.to_thread(
@@ -195,7 +201,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     data=payload,
                                 )
 
-                                get_membership_changed_metric(status).add(1)
+                        if status_counts["entered"] > 0:
+                            get_membership_changed_metric("entered").add(status_counts["entered"])
+                        if status_counts["left"] > 0:
+                            get_membership_changed_metric("left").add(status_counts["left"])
 
                     get_cohort_calculation_success_metric().add(1)
                     cohorts_count += 1
