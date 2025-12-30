@@ -17,7 +17,7 @@ instance_license_cached: Optional["License"] = None
 
 
 def is_cloud() -> bool:
-    return settings.CLOUD_DEPLOYMENT in ("EU", "US")
+    return settings.CLOUD_DEPLOYMENT in ("EU", "US", "E2E")
 
 
 def is_dev_mode() -> bool:
