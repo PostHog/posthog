@@ -16,11 +16,14 @@ var hedgehogMoods = []string{
 	"  /)_/)  \n ( -.- ) \n  > ^ <  ",
 }
 
+var hedgehogParty = "  /)_/)  \n ( ★.★ ) \n  > ^ <  ✨"
+
 var hedgehogMessages = []string{
 	"Press space to pet the hedgehog",
 	"The hedgehog seems happy!",
 	"You've pet the hedgehog %d times",
 	"The hedgehog really likes you!",
+	"🎉 You unlocked: SUPER HEDGEHOG MODE! 🎉",
 	"Best friends! (%d pets)",
 }
 
@@ -57,15 +60,21 @@ func (h Hedgehog) GetMessage() string {
 		return fmt.Sprintf(hedgehogMessages[2], h.petCount)
 	case h.petCount < 10:
 		return hedgehogMessages[3]
+	case h.petCount == 100:
+		return hedgehogMessages[4]
 	default:
-		return fmt.Sprintf(hedgehogMessages[4], h.petCount)
+		return fmt.Sprintf(hedgehogMessages[5], h.petCount)
 	}
 }
 
 func (h Hedgehog) Render() string {
+	art := hedgehogMoods[h.mood]
+	if h.petCount >= 100 {
+		art = hedgehogParty
+	}
 	return lipgloss.NewStyle().
 		Foreground(ColorPrimary).
-		Render(hedgehogMoods[h.mood])
+		Render(art)
 }
 
 func (h Hedgehog) RenderWithMessage() string {
