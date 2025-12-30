@@ -13,7 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import BatchExport, BatchExportRun
+from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 
@@ -538,30 +538,39 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get failed batch exports
-            failed_batch_exports = BatchExport.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-            ).prefetch_related("batchexportrun_set")
+            # get latest run per export, then filter for failures
+            latest_run_ids = (
+                BatchExportRun.objects.filter(
+                    batch_export__team_id=self.team_id,
+                    batch_export__deleted=False,
+                )
+                .order_by("batch_export_id", "-created_at")
+                .distinct("batch_export_id")
+                .values_list("id", flat=True)
+            )
 
-            for batch_export in failed_batch_exports:
-                latest_run = batch_export.batchexportrun_set.order_by("-created_at").first()
-                if latest_run and latest_run.status in [
+            failed_runs = BatchExportRun.objects.filter(
+                id__in=latest_run_ids,
+                status__in=[
                     BatchExportRun.Status.FAILED,
                     BatchExportRun.Status.FAILED_RETRYABLE,
                     BatchExportRun.Status.TIMEDOUT,
                     BatchExportRun.Status.TERMINATED,
-                ]:
-                    results.append(
-                        {
-                            "id": str(batch_export.id),
-                            "name": batch_export.name,
-                            "type": "destination",
-                            "status": "failed",
-                            "error": latest_run.latest_error,
-                            "failed_at": latest_run.finished_at.isoformat() if latest_run.finished_at else None,
-                            "url": f"/pipeline/batch-exports/{batch_export.id}",
-                        }
-                    )
+                ],
+            ).select_related("batch_export")
+
+            for run in failed_runs:
+                results.append(
+                    {
+                        "id": str(run.batch_export.id),
+                        "name": run.batch_export.name,
+                        "type": "destination",
+                        "status": "failed",
+                        "error": run.latest_error,
+                        "failed_at": run.finished_at.isoformat() if run.finished_at else None,
+                        "url": f"/pipeline/batch-exports/{run.batch_export.id}",
+                    }
+                )
 
             # Get transformations with issues
             transformations = HogFunction.objects.filter(
@@ -646,8 +655,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                 "url": f"/pipeline/destinations/hog-{destination.id}/configuration",
                             }
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Error processing destination {destination.id}", exc_info=e)
 
             # Sort by failed_at descending with None values last
             results.sort(key=lambda x: (x["failed_at"] is None, x["failed_at"] or ""), reverse=True)
