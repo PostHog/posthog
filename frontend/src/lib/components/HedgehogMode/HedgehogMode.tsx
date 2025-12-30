@@ -21,10 +21,10 @@ export const getHedgehogModeAssetsUrl = (): string => {
 
     if (inStorybook()) {
         // Nothing to do
-    } else if (window.location.hostname !== 'localhost') {
-        path = `https://us.posthog.com${path}`
     } else if (toolbarAPIUrl) {
         path = `${toolbarAPIUrl}${path}`
+    } else if (window.location.hostname !== 'localhost') {
+        path = `${window.location.origin}${path}`
     }
 
     return path
