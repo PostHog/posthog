@@ -4078,6 +4078,8 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+    }
+    scheduling_config?: {
         timeseries?: boolean
     }
     _create_in_folder?: string | null
