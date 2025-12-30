@@ -40,22 +40,19 @@ export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style
                         wrapBody ? 'overflow-hidden' : 'overflow-x-auto hide-scrollbar'
                     )}
                 >
-                    <div className={cn('flex items-center', wrapBody ? 'py-1.5' : 'w-max min-h-full')}>
+                    <div className={cn('flex items-center min-h-full', wrapBody ? 'py-1.5' : 'w-max')}>
                         {prettifyJson && parsedBody ? (
                             <pre
                                 className={cn(
                                     'font-mono text-xs inline-block mb-0',
-                                    wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
+                                    wrapBody ? 'break-all' : 'whitespace-nowrap pr-16'
                                 )}
                             >
                                 {displayValue}
                             </pre>
                         ) : (
                             <span
-                                className={cn(
-                                    'font-mono text-xs',
-                                    wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap pr-16'
-                                )}
+                                className={cn('font-mono text-xs', wrapBody ? 'break-all' : 'whitespace-nowrap pr-16')}
                             >
                                 {displayValue}
                             </span>
