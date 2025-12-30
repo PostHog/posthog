@@ -142,7 +142,11 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                                         label="Assignee"
                                         help={<span>Linear username or 'me' to assign to yourself</span>}
                                     >
-                                        <LemonInput fullWidth placeholder="username or me" />
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="username or me"
+                                            data-attr="linear-share-assignee"
+                                        />
                                     </LemonField>
                                     <LemonField
                                         className="gap-1"
@@ -150,7 +154,11 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                                         label="Labels"
                                         help={<span>Comma-separated labels to add to the issue</span>}
                                     >
-                                        <LemonInput fullWidth placeholder="bug, enhancement" />
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="bug, enhancement"
+                                            data-attr="linear-share-labels"
+                                        />
                                     </LemonField>
                                 </div>
                             ),
