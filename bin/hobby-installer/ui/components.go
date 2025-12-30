@@ -135,7 +135,7 @@ func RenderInfoBox(message string) string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorSecondary).
-		Foreground(ColorWhite).
+		Foreground(ColorText).
 		Padding(1, 2)
 	return style.Render("ℹ " + message)
 }

@@ -93,7 +93,7 @@ func (m WelcomeModel) View() string {
 	// Action section - the main CTA
 	actionTitle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ui.ColorWhite).
+		Foreground(ui.ColorText).
 		Render(m.getActionTitle())
 
 	actionHint := lipgloss.NewStyle().
@@ -157,7 +157,7 @@ func (m WelcomeModel) getActionDescription() string {
 func (m WelcomeModel) renderFactBox() string {
 	factLabel := ui.MutedStyle.Render("Did you know?")
 	factText := lipgloss.NewStyle().
-		Foreground(ui.ColorWhite).
+		Foreground(ui.ColorText).
 		Width(56).
 		Render(funFacts[m.factIndex])
 

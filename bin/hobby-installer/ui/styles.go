@@ -13,6 +13,9 @@ var (
 	ColorWhite     = lipgloss.Color("#FFFFFF")
 	ColorBlack     = lipgloss.Color("#000000")
 
+	// Adaptive color that works on both light and dark backgrounds
+	ColorText = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FFFFFF"}
+
 	// Base styles
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -30,7 +33,7 @@ var (
 			Padding(1, 2)
 
 	// Text styles
-	DefaultStyle = lipgloss.NewStyle().Foreground(ColorWhite)
+	DefaultStyle = lipgloss.NewStyle().Foreground(ColorText)
 
 	BoldStyle = lipgloss.NewStyle().Bold(true)
 
@@ -56,7 +59,7 @@ var (
 				Bold(true)
 
 	InputTextStyle = lipgloss.NewStyle().
-			Foreground(ColorWhite)
+			Foreground(ColorText)
 
 	// Progress/status styles
 	SpinnerStyle = lipgloss.NewStyle().Foreground(ColorPrimary)
