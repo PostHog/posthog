@@ -134,12 +134,19 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
                 }
 
                 try {
-                    // Parse contents as JSON if possible
-                    const contents =
-                        typeof attachmentRow.contents === 'string'
-                            ? parseJSON(attachmentRow.contents)
-                            : attachmentRow.contents
+                    // Convert Buffer to string if needed, then parse as JSON
+                    let contentsString: string
+                    if (Buffer.isBuffer(attachmentRow.contents)) {
+                        contentsString = attachmentRow.contents.toString('utf-8')
+                    } else if (typeof attachmentRow.contents === 'string') {
+                        contentsString = attachmentRow.contents
+                    } else {
+                        // If it's already an object, use it directly
+                        attachmentsMap[attachmentRow.plugin_config_id][attachmentRow.key] = attachmentRow.contents
+                        continue
+                    }
 
+                    const contents = parseJSON(contentsString)
                     attachmentsMap[attachmentRow.plugin_config_id][attachmentRow.key] = contents
                 } catch (error: any) {
                     logger.warn('Failed to parse attachment contents', {
