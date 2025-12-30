@@ -184,8 +184,8 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { githubLinkForm, githubUrl, githubLinkFormHasErrors } = useValues(logic)
-    const { setGithubLinkFormValue, submitGithubLinkForm } = useActions(logic)
+    const { githubLinkForm, githubUrl } = useValues(logic)
+    const { setGithubLinkFormValue } = useActions(logic)
 
     return (
         <>
@@ -195,7 +195,7 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                 <LemonField className="gap-1" name="githubUsername" label="Username or Organization Name">
                     <LemonInput fullWidth />
                 </LemonField>
-                <LemonField className="gap-1" name="githubRepoName" label="Respository Name">
+                <LemonField className="gap-1" name="githubRepoName" label="Repository Name">
                     <LemonInput fullWidth />
                 </LemonField>
                 <LemonField className="gap-1" name="githubIssueTitle" label="Issue Title">
@@ -254,14 +254,11 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
-                        onClick={(e) => {
-                            submitGithubLinkForm()
-                            if (githubLinkFormHasErrors || !githubUrl) {
-                                e.preventDefault()
-                            } else {
-                                window.open(githubUrl, '_blank')
-                            }
-                        }}
+                        to={githubUrl}
+                        targetBlank={true}
+                        disabledReason={
+                            !githubUrl ? 'Please fill in Username or Organization Name and Repository Name' : undefined
+                        }
                     >
                         Create issue
                     </LemonButton>
