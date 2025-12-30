@@ -140,8 +140,10 @@ bin/mprocs*.local.yaml
 bin/*.lock
 
 # Hobby installer macOS/demo binaries (for local testing only)
+# Also, avoid commiting local build in case someone uses `go build .` over `make`
 bin/posthog-hobby-darwin
 bin/posthog-hobby-demo
+bin/hobby-installer/hobby-installer
 
 # Debug output of our session summaries product
 .session-summaries

@@ -57,6 +57,7 @@ clean:
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-darwin
 	rm -f $(OUTPUT_DIR)/$(DEMO_BINARY)
+	rm -f hobby-installer
 
 # Run tests
 test:
