@@ -9,12 +9,14 @@ import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
+export type HogInputsServiceHub = Pick<Hub, 'integrationManager' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'>
+
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 export class HogInputsService {
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: Hub) {
+    constructor(private hub: HogInputsServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
     }
 

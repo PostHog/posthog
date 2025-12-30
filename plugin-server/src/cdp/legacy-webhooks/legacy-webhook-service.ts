@@ -22,11 +22,17 @@ import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
+/** Narrowed Hub type for LegacyWebhookService */
+export type LegacyWebhookServiceHub = Pick<
+    Hub,
+    'postgres' | 'pubSub' | 'teamManager' | 'groupTypeManager' | 'groupRepository'
+>
+
 export class LegacyWebhookService {
     protected actionManager: ActionManager
     protected actionMatcher: ActionMatcher
 
-    constructor(private hub: Hub) {
+    constructor(private hub: LegacyWebhookServiceHub) {
         this.actionManager = new ActionManager(hub.postgres, hub.pubSub)
         this.actionMatcher = new ActionMatcher(this.actionManager)
     }

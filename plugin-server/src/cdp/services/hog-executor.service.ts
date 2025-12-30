@@ -13,7 +13,7 @@ import {
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -33,9 +33,17 @@ import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { HogInputsService } from './hog-inputs.service'
-import { EmailService } from './messaging/email.service'
+import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
+import { EmailService, EmailServiceHub } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+
+/** Narrowed config type for CDP fetch retry settings, used by destination executors */
+export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+
+export type HogExecutorServiceHub = CdpFetchConfig &
+    HogInputsServiceHub &
+    EmailServiceHub &
+    Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -98,11 +106,8 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     return canRetry
 }
 
-export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
-    const backoffMs = Math.min(
-        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
-        config.CDP_FETCH_BACKOFF_MAX_MS
-    )
+export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tries: number): DateTime => {
+    const backoffMs = Math.min(backoffBaseMs * tries + Math.floor(Math.random() * backoffBaseMs), backoffMaxMs)
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }
 
@@ -137,7 +142,7 @@ export class HogExecutorService {
     private emailService: EmailService
     private recipientTokensService: RecipientTokensService
 
-    constructor(private hub: Hub) {
+    constructor(private hub: HogExecutorServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
