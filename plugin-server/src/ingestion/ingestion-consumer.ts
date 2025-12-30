@@ -5,7 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
-import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -42,6 +42,68 @@ import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
+
+/**
+ * Narrowed Hub type for IngestionConsumer.
+ * This includes all fields needed by IngestionConsumer and its dependencies:
+ * - HogTransformerService (via HogTransformerHub)
+ * - BatchWritingGroupStore (via GroupHub)
+ * - EventIngestionRestrictionManager
+ * - KafkaProducerWrapper
+ * - BatchWritingPersonsStore
+ * - Preprocessing and ingestion pipelines
+ */
+export type IngestionConsumerHub = HogTransformerHub &
+    Pick<
+        Hub,
+        // EventIngestionRestrictionManager
+        | 'redisPool'
+        // GroupHub (BatchWritingGroupStore)
+        | 'groupRepository'
+        | 'clickhouseGroupRepository'
+        // KafkaProducerWrapper.create
+        | 'KAFKA_CLIENT_RACK'
+        // PreprocessingHub (additional fields not in HogTransformerHub)
+        | 'cookielessManager'
+        | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
+        | 'PERSONS_PREFETCH_ENABLED'
+        // BatchWritingPersonsStore
+        | 'personRepository'
+        | 'PERSON_BATCH_WRITING_DB_WRITE_MODE'
+        | 'PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES'
+        | 'PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES'
+        | 'PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS'
+        | 'PERSON_PROPERTIES_UPDATE_ALL'
+        // BatchWritingGroupStore config
+        | 'GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES'
+        | 'GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES'
+        | 'GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS'
+        // Per-distinct-id pipeline options
+        | 'CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC'
+        | 'CLICKHOUSE_HEATMAPS_KAFKA_TOPIC'
+        | 'SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP'
+        | 'TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE'
+        | 'PIPELINE_STEP_STALLED_LOG_TIMEOUT'
+        | 'PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT'
+        | 'PERSON_MERGE_ASYNC_ENABLED'
+        | 'PERSON_MERGE_ASYNC_TOPIC'
+        | 'PERSON_MERGE_SYNC_BATCH_SIZE'
+        | 'PERSON_JSONB_SIZE_ESTIMATE_ENABLE'
+        // GroupTypeManager
+        | 'groupTypeManager'
+        // Direct IngestionConsumer usage
+        | 'INGESTION_CONSUMER_GROUP_ID'
+        | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+        | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+        | 'INGESTION_CONSUMER_DLQ_TOPIC'
+        | 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'
+        | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
+        | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
+        | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
+        | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
+        | 'KAFKA_BATCH_START_LOGGING_ENABLED'
+        | 'INGESTION_JOINED_PIPELINE'
+    >
 
 type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
 
@@ -129,7 +191,7 @@ export class IngestionConsumer {
     >
 
     constructor(
-        private hub: Hub,
+        private hub: IngestionConsumerHub,
         overrides: Partial<
             Pick<
                 PluginsServerConfig,
@@ -197,11 +259,11 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await Promise.all([
             this.hogTransformer.start(),
-            KafkaProducerWrapper.create(this.hub).then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.hub, 'CONSUMER').then((producer) => {
+            KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'CONSUMER').then((producer) => {
                 this.kafkaOverflowProducer = producer
             }),
         ])

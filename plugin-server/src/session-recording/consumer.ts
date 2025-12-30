@@ -6,7 +6,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { HealthCheckResult, Hub, PluginServerService, RedisPool, ValueMatcher } from '../types'
+import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
@@ -39,6 +39,34 @@ import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
+/** Narrowed Hub type for SessionRecordingIngester */
+export type SessionRecordingIngesterHub = Pick<
+    PluginsServerConfig,
+    // Direct config usage
+    | 'SESSION_RECORDING_DEBUG_PARTITION'
+    | 'SESSION_RECORDING_V2_S3_ENDPOINT'
+    | 'SESSION_RECORDING_V2_S3_REGION'
+    | 'SESSION_RECORDING_V2_S3_BUCKET'
+    | 'SESSION_RECORDING_V2_S3_PREFIX'
+    | 'SESSION_RECORDING_V2_S3_ACCESS_KEY_ID'
+    | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
+    | 'SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC'
+    | 'SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC'
+    | 'SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT'
+    | 'SESSION_RECORDING_V2_S3_TIMEOUT_MS'
+    | 'SESSION_RECORDING_MAX_BATCH_SIZE_KB'
+    | 'SESSION_RECORDING_MAX_BATCH_AGE_MS'
+    | 'SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH'
+    // For KafkaProducerWrapper.create
+    | 'KAFKA_CLIENT_RACK'
+    // For createRedisPool
+    | 'POSTHOG_SESSION_RECORDING_REDIS_HOST'
+    | 'POSTHOG_SESSION_RECORDING_REDIS_PORT'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+>
+
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
     topic: string
@@ -62,7 +90,7 @@ export class SessionRecordingIngester {
     private topTrackerLogInterval?: NodeJS.Timeout
 
     constructor(
-        private hub: Hub,
+        private hub: SessionRecordingIngesterHub,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         producer: KafkaProducerWrapper,
@@ -125,7 +153,7 @@ export class SessionRecordingIngester {
 
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub.redisPool, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.redisPool, {
             pipeline: 'session_recordings',
         })
 
@@ -297,7 +325,10 @@ export class SessionRecordingIngester {
 
         // Initialize overflow producer if not consuming from overflow
         if (!this.consumeOverflow) {
-            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'WARPSTREAM_PRODUCER')
+            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(
+                this.hub.KAFKA_CLIENT_RACK,
+                'WARPSTREAM_PRODUCER'
+            )
         }
 
         // Initialize restriction handler with the overflow producer

@@ -3,20 +3,19 @@ import { Message } from 'node-rdkafka'
 import { instrumented } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
-import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
-import { CdpEventsConsumer } from './cdp-events.consumer'
+import { CdpEventsConsumer, CdpEventsConsumerHub } from './cdp-events.consumer'
 import { counterParseError } from './metrics'
 
 export class CdpInternalEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpEventsConsumerHub) {
         super(hub, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')
     }
 

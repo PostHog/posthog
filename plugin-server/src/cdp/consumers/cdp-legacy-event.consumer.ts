@@ -21,7 +21,7 @@ import {
 } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
-import { CdpConsumerBase } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 export type LightweightPluginConfig = {
@@ -50,11 +50,30 @@ const legacyPluginExecutionResultCounter = new Counter({
 })
 
 /**
+ * Hub type for CdpLegacyEventsConsumer.
+ * Extends CdpConsumerBaseHub with legacy plugin-specific fields.
+ */
+export type CdpLegacyEventsConsumerHub = CdpConsumerBaseHub &
+    Pick<
+        Hub,
+        | 'CDP_LEGACY_EVENT_CONSUMER_TOPIC'
+        | 'CDP_LEGACY_EVENT_CONSUMER_GROUP_ID'
+        | 'kafkaProducer'
+        | 'APP_METRICS_FLUSH_FREQUENCY_MS'
+        | 'APP_METRICS_FLUSH_MAX_QUEUE_SIZE'
+        | 'teamManager'
+        | 'SITE_URL'
+        // LegacyWebhookService
+        | 'groupTypeManager'
+        | 'groupRepository'
+    >
+
+/**
  * This is a temporary consumer that hooks into the existing onevent consumer group
  * It currently just runs the same logic as the old one but with noderdkafka as the consumer tech which should improve things
  * We can then use this to gradually move over to the new hog functions
  */
-export class CdpLegacyEventsConsumer extends CdpConsumerBase {
+export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsConsumerHub> {
     protected name = 'CdpLegacyEventsConsumer'
     protected promiseScheduler = new PromiseScheduler()
     protected kafkaConsumer: KafkaConsumer
@@ -65,7 +84,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
 
     private appMetrics: LegacyPluginAppMetrics
 
-    constructor(hub: Hub) {
+    constructor(hub: CdpLegacyEventsConsumerHub) {
         super(hub)
 
         this.kafkaConsumer = new KafkaConsumer({
@@ -73,7 +92,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             topic: hub.CDP_LEGACY_EVENT_CONSUMER_TOPIC,
         })
 
-        this.legacyPluginExecutor = new LegacyPluginExecutorService(hub)
+        this.legacyPluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
         this.legacyWebhookService = new LegacyWebhookService(hub)
 
         this.pluginConfigsLoader = new LazyLoader({
