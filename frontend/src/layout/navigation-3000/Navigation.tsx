@@ -115,7 +115,6 @@ export function Navigation({
                                 <div
                                     className={cn({
                                         'px-4': sceneConfig?.layout === 'app-raw-no-header',
-                                        'pt-4': sceneConfig?.layout === 'app-raw',
                                     })}
                                 >
                                     {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}

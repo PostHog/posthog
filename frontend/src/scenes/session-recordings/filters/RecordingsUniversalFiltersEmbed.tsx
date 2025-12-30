@@ -191,19 +191,18 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
-    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     return (
         <>
             <MaxTool
-                identifier={hasAgentModesFeatureFlag ? 'filter_session_recordings' : 'search_session_recordings'}
+                identifier="filter_session_recordings"
                 context={{
                     current_filters: filters,
                     current_session_id: currentSessionRecordingId,
                 }}
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type
-                    setFilters(hasAgentModesFeatureFlag ? toolOutput.recordings_filters : toolOutput)
+                    setFilters(toolOutput.recordings_filters)
                     setIsFiltersExpanded(true)
                 }}
                 initialMaxPrompt="Show me recordings where "
@@ -718,20 +717,35 @@ const ReplayFiltersTab = ({
 
             <LemonDivider className="mt-4" />
 
-            <div className="flex items-center py-2 justify-end px-1 gap-2">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    onClick={handleResetFilters}
-                    icon={<IconRevert />}
-                    tooltip="Remove all filters and reset to defaults"
-                    disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
-                >
-                    Reset filters
-                </LemonButton>
-                <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
-                    Save as new filter
-                </LemonButton>
+            <div className="flex items-center py-2 justify-between px-1 gap-2">
+                {useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON') && (
+                    <LemonButton
+                        id="replay-filters-feedback-button"
+                        type="tertiary"
+                        status="danger"
+                        size="small"
+                        data-attr="replay-filters-feedback-button"
+                    >
+                        Unexpected filter results?
+                    </LemonButton>
+                )}
+                <div className="flex gap-2 ml-auto">
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={handleResetFilters}
+                        icon={<IconRevert />}
+                        tooltip="Remove all filters and reset to defaults"
+                        disabledReason={
+                            !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
+                        }
+                    >
+                        Reset filters
+                    </LemonButton>
+                    <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                        Save as new filter
+                    </LemonButton>
+                </div>
             </div>
 
             <SaveFiltersModal isOpen={isSaveFiltersModalOpen} setIsOpen={setIsSaveFiltersModalOpen} filters={filters} />

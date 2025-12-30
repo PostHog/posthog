@@ -7,6 +7,7 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -67,11 +68,13 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
     const { privateLinkUrl, privateLinkFormHasErrors } = useValues(logic)
 
     return (
-        <>
-            <p>
-                <b>Click the button below</b> to copy a direct link to this recording. Make sure the person you share it
-                with has access to this PostHog project.
-            </p>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1">
+                <div>
+                    <b>Click the button below</b> to copy a direct link to this recording.
+                </div>
+                <div>Make sure the person you share it with has access to this PostHog project.</div>
+            </div>
             <LemonButton
                 type="secondary"
                 fullWidth
@@ -83,10 +86,10 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 title={privateLinkUrl}
                 disabledReason={privateLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
             >
-                <span className="truncate">{privateLinkUrl}</span>
+                <span className="break-all">{privateLinkUrl}</span>
             </LemonButton>
             <TimestampForm {...props} />
-        </>
+        </div>
     )
 }
 
@@ -126,6 +129,43 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                         />
                     </LemonField>
                 </div>
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'more-options',
+                            header: 'More options',
+                            content: (
+                                <div className="flex flex-col gap-2">
+                                    <LemonField
+                                        className="gap-1"
+                                        name="assignee"
+                                        label="Assignee"
+                                        help={<span>Linear username or 'me' to assign to yourself</span>}
+                                    >
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="username or me"
+                                            data-attr="linear-share-assignee"
+                                        />
+                                    </LemonField>
+                                    <LemonField
+                                        className="gap-1"
+                                        name="labels"
+                                        label="Labels"
+                                        help={<span>Comma-separated labels to add to the issue</span>}
+                                    >
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="bug, feature"
+                                            data-attr="linear-share-labels"
+                                        />
+                                    </LemonField>
+                                </div>
+                            ),
+                        },
+                    ]}
+                    defaultActiveKey={props.expandMoreOptions ? 'more-options' : undefined}
+                />
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"
@@ -143,7 +183,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             {props.shareType === 'private' && <PrivateLink {...props} />}
 
             {props.shareType === 'public' && <PublicLink {...props} />}
@@ -162,7 +202,7 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
                   ? 'Share public link'
                   : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
-        width: 600,
+        maxWidth: '85vw',
         zIndex: '1162',
         primaryButton: null,
     })

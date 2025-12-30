@@ -5,6 +5,7 @@ import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_e
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
@@ -17,12 +18,14 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        featureFlags: [FEATURE_FLAGS.LIVE_EVENTS_ACTIVE_RECORDINGS],
         pageUrl: urls.replay(),
     },
     decorators: [
         // API is set up so that everything except the call to load session recording metadata succeeds
         mswDecorator({
             get: {
+                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [

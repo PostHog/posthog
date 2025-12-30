@@ -26,7 +26,8 @@ env:
     # this appears to fix it
     # absolute wild tbh https://stackoverflow.com/a/75503402
     DISPLAY: ':99.0'
-    OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+    # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
+    OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:

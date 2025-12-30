@@ -380,6 +380,38 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
+        @parameterized.expand(
+            [
+                ("null_value", None, True),
+                ("empty_string", "", True),
+                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
+                ("valid_external_url", "https://example.com/webhook", True),
+                ("localhost", "http://localhost/webhook", False),
+                ("localhost_with_port", "http://localhost:8080/webhook", False),
+                ("loopback_ip", "http://127.0.0.1/webhook", False),
+                ("internal_ip_192", "http://192.168.1.1/webhook", False),
+                ("internal_ip_10", "http://10.0.0.1/webhook", False),
+                ("internal_ip_172", "http://172.16.0.1/webhook", False),
+            ]
+        )
+        @override_settings(DEBUG=False)
+        def test_slack_incoming_webhook_ssrf_validation(
+            self, _name: str, webhook_url: str | None, should_succeed: bool
+        ):
+            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"slack_incoming_webhook": webhook_url},
+            )
+            if should_succeed:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.team.refresh_from_db()
+                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                response_data = response.json()
+                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
+
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -2148,6 +2180,25 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         new_team = Team.objects.get(name="Test No IP Anonymization")
         self.assertFalse(new_team.anonymize_ips)
+
+    def test_new_team_explicit_anonymize_ips_overrides_org_default(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.default_anonymize_ips = False
+        self.organization.save()
+
+        response = self.client.post(
+            "/api/projects/@current/environments/",
+            {"name": "Explicit Anonymize IPs", "anonymize_ips": True},
+        )
+        assert response.status_code == 201
+        assert response.json()["anonymize_ips"] is True
+
+        new_team = Team.objects.get(name="Explicit Anonymize IPs")
+        self.assertTrue(new_team.anonymize_ips)
 
     def test_new_team_defaults_to_false_when_org_default_is_none(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

@@ -5,6 +5,8 @@ import React, { useState } from 'react'
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,6 +22,9 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { Scene } from 'scenes/sceneTypes'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -45,6 +50,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
@@ -404,6 +410,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
         case ProductTab.HEALTH:
+        case ProductTab.LIVE:
             return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
@@ -419,6 +426,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.HEALTH) {
         return <HealthStatusTab />
+    }
+
+    if (productTab === ProductTab.LIVE) {
+        return <LiveWebAnalyticsMetrics />
     }
 
     return <Tiles />
@@ -453,11 +464,46 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.LIVE,
+            label: 'Live',
+            link: '/web/live',
+        },
+    ]
+}
+
+const WebAnalyticsSurveyModal = (): JSX.Element | null => {
+    const { surveyModalPath } = useValues(webAnalyticsLogic)
+    const { closeSurveyModal } = useActions(webAnalyticsLogic)
+
+    if (!surveyModalPath) {
+        return null
+    }
+
+    return (
+        <QuickSurveyModal
+            context={{ type: QuickSurveyType.WEB_PATH, path: surveyModalPath }}
+            isOpen={!!surveyModalPath}
+            onCancel={closeSurveyModal}
+            showFollowupToggle={true}
+            modalTitle={`Survey users on ${surveyModalPath}`}
+            info={`Shown to users who spend more than 15 seconds on URLs containing ${surveyModalPath}, once per unique user`}
+        />
+    )
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
+                <WebAnalyticsSurveyModal />
                 <VersionCheckerBanner />
                 <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
@@ -477,6 +523,41 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
+
+    // Tab switching shortcuts
+    useAppShortcut({
+        name: 'WebAnalyticsTab1',
+        keybind: [keyBinds.tab1],
+        intent: 'Web analytics tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.ANALYTICS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab2',
+        keybind: [keyBinds.tab2],
+        intent: 'Web vitals tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.WEB_VITALS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab3',
+        keybind: [keyBinds.tab3],
+        intent: 'Page reports tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.PAGE_REPORTS),
+        scope: Scene.WebAnalytics,
+    })
+    useAppShortcut({
+        name: 'WebAnalyticsTab4',
+        keybind: [keyBinds.tab4],
+        intent: 'Health tab',
+        interaction: 'function',
+        callback: () => setProductTab(ProductTab.HEALTH),
+        scope: Scene.WebAnalytics,
+        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
+    })
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')
@@ -501,6 +582,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
+                ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
             ]}
             sceneInset

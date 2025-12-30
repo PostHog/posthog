@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
@@ -45,6 +46,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -129,6 +131,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LLMPrompt,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -155,6 +158,8 @@ import {
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
@@ -199,7 +204,7 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -669,6 +674,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
     }
 
+    public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('has_logs')
+    }
+
     // # Data management
     public eventDefinitions(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions')
@@ -994,13 +1003,20 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
 
-    public featureFlagDeleteScheduledChange(
+    public featureFlagScheduledChange(
         teamId: TeamType['id'],
         scheduledChangeId: ScheduledChangeType['id']
     ): ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('scheduled_changes')
             .addPathComponent(`${scheduledChangeId}`)
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.featureFlagScheduledChange(teamId, scheduledChangeId)
     }
 
     // # Features
@@ -1625,6 +1641,14 @@ export class ApiRequest {
         return this.hogFlows().addPathComponent(hogFlowId)
     }
 
+    public hogFlowTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('hog_flow_templates')
+    }
+
+    public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
+        return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
+    }
+
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
     }
@@ -1643,6 +1667,14 @@ export class ApiRequest {
 
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
+    }
+
+    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
+    }
+
+    public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -1793,6 +1825,15 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
+        async getSuggestions(id: number, context?: string): Promise<any> {
+            if (context) {
+                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
+            }
+            return await new ApiRequest().insight(id).withAction('suggestions').get()
+        },
+        async analyze(id: number): Promise<{ result: string }> {
+            return await new ApiRequest().insight(id).withAction('analyze').get()
+        },
     },
 
     endpoint: {
@@ -1875,6 +1916,13 @@ const api = {
             scheduledChangeId: ScheduledChangeType['id']
         ): Promise<{ scheduled_change: ScheduledChangeType }> {
             return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
+        async updateScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id'],
+            data: Partial<ScheduledChangeType>
+        ): Promise<ScheduledChangeType> {
+            return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
         },
         async getStatus(
             teamId: TeamType['id'],
@@ -2250,6 +2298,12 @@ const api = {
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
+        },
+        async hasLogs(): Promise<boolean> {
+            return new ApiRequest()
+                .logsHasLogs()
+                .get()
+                .then((response) => Boolean(response.hasLogs))
         },
     },
 
@@ -3078,6 +3132,36 @@ const api = {
         },
         async rearrange(orders: Record<string, number>): Promise<HogFunctionType[]> {
             return await new ApiRequest().hogFunctions().withAction('rearrange').update({ data: { orders } })
+        },
+        async listForAlert(alertId: string): Promise<CountedPaginatedResponse<HogFunctionType>> {
+            return await new ApiRequest()
+                .hogFunctions()
+                .withQueryString({
+                    filter_groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'alert_id',
+                                    value: alertId,
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                            events: [
+                                {
+                                    id: INSIGHT_ALERT_FIRING_EVENT_ID,
+                                    type: 'events',
+                                },
+                            ],
+                        },
+                    ],
+                    type: 'internal_destination',
+                    full: 'true',
+                })
+                .get()
+        },
+        async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
+            return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
         },
     },
 
@@ -3994,6 +4078,9 @@ const api = {
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
         },
+        async materialize(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('materialize').create()
+        },
         async revertMaterialization(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('revert_materialization').create()
         },
@@ -4554,6 +4641,34 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
+        async getBatchTriggerBlastRadius(
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+        ): Promise<{
+            users_affected: number
+            total_users: number
+        }> {
+            return await new ApiRequest().hogFlows().withAction('user_blast_radius').create({ data: { filters } })
+        },
+    },
+    hogFlowTemplates: {
+        async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
+            return await new ApiRequest().hogFlowTemplates().get()
+        },
+        async getHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).get()
+        },
+        async createHogFlowTemplate(data: Partial<HogFlowTemplate>): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplates().create({ data })
+        },
+        async updateHogFlowTemplate(
+            hogFlowTemplateId: HogFlowTemplate['id'],
+            data: Partial<HogFlowTemplate>
+        ): Promise<HogFlowTemplate> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).update({ data })
+        },
+        async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
+            return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
     },
 
     queryURL: (): string => {
@@ -4590,19 +4705,21 @@ const api = {
 
     async queryHogQL<T = any[]>(
         query: HogQLQueryString,
+        tags: QueryLogTags,
         queryOptions?: {
             requestOptions?: ApiMethodOptions
             clientQueryId?: string
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
-            queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
+            queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
+            tags,
         })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
@@ -4649,6 +4766,13 @@ const api = {
 
         get(conversationId: string): Promise<ConversationDetail> {
             return new ApiRequest().conversation(conversationId).get()
+        },
+
+        appendMessage(conversationId: string, content: string): Promise<{ id: string }> {
+            return new ApiRequest()
+                .conversation(conversationId)
+                .withAction('append_message')
+                .create({ data: { content } })
         },
     },
 
@@ -4717,6 +4841,29 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    llmPrompts: {
+        list(params?: {
+            search?: string
+            order_by?: string
+            offset?: number
+            limit?: number
+        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
+            return new ApiRequest().llmPrompts().withQueryString(params).get()
+        },
+
+        get(promptId: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompts().create({ data })
+        },
+
+        async update(promptId: string, data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
+            return await new ApiRequest().llmPrompt(promptId).update({ data })
         },
     },
 

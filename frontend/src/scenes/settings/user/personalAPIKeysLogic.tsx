@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -34,6 +34,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadKeys: true,
         createKeySuccess: (key: PersonalAPIKeyType) => ({ key }),
         showRollKeySuccessDialog: (key: PersonalAPIKeyType, prevMaskedValue?: string | null) => ({
@@ -53,6 +54,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             null as PersonalAPIKeyType['id'] | null,
             {
                 setEditingKeyId: (_, { id }) => id,
+            },
+        ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
     }),
@@ -136,6 +143,26 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
     })),
     selectors(() => ({
+        filteredScopes: [
+            (s) => [s.searchTerm],
+            (searchTerm: string): APIScope[] => {
+                if (!searchTerm.trim()) {
+                    return API_SCOPES
+                }
+                const lowerSearch = searchTerm.toLowerCase().trim()
+                return API_SCOPES.filter((scope) => {
+                    // Search in key (e.g., "feature_flag")
+                    if (scope.key.toLowerCase().includes(lowerSearch)) {
+                        return true
+                    }
+                    // Search in objectPlural (e.g., "feature flags")
+                    if (scope.objectPlural.toLowerCase().includes(lowerSearch)) {
+                        return true
+                    }
+                    return false
+                })
+            },
+        ],
         formScopeRadioValues: [
             (s) => [s.editingKey],
             (editingKey): Record<string, string> => {
@@ -360,6 +387,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
 
                 actions.resetEditingKey(formValues)
+                actions.setSearchTerm('')
+            } else {
+                actions.setSearchTerm('')
             }
         },
 

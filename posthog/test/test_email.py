@@ -85,10 +85,12 @@ class TestEmail(BaseTest):
                 in message.html_body
             )
 
+    @patch("posthoganalytics.capture")
     @patch("requests.post")
-    def test_send_via_http_success(self, mock_post) -> None:
+    def test_send_via_http_success(self, mock_post, mock_capture) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.json.return_value = {"delivery_id": "test_delivery_id", "queued_at": 1604977406}
         mock_post.return_value = mock_response
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
@@ -109,6 +111,18 @@ class TestEmail(BaseTest):
                     "identifiers": {"email": "test@posthog.com"},
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
                     "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
+                },
+            )
+
+            mock_capture.assert_called_once_with(
+                distinct_id="test@posthog.com",
+                event="transactional email triggered",
+                properties={
+                    "template_name": "2fa_enabled",
+                    "campaign_key": "test_campaign",
+                    "recipient_email": "test@posthog.com",
+                    "delivery_id": "test_delivery_id",
+                    "queued_at": 1604977406,
                 },
             )
 

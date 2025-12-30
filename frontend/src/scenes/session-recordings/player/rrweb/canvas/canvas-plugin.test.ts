@@ -1,6 +1,7 @@
 /**
  * @jest-environment jsdom
  */
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../index'
 import { CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
@@ -331,6 +332,16 @@ describe('CanvasReplayerPlugin', () => {
             expect(plugin.handler).toBeTruthy()
             expect(typeof plugin.onBuild).toBe('function')
             expect(typeof plugin.handler).toBe('function')
+        })
+
+        it('applies placeholder background to canvas elements on build', () => {
+            const plugin = CanvasReplayerPlugin([])
+
+            plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
+
+            // jsdom normalizes CSS by removing optional quotes from data URLs
+            const base64Data = PLACEHOLDER_SVG_DATA_IMAGE_URL.match(/base64,([^"]+)/)?.[1]
+            expect(mockCanvas.style.backgroundImage).toContain(`base64,${base64Data}`)
         })
     })
 })

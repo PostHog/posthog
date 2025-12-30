@@ -2,17 +2,19 @@ import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import type { Category, NotebookInfo } from '~/types'
-import { InsightShortId } from '~/types'
+import type { InsightShortId } from '~/types'
 
-import {
+import { DocumentBlock } from './schema-assistant-artifacts'
+import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import {
+import type {
     FunnelsQuery,
     HogQLQuery,
+    QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
@@ -23,6 +25,9 @@ import {
 
 // re-export MaxBillingContext to make it available in the schema
 export type { MaxBillingContext }
+
+// re-export QuerySchema to make it available in the schema
+export type AssistantQuerySchema = QuerySchema
 
 // Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
 // which leads to improper type naming
@@ -82,6 +87,7 @@ export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
     ui_context?: MaxUIContext
+    trace_id?: string
 }
 
 export interface AssistantFormOption {
@@ -120,6 +126,7 @@ export interface MultiQuestionForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
 }
 
@@ -172,24 +179,20 @@ export type AnyAssistantGeneratedQuery =
     | AssistantRetentionQuery
     | AssistantHogQLQuery
 
-/**
- * The union type with all supported base queries for the assistant.
- */
-export type AnyAssistantSupportedQuery =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | HogQLQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsTopCustomersQuery
-
 export interface VisualizationItem {
     /** @default '' */
     query: string
     plan?: string
-    answer: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    answer:
+        | AnyAssistantGeneratedQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -271,13 +274,18 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
 
 export interface VisualizationArtifactContent {
     content_type: ArtifactContentType.Visualization
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    query: AnyAssistantGeneratedQuery | AssistantQuerySchema
     name?: string | null
     description?: string | null
+    plan?: string | null
 }
 
 export interface NotebookArtifactContent {
     content_type: ArtifactContentType.Notebook
+    /** Structured blocks for the notebook content */
+    blocks: DocumentBlock[]
+    /** Title for the notebook */
+    title?: string | null
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
@@ -348,7 +356,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
 
 export type AssistantTool =
     | 'search_session_recordings'
-    | 'generate_hogql_query'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
@@ -362,7 +369,6 @@ export type AssistantTool =
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
     | 'read_taxonomy'
@@ -380,7 +386,7 @@ export type AssistantTool =
     | 'list_tasks'
     | 'list_task_runs'
     | 'list_repositories'
-    // Below are modes-only
+    | 'web_search'
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
@@ -388,6 +394,7 @@ export type AssistantTool =
     | 'create_insight'
     | 'create_form'
     | 'task'
+    | 'upsert_dashboard'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -400,6 +407,7 @@ export enum SlashCommandName {
     SlashRemember = '/remember',
     SlashUsage = '/usage',
     SlashFeedback = '/feedback',
+    SlashTicket = '/ticket',
 }
 
 /** Exact possible `urls` keys for the `navigate` tool. */
@@ -447,6 +455,7 @@ export enum AssistantNavigateUrl {
     WebAnalytics = 'webAnalytics',
     WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
     WebAnalyticsHealth = 'webAnalyticsHealth',
+    WebAnalyticsLive = 'webAnalyticsLive',
     Persons = 'persons',
 }
 

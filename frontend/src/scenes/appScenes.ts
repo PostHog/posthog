@@ -6,6 +6,7 @@ import { productScenes } from '~/products'
 export const appScenes: Record<Scene | string, () => any> = {
     ...productScenes,
     [Scene.AdvancedActivityLogs]: () => import('./audit-logs/AdvancedActivityLogsScene'),
+    [Scene.Approval]: () => import('./approvals/ApprovalDetail'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.MaterializedColumns]: () => import('./data-management/MaterializedColumns/MaterializedColumns'),
     [Scene.BatchExportNew]: () => import('./data-pipelines/batch-exports/BatchExportScene'),
@@ -110,6 +111,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalyticsMarketing]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsHealth]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsLive]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
+    [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
 }

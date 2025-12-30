@@ -99,11 +99,31 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
-    #[envconfig(default = "1000")] // 1000 messages
+    #[envconfig(default = "5000")] // 5000 messages (increased from 1000 for higher throughput)
     pub kafka_consumer_batch_size: usize,
 
-    #[envconfig(default = "500")] // 1/2 second
+    #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
+
+    // Kafka consumer fetch settings for throughput optimization
+    #[envconfig(default = "1048576")] // 1MB minimum fetch size
+    pub kafka_consumer_fetch_min_bytes: u32,
+
+    #[envconfig(default = "52428800")] // 50MB maximum fetch size
+    pub kafka_consumer_fetch_max_bytes: u32,
+
+    #[envconfig(default = "100")] // 100ms wait when min bytes not reached
+    pub kafka_consumer_fetch_wait_max_ms: u32,
+
+    #[envconfig(default = "100000")] // 100K messages to queue for prefetching
+    pub kafka_consumer_queued_min_messages: u32,
+
+    #[envconfig(default = "102400")] // 100MB max bytes to prefetch (value is in KB)
+    pub kafka_consumer_queued_max_messages_kbytes: u32,
+
+    // Partition worker channel buffer size for pipeline parallelism
+    #[envconfig(default = "10")]
+    pub partition_worker_channel_buffer_size: usize,
 
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
     pub flush_interval_secs: u64,

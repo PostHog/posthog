@@ -124,13 +124,35 @@ impl CohortCacheManager {
         }
     }
 
+    /// Starts periodic monitoring of cache metrics.
+    ///
+    /// Reports `flags_cohort_cache_size_bytes` and `flags_cohort_cache_entries` gauges
+    /// at the specified interval. This ensures metrics stay fresh regardless of cache
+    /// hit/miss patterns, since `report_cache_metrics()` is otherwise only called on
+    /// cache misses.
+    pub async fn start_monitoring(&self, interval_secs: u64) {
+        let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+
+        tracing::info!(
+            "Starting cohort cache monitoring (interval: {}s)",
+            interval_secs
+        );
+
+        loop {
+            ticker.tick().await;
+            self.report_cache_metrics();
+
+            tracing::debug!(
+                "Cohort cache metrics - size: {} bytes, entries: {}",
+                self.cache.weighted_size(),
+                self.cache.entry_count()
+            );
+        }
+    }
+
     /// Reports cache size metrics for observability.
     ///
-    /// Called after cache insertions to track memory usage. The values are estimates
-    /// since Moka runs maintenance asynchronously, but this is fine for observability.
-    /// Metrics are updated after cache insertions (which occur on cache misses), not when
-    /// entries are evicted due to TTL expiration or capacity limits. This is acceptable
-    /// since Prometheus scrapes periodically and metrics will update through normal operations.
+    /// Called after cache insertions and periodically by `start_monitoring()`.
     fn report_cache_metrics(&self) {
         common_metrics::gauge(
             COHORT_CACHE_SIZE_BYTES_GAUGE,
@@ -565,6 +587,111 @@ mod tests {
             "LRU victim should be evicted"
         );
 
+        Ok(())
+    }
+
+    /// Tests that start_monitoring reports metrics at the configured interval.
+    ///
+    /// Uses tokio's test-util to pause time for deterministic testing.
+    /// Uses metrics-util's DebuggingRecorder to verify actual metrics are reported.
+    /// Inserts cache entries to verify metrics reflect actual cache state changes.
+    #[tokio::test]
+    async fn test_start_monitoring_reports_metrics_at_interval() -> Result<(), anyhow::Error> {
+        use crate::cohorts::cohort_models::Cohort;
+        use crate::metrics::consts::{COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_SIZE_BYTES_GAUGE};
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+        use std::sync::OnceLock;
+
+        // Install a global debugging recorder once per test process
+        static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
+        let snapshotter = SNAPSHOTTER.get_or_init(|| {
+            let recorder = DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            drop(recorder.install());
+            snapshotter
+        });
+
+        // Helper to get current gauge value for a metric
+        let get_gauge_value = |metric_name: &str| -> Option<f64> {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find(|(key, _, _, _)| key.key().name() == metric_name)
+                .and_then(|(_, _, _, value)| {
+                    if let DebugValue::Gauge(v) = value {
+                        Some(v.into_inner())
+                    } else {
+                        None
+                    }
+                })
+        };
+
+        // Create context before pausing time (needs real time for DB connection)
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            Some(1024 * 1024),
+            None,
+        ));
+
+        // Pause time for deterministic testing
+        tokio::time::pause();
+
+        // Spawn the actual start_monitoring method
+        let cohort_cache_clone = cohort_cache.clone();
+        let monitor_handle = tokio::spawn(async move {
+            cohort_cache_clone.start_monitoring(30).await;
+        });
+
+        // First tick is immediate - empty cache
+        sleep(Duration::from_millis(1)).await;
+        assert_eq!(
+            get_gauge_value(COHORT_CACHE_SIZE_BYTES_GAUGE),
+            Some(0.0),
+            "Empty cache should report 0 bytes"
+        );
+        assert_eq!(
+            get_gauge_value(COHORT_CACHE_ENTRIES_GAUGE),
+            Some(0.0),
+            "Empty cache should report 0 entries"
+        );
+
+        // Insert a cache entry directly
+        let test_cohort = Cohort {
+            id: 1,
+            name: Some("Test Cohort".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(serde_json::json!({"properties": []})),
+            query: None,
+            version: Some(1),
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: serde_json::json!({}),
+            created_by_id: None,
+        };
+        cohort_cache.cache.insert(1, vec![test_cohort]).await;
+        // Moka caches update internal stats lazily - sync ensures stats are current
+        cohort_cache.cache.run_pending_tasks().await;
+
+        // Advance time by 30 seconds - should reflect the new cache entry
+        sleep(Duration::from_secs(30)).await;
+        assert!(
+            get_gauge_value(COHORT_CACHE_SIZE_BYTES_GAUGE).unwrap() > 0.0,
+            "Cache with entry should report non-zero bytes"
+        );
+        assert_eq!(
+            get_gauge_value(COHORT_CACHE_ENTRIES_GAUGE),
+            Some(1.0),
+            "Cache with one entry should report 1 entry"
+        );
+
+        monitor_handle.abort();
         Ok(())
     }
 }

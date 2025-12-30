@@ -126,3 +126,10 @@ The query you generated failed to execute. The error is unrecoverable.
 Acknowledge to the user that you encountered an error and do not attempt to fix it.
 </system_reminder>
 """.strip()
+
+EXECUTE_SQL_CONTEXT_PROMPT = """
+The current HogQL query (which CAN be empty) is:
+<current_query>
+{current_query}
+</current_query>
+""".strip()

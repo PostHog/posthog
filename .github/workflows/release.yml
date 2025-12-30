@@ -15,8 +15,7 @@
 
 name: Release
 permissions:
-    'contents': 'write'
-    'id-token': 'write'
+    contents: read
 
 # This task will run whenever you push a git tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
@@ -64,7 +63,7 @@ jobs:
               # we specify bash to get pipefail; it guards against the `curl` command
               # failing. otherwise `sh` won't catch that `curl` returned non-0
               shell: bash
-              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.2/cargo-dist-installer.sh | sh"
+              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.3/cargo-dist-installer.sh | sh"
             - name: Cache dist
               uses: actions/upload-artifact@v4
               with:
@@ -219,15 +218,21 @@ jobs:
             - build-global-artifacts
         # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
         if: ${{ always() && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
-        env:
-            GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
         runs-on: 'ubuntu-22.04'
         outputs:
             val: ${{ steps.host.outputs.manifest }}
         steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+              with:
+                  app-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+
             - uses: actions/checkout@v4
               with:
                   submodules: recursive
+                  token: ${{ steps.app-token.outputs.token }}
             - name: Install cached dist
               uses: actions/download-artifact@v4
               with:
@@ -271,6 +276,7 @@ jobs:
                   ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ github.sha }}'
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
                   echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
@@ -285,6 +291,8 @@ jobs:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             PLAN: ${{ needs.plan.outputs.val }}
         if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+        permissions:
+            id-token: write
         steps:
             - name: Fetch npm packages
               uses: actions/download-artifact@v4
@@ -292,7 +300,7 @@ jobs:
                   pattern: artifacts-*
                   path: npm/
                   merge-multiple: true
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: '22.x'
                   registry-url: 'https://registry.npmjs.org'
@@ -317,8 +325,6 @@ jobs:
         # "host" however must run to completion, no skipping allowed!
         if: ${{ always() && needs.host.result == 'success' && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') }}
         runs-on: 'ubuntu-22.04'
-        env:
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
             - uses: actions/checkout@v4
               with:

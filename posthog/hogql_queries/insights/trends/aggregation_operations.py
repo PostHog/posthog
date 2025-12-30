@@ -1,6 +1,6 @@
 from typing import Optional, Union, cast
 
-from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode
+from posthog.schema import ActionsNode, BaseMathType, ChartDisplayType, DataWarehouseNode, EventsNode, PropertyMathType
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -17,6 +17,15 @@ from posthog.models.team.team import Team
 
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
+
+# Property math types that can be meaningfully aggregated when rolling up histogram buckets
+# e.g. taking p99 of p99 values doesn't make sense
+SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN = (
+    PropertyMathType.SUM,
+    PropertyMathType.AVG,  # buckets have same size
+    PropertyMathType.MIN,
+    PropertyMathType.MAX,
+)
 
 
 def create_placeholder(name: str) -> ast.Placeholder:
@@ -147,6 +156,51 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
+    def get_outer_aggregation(self, field: ast.Expr, is_histogram_breakdown: bool = False) -> ast.Expr:
+        """
+        Returns the aggregation expression to use when rolling up already-aggregated values.
+
+        For example, if we computed max(price) per day per breakdown, rolling up across
+        breakdowns should use max() not sum() - the max of maxes is the overall max.
+        """
+        if (
+            is_histogram_breakdown
+            and self.series.math in set(PropertyMathType)
+            and self.series.math not in SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN
+        ):
+            raise ValueError(
+                f"Math type '{self.series.math}' is not supported with histogram breakdowns. "
+                f"Supported property math types are: {', '.join(t.value for t in SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN)}."
+            )
+
+        if self.series.math == "max":
+            return ast.Call(name="max", args=[field])
+        elif self.series.math == "min":
+            return ast.Call(name="min", args=[field])
+        elif self.series.math == "avg":
+            return ast.Call(name="avg", args=[field])
+        return ast.Call(name="sum", args=[field])
+
+    def get_array_fold_merge_operation(self) -> str:
+        """
+        Returns the ClickHouse expression for combining two values in an arrayFold operation
+        when rolling up "Other" breakdown values.
+
+        Used in arrayFold like: arrayMap(i -> {operation}, range(...))
+        where acc[i] and x[i] are the two values to combine.
+        """
+        if self.series.math == "max":
+            return "greatest(acc[i], x[i])"
+        elif self.series.math == "min":
+            return "least(acc[i], x[i])"
+        elif self.series.math == "avg":
+            # For avg, we'd need to track counts separately, so we fall back to sum for now
+            # This is a known limitation - averaging averages is not statistically sound anyway
+            return "acc[i] + x[i]"
+        else:
+            # Default to sum for count, total, sum, etc.
+            return "acc[i] + x[i]"
+
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
@@ -182,9 +236,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             event_currency = (
                 ast.Constant(value=self.series.math_property_revenue_currency.static.value)
                 if self.series.math_property_revenue_currency.static is not None
-                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
-                if self.series.math_property_revenue_currency.property is not None
-                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                else (
+                    ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                    if self.series.math_property_revenue_currency.property is not None
+                    else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+                )
             )
             base_currency = (
                 ast.Constant(value=self.team.base_currency)

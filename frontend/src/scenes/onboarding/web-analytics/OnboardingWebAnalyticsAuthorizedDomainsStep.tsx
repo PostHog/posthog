@@ -16,6 +16,7 @@ export function OnboardingWebAnalyticsAuthorizedDomainsStep({
         authorizedUrlListLogic({
             actionId: null,
             experimentId: null,
+            productTourId: null,
             type: AuthorizedUrlListType.WEB_ANALYTICS,
             allowWildCards: false,
         })

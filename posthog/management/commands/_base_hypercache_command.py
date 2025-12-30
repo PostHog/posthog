@@ -12,7 +12,12 @@ from django.db import connection
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats, warm_caches
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    batch_check_expiry_tracking,
+    get_cache_stats,
+    warm_caches,
+)
 
 
 class BaseHyperCacheCommand(BaseCommand):
@@ -351,7 +356,7 @@ class BaseHyperCacheCommand(BaseCommand):
         # Batch-check expiry tracking (pipelined for efficiency)
         expiry_status: dict[str | int, bool] = {}
         try:
-            expiry_status = self._batch_check_expiry_tracking(teams, config)
+            expiry_status = batch_check_expiry_tracking(teams, config)
         except Exception as e:
             self.stdout.write(self.style.WARNING(f"Expiry tracking check failed, skipping: {e}"))
 
@@ -437,52 +442,6 @@ class BaseHyperCacheCommand(BaseCommand):
             stats["fix_failed"] += 1
             self.stdout.write(self.style.ERROR(f"  ✗ Error fixing {operation} for team {team.id} ({team.name}): {e}"))
             return False
-
-    def _batch_check_expiry_tracking(
-        self,
-        teams: list[Team],
-        config: HyperCacheManagementConfig,
-    ) -> dict[str | int, bool]:
-        """
-        Check if teams are tracked in the expiry sorted set using pipelining.
-
-        Uses Redis ZSCORE in a pipeline to efficiently check multiple teams
-        in a single network round trip per batch.
-
-        Args:
-            teams: List of Team objects to check
-            config: HyperCache management config
-
-        Returns:
-            Dict mapping team identifier (api_token or id) to True/False
-        """
-        if not config.hypercache.expiry_sorted_set_key:
-            # No expiry tracking configured - treat all teams as tracked
-            return {config.hypercache.get_cache_identifier(team): True for team in teams}
-
-        from posthog.redis import get_client
-
-        redis_client = get_client(config.hypercache.redis_url)
-        results: dict[str | int, bool] = {}
-        batch_size = 5000  # Match REDIS_PIPELINE_BATCH_SIZE from hypercache_manager
-
-        for i in range(0, len(teams), batch_size):
-            batch = teams[i : i + batch_size]
-            pipeline = redis_client.pipeline(transaction=False)
-            identifiers: list[str | int] = []
-
-            for team in batch:
-                identifier = config.hypercache.get_cache_identifier(team)
-                identifiers.append(identifier)
-                pipeline.zscore(config.hypercache.expiry_sorted_set_key, str(identifier))
-
-            scores = pipeline.execute()
-
-            for identifier, score in zip(identifiers, scores):
-                # ZSCORE returns None if member doesn't exist
-                results[identifier] = score is not None
-
-        return results
 
     def _handle_expiry_issue(
         self,

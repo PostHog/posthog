@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable
+from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -58,23 +59,15 @@ from ee.hogai.tools import (
     TodoWriteTool,
 )
 from ee.hogai.utils.feature_flags import (
-    has_agent_modes_feature_flag,
     has_create_form_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
+    has_web_search_feature_flag,
 )
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
-# Remove with the full modes release
-LEGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
-    ReadTaxonomyTool,
-    ReadDataTool,
-    SearchTool,
-    TodoWriteTool,
-]
-
-DEFAULT_TOOLS: list[type["MaxTool"]] = [
+DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
@@ -101,7 +94,7 @@ CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
 class ChatAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools = list(DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS)
+        tools = list(DEFAULT_TOOLS)
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
         if has_phai_tasks_feature_flag(self._team, self._user):
@@ -112,7 +105,7 @@ class ChatAgentToolkit(AgentToolkit):
 
 
 class ChatAgentToolkitManager(AgentToolkitManager):
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[MaxTool | dict[str, Any]]:
         available_tools = await super().get_tools(state, config)
 
         tool_names = self._context_manager.get_contextual_tools().keys()
@@ -134,10 +127,14 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         contextual_tools = await asyncio.gather(*awaited_contextual_tools)
 
         # Deduplicate contextual tools
-        initialized_tool_names = {tool.get_name() for tool in available_tools}
+        initialized_tool_names = {tool.get_name() for tool in available_tools if isinstance(tool, MaxTool)}
         for tool in contextual_tools:
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
+
+        # Final tools = available contextual tools + LLM provider server tools
+        if has_web_search_feature_flag(self._team, self._user):
+            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools
 
@@ -158,7 +155,7 @@ class ChatAgentPromptBuilder(AgentPromptBuilder, AssistantContextMixin):
             writing_style=WRITING_STYLE_PROMPT,
             proactiveness=PROACTIVENESS_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
-            switching_modes=SWITCHING_MODES_PROMPT if has_agent_modes_feature_flag(self._team, self._user) else "",
+            switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
@@ -206,10 +203,7 @@ class ChatAgentModeManager(AgentModeManager):
         mode: AgentMode | None = None,
     ):
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
-        if has_agent_modes_feature_flag(team, user):
-            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
-        else:
-            self._mode = AgentMode.PRODUCT_ANALYTICS
+        self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:

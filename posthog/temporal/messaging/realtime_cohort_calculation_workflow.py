@@ -8,6 +8,7 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
@@ -23,6 +24,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
+
+# HTTP send timeout for ClickHouse client during cohort calculation to prevent connection timeouts
+# on long-running queries that stream results
+CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS = 300
 
 
 def get_cohort_calculation_success_metric():
@@ -58,6 +63,7 @@ class RealtimeCohortCalculationWorkflowInputs:
     limit: Optional[int] = None
     offset: int = 0
     team_id: Optional[int] = None
+    cohort_id: Optional[int] = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -65,6 +71,7 @@ class RealtimeCohortCalculationWorkflowInputs:
             "limit": self.limit,
             "offset": self.offset,
             "team_id": self.team_id,
+            "cohort_id": self.cohort_id,
         }
 
 
@@ -88,12 +95,16 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             if inputs.team_id is not None:
                 queryset = queryset.filter(team_id=inputs.team_id)
 
-            # Apply pagination
-            queryset = (
-                queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-                if inputs.limit
-                else queryset[inputs.offset :]
-            )
+            # Apply cohort_id filter if provided - skip pagination when filtering by specific cohort
+            if inputs.cohort_id is not None:
+                queryset = queryset.filter(id=inputs.cohort_id)
+            else:
+                # Only apply pagination when not filtering by specific cohort
+                queryset = (
+                    queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
+                    if inputs.limit
+                    else queryset[inputs.offset :]
+                )
 
             return list(queryset)
 
@@ -104,12 +115,18 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
         max_retries = 3
         retry_delay_seconds = 5
+        base_timeout_seconds = 60
+        backoff_factor = 3
 
         @database_sync_to_async
         def build_query(cohort_obj):
             realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
             current_members_query = realtime_query.get_query()
-            hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
+            hogql_context = HogQLContext(
+                team_id=cohort_obj.team_id,
+                enable_select_queries=True,
+                limit_context=LimitContext.COHORT_CALCULATION,
+            )
             current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
             return current_members_sql, hogql_context.values
 
@@ -119,7 +136,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
             for retry_attempt in range(1, max_retries + 1):
                 try:
-                    cohort_max_execution_time = 60 * retry_attempt
+                    # Exponential backoff: 60s, 180s (3min), 540s (9min)
+                    cohort_max_execution_time = base_timeout_seconds * (backoff_factor ** (retry_attempt - 1))
                     current_members_sql, query_params = await build_query(cohort)
                     query_params = {
                         **query_params,
@@ -130,10 +148,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                     final_query = f"""
                         SELECT
-                            %(team_id)s as team_id,
-                            %(cohort_id)s as cohort_id,
                             COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                            now64() as last_updated,
                             CASE
                                 WHEN previous_members.person_id IS NULL THEN 'entered'
                                 WHEN current_matches.id IS NULL THEN 'left'
@@ -164,14 +179,19 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         product=Product.MESSAGING,
                         query_type="realtime_cohort_calculation",
                     ):
-                        async with get_client(team_id=cohort.team_id) as client:
+                        status_counts = {"entered": 0, "left": 0}
+                        async with get_client(
+                            team_id=cohort.team_id, http_send_timeout=CLICKHOUSE_HTTP_SEND_TIMEOUT_SECONDS
+                        ) as client:
                             async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
                                 status = row["status"]
+                                status_counts[status] += 1
                                 payload = {
-                                    "team_id": row["team_id"],
-                                    "cohort_id": row["cohort_id"],
+                                    "team_id": cohort.team_id,
+                                    "cohort_id": cohort.id,
                                     "person_id": str(row["person_id"]),
-                                    "last_updated": str(row["last_updated"]),
+                                    # DateTime64(6) format required for Kafka JSONEachRow parsing into ClickHouse
+                                    "last_updated": dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f"),
                                     "status": status,
                                 }
                                 await asyncio.to_thread(
@@ -181,7 +201,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     data=payload,
                                 )
 
-                                get_membership_changed_metric(status).add(1)
+                        if status_counts["entered"] > 0:
+                            get_membership_changed_metric("entered").add(status_counts["entered"])
+                        if status_counts["left"] > 0:
+                            get_membership_changed_metric("left").add(status_counts["left"])
 
                     get_cohort_calculation_success_metric().add(1)
                     cohorts_count += 1
@@ -200,13 +223,14 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             attempts=max_retries,
                         )
                     else:
+                        next_timeout = base_timeout_seconds * (backoff_factor**retry_attempt)
                         logger.warning(
-                            f"Error calculating cohort {cohort.id} (attempt {retry_attempt}/{max_retries}): {type(e).__name__}: {str(e)}. Retrying in {retry_delay_seconds}s with {60 * (retry_attempt + 1)}s timeout...",
+                            f"Error calculating cohort {cohort.id} (attempt {retry_attempt}/{max_retries}): {type(e).__name__}: {str(e)}. Retrying in {retry_delay_seconds}s with {next_timeout}s timeout...",
                             cohort_id=cohort.id,
                             error_type=type(e).__name__,
                             error_message=str(e),
                             attempt=retry_attempt,
-                            next_timeout=60 * (retry_attempt + 1),
+                            next_timeout=next_timeout,
                         )
                         await asyncio.sleep(retry_delay_seconds)
 
