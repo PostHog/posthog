@@ -34,8 +34,8 @@ class TestIsUserQueryErrorType(TestCase):
             ("ValueError", False),
             ("CHQueryErrorS3Error", False),
             ("CHQueryErrorTooManySimultaneousQueries", False),
-            ("CHQueryErrorNumberOfArgumentsDoesntMatch", False),
-            ("CHQueryErrorUnsupportedMethod", False),
+            ("ClickHouseAtCapacity", False),
+            ("ConcurrencyLimitExceeded", False),
             (None, False),
             ("", False),
         ]

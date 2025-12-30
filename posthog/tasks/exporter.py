@@ -83,6 +83,10 @@ USER_QUERY_ERRORS = (
     CHQueryErrorIllegalAggregation,
 )
 
+# Intentionally uncategorized errors (neither retryable nor user errors):
+# - CHQueryErrorUnsupportedMethod: Known to be caused by missing UDFs (infrastructure issue, but not retryable)
+# These should be revisited as we gather more data on their root causes.
+
 # User query error class names for checking exception_type field
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 
