@@ -322,14 +322,24 @@ impl StoreManager {
                 )
             })?;
 
-        self.stores
+        // Don't fail here but do report this it's evidence of a race condition
+        if let Some(existing_store) = self
+            .stores
             .insert(Partition::new(topic.to_string(), partition), restored)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Failed to register imported checkpoint for {topic}:{partition} at path {}",
-                    path.display(),
-                )
-            })?;
+        {
+            metrics::counter!(
+                STORE_CREATION_EVENTS,
+                "outcome" => "duplicate_on_restore",
+            )
+            .increment(1);
+            error!(
+                existing_store_path =% existing_store.get_db_path().display(),
+                restored_store_path =% path.display(),
+                topic = topic,
+                partition = partition,
+                "Unexpected duplicate store found when registering imported checkpoint"
+            );
+        }
 
         Ok(())
     }
