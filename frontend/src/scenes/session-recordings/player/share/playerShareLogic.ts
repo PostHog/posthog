@@ -87,8 +87,6 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 githubRepoName: '',
                 githubAssignees: '',
                 githubLabels: '',
-                githubProjects: '',
-                githubMilestone: '',
             } as FormWithTime & {
                 githubIssueTitle: string
                 githubIssueDescription: string
@@ -96,8 +94,6 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 githubRepoName: string
                 githubAssignees: string
                 githubLabels: string
-                githubProjects: string
-                githubMilestone: string
             },
             errors: ({ time, includeTime, githubUsername, githubRepoName }) => ({
                 time:
@@ -169,30 +165,20 @@ export const playerShareLogic = kea<playerShareLogicType>([
                     githubRepoName: string
                     githubAssignees: string
                     githubLabels: string
-                    githubProjects: string
-                    githubMilestone: string
                 }
             ) => {
                 const { username, repoName, title, description } = githubQueryParams
                 if (!username || !repoName) {
                     return ''
                 }
-                const params: Record<string, string> = {
-                    title,
-                    body: description,
-                }
-                if (githubLinkForm.githubAssignees) {
-                    params.assignees = githubLinkForm.githubAssignees
-                }
-                if (githubLinkForm.githubLabels) {
-                    params.labels = githubLinkForm.githubLabels
-                }
-                if (githubLinkForm.githubProjects) {
-                    params.projects = githubLinkForm.githubProjects
-                }
-                if (githubLinkForm.githubMilestone) {
-                    params.milestone = githubLinkForm.githubMilestone
-                }
+                const params: Record<string, string> = Object.fromEntries(
+                    Object.entries({
+                        title,
+                        body: description,
+                        assignees: githubLinkForm.githubAssignees,
+                        labels: githubLinkForm.githubLabels,
+                    }).filter(([_, value]) => value)
+                )
                 return combineUrl(`https://github.com/${username}/${repoName}/issues/new`, params).url
             },
         ],

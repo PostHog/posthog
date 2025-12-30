@@ -209,22 +209,6 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                                     >
                                         <LemonInput fullWidth placeholder="bug, enhancement" />
                                     </LemonField>
-                                    <LemonField
-                                        className="gap-1"
-                                        name="githubProjects"
-                                        label="Projects"
-                                        help={<span>Comma-separated project names</span>}
-                                    >
-                                        <LemonInput fullWidth placeholder="Project 1, Project 2" />
-                                    </LemonField>
-                                    <LemonField
-                                        className="gap-1"
-                                        name="githubMilestone"
-                                        label="Milestone"
-                                        help={<span>Milestone name or number</span>}
-                                    >
-                                        <LemonInput fullWidth placeholder="v1.0" />
-                                    </LemonField>
                                 </div>
                             ),
                         },
