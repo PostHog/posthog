@@ -604,8 +604,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                 "url": f"/pipeline/transformations/hog-{transformation.id}/configuration",
                             }
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Error processing transformation {transformation.id}", exc_info=e)
 
             # Get destinations with issues
             hog_destinations = HogFunction.objects.filter(
