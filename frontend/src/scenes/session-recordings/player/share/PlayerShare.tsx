@@ -184,7 +184,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { githubLinkForm, githubUrl } = useValues(logic)
+    const { githubLinkForm, githubUrl, githubLinkFormHasErrors } = useValues(logic)
     const { setGithubLinkFormValue } = useActions(logic)
 
     return (
@@ -257,7 +257,11 @@ function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
                         to={githubUrl}
                         targetBlank={true}
                         disabledReason={
-                            !githubUrl ? 'Please fill in Username or Organization Name and Repository Name' : undefined
+                            !githubUrl
+                                ? 'Please fill in Username or Organization Name and Repository Name'
+                                : githubLinkFormHasErrors
+                                  ? 'Fix all errors before continuing'
+                                  : undefined
                         }
                     >
                         Create issue
