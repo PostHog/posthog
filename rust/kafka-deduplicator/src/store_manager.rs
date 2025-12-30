@@ -385,6 +385,7 @@ impl StoreManager {
         );
 
         let partition_path = PathBuf::from(&partition_dir);
+
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
                 Ok(_) => {
@@ -811,6 +812,14 @@ impl StoreManager {
 
     /// Clean up orphaned directories that don't belong to any assigned partition
     pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
+        // Guard: skip cleanup if no stores are registered yet (startup race) or
+        // all stores were just unregistered (rebalance). This prevents deleting
+        // valid directories before partition assignment completes.
+        if self.stores.is_empty() {
+            debug!("Skipping orphan cleanup - no stores registered");
+            return Ok(0);
+        }
+
         let mut total_freed = 0u64;
 
         // Build a set of currently assigned partition directories
