@@ -21,6 +21,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelHealth, SidePanelHealthIcon } from './panels/SidePanelHealth'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
@@ -101,6 +102,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'SDK Doctor',
         Icon: SidePanelSdkDoctorIcon,
         Content: SidePanelSdkDoctor,
+    },
+    [SidePanelTab.Health]: {
+        label: 'Pipeline status',
+        Icon: SidePanelHealthIcon,
+        Content: SidePanelHealth,
     },
 }
 
