@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -499,10 +499,46 @@ fn bench_redis_mget_direct(c: &mut Criterion) {
 /// - Fail-open rate
 /// - Sustainable throughput
 /// - Redis saturation behavior
+///
+/// Uses metrics-util's DebuggingRecorder to capture accurate cache and eval metrics
+/// from the limiter implementation, avoiding the need for manual result tracking.
 fn bench_high_cardinality_simulation(c: &mut Criterion) {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
-    use std::sync::atomic::AtomicU64;
+
+    // Install a global debugging recorder once per benchmark process.
+    // This captures all metrics emitted by the limiter for later analysis.
+    static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
+    let snapshotter = SNAPSHOTTER.get_or_init(|| {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        drop(recorder.install());
+        snapshotter
+    });
+
+    // Helper to get counter value for a metric with a specific label
+    let get_counter_value = |metric_name: &str, label_key: &str, label_value: &str| -> u64 {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find(|(key, _, _, _)| {
+                key.key().name() == metric_name
+                    && key
+                        .key()
+                        .labels()
+                        .any(|l| l.key() == label_key && l.value() == label_value)
+            })
+            .map(|(_, _, _, value)| {
+                if let DebugValue::Counter(v) = value {
+                    v
+                } else {
+                    0
+                }
+            })
+            .unwrap_or(0)
+    };
 
     let Some((rt, redis)) = setup_redis() else {
         eprintln!("Skipping bench_high_cardinality_simulation: Redis unavailable");
@@ -532,17 +568,22 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
     });
     eprintln!("Priming complete.");
 
-    // Counters for results
-    static SIM_CACHE_HIT: AtomicU64 = AtomicU64::new(0);
-    static SIM_CACHE_MISS: AtomicU64 = AtomicU64::new(0);
-    static SIM_FAIL_OPEN: AtomicU64 = AtomicU64::new(0);
-    static SIM_LIMITED: AtomicU64 = AtomicU64::new(0);
-
-    // Reset counters
-    SIM_CACHE_HIT.store(0, Ordering::Relaxed);
-    SIM_CACHE_MISS.store(0, Ordering::Relaxed);
-    SIM_FAIL_OPEN.store(0, Ordering::Relaxed);
-    SIM_LIMITED.store(0, Ordering::Relaxed);
+    // Snapshot metrics before benchmark to get baseline
+    let baseline_cache_hit =
+        get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit");
+    let baseline_cache_miss =
+        get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss");
+    let baseline_cache_stale =
+        get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale");
+    let baseline_eval_allowed =
+        get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed");
+    let baseline_eval_limited =
+        get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited");
+    let baseline_eval_fail_open = get_counter_value(
+        "global_rate_limiter_eval_counts_total",
+        "result",
+        "fail_open",
+    );
 
     let mut group = c.benchmark_group("simulation_20proc_100k_keys");
     group.sample_size(10); // Fewer samples since each iteration is expensive
@@ -566,42 +607,26 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
                     .collect();
 
                 // Spawn 20 concurrent tasks, each processing 1000 requests
+                // Metrics are automatically captured by the DebuggingRecorder
                 let handles: Vec<_> = limiters
                     .into_iter()
                     .enumerate()
                     .map(|(proc_id, limiter)| {
                         tokio::spawn(async move {
                             let mut rng = StdRng::seed_from_u64(proc_id as u64);
-                            let mut local_results = (0u64, 0u64, 0u64, 0u64); // hit, miss, fail, limited
 
                             for _ in 0..REQUESTS_PER_PROCESS {
-                                // Random key from 100k cardinality
                                 let key_id: u64 = rng.gen_range(0..KEYS_CARDINALITY);
                                 let key = format!("sim_key_{key_id}");
-
-                                let result = limiter.check_limit(&key, 1, None).await;
-
-                                match result {
-                                    EvalResult::Allowed => local_results.0 += 1,
-                                    EvalResult::Limited(_) => local_results.3 += 1,
-                                    EvalResult::FailOpen { .. } => local_results.2 += 1,
-                                    EvalResult::NotApplicable => {}
-                                }
+                                let _ = black_box(limiter.check_limit(&key, 1, None).await);
                             }
-
-                            local_results
                         })
                     })
                     .collect();
 
                 // Wait for all "processes" to complete
                 for handle in handles {
-                    if let Ok((hits, misses, fails, limited)) = handle.await {
-                        SIM_CACHE_HIT.fetch_add(hits, Ordering::Relaxed);
-                        SIM_CACHE_MISS.fetch_add(misses, Ordering::Relaxed);
-                        SIM_FAIL_OPEN.fetch_add(fails, Ordering::Relaxed);
-                        SIM_LIMITED.fetch_add(limited, Ordering::Relaxed);
-                    }
+                    let _ = handle.await;
                 }
             }
         });
@@ -609,31 +634,70 @@ fn bench_high_cardinality_simulation(c: &mut Criterion) {
 
     group.finish();
 
-    // Report simulation results
-    let total_hits = SIM_CACHE_HIT.load(Ordering::Relaxed);
-    let total_misses = SIM_CACHE_MISS.load(Ordering::Relaxed);
-    let total_fails = SIM_FAIL_OPEN.load(Ordering::Relaxed);
-    let total_limited = SIM_LIMITED.load(Ordering::Relaxed);
-    let total = total_hits + total_misses + total_fails + total_limited;
+    // Report simulation results from captured metrics
+    let cache_hit = get_counter_value("global_rate_limiter_cache_counts_total", "result", "hit")
+        - baseline_cache_hit;
+    let cache_miss = get_counter_value("global_rate_limiter_cache_counts_total", "result", "miss")
+        - baseline_cache_miss;
+    let cache_stale =
+        get_counter_value("global_rate_limiter_cache_counts_total", "result", "stale")
+            - baseline_cache_stale;
+    let eval_allowed =
+        get_counter_value("global_rate_limiter_eval_counts_total", "result", "allowed")
+            - baseline_eval_allowed;
+    let eval_limited =
+        get_counter_value("global_rate_limiter_eval_counts_total", "result", "limited")
+            - baseline_eval_limited;
+    let eval_fail_open = get_counter_value(
+        "global_rate_limiter_eval_counts_total",
+        "result",
+        "fail_open",
+    ) - baseline_eval_fail_open;
 
-    if total > 0 {
+    let total_cache = cache_hit + cache_miss + cache_stale;
+    let total_eval = eval_allowed + eval_limited + eval_fail_open;
+
+    if total_cache > 0 || total_eval > 0 {
         eprintln!("\n=== Simulation Results ===");
-        eprintln!("Total requests: {total}");
-        eprintln!(
-            "Allowed: {} ({:.1}%)",
-            total_hits + total_misses,
-            (total_hits + total_misses) as f64 / total as f64 * 100.0
-        );
-        eprintln!(
-            "Fail-opens: {} ({:.1}%)",
-            total_fails,
-            total_fails as f64 / total as f64 * 100.0
-        );
-        eprintln!(
-            "Rate limited: {} ({:.1}%)",
-            total_limited,
-            total_limited as f64 / total as f64 * 100.0
-        );
+
+        if total_cache > 0 {
+            eprintln!("--- Cache Behavior ---");
+            eprintln!(
+                "Hits:  {} ({:.1}%)",
+                cache_hit,
+                cache_hit as f64 / total_cache as f64 * 100.0
+            );
+            eprintln!(
+                "Miss:  {} ({:.1}%)",
+                cache_miss,
+                cache_miss as f64 / total_cache as f64 * 100.0
+            );
+            eprintln!(
+                "Stale: {} ({:.1}%)",
+                cache_stale,
+                cache_stale as f64 / total_cache as f64 * 100.0
+            );
+        }
+
+        if total_eval > 0 {
+            eprintln!("--- Eval Results ---");
+            eprintln!(
+                "Allowed:   {} ({:.1}%)",
+                eval_allowed,
+                eval_allowed as f64 / total_eval as f64 * 100.0
+            );
+            eprintln!(
+                "Limited:   {} ({:.1}%)",
+                eval_limited,
+                eval_limited as f64 / total_eval as f64 * 100.0
+            );
+            eprintln!(
+                "Fail-open: {} ({:.1}%)",
+                eval_fail_open,
+                eval_fail_open as f64 / total_eval as f64 * 100.0
+            );
+        }
+
         eprintln!("===========================\n");
     }
 }
