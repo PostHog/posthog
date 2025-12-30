@@ -44,10 +44,10 @@ async def asaved_query(ateam, auser):
 
 
 @pytest_asyncio.fixture
-async def anode(ateam, saved_query):
+async def anode(ateam, asaved_query):
     node = await database_sync_to_async(Node.objects.create)(
         team=ateam,
-        saved_query=saved_query,
+        saved_query=asaved_query,
         dag_id="test-dag",
         name="test_model",
         type=NodeType.MAT_VIEW,
@@ -57,10 +57,10 @@ async def anode(ateam, saved_query):
 
 
 @pytest_asyncio.fixture
-async def ajob(ateam, saved_query):
+async def ajob(ateam, asaved_query):
     job = await database_sync_to_async(DataModelingJob.objects.create)(
         team=ateam,
-        saved_query=saved_query,
+        saved_query=asaved_query,
         status=DataModelingJob.Status.RUNNING,
         workflow_id="test-workflow",
     )
