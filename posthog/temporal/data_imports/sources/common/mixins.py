@@ -21,7 +21,7 @@ class SSHTunnelMixin:
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                yield "127.0.0.1", tunnel.local_bind_port
+                yield tunnel.local_bind_host, tunnel.local_bind_port
         else:
             yield config.host, config.port
 
@@ -34,7 +34,7 @@ class SSHTunnelMixin:
                 with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
-                    yield "127.0.0.1", tunnel.local_bind_port
+                    yield tunnel.local_bind_host, tunnel.local_bind_port
 
             return with_ssh_func
 
