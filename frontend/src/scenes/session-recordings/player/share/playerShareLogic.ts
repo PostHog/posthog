@@ -95,18 +95,18 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 githubAssignees: string
                 githubLabels: string
             },
-            errors: ({ time, includeTime, githubUsername, githubRepoName }) => ({
+            errors: ({ time, includeTime }) => ({
                 time:
                     time && includeTime && reverseColonDelimitedDuration(time || undefined) === null
                         ? 'Set a valid time like 02:30 (minutes:seconds)'
                         : undefined,
-                githubUsername: !githubUsername ? 'Username or organization name is required' : undefined,
-                githubRepoName: !githubRepoName ? 'Repository name is required' : undefined,
             }),
             options: {
-                // Show errors only on submit attempt, not on touch
-                showErrorsOnTouch: false,
-                alwaysShowErrors: false,
+                // whether we show errors after touch (true) or submit (false)
+                showErrorsOnTouch: true,
+
+                // show errors even without submitting first
+                alwaysShowErrors: true,
             },
         },
     })),
