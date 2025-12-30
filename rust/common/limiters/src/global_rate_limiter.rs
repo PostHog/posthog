@@ -537,10 +537,16 @@ impl GlobalRateLimiterImpl {
             }
         };
 
-        // Sum counts from all buckets
+        // Sum counts from all buckets, parsing bytes to u64
         let count: u64 = counts
             .iter()
-            .filter_map(|c| c.map(|v| v.max(0) as u64))
+            .filter_map(|c| {
+                c.as_ref().and_then(|bytes| {
+                    std::str::from_utf8(bytes)
+                        .ok()
+                        .and_then(|s| s.parse::<u64>().ok())
+                })
+            })
             .sum();
 
         // expires_at = timestamp + (bucket_interval / 2)
