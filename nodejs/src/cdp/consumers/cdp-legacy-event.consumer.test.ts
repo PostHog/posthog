@@ -438,6 +438,57 @@ describe('CdpLegacyEventsConsumer', () => {
             // Verify fetch was called (setup + 2 calls from onEvent)
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
+
+        it('should properly handle object attachments without converting them to "[object Object]"', async () => {
+            // Insert an attachment with a complex object
+            const attachmentObject = {
+                event1: 'action1',
+                event2: 'action2',
+                nested: {
+                    key: 'value',
+                    array: [1, 2, 3],
+                },
+            }
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_pluginattachment (id, plugin_config_id, key, contents, content_type, file_size, file_name)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                    2001,
+                    pluginConfig.id,
+                    'complexMapping',
+                    JSON.stringify(attachmentObject),
+                    'application/json',
+                    100,
+                    'complex-mapping.json',
+                ],
+                'insertComplexAttachment'
+            )
+
+            // Clear cache to force reload
+            consumer['pluginConfigsLoader'].clear()
+
+            // Get invocations
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations).toBeTruthy()
+            expect(invocations.length).toBeGreaterThan(0)
+
+            // Verify that the inputs contain the actual object, not "[object Object]"
+            const inputs = invocations[0].state.globals.inputs as Record<string, any>
+
+            expect(inputs.complexMapping).toBeDefined()
+            expect(typeof inputs.complexMapping).not.toBe('string')
+            expect(inputs.complexMapping).toEqual(attachmentObject)
+
+            // Verify it's not the string "[object Object]"
+            expect(inputs.complexMapping).not.toBe('[object Object]')
+
+            // Verify other string inputs are still strings
+            expect(typeof inputs.customerioSiteId).toBe('string')
+            expect(inputs.customerioSiteId).toBe('1234567890')
+        })
     })
 
     describe('LazyLoader caching', () => {
