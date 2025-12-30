@@ -194,11 +194,6 @@ impl FlagsCanonicalLogLine {
     }
 }
 
-/// Set error on the task-local canonical log if in scope.
-pub fn set_canonical_log_error(error: &FlagError) {
-    with_canonical_log(|log| log.set_error(error));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,61 +313,47 @@ mod tests {
     }
 
     #[test]
-    fn test_clone_preserves_all_fields() {
+    fn test_clone_creates_independent_copy() {
+        // Clone correctness is compiler-verified via #[derive(Clone)].
+        // This test verifies clone creates an independent copy.
         let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-        log.user_agent = Some("posthog-python/1.0.0".to_string());
-        log.lib = Some("posthog-python");
-        log.lib_version = Some("1.0.0".to_string());
-        log.api_version = Some("3".to_string());
         log.team_id = Some(123);
-        log.distinct_id = Some("user123".to_string());
-        log.flags_evaluated = 5;
-        log.flags_experience_continuity = 1;
-        log.flags_disabled = true;
-        log.quota_limited = true;
-        log.db_property_fetches = 2;
-        log.property_cache_hits = 3;
-        log.property_cache_misses = 1;
-        log.cohorts_evaluated = 4;
-        log.flags_errored = 2;
-        log.hash_key_override_attempted = true;
-        log.hash_key_override_succeeded = false;
-        log.rate_limited = true;
-        log.http_status = 429;
-        log.error_code = Some("rate_limited".to_string());
 
-        let cloned = log.clone();
+        let mut cloned = log.clone();
+        cloned.team_id = Some(456);
 
-        assert_eq!(cloned.request_id, log.request_id);
-        assert_eq!(cloned.ip, log.ip);
-        assert_eq!(cloned.user_agent, log.user_agent);
-        assert_eq!(cloned.lib, log.lib);
-        assert_eq!(cloned.lib_version, log.lib_version);
-        assert_eq!(cloned.api_version, log.api_version);
-        assert_eq!(cloned.team_id, log.team_id);
-        assert_eq!(cloned.distinct_id, log.distinct_id);
-        assert_eq!(cloned.flags_evaluated, log.flags_evaluated);
-        assert_eq!(
-            cloned.flags_experience_continuity,
-            log.flags_experience_continuity
-        );
-        assert_eq!(cloned.flags_disabled, log.flags_disabled);
-        assert_eq!(cloned.quota_limited, log.quota_limited);
-        assert_eq!(cloned.db_property_fetches, log.db_property_fetches);
-        assert_eq!(cloned.property_cache_hits, log.property_cache_hits);
-        assert_eq!(cloned.property_cache_misses, log.property_cache_misses);
-        assert_eq!(cloned.cohorts_evaluated, log.cohorts_evaluated);
-        assert_eq!(cloned.flags_errored, log.flags_errored);
-        assert_eq!(
-            cloned.hash_key_override_attempted,
-            log.hash_key_override_attempted
-        );
-        assert_eq!(
-            cloned.hash_key_override_succeeded,
-            log.hash_key_override_succeeded
-        );
-        assert_eq!(cloned.rate_limited, log.rate_limited);
-        assert_eq!(cloned.http_status, log.http_status);
-        assert_eq!(cloned.error_code, log.error_code);
+        // Ensure original is unmodified
+        assert_eq!(log.team_id, Some(123));
+        assert_eq!(cloned.team_id, Some(456));
+    }
+
+    mod truncate_chars_tests {
+        use super::*;
+        use rstest::rstest;
+
+        #[rstest]
+        #[case("", 10, "")]
+        #[case("hello", 10, "hello")]
+        #[case("hello", 5, "hello")]
+        #[case("hello", 3, "hel")]
+        #[case("hello", 0, "")]
+        #[case("🎉🎊🎁", 3, "🎉🎊🎁")]
+        #[case("🎉🎊🎁", 2, "🎉🎊")]
+        #[case("hello🎉world", 6, "hello🎉")]
+        fn test_truncate_chars(
+            #[case] input: &str,
+            #[case] max_chars: usize,
+            #[case] expected: &str,
+        ) {
+            assert_eq!(truncate_chars(input, max_chars), expected);
+        }
+
+        #[test]
+        fn test_truncate_chars_long_input() {
+            let long_input = "a".repeat(2000);
+            let truncated = truncate_chars(&long_input, 512);
+            assert_eq!(truncated.len(), 512);
+            assert_eq!(truncated.chars().count(), 512);
+        }
     }
 }
