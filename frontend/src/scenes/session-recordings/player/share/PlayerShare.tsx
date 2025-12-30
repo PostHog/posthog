@@ -156,7 +156,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                                     >
                                         <LemonInput
                                             fullWidth
-                                            placeholder="bug, enhancement"
+                                            placeholder="bug, feature"
                                             data-attr="linear-share-labels"
                                         />
                                     </LemonField>
