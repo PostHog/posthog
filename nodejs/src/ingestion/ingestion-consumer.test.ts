@@ -46,6 +46,17 @@ jest.mock('./event-processing/event-pipeline-runner-v1-step', () => ({
     createEventPipelineRunnerV1Step: jest.fn(),
 }))
 
+// Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
+jest.mock('../utils/token-bucket', () => {
+    const mockConsume = jest.fn().mockReturnValue(true)
+    return {
+        ...jest.requireActual('../utils/token-bucket'),
+        IngestionWarningLimiter: {
+            consume: mockConsume,
+        },
+    }
+})
+
 let offsetIncrementer = 0
 
 const createKafkaMessage = (event: PipelineEvent): Message => {
@@ -123,7 +134,10 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Prep
     })
 }
 
-describe('IngestionConsumer', () => {
+describe.each([
+    ['legacy pipeline', false],
+    ['joined pipeline', true],
+] as const)('IngestionConsumer (%s)', (_name, useJoinedPipeline) => {
     let ingester: IngestionConsumer
     let hub: Hub
     let team: Team
@@ -188,6 +202,7 @@ describe('IngestionConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
+        hub.INGESTION_JOINED_PIPELINE = useJoinedPipeline
 
         // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
@@ -528,7 +543,8 @@ describe('IngestionConsumer', () => {
                 }),
             ])
 
-            await ingester.handleKafkaBatch(messages)
+            const { backgroundTask } = await ingester.handleKafkaBatch(messages)
+            await backgroundTask
 
             // Event should be dropped
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)

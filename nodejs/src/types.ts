@@ -193,6 +193,8 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
+    INGESTION_JOINED_PIPELINE: boolean
 }
 
 export type LogsIngestionConsumerConfig = {
