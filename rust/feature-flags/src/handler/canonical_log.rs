@@ -1,4 +1,5 @@
 use crate::api::errors::FlagError;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -55,8 +56,13 @@ where
 }
 
 /// Truncate a string to a maximum number of characters (not bytes).
-fn truncate_chars(s: &str, max_chars: usize) -> String {
-    s.chars().take(max_chars).collect()
+/// Returns a borrowed reference if no truncation needed, avoiding allocation.
+fn truncate_chars(s: &str, max_chars: usize) -> Cow<'_, str> {
+    if s.chars().count() <= max_chars {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(s.chars().take(max_chars).collect())
+    }
 }
 
 /// Accumulates data throughout a /flags request lifecycle for canonical logging.
@@ -354,6 +360,20 @@ mod tests {
             let truncated = truncate_chars(&long_input, 512);
             assert_eq!(truncated.len(), 512);
             assert_eq!(truncated.chars().count(), 512);
+        }
+
+        #[test]
+        fn test_truncate_chars_returns_borrowed_when_no_truncation() {
+            let input = "short";
+            let result = truncate_chars(input, 100);
+            assert!(matches!(result, Cow::Borrowed(_)));
+        }
+
+        #[test]
+        fn test_truncate_chars_returns_owned_when_truncated() {
+            let input = "this is a longer string";
+            let result = truncate_chars(input, 5);
+            assert!(matches!(result, Cow::Owned(_)));
         }
     }
 }
