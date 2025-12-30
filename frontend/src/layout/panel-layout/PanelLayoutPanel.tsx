@@ -18,8 +18,6 @@ import { cn } from 'lib/utils/css-classes'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
-import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
@@ -33,10 +31,6 @@ interface PanelLayoutPanelProps {
 const panelLayoutPanelVariants = cva({
     base: 'w-full flex flex-col max-h-screen min-h-screen absolute border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
-        projectTreeMode: {
-            tree: '',
-            table: 'absolute top-0 left-0 bottom-0',
-        },
         isLayoutNavCollapsed: {
             true: '',
             false: '',
@@ -52,27 +46,12 @@ const panelLayoutPanelVariants = cva({
     },
     compoundVariants: [
         {
-            projectTreeMode: 'tree',
             isMobileLayout: false,
-            className: 'w-[var(--project-panel-width)]',
+            className: 'w-full',
         },
         {
             isMobileLayout: true,
             className: 'w-[calc(100vw-var(--panel-layout-mobile-offset)-20px)]',
-        },
-        {
-            projectTreeMode: 'table',
-            isLayoutNavCollapsed: true,
-            isMobileLayout: false,
-            className:
-                'left-[var(--project-navbar-width-collapsed)] w-[calc(100vw-var(--project-navbar-width-collapsed)-(var(--side-panel-bar-width)*2))]',
-        },
-        {
-            projectTreeMode: 'table',
-            isLayoutNavCollapsed: false,
-            isMobileLayout: false,
-            className:
-                'left-[var(--project-navbar-width)] w-[calc(100vw-var(--project-navbar-width)-(var(--side-panel-bar-width)*2))]',
         },
     ],
 })
@@ -89,7 +68,6 @@ export function PanelLayoutPanel({
     const { closePanel } = useActions(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
 
     // Filter to only include items that have actual properties (not empty objects from spread conditions)
     const validPanelActions = panelActionsNewSceneLayout?.filter(
@@ -100,7 +78,6 @@ export function PanelLayoutPanel({
         <nav
             className={cn(
                 panelLayoutPanelVariants({
-                    projectTreeMode: projectTreeMode,
                     isLayoutNavCollapsed,
                     isMobileLayout,
                     panelWillHide,
@@ -168,10 +145,6 @@ export function PanelLayoutPanel({
             </div>
         </nav>
     )
-
-    if (projectTreeMode === 'table') {
-        return panelContents
-    }
 
     return (
         <ResizableElement
