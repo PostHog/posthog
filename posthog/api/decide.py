@@ -30,7 +30,7 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
-from posthog.models.sdk_policy_config import get_policy_config
+from posthog.models.sdk_policy_config import SdkPolicyConfigAssignment, get_policy_config
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
@@ -635,7 +635,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
     return session_recording_config_response
 
 
-def _error_tracking_config_response(team: Team, skip_db: bool) -> Union[bool, dict[str, Any]]:
+def _error_tracking_config_response(team: Team, skip_db: bool):
     suppression_rules = []
     # errors mean the database is unavailable, no-op in this case
     if team.autocapture_exceptions_opt_in and not skip_db:
@@ -647,16 +647,16 @@ def _error_tracking_config_response(team: Team, skip_db: bool) -> Union[bool, di
                 with execute_with_timeout(200):
                     # when we support decide / remote config in multiple libraries
                     # we will need to set the final argument here
-                    policy_config = get_policy_config(team, "error-tracking", None)
+                    policy_config = get_policy_config(team, SdkPolicyConfigAssignment.Context.ERROR_TRACKING, None)
         except Exception:
             pass
 
     return {
         "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
         "suppressionRules": suppression_rules,
-        "sampleRate": policy_config.sample_rate if policy_config else None,
-        "linkedFeatureFlag": policy_config.linked_feature_flag if policy_config else None,
-        "urlTriggers": policy_config.url_triggers if policy_config else None,
-        "urlBlocklist": policy_config.url_blocklist if policy_config else None,
-        "eventTriggers": policy_config.event_triggers if policy_config else None,
+        "sampleRate": policy_config["sample_rate"] if policy_config else None,
+        "linkedFeatureFlag": policy_config["linked_feature_flag"] if policy_config else None,
+        "urlTriggers": policy_config["url_triggers"] if policy_config else None,
+        "urlBlocklist": policy_config["url_blocklist"] if policy_config else None,
+        "eventTriggers": policy_config["event_triggers"] if policy_config else None,
     }

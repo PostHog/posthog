@@ -174,10 +174,15 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
+        error_tracking_policy = (
+            get_policy_config(team, SdkPolicyConfigAssignment.Context.ERROR_TRACKING, None)
+            if team.autocapture_exceptions_opt_in
+            else None
+        ) or {}
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
-            **(get_policy_config(team, "error-tracking", None) if team.autocapture_exceptions_opt_in else {}),
+            **error_tracking_policy,
         }
 
         # MARK: Session recording

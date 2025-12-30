@@ -60,7 +60,7 @@ class ErrorTrackingSDKPolicyConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Model
                         SdkPolicyConfigAssignment(
                             team=self.team,
                             config=config,
-                            context=self.request.query_params.get("context"),
+                            context=SdkPolicyConfigAssignment.Context.ERROR_TRACKING,
                             library=None,
                         )
                     ]

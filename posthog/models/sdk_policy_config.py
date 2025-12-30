@@ -54,7 +54,7 @@ class SdkPolicyConfigAssignment(UUIDTModel, RootTeamMixin):
 
 
 def get_policy_config(
-    team: Team, context: SdkPolicyConfigAssignment.Context, library: SdkPolicyConfigAssignment.Library
+    team: Team, context: SdkPolicyConfigAssignment.Context, library: SdkPolicyConfigAssignment.Library | None
 ) -> dict | None:
     return (
         SdkPolicyConfig.objects.filter(
