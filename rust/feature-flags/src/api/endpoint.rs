@@ -90,6 +90,15 @@ fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
     fallback_ip
 }
 
+/// Updates the canonical log with rate limit info and returns the error for early return.
+fn rate_limit_error(error: FlagError) -> FlagError {
+    with_canonical_log(|l| {
+        l.rate_limited = true;
+        l.set_error(&error);
+    });
+    error
+}
+
 fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
@@ -317,12 +326,9 @@ pub async fn flags(
 
         // Check IP-based rate limit first
         if !state.ip_rate_limiter.allow_request(&ip_string) {
-            let error = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
-            with_canonical_log(|l| {
-                l.rate_limited = true;
-                l.set_error(&error);
-            });
-            return Err(error);
+            return Err(rate_limit_error(FlagError::ClientFacing(
+                ClientFacingError::IpRateLimited,
+            )));
         }
 
         // Check token-based rate limit
@@ -330,12 +336,9 @@ pub async fn flags(
         let rate_limit_key =
             decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
         if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
-            let error = FlagError::ClientFacing(ClientFacingError::TokenRateLimited);
-            with_canonical_log(|l| {
-                l.rate_limited = true;
-                l.set_error(&error);
-            });
-            return Err(error);
+            return Err(rate_limit_error(FlagError::ClientFacing(
+                ClientFacingError::TokenRateLimited,
+            )));
         }
 
         process_request(context).await
