@@ -185,7 +185,7 @@ export function WorkflowsScene(): JSX.Element {
                             <LemonButton
                                 data-attr="new-workflow"
                                 onClick={() => {
-                                    addProductIntent({
+                                    void addProductIntent({
                                         product_type: ProductKey.WORKFLOWS,
                                         intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                     })
