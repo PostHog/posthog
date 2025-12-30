@@ -289,14 +289,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
             const error = result.error
 
-            if (error && result.invocation.hogFunction.template_id === 'plugin-pubsub-plugin') {
-                logger.error('Legacy pubsub plugin execution failed', {
-                    pluginConfigId,
-                    inputs: result.invocation.state.globals.inputs,
-                    error: error.message,
-                })
-            }
-
             legacyPluginExecutionResultCounter
                 .labels({
                     result: error ? 'error' : 'success',
@@ -377,7 +369,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase {
             // Plugin configs are always static { value: any } so we can just convert to a record of strings
             const inputs = Object.entries(hogFunction.inputs || {}).reduce(
                 (acc, [key, value]) => {
-                    acc[key] = value?.value ?? ''
+                    acc[key] = value?.value
                     return acc
                 },
                 {} as Record<string, string>
