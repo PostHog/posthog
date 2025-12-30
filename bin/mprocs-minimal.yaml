@@ -65,12 +65,5 @@ procs:
         shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
 
-    dagster:
-        shell: |-
-            bin/check_postgres_up && \
-            bin/check_kafka_clickhouse_up && \
-            bin/check_ducklake_up && \
-            dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
-
 mouse_scroll_speed: 1
 scrollback: 10000
