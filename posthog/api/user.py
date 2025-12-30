@@ -647,19 +647,30 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
         """Get current 2FA status including backup codes if enabled"""
+        from posthog.helpers.two_factor_session import has_passkeys
+
         user = self.get_object()
         totp_device = TOTPDevice.objects.filter(user=user).first()
         static_device = StaticDevice.objects.filter(user=user).first()
+        user_has_passkeys = has_passkeys(user)
 
         backup_codes = []
         if static_device:
             backup_codes = [token.token for token in static_device.token_set.all()]
 
+        # Determine 2FA method
+        method = None
+        if totp_device:
+            method = "TOTP"
+        elif user_has_passkeys:
+            method = "passkey"
+
         return Response(
             {
-                "is_enabled": default_device(user) is not None,
+                "is_enabled": default_device(user) is not None or user_has_passkeys,
                 "backup_codes": backup_codes if totp_device else [],
-                "method": "TOTP" if totp_device else None,
+                "method": method,
+                "has_passkeys": user_has_passkeys,
             }
         )
 

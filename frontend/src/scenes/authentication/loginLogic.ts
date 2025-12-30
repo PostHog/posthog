@@ -137,6 +137,8 @@ export const loginLogic = kea<loginLogicType>([
             }),
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
+                // Clear any previous passkey errors when submitting with password
+                actions.clearGeneralError()
                 try {
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {

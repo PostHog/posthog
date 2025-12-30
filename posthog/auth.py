@@ -34,6 +34,7 @@ from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 
 WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
+WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 
 
 def get_webauthn_rp_id() -> str:
