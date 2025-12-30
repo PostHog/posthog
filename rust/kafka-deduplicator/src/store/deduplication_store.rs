@@ -595,8 +595,32 @@ impl DeduplicationStore {
         &self,
         checkpoint_path: P,
     ) -> Result<LocalCheckpointInfo> {
+        let db_path = self.store.get_path();
+
+        tracing::info!(
+            checkpoint_debug = true,
+            hypothesis = "A",
+            step = "checkpoint_step1_wal",
+            topic = %self.topic,
+            partition = self.partition,
+            db_path = %db_path.display(),
+            db_exists = db_path.exists(),
+            "Checkpoint debug: flushing WAL"
+        );
+
         // Step 1: Flush WAL to ensure durability
         self.store.flush_wal(true)?;
+
+        tracing::info!(
+            checkpoint_debug = true,
+            hypothesis = "A",
+            step = "checkpoint_step2_flush",
+            topic = %self.topic,
+            partition = self.partition,
+            db_path = %db_path.display(),
+            db_exists = db_path.exists(),
+            "Checkpoint debug: flushing column families"
+        );
 
         // Step 2: Flush all column families to ensure data is in SST files
         self.flush()?;

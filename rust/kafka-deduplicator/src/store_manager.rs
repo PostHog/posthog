@@ -322,6 +322,15 @@ impl StoreManager {
     pub fn unregister_store(&self, topic: &str, partition: i32) {
         let partition_key = Partition::new(topic.to_string(), partition);
 
+        info!(
+            checkpoint_debug = true,
+            hypothesis = "A",
+            step = "unregister_store",
+            topic = topic,
+            partition = partition,
+            "Checkpoint debug: unregistering store from DashMap"
+        );
+
         if let Some((_, store)) = self.stores.remove(&partition_key) {
             info!(
                 topic = topic,
@@ -348,6 +357,18 @@ impl StoreManager {
         );
 
         let partition_path = PathBuf::from(&partition_dir);
+
+        info!(
+            checkpoint_debug = true,
+            hypothesis = "A",
+            step = "cleanup_store_files",
+            topic = topic,
+            partition = partition,
+            partition_dir = %partition_dir,
+            dir_exists = partition_path.exists(),
+            "Checkpoint debug: cleaning up store files"
+        );
+
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
                 Ok(_) => {
@@ -784,6 +805,15 @@ impl StoreManager {
         }
 
         info!(
+            checkpoint_debug = true,
+            hypothesis = "B",
+            step = "cleanup_orphaned_start",
+            assigned_count = assigned_dirs.len(),
+            assigned_dirs = ?assigned_dirs,
+            "Checkpoint debug: checking for orphaned directories"
+        );
+
+        info!(
             "Checking for orphaned directories. Currently assigned: {:?}",
             assigned_dirs
         );
@@ -801,6 +831,16 @@ impl StoreManager {
                             // This is an orphaned directory
                             let dir_path = entry.path();
                             let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
+
+                            info!(
+                                checkpoint_debug = true,
+                                hypothesis = "B",
+                                step = "cleanup_orphaned_deleting",
+                                dir_name = %dir_name,
+                                dir_path = %dir_path.display(),
+                                dir_size_bytes = dir_size,
+                                "Checkpoint debug: deleting orphaned directory"
+                            );
 
                             match std::fs::remove_dir_all(&dir_path) {
                                 Ok(_) => {

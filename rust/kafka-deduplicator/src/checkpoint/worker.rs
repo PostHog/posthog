@@ -192,6 +192,18 @@ impl CheckpointWorker {
         let start_time = Instant::now();
         let local_attempt_path = self.get_local_attempt_path();
 
+        info!(
+            checkpoint_debug = true,
+            hypothesis = "A",
+            step = "worker_entry",
+            worker_id = self.worker_id,
+            partition = %self.partition,
+            db_path = %store.get_db_path().display(),
+            db_exists = store.get_db_path().exists(),
+            local_attempt_path = %local_attempt_path.display(),
+            "Checkpoint debug: starting local checkpoint"
+        );
+
         // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
         match store.create_checkpoint_with_metadata(&local_attempt_path) {
             Ok(rocks_metadata) => {

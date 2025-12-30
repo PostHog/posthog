@@ -258,9 +258,27 @@ impl CheckpointManager {
                                 // best efort to bail if the partition is no longer owned by the
                                 // store manager when the worker thread has started executing
                                 let target_store = match worker_store_manager.get(partition.topic(), partition.partition_number()) {
-                                    Some(store) => store,
+                                    Some(store) => {
+                                        info!(
+                                            checkpoint_debug = true,
+                                            hypothesis = "A",
+                                            step = "worker_store_found",
+                                            partition = partition_tag,
+                                            db_path = %store.get_db_path().display(),
+                                            db_exists = store.get_db_path().exists(),
+                                            "Checkpoint debug: store found for checkpoint"
+                                        );
+                                        store
+                                    }
 
                                     _ => {
+                                        info!(
+                                            checkpoint_debug = true,
+                                            hypothesis = "A",
+                                            step = "worker_store_not_found",
+                                            partition = partition_tag,
+                                            "Checkpoint debug: store NOT found for checkpoint"
+                                        );
                                         metrics::counter!(CHECKPOINT_STORE_NOT_FOUND_COUNTER).increment(1);
                                         warn!(partition = partition_tag, "Checkpoint worker thread: partition no longer owned by store manager, skipping");
                                         // free the slot up since we're skipping this round and/or shutting down the process
