@@ -704,6 +704,17 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class CoreEventCategory(StrEnum):
+    ACQUISITION = "acquisition"
+    ACTIVATION = "activation"
+    MONETIZATION = "monetization"
+    EXPANSION = "expansion"
+    REFERRAL = "referral"
+    RETENTION = "retention"
+    CHURN = "churn"
+    REACTIVATION = "reactivation"
+
+
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -13240,6 +13251,24 @@ class CachedWebVitalsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class CoreEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: CoreEventCategory = Field(
+        ..., description="Category (acquisition, activation, retention, referral, revenue)"
+    )
+    description: str | None = Field(default=None, description="Optional description")
+    filter: EventsNode | ActionsNode | DataWarehouseNode = Field(
+        ...,
+        description=(
+            "Filter configuration - event, action, or data warehouse node (includes math support for sum, etc.)"
+        ),
+    )
+    id: str = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Display name")
 
 
 class CustomerAnalyticsConfig(BaseModel):

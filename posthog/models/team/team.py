@@ -567,6 +567,13 @@ class Team(UUIDTClassicModel):
         )
         return config
 
+    @cached_property
+    def core_events_config(self):
+        from posthog.models.core_event import TeamCoreEventsConfig
+
+        config, _ = TeamCoreEventsConfig.objects.get_or_create(team=self)
+        return config
+
     @property
     def default_modifiers(self) -> dict:
         modifiers = HogQLQueryModifiers()
