@@ -504,6 +504,7 @@ export function PanelLayoutNavBar({
                                 tooltipPlacement="right"
                                 onClick={() => toggleLayoutNavCollapsed(!isLayoutNavCollapsed)}
                                 menuItem={!isLayoutNavCollapsed}
+                                className="hidden lg:flex"
                             >
                                 {isLayoutNavCollapsed ? (
                                     <>
