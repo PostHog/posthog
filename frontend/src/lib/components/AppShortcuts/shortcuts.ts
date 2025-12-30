@@ -1,6 +1,7 @@
 export const baseModifier: string[] = ['command', 'option']
 
 export const keyBinds: Record<string, string[]> = {
+    recentItems: [...baseModifier, 'y'],
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],
     toggleShortcutMenu: [...baseModifier, 'k'],
