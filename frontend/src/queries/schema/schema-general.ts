@@ -5132,6 +5132,9 @@ export enum ProductIntentContext {
     // Feature previews
     FEATURE_PREVIEW_ENABLED = 'feature_preview_enabled',
 
+    // Workflows
+    WORKFLOW_CREATED = 'workflow_created',
+
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }
