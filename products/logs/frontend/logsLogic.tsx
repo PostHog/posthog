@@ -79,11 +79,29 @@ export const logsLogic = kea<logsLogicType>([
             if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
                 actions.setSearchTerm(params.searchTerm)
             }
-            if (params.severityLevels && !equal(params.severityLevels, values.severityLevels)) {
-                actions.setSeverityLevels(params.severityLevels)
+            if (params.severityLevels) {
+                try {
+                    const levels =
+                        typeof params.severityLevels === 'string'
+                            ? JSON.parse(params.severityLevels)
+                            : params.severityLevels
+                    if (Array.isArray(levels) && !equal(levels, values.severityLevels)) {
+                        actions.setSeverityLevels(levels)
+                    }
+                } catch {
+                    // Ignore malformed severityLevels JSON in URL
+                }
             }
-            if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
-                actions.setServiceNames(params.serviceNames)
+            if (params.serviceNames) {
+                try {
+                    const names =
+                        typeof params.serviceNames === 'string' ? JSON.parse(params.serviceNames) : params.serviceNames
+                    if (Array.isArray(names) && !equal(names, values.serviceNames)) {
+                        actions.setServiceNames(names)
+                    }
+                } catch {
+                    // Ignore malformed serviceNames JSON in URL
+                }
             }
             if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
                 actions.setHighlightedLogId(params.highlightedLogId)
