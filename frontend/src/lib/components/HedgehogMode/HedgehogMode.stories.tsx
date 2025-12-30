@@ -11,12 +11,12 @@ import { HedgehogModeStatic } from './HedgehogModeStatic'
 const meta: Meta<typeof HedgehogModeStatic> = {
     title: 'Components/HedgehogMode',
     component: HedgehogModeStatic,
-    tags: ['test-skip', 'autodocs'],
-    parameters: {
-        testOptions: {
-            waitForTimeout: 10000,
-        },
-    },
+    tags: ['autodocs'],
+    // parameters: {
+    //     testOptions: {
+    //         waitForTimeout: 10000,
+    //     },
+    // },
 }
 export default meta
 
@@ -59,7 +59,7 @@ export const StaticHedgehog: StoryFn = () => {
     return (
         <div className="flex flex-wrap gap-2 w-[100rem]">
             {allCombinations.map((x, i) => (
-                <HedgehogModeStatic key={i} config={x} />
+                <HedgehogModeStatic key={i} config={x} size="80px" />
             ))}
         </div>
     )
