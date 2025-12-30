@@ -59,8 +59,6 @@ from products.data_warehouse.backend.models import (
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
-from .metrics import get_data_modeling_finished_metric
-
 LOGGER = get_logger(__name__)
 
 
