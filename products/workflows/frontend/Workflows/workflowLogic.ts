@@ -23,7 +23,6 @@ import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogf
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
-import { workflowTemplateLogic } from './workflowTemplateLogic'
 
 export interface WorkflowLogicProps {
     id?: string
@@ -178,25 +177,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
                 saveWorkflow: async (updates: HogFlow) => {
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
-
-                    // If we're in template edit mode, update the template instead
-                    if (props.editTemplateId) {
-                        const updated = {
-                            ...updates,
-                            status: 'draft' as const,
-                        } as HogFlow
-                        const templateLogic = workflowTemplateLogic.findMounted({
-                            id: props.id || 'new',
-                            editTemplateId: props.editTemplateId,
-                        })
-                        if (!templateLogic) {
-                            lemonToast.error('Template logic not mounted')
-                            return updated
-                        }
-                        await templateLogic.actions.updateTemplateFromWorkflow(props.editTemplateId, updates)
-
-                        return updated
-                    }
 
                     if (!props.id || props.id === 'new') {
                         return api.hogFlows.createHogFlow(updates)

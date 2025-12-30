@@ -21,7 +21,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
     props({ id: 'new' } as WorkflowTemplateLogicProps),
     key((props) => `${props.id || 'new'}-${props.editTemplateId || ''}`),
     connect(() => ({
-        values: [workflowLogic, ['workflow', 'isTemplateEditMode'], userLogic, ['user']],
+        values: [workflowLogic, ['workflow'], userLogic, ['user']],
         actions: [workflowTemplatesLogic, ['loadWorkflowTemplates']],
     })),
     actions({
