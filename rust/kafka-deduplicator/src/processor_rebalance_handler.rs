@@ -84,7 +84,7 @@ where
         }
 
         // Try to import checkpoint from S3 directly into store directory
-        let checkpoint_imported = if let Some(ref importer) = self.checkpoint_importer {
+        if let Some(ref importer) = self.checkpoint_importer {
             match importer
                 .import_checkpoint_for_topic_partition(
                     partition.topic(),
@@ -93,18 +93,43 @@ where
                 .await
             {
                 Ok(path) => {
-                    metrics::counter!(
-                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                        "result" => "success",
-                    )
-                    .increment(1);
-                    info!(
-                        topic = partition.topic(),
-                        partition = partition.partition_number(),
-                        path = %path.display(),
-                        "Imported checkpoint for partition"
-                    );
-                    true
+                    // OK now we need to register the new store with the manager
+                    match self.store_manager.restore_imported_store(
+                        partition.topic(),
+                        partition.partition_number(),
+                        &path,
+                    ) {
+                        Ok(_) => {
+                            metrics::counter!(
+                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                "result" => "success",
+                            )
+                            .increment(1);
+                            info!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                path = %path.display(),
+                                "Imported checkpoint for partition"
+                            );
+
+                            // no need to fall through to get-or-create flow
+                            return;
+                        }
+                        Err(e) => {
+                            metrics::counter!(
+                                REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+                                "result" => "failed",
+                                "reason" => "restore",
+                            )
+                            .increment(1);
+                            error!(
+                                topic = partition.topic(),
+                                partition = partition.partition_number(),
+                                error = %e,
+                                "Failed to restore checkpoint",
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     metrics::counter!(
@@ -119,7 +144,6 @@ where
                         error = %e,
                         "Failed to import checkpoint for partition"
                     );
-                    false
                 }
             }
         } else {
@@ -129,8 +153,7 @@ where
                 "reason" => "disabled",
             )
             .increment(1);
-            false
-        };
+        }
 
         // Create the store (will use imported checkpoint files if present)
         match self
@@ -139,13 +162,6 @@ where
             .await
         {
             Ok(_) => {
-                if !checkpoint_imported {
-                    metrics::counter!(
-                        REBALANCE_CHECKPOINT_IMPORT_COUNTER,
-                        "result" => "fallback",
-                    )
-                    .increment(1);
-                }
                 info!(
                     "Pre-created store for partition {}:{}",
                     partition.topic(),

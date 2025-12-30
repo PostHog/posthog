@@ -307,6 +307,33 @@ impl StoreManager {
         self.cleanup_store_files(topic, partition)
     }
 
+    // Internally register a restored set of checkpoint files at the given store path
+    // and topic/partition coordinates
+    pub fn restore_imported_store(&self, topic: &str, partition: i32, path: &Path) -> Result<()> {
+        let store_config = DeduplicationStoreConfig {
+            path: path.to_path_buf(),
+            max_capacity: self.store_config.max_capacity,
+        };
+        let restored = DeduplicationStore::new(store_config, topic.to_string(), partition)
+            .with_context(|| {
+                format!(
+                    "Failed to restore imported checkpoint for {topic}:{partition} at path {}",
+                    path.display(),
+                )
+            })?;
+
+        self.stores
+            .insert(Partition::new(topic.to_string(), partition), restored)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to register imported checkpoint for {topic}:{partition} at path {}",
+                    path.display(),
+                )
+            })?;
+
+        Ok(())
+    }
+
     /// Unregister a store from the DashMap without deleting files (Step 1 of two-step cleanup).
     ///
     /// Call this BEFORE shutting down partition workers during rebalance. This prevents
