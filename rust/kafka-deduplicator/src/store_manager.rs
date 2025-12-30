@@ -790,6 +790,19 @@ impl StoreManager {
 
     /// Clean up orphaned directories that don't belong to any assigned partition
     pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
+        // Guard: skip cleanup if no stores are registered yet (startup race) or
+        // all stores were just unregistered (rebalance). This prevents deleting
+        // valid directories before partition assignment completes.
+        if self.stores.is_empty() {
+            info!(
+                checkpoint_debug = true,
+                hypothesis = "B",
+                step = "cleanup_orphaned_skipped",
+                "Checkpoint debug: skipping orphan cleanup - no stores registered"
+            );
+            return Ok(0);
+        }
+
         let mut total_freed = 0u64;
 
         // Build a set of currently assigned partition directories
