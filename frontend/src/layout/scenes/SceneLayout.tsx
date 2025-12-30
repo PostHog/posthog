@@ -9,15 +9,12 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
-import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
@@ -75,8 +72,6 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
     const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
-    const simplerAppLayout = useFeatureFlag('SIMPLER_APP_LAYOUT')
 
     // Set layout config
     useEffect(() => {
@@ -87,36 +82,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
     return (
         <>
-            {!simplerAppLayout && (
-                <div
-                    className={cn(
-                        'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
-                        {
-                            'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                        }
-                    )}
-                >
-                    <SceneTabs />
-                </div>
-            )}
-
-            {simplerAppLayout ? (
-                <>{children}</>
-            ) : (
-                <div
-                    className={cn('relative p-4 min-h-[calc(100vh-var(--scene-layout-header-height))] rounded-lg', {
-                        'lg:rounded-tl-lg': !firstTabIsActive,
-                        'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
-                            scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
-                        'p-0':
-                            sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                        'h-[calc(100vh-var(--scene-layout-header-height))]':
-                            sceneConfig?.layout === 'app-full-scene-height',
-                    })}
-                >
-                    {children}
-                </div>
-            )}
+            {children}
 
             {scenePanelIsPresent && (
                 <>
