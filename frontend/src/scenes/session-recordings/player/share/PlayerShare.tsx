@@ -172,97 +172,6 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
     )
 }
 
-function GithubIssueLink(props: PlayerShareLogicProps): JSX.Element {
-    const logic = playerShareLogic(props)
-
-    const { githubLinkForm, githubUrl, githubLinkFormHasErrors } = useValues(logic)
-    const { setGithubLinkFormValue } = useActions(logic)
-
-    return (
-        <>
-            <p>Add an issue to your Github repository with a link to this recording.</p>
-
-            <Form logic={playerShareLogic} props={props} formKey="githubLinkForm" className="flex flex-col gap-2">
-                <LemonField className="gap-1" name="githubUsername" label="Username or Organization Name">
-                    <LemonInput fullWidth />
-                </LemonField>
-                <LemonField className="gap-1" name="githubRepoName" label="Repository Name">
-                    <LemonInput fullWidth />
-                </LemonField>
-                <LemonField className="gap-1" name="githubIssueTitle" label="Issue Title">
-                    <LemonInput fullWidth />
-                </LemonField>
-                <LemonField
-                    className="gap-1"
-                    name="githubIssueDescription"
-                    label="Issue description"
-                    help={<span>We'll include a link to the recording in the description.</span>}
-                >
-                    <LemonTextArea />
-                </LemonField>
-                <div className="flex gap-1 items-center">
-                    <LemonField name="includeTime">
-                        <LemonCheckbox label="Start at" checked={githubLinkForm.includeTime} />
-                    </LemonField>
-                    <LemonField name="time" inline>
-                        <LemonInput
-                            className={clsx('w-20', { 'opacity-50': !githubLinkForm.includeTime })}
-                            onFocus={() => setGithubLinkFormValue('includeTime', true)}
-                            placeholder="00:00"
-                            fullWidth={false}
-                            size="small"
-                        />
-                    </LemonField>
-                </div>
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'more-options',
-                            header: 'More options',
-                            content: (
-                                <div className="flex flex-col gap-2">
-                                    <LemonField
-                                        className="gap-1"
-                                        name="githubAssignees"
-                                        label="Assignees"
-                                        help={<span>Comma-separated GitHub usernames to assign</span>}
-                                    >
-                                        <LemonInput fullWidth placeholder="user1, user2" />
-                                    </LemonField>
-                                    <LemonField
-                                        className="gap-1"
-                                        name="githubLabels"
-                                        label="Labels"
-                                        help={<span>Comma-separated labels to add to the issue</span>}
-                                    >
-                                        <LemonInput fullWidth placeholder="bug, enhancement" />
-                                    </LemonField>
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        to={githubUrl}
-                        targetBlank={true}
-                        disabledReason={
-                            !githubUrl
-                                ? 'Please fill in Username or Organization Name and Repository Name'
-                                : githubLinkFormHasErrors
-                                  ? 'Fix all errors before continuing'
-                                  : undefined
-                        }
-                    >
-                        Create issue
-                    </LemonButton>
-                </div>
-            </Form>
-        </>
-    )
-}
-
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     return (
         <div className="gap-y-2">
@@ -271,8 +180,6 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
             {props.shareType === 'public' && <PublicLink {...props} />}
 
             {props.shareType === 'linear' && <LinearLink {...props} />}
-
-            {props.shareType === 'github' && <GithubIssueLink {...props} />}
         </div>
     )
 }
@@ -284,9 +191,7 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
                 ? 'Share private link'
                 : props.shareType === 'public'
                   ? 'Share public link'
-                  : props.shareType === 'linear'
-                    ? 'Share to Linear'
-                    : 'Share to Github Issues',
+                  : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
         maxWidth: '85vw',
         zIndex: '1162',

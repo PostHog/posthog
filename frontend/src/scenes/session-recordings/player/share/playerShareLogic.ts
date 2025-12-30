@@ -28,7 +28,7 @@ export function makePrivateLink(id: string, formWithTime: FormWithTime): string 
 export type PlayerShareLogicProps = {
     seconds: number | null
     id: string
-    shareType?: 'private' | 'public' | 'linear' | 'github'
+    shareType?: 'private' | 'public' | 'linear'
 }
 
 export const playerShareLogic = kea<playerShareLogicType>([
@@ -66,38 +66,6 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 issueDescription: string
                 assignee: string
                 labels: string
-            },
-            errors: ({ time, includeTime }) => ({
-                time:
-                    time && includeTime && reverseColonDelimitedDuration(time || undefined) === null
-                        ? 'Set a valid time like 02:30 (minutes:seconds)'
-                        : undefined,
-            }),
-            options: {
-                // whether we show errors after touch (true) or submit (false)
-                showErrorsOnTouch: true,
-
-                // show errors even without submitting first
-                alwaysShowErrors: true,
-            },
-        },
-        githubLinkForm: {
-            defaults: {
-                includeTime: true,
-                time: colonDelimitedDuration(props.seconds, null),
-                githubIssueTitle: '',
-                githubIssueDescription: '',
-                githubUsername: '',
-                githubRepoName: '',
-                githubAssignees: '',
-                githubLabels: '',
-            } as FormWithTime & {
-                githubIssueTitle: string
-                githubIssueDescription: string
-                githubUsername: string
-                githubRepoName: string
-                githubAssignees: string
-                githubLabels: string
             },
             errors: ({ time, includeTime }) => ({
                 time:
@@ -154,47 +122,6 @@ export const playerShareLogic = kea<playerShareLogicType>([
             (s) => [s.linearQueryParams],
             (linearQueryParams) => {
                 return combineUrl('https://linear.app/new', linearQueryParams).url
-            },
-        ],
-        githubQueryParams: [
-            (s) => [s.githubLinkForm],
-            (githubLinkForm) => {
-                return {
-                    title: githubLinkForm.githubIssueTitle,
-                    description:
-                        githubLinkForm.githubIssueDescription +
-                        `\n\nPostHog recording: ${makePrivateLink(props.id, githubLinkForm)}`,
-                    username: githubLinkForm.githubUsername,
-                    repoName: githubLinkForm.githubRepoName,
-                }
-            },
-        ],
-        githubUrl: [
-            (s) => [s.githubQueryParams, s.githubLinkForm],
-            (
-                githubQueryParams: { username: string; repoName: string; title: string; description: string },
-                githubLinkForm: FormWithTime & {
-                    githubIssueTitle: string
-                    githubIssueDescription: string
-                    githubUsername: string
-                    githubRepoName: string
-                    githubAssignees: string
-                    githubLabels: string
-                }
-            ) => {
-                const { username, repoName, title, description } = githubQueryParams
-                if (!username || !repoName) {
-                    return ''
-                }
-                const params: Record<string, string> = Object.fromEntries(
-                    Object.entries({
-                        title,
-                        body: description,
-                        assignees: githubLinkForm.githubAssignees,
-                        labels: githubLinkForm.githubLabels,
-                    }).filter(([_, value]) => value)
-                )
-                return combineUrl(`https://github.com/${username}/${repoName}/issues/new`, params).url
             },
         ],
     })),
