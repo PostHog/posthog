@@ -17,7 +17,25 @@ from two_factor.utils import default_device
 from posthog.cloud_utils import is_dev_mode
 from posthog.email import is_email_available
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+
+
+def has_passkeys(user: User) -> bool:
+    """
+    Returns True if the user has any verified passkeys, False otherwise.
+
+    Unlike TOTP devices which have a single default device, users can have multiple passkeys
+    and they're all equivalent. This function simply checks if the user has any verified passkeys.
+
+    Args:
+        user: The user to check for passkeys
+
+    Returns:
+        bool: True if user has verified passkeys, False otherwise
+    """
+    return WebauthnCredential.objects.filter(user=user, verified=True).exists()
+
 
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
@@ -126,7 +144,8 @@ def enforce_two_factor(request, user):
             return
 
         device = default_device(user)
-        if not device:
+        user_has_passkeys = has_passkeys(user)
+        if not device and not user_has_passkeys:
             raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
 
         if not is_two_factor_verified_in_session(request._request):

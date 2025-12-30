@@ -30,12 +30,27 @@ const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
     AbortError: 'Authentication was cancelled.',
 }
 
-function getPasskeyErrorMessage(error: any): string {
-    if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
-        return WEBAUTHN_ERROR_MESSAGES[error.name]
+interface WebAuthnError {
+    name?: string
+    detail?: string
+}
+
+function getPasskeyErrorMessage(error: unknown): string {
+    if (error && typeof error === 'object' && 'name' in error) {
+        const errorName = (error as WebAuthnError).name
+        if (errorName && WEBAUTHN_ERROR_MESSAGES[errorName]) {
+            return WEBAUTHN_ERROR_MESSAGES[errorName]
+        }
     }
 
-    return error?.detail || 'Passkey authentication failed. Please try again.'
+    if (error && typeof error === 'object' && 'detail' in error) {
+        const errorDetail = (error as WebAuthnError).detail
+        if (errorDetail) {
+            return errorDetail
+        }
+    }
+
+    return 'Passkey authentication failed. Please try again.'
 }
 
 export const passkeyLogic = kea<passkeyLogicType>([
@@ -118,8 +133,25 @@ export const passkeyLogic = kea<passkeyLogicType>([
                         await api.create('api/webauthn/login/complete/', assertion)
 
                         return null
-                    } catch (e: any) {
-                        actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                    } catch (e: unknown) {
+                        // Only set error if it's not a user cancellation (those are expected)
+                        if (e && typeof e === 'object' && 'name' in e) {
+                            const errorName = (e as WebAuthnError).name
+                            if (errorName !== 'NotAllowedError' && errorName !== 'AbortError') {
+                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                            }
+                        } else if (e && typeof e === 'object' && 'error' in e) {
+                            const nestedError = (e as { error?: WebAuthnError }).error
+                            if (
+                                nestedError?.name &&
+                                nestedError.name !== 'NotAllowedError' &&
+                                nestedError.name !== 'AbortError'
+                            ) {
+                                actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                            }
+                        } else {
+                            actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                        }
                         throw e
                     }
                 },
@@ -148,6 +180,11 @@ export const passkeyLogic = kea<passkeyLogicType>([
             }
 
             window.location.reload()
+        },
+        startPasskeyAuthenticationFailure: () => {
+            // When passkey authentication fails (user cancels, etc.), reset state
+            // This allows the normal login flow to continue (e.g., password + 2FA)
+            actions.reset()
         },
     })),
 ])
