@@ -129,6 +129,34 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                         />
                     </LemonField>
                 </div>
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'more-options',
+                            header: 'More options',
+                            content: (
+                                <div className="flex flex-col gap-2">
+                                    <LemonField
+                                        className="gap-1"
+                                        name="assignee"
+                                        label="Assignee"
+                                        help={<span>Linear username or 'me' to assign to yourself</span>}
+                                    >
+                                        <LemonInput fullWidth placeholder="username or me" />
+                                    </LemonField>
+                                    <LemonField
+                                        className="gap-1"
+                                        name="labels"
+                                        label="Labels"
+                                        help={<span>Comma-separated labels to add to the issue</span>}
+                                    >
+                                        <LemonInput fullWidth placeholder="bug, enhancement" />
+                                    </LemonField>
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
                 <div className="flex justify-end">
                     <LemonButton
                         type="primary"

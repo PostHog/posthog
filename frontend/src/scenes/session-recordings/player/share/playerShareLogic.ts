@@ -59,9 +59,13 @@ export const playerShareLogic = kea<playerShareLogicType>([
                 time: colonDelimitedDuration(props.seconds, null),
                 issueTitle: '',
                 issueDescription: '',
+                assignee: '',
+                labels: '',
             } as FormWithTime & {
                 issueTitle: string
                 issueDescription: string
+                assignee: string
+                labels: string
             },
             errors: ({ time, includeTime }) => ({
                 time:
@@ -126,13 +130,24 @@ export const playerShareLogic = kea<playerShareLogicType>([
         ],
         linearQueryParams: [
             (s) => [s.linearLinkForm],
-            (linearLinkForm) => {
-                return {
-                    title: linearLinkForm.issueTitle,
-                    description:
-                        linearLinkForm.issueDescription +
-                        `\n\nPostHog recording: ${makePrivateLink(props.id, linearLinkForm)}`,
+            (
+                linearLinkForm: FormWithTime & {
+                    issueTitle: string
+                    issueDescription: string
+                    assignee: string
+                    labels: string
                 }
+            ) => {
+                return Object.fromEntries(
+                    Object.entries({
+                        title: linearLinkForm.issueTitle,
+                        description:
+                            linearLinkForm.issueDescription +
+                            `\n\nPostHog recording: ${makePrivateLink(props.id, linearLinkForm)}`,
+                        assignee: linearLinkForm.assignee,
+                        labels: linearLinkForm.labels,
+                    }).filter(([_, value]) => value)
+                )
             },
         ],
         linearUrl: [
