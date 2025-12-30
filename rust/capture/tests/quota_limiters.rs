@@ -17,7 +17,7 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::limiters::{
+use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
@@ -128,6 +128,7 @@ async fn setup_router_with_limits(
         liveness,
         sink.clone(),
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false, // metrics
@@ -1170,6 +1171,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         liveness,
         sink.clone(),
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,
@@ -1250,6 +1252,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         liveness,
         sink.clone(),
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,
@@ -1334,6 +1337,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         liveness,
         sink.clone(),
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,
@@ -1755,6 +1759,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         liveness,
         sink.clone(),
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,

@@ -27,7 +27,15 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PerDistinctIdPipelineInput, createPerDistinctIdPipeline, createPreprocessingPipeline } from './analytics'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineInput,
+    PerDistinctIdPipelineInput,
+    createJoinedIngestionPipeline,
+    createPerDistinctIdPipeline,
+    createPreprocessingPipeline,
+} from './analytics'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -113,6 +121,12 @@ export class IngestionConsumer {
         { message: Message }
     >
     private perDistinctIdPipeline!: BatchPipeline<PerDistinctIdPipelineInput, void, { message: Message; team: Team }>
+    private joinedPipeline!: BatchPipeline<
+        JoinedIngestionPipelineInput,
+        void,
+        JoinedIngestionPipelineContext,
+        JoinedIngestionPipelineContext
+    >
 
     constructor(
         private hub: Hub,
@@ -208,23 +222,25 @@ export class IngestionConsumer {
             }).build()
         )
 
+        const perDistinctIdOptions = {
+            CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+            TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
+            PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+            PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
+            PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
+            PERSON_MERGE_SYNC_BATCH_SIZE: this.hub.PERSON_MERGE_SYNC_BATCH_SIZE,
+            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+            PERSON_PROPERTIES_UPDATE_ALL: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
+        }
+
         // Initialize main event pipeline
         this.perDistinctIdPipeline = createPerDistinctIdPipeline(
             newBatchPipelineBuilder<PerDistinctIdPipelineInput, { message: Message; team: Team }>(),
             {
-                options: {
-                    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-                    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
-                    PIPELINE_STEP_STALLED_LOG_TIMEOUT: this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT,
-                    PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-                    PERSON_MERGE_ASYNC_ENABLED: this.hub.PERSON_MERGE_ASYNC_ENABLED,
-                    PERSON_MERGE_ASYNC_TOPIC: this.hub.PERSON_MERGE_ASYNC_TOPIC,
-                    PERSON_MERGE_SYNC_BATCH_SIZE: this.hub.PERSON_MERGE_SYNC_BATCH_SIZE,
-                    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                    PERSON_PROPERTIES_UPDATE_ALL: this.hub.PERSON_PROPERTIES_UPDATE_ALL,
-                },
+                options: perDistinctIdOptions,
                 teamManager: this.hub.teamManager,
                 groupTypeManager: this.hub.groupTypeManager,
                 hogTransformer: this.hogTransformer,
@@ -234,6 +250,28 @@ export class IngestionConsumer {
                 dlqTopic: this.dlqTopic,
                 promiseScheduler: this.promiseScheduler,
             }
+        ).build()
+
+        // Initialize joined pipeline (combines preprocessing and per-distinct-id pipelines)
+        const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
+            hub: this.hub,
+            kafkaProducer: this.kafkaProducer!,
+            personsStore: this.personsStore,
+            hogTransformer: this.hogTransformer,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowRateLimiter: this.overflowRateLimiter,
+            overflowEnabled: this.overflowEnabled(),
+            overflowTopic: this.overflowTopic || '',
+            dlqTopic: this.dlqTopic,
+            promiseScheduler: this.promiseScheduler,
+            perDistinctIdOptions,
+            teamManager: this.hub.teamManager,
+            groupTypeManager: this.hub.groupTypeManager,
+            groupId: this.groupId,
+        }
+        this.joinedPipeline = createJoinedIngestionPipeline(
+            newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),
+            joinedPipelineConfig
         ).build()
 
         await this.kafkaConsumer.connect(async (messages) => {
@@ -307,19 +345,13 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
-
         const groupStoreForBatch = this.groupStore.forBatch()
-        await this.runInstrumented('processBatch', async () => {
-            await Promise.all(
-                Object.values(eventsPerDistinctId).map(async (events) => {
-                    return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(events, groupStoreForBatch)
-                    )
-                })
-            )
-        })
+
+        if (this.hub.INGESTION_JOINED_PIPELINE) {
+            await this.runJoinedIngestionPipeline(messages, groupStoreForBatch)
+        } else {
+            await this.runLegacyIngestionPipeline(messages, groupStoreForBatch)
+        }
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
 
@@ -343,6 +375,38 @@ export class IngestionConsumer {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
             }),
+        }
+    }
+
+    private async runLegacyIngestionPipeline(
+        messages: Message[],
+        groupStoreForBatch: GroupStoreForBatch
+    ): Promise<void> {
+        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
+
+        await this.runInstrumented('processBatch', async () => {
+            await Promise.all(
+                Object.values(eventsPerDistinctId).map(async (events) => {
+                    return await this.runInstrumented('processEventsForDistinctId', () =>
+                        this.processEventsForDistinctId(events, groupStoreForBatch)
+                    )
+                })
+            )
+        })
+    }
+
+    private async runJoinedIngestionPipeline(
+        messages: Message[],
+        groupStoreForBatch: GroupStoreForBatch
+    ): Promise<void> {
+        const batch = messages.map((message) => createContext(ok({ message, groupStoreForBatch }), { message }))
+
+        this.joinedPipeline.feed(batch)
+
+        // Drain the pipeline
+        while ((await this.joinedPipeline.next()) !== null) {
+            // Continue until all results are processed
         }
     }
 
