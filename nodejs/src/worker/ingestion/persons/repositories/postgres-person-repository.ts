@@ -480,7 +480,7 @@ export class PostgresPersonRepository
         values.push(limit, offset)
 
         const queryString = `
-            SELECT DISTINCT
+            SELECT DISTINCT ON (posthog_person.id)
                 posthog_person.id,
                 posthog_person.uuid,
                 posthog_person.created_at,
@@ -489,7 +489,6 @@ export class PostgresPersonRepository
                 posthog_person.properties_last_updated_at,
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
-                posthog_person.version,
                 posthog_person.is_identified,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
@@ -499,7 +498,7 @@ export class PostgresPersonRepository
             )
             WHERE posthog_person.team_id = $1
               AND (${whereConditions.join(' OR ')})
-            ORDER BY posthog_person.id
+            ORDER BY posthog_person.id, posthog_persondistinctid.distinct_id
             LIMIT $${limitParamIndex}
             OFFSET $${offsetParamIndex}
         `

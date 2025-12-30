@@ -67,7 +67,7 @@ export class PersonsManagerService {
             limit: options?.limit || 500,
             offset: 0,
         }
-        let personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, ...opt })
+        let personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, options: opt })
         while (personBatch.length > 0) {
             for (const personRow of personBatch) {
                 onPerson?.({
@@ -75,8 +75,14 @@ export class PersonsManagerService {
                     distinctId: personRow.distinct_id,
                 })
             }
+
+            // Skip another query if our page wasn't full
+            if (personBatch.length < opt.limit) {
+                break
+            }
+
             opt.offset += opt.limit
-            personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, ...opt })
+            personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, options: opt })
         }
     }
 
