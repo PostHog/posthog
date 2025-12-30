@@ -295,6 +295,8 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
 def get_collection_names(config: MongoDBSourceConfig) -> list[str]:
     connection_params = _parse_connection_string(config.connection_string)
     with mongo_client(config.connection_string) as client:
+        if not connection_params["database"]:
+            raise ValueError("Database name is required in connection string")
         db = client[connection_params["database"]]
         return db.list_collection_names(authorizedCollections=True)
 
